@@ -39,6 +39,25 @@ export {
 } from './job.js';
 export type { JobDocument, JobSpec } from './job.js';
 
+export {
+  DELIVERY_EVIDENCE_TYPES,
+  EVIDENCE_DOMAIN_NAME,
+  EVIDENCE_DOMAIN_VERSION,
+  MAX_OUTPUT_URI_CHARS,
+  MAX_STATEMENT_CHARS,
+  PAYER_STATEMENT_TYPES,
+  deliveryEvidenceTypedData,
+  encodeEvidence,
+  evidenceDomain,
+  parseEvidence,
+  payerStatementTypedData,
+  recoverEvidenceSigner,
+  signDeliveryEvidence,
+  signPayerStatement,
+  verifyEvidence,
+} from './evidence.js';
+export type { DeliveryEvidence, EvidenceSubmission, EvidenceWire, PayerStatement } from './evidence.js';
+
 export { DisputeClient, DisputePhase, disputes, readTerms } from './dispute.js';
 export type {
   DisputePhaseName,
