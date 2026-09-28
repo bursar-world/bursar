@@ -1,20 +1,12 @@
 import { BursarError } from '@bursar/core';
 
 /**
- * A malformed document, request or log, distinct from a spend being refused. A refusal is a
- * valid answer to the question that was asked; these are states a caller must not reach.
+ * A malformed document or request. Defined in @bursar/core beside the evaluator that raises them,
+ * and re-exported so `instanceof` agrees across both packages.
  */
-export class DocumentError extends BursarError {
-  constructor(message: string, details?: Record<string, unknown>) {
-    super('underwriter_document_invalid', message, details);
-  }
-}
+import { DocumentError, RequestError } from '@bursar/core';
 
-export class RequestError extends BursarError {
-  constructor(message: string, details?: Record<string, unknown>) {
-    super('underwriter_request_invalid', message, details);
-  }
-}
+export { DocumentError, RequestError };
 
 /** One thing wrong with one field, in the same three parts a configuration problem is reported in. */
 export type RequestProblem = {

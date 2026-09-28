@@ -177,3 +177,60 @@ export {
   verifyBinding,
 } from './binding.js';
 export type { PaymentBinding } from './binding.js';
+
+export {
+  DocumentError,
+  RequestError,
+  RefuseReason,
+  allow,
+  assertRequest,
+  bucketFor,
+  capabilityFromAction,
+  documentWindows,
+  evaluateDocument,
+  hold,
+  merchantLeaf,
+  parseRule,
+  parseTimestamp,
+  permits,
+  processProof,
+  refuse,
+  ruleToPattern,
+  spendHistory,
+  verifyMerchantProof,
+  windowStartMs,
+} from './policy/index.js';
+export type {
+  AllowDecision,
+  Bucket,
+  Decision,
+  DocumentWindows,
+  Hex32,
+  HoldDecision,
+  MandateDocument,
+  MandateWindow,
+  MerchantGate,
+  RefuseDecision,
+  ReplayOptions,
+  Rule,
+  RuleEffect,
+  RulePattern,
+  SpendHistory,
+  SpendRequest,
+  WindowState,
+} from './policy/index.js';
+export type { Address as PolicyAddress } from './policy/index.js';
+
+export {
+  SPEND_CLASSES,
+  SPEND_CLASS_INFO,
+  SpendClassError,
+  bareLabel,
+  classCapabilityId,
+  classLabel,
+  classOfLabel,
+  isSpendClass,
+} from './spend-classes.js';
+export type { SpendClass, SpendClassInfo } from './spend-classes.js';
+
+export { TOTAL_BUDGET_MIN_SECONDS, YEAR_SECONDS, isTotalBudgetWindow, totalBudgetWindowSeconds } from './total-budget.js';

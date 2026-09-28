@@ -1,9 +1,18 @@
-import { type Micro, toMicro } from '@bursar/core';
+import {
+  type Hex32,
+  type MandateDocument,
+  type MandateWindow,
+  type MerchantGate,
+  type Micro,
+  type PolicyAddress as Address,
+  parseTimestamp,
+  toMicro,
+} from '@bursar/core';
 import { getAddress } from 'viem';
 
 import { type CanonicalValue, canonicalJson, sha256Bytes32 } from './canonical.js';
 import { DocumentError } from './errors.js';
-import { type Rule, parseRule, ruleToPattern } from './rules.js';
+import { parseRule, ruleToPattern } from './rules.js';
 
 /** uint128, the width MandateAccount types every amount at. Anything wider cannot be spent. */
 export const MAX_AMOUNT_MICROS = (1n << 128n) - 1n;
@@ -11,49 +20,8 @@ export const MAX_AMOUNT_MICROS = (1n << 128n) - 1n;
 /** uint64, the width the contract types every timestamp and window duration at. */
 const MAX_UINT64 = (1n << 64n) - 1n;
 
-export type Address = `0x${string}`;
-export type Hex32 = `0x${string}`;
-
-/**
- * Which roster decides whether a merchant can be paid, mirroring `IMandateAccount.MerchantGate`.
- * Exactly one is live at a time on chain, so a document that declares the other one is
- * describing limits nobody is enforcing.
- */
-export type MerchantGate =
-  | { readonly kind: 'allowlist'; readonly merchants: readonly Address[] }
-  | { readonly kind: 'merkleRoot'; readonly root: Hex32 };
-
-/** A rolling spend window: a cap and the period it refills over. */
-export type MandateWindow = { readonly limitMicros: Micro; readonly seconds: number };
-
-/**
- * The off-chain mandate. It is the document a principal signs and an auditor reads, and it is
- * not the enforcement point: `MandateAccount` is. Every field here that the contract also
- * holds exists so the two can be compared, and the contract wins every disagreement.
- *
- * `ceilingMicros` is the exception and is labelled as such in every quote. The contract has no
- * lifetime ceiling, so that limit is enforced by this service alone.
- */
-export type MandateDocument = {
-  readonly subject: string;
-  /** The MandateAccount these terms describe. Null means the document is not bound to one. */
-  readonly account: Address | null;
-  readonly chainId: number | null;
-  /** The `MandateAccount.version` these terms were written against. Null means unanchored. */
-  readonly version: bigint | null;
-  readonly validFrom: string | null;
-  readonly expiresAt: string;
-  readonly rules: readonly Rule[];
-  readonly ceilingMicros: Micro;
-  readonly perCallCapMicros: Micro;
-  readonly approvalThresholdMicros: Micro | null;
-  readonly daily: MandateWindow | null;
-  readonly monthly: MandateWindow | null;
-  /** Where both rolling windows start counting. Required once a window is declared. */
-  readonly windowAnchor: string | null;
-  readonly merchantGate: MerchantGate | null;
-  readonly capabilities: readonly Hex32[] | null;
-};
+export type { Hex32, MandateDocument, MandateWindow, MerchantGate, PolicyAddress as Address } from '@bursar/core';
+export { parseTimestamp } from '@bursar/core';
 
 const KNOWN_KEYS = new Set([
   'subject',
@@ -97,18 +65,6 @@ function amount(raw: unknown, field: string): Micro {
     throw new DocumentError(`${field} exceeds the uint128 the contract stores it in`, { field });
   }
   return value;
-}
-
-/** RFC 3339 to epoch milliseconds. A timestamp the runtime cannot parse is not a deadline. */
-export function parseTimestamp(raw: unknown, field: string): number {
-  if (typeof raw !== 'string' || raw === '') {
-    throw new DocumentError(`${field} must be an RFC 3339 timestamp`, { field });
-  }
-  const ms = Date.parse(raw);
-  if (Number.isNaN(ms)) {
-    throw new DocumentError(`${field} must be an RFC 3339 timestamp`, { field, value: raw });
-  }
-  return ms;
 }
 
 function address(raw: unknown, field: string): Address {
