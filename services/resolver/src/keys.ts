@@ -100,19 +100,28 @@ function rawKeys(names: readonly string[], keys: readonly Hex[]): ResolverKey[] 
 }
 
 function openKeystores(dir: string, names: readonly string[], password: string): ResolverKey[] {
+  return names.map((name) => {
+    const account = privateKeyToAccount(openKeystoreKey(dir, name, password));
+    return { name, address: account.address, account };
+  });
+}
+
+/**
+ * The raw key in one keystore. Everything in this service goes through `loadKeys`, which never
+ * hands a key back; this exists for the one caller that has to pass a key on to a host's secret
+ * store, the Render provisioning script, and it returns the key to that caller's memory only.
+ */
+export function openKeystoreKey(dir: string, name: string, password: string): Hex {
   if (password === '') {
     throw new BursarError('resolver_password_empty', 'The keystore password is empty, so no keystore can be opened.');
   }
 
-  return names.map((name) => {
-    const path = [join(dir, name), join(dir, `${name}.json`)].find((candidate) => existsSync(candidate));
-    if (path === undefined) {
-      throw new BursarError('resolver_keystore_missing', `There is no keystore named ${name} in ${dir}.`, { name, dir });
-    }
+  const path = [join(dir, name), join(dir, `${name}.json`)].find((candidate) => existsSync(candidate));
+  if (path === undefined) {
+    throw new BursarError('resolver_keystore_missing', `There is no keystore named ${name} in ${dir}.`, { name, dir });
+  }
 
-    const account = privateKeyToAccount(decrypt(name, JSON.parse(readFileSync(path, 'utf8')) as KeystoreV3, password));
-    return { name, address: account.address, account };
-  });
+  return decrypt(name, JSON.parse(readFileSync(path, 'utf8')) as KeystoreV3, password);
 }
 
 /**
