@@ -9,12 +9,14 @@ import {
   TOKEN_ADDRESSES,
   addChainTime,
   brsrAbi,
+  readableDeployments,
   escrowAbi,
   oracleRegistryAbi,
   rhcClient,
   runBatch,
   stakingAbi,
 } from '@/chain';
+import type { DeploymentTag } from '@/chain';
 import { brsr } from '@/money';
 import type { Brsr } from '@/money';
 
@@ -82,6 +84,15 @@ export type YourVote = {
 };
 
 export type DisputeRow = {
+  /**
+   * The registry and escrow this dispute lives on. Ids restart with every deployment, so a dispute
+   * is named by the pair. Disputes on an older set are shown and never voted on from here.
+   */
+  readonly deployment: DeploymentTag;
+  /** That registry's voting rules, which the phase and the panel size were judged against. */
+  readonly config: OracleConfig | undefined;
+  /** That escrow's cut of a settled lock. */
+  readonly resolverFeeBps: number | undefined;
   readonly id: bigint;
   readonly escrowId: bigint;
   readonly status: number;
@@ -166,7 +177,21 @@ export type ResolverDesk = {
   readonly open: readonly DisputeRow[];
   readonly settled: readonly DisputeRow[];
   readonly standing: ResolverStanding | undefined;
-  readonly scanned: { readonly from: bigint; readonly to: bigint; readonly truncated: boolean };
+  readonly scanned: Scanned;
+  /**
+   * The older registries this chain still carries, read for the disputes still open on them. Their
+   * rows are in `disputes`, `open` and `settled` with the rest, tagged with the deployment.
+   */
+  readonly earlier: readonly EarlierRegistry[];
+};
+
+export type Scanned = { readonly from: bigint; readonly to: bigint; readonly truncated: boolean };
+
+export type EarlierRegistry = {
+  readonly deployment: DeploymentTag;
+  /** False when that registry did not say how many disputes it holds. */
+  readonly disputesReadable: boolean;
+  readonly scanned: Scanned;
 };
 
 type RawConfig = {
@@ -220,7 +245,9 @@ type RawLock = {
 
 export async function readResolverDesk(account?: Address, signal?: AbortSignal): Promise<ResolverDesk> {
   const client = rhcClient();
-  const registry = ADDRESSES.oracleRegistry;
+  const [current, ...older] = readableDeployments();
+  const registry = current?.oracleRegistry ?? ADDRESSES.oracleRegistry;
+  const escrowAddress = current?.escrow ?? ADDRESSES.escrow;
 
   const head = new ReadBatch();
   const at =
@@ -235,7 +262,7 @@ export async function readResolverDesk(account?: Address, signal?: AbortSignal):
   const oracle = at(registry, oracleRegistryAbi);
   const staking = at(TOKEN_ADDRESSES.Staking, stakingAbi);
   const token = at(TOKEN_ADDRESSES.BRSR, brsrAbi);
-  const escrow = at(ADDRESSES.escrow, escrowAbi);
+  const escrow = at(escrowAddress, escrowAbi);
 
   const slots = {
     chainTime: addChainTime(head),
@@ -265,48 +292,81 @@ export async function readResolverDesk(account?: Address, signal?: AbortSignal):
       }
     : undefined;
 
+  // The older sets are read in the same request as the current one. Their registries answer the
+  // same view functions, so one ABI reads both.
+  const earlierSlots = older.map((tag) => {
+    const oldOracle = at(tag.oracleRegistry, oracleRegistryAbi);
+    return {
+      tag,
+      config: head.add<RawConfig>(`oracle.config@${tag.name}`, oldOracle('config')),
+      nextDisputeId: head.add<bigint>(`oracle.nextDisputeId@${tag.name}`, oldOracle('nextDisputeId')),
+      resolverFeeBps: head.add<number>(`escrow.resolverFeeBps@${tag.name}`, at(tag.escrow, escrowAbi)('resolverFeeBps')),
+    };
+  });
+
   const headResults = await runBatch(client, head, signal);
   let requests = 1;
   let failures = headResults.failures;
 
   const chainSeconds = headResults.get(slots.chainTime);
   const chainTime = chainSeconds === undefined ? new Date() : new Date(Number(chainSeconds) * 1000);
-  const rawConfig = headResults.get(slots.config);
-  const config: OracleConfig | undefined =
-    rawConfig === undefined
-      ? undefined
-      : {
-          commitWindow: rawConfig.commitWindow,
-          revealWindow: rawConfig.revealWindow,
-          unbondingPeriod: rawConfig.unbondingPeriod,
-          quorum: rawConfig.quorum,
-          maxVoters: rawConfig.maxVoters,
-          maxDeviation: rawConfig.maxDeviation,
-          slashBps: rawConfig.slashBps,
-        };
-
+  const config = toConfig(headResults.get(slots.config));
   const nextDisputeId = headResults.get(slots.nextDisputeId);
-  const highest = nextDisputeId !== undefined && nextDisputeId > 0n ? nextDisputeId - 1n : 0n;
-  const from = highest > SCAN_LIMIT ? highest - SCAN_LIMIT + 1n : 1n;
+  const resolverFeeBps = headResults.get(slots.resolverFeeBps);
 
-  const ids: bigint[] = [];
-  for (let id = highest; id >= from && id >= 1n; id -= 1n) ids.push(id);
+  const currentTag: DeploymentTag = current ?? {
+    name: 'current',
+    contractSet: 'v2',
+    current: true,
+    escrow: escrowAddress,
+    oracleRegistry: registry,
+  };
 
-  const scan = await readDisputes(ids, account, signal);
-  requests += scan.requests;
-  failures += scan.failures;
+  const sets = [
+    { tag: currentTag, config, nextDisputeId, resolverFeeBps },
+    ...earlierSlots.map((entry) => ({
+      tag: entry.tag,
+      config: toConfig(headResults.get(entry.config)),
+      nextDisputeId: headResults.get(entry.nextDisputeId),
+      resolverFeeBps: headResults.get(entry.resolverFeeBps),
+    })),
+  ];
 
-  const locks = await readSettlements(
-    scan.rows.map((row) => row.escrowId).filter((id) => id > 0n),
-    signal,
+  const read = await Promise.all(
+    sets.map(async (set) => {
+      const scanned = scanRange(set.nextDisputeId);
+      const ids: bigint[] = [];
+      for (let id = scanned.to; id >= scanned.from && id >= 1n; id -= 1n) ids.push(id);
+
+      const scan = await readDisputes(set.tag.oracleRegistry, ids, account, signal);
+      const locks = await readSettlements(
+        set.tag.escrow,
+        scan.rows.map((row) => row.escrowId).filter((id) => id > 0n),
+        signal,
+      );
+
+      // Without a config there are no rules to judge a phase against, and guessing one would put a
+      // countdown on screen that the contract does not hold. Every row then reads as unknown.
+      const rows = scan.rows.map((row) =>
+        toRow(row, set, chainTime, locks.byId.get(row.escrowId)),
+      );
+      return {
+        set,
+        scanned,
+        rows,
+        requests: scan.requests + locks.requests,
+        failures: scan.failures + locks.failures,
+      };
+    }),
   );
-  requests += locks.requests;
-  failures += locks.failures;
 
-  // Without a config there are no rules to judge a phase against, and guessing one would put a
-  // countdown on screen that the contract does not hold. Every row then reads as unknown.
-  const rules: VotingRules | undefined = config;
-  const disputes = scan.rows.map((row) => toRow(row, rules, chainTime, locks.byId.get(row.escrowId)));
+  for (const entry of read) {
+    requests += entry.requests;
+    failures += entry.failures;
+  }
+
+  const disputes = read.flatMap((entry) => entry.rows);
+  const scanned = read[0]?.scanned ?? scanRange(undefined);
 
   const rawResolver = yours ? headResults.get(yours.resolver) : undefined;
   const floor = yours ? headResults.get(yours.floor) : undefined;
@@ -356,18 +416,44 @@ export async function readResolverDesk(account?: Address, signal?: AbortSignal):
     totalBonded: asBrsr(headResults.get(slots.totalBonded)),
     resolverCount: resolverCount === undefined ? undefined : Number(resolverCount),
     unallocatedRewards: asMicro(headResults.get(slots.unallocated)),
-    resolverFeeBps: headResults.get(slots.resolverFeeBps),
+    resolverFeeBps,
     disputes,
     open: disputes.filter((row) => row.phase === 'commit' || row.phase === 'reveal' || row.phase === 'ruling'),
     settled: disputes.filter((row) => row.phase === 'finalized' || row.phase === 'failed'),
     standing,
-    scanned: { from, to: highest, truncated: highest > SCAN_LIMIT },
+    scanned,
+    earlier: read.slice(1).map((entry) => ({
+      deployment: entry.set.tag,
+      disputesReadable: entry.set.nextDisputeId !== undefined,
+      scanned: entry.scanned,
+    })),
   };
+}
+
+function scanRange(nextDisputeId: bigint | undefined): Scanned {
+  const highest = nextDisputeId !== undefined && nextDisputeId > 0n ? nextDisputeId - 1n : 0n;
+  const from = highest > SCAN_LIMIT ? highest - SCAN_LIMIT + 1n : 1n;
+  return { from, to: highest, truncated: highest > SCAN_LIMIT };
+}
+
+function toConfig(raw: RawConfig | undefined): OracleConfig | undefined {
+  return raw === undefined
+    ? undefined
+    : {
+        commitWindow: raw.commitWindow,
+        revealWindow: raw.revealWindow,
+        unbondingPeriod: raw.unbondingPeriod,
+        quorum: raw.quorum,
+        maxVoters: raw.maxVoters,
+        maxDeviation: raw.maxDeviation,
+        slashBps: raw.slashBps,
+      };
 }
 
 type ScannedDispute = RawDispute & { readonly id: bigint; readonly yours: YourVote | undefined };
 
 async function readDisputes(
+  registry: Address,
   ids: readonly bigint[],
   account: Address | undefined,
   signal?: AbortSignal,
@@ -376,7 +462,7 @@ async function readDisputes(
 
   const client = rhcClient();
   const oracle = (functionName: string, args: readonly unknown[]) => ({
-    address: ADDRESSES.oracleRegistry,
+    address: registry,
     abi: oracleRegistryAbi as never,
     functionName,
     args,
@@ -437,6 +523,7 @@ async function readDisputes(
 }
 
 async function readSettlements(
+  escrow: Address,
   escrowIds: readonly bigint[],
   signal?: AbortSignal,
 ): Promise<{ readonly byId: ReadonlyMap<bigint, ContestedSettlement>; readonly requests: number; readonly failures: number }> {
@@ -454,7 +541,7 @@ async function readSettlements(
       const entries = chunk.map((id) => ({
         id,
         slot: batch.add<RawLock>(`escrow.getLock:${id}`, {
-          address: ADDRESSES.escrow,
+          address: escrow,
           abi: escrowAbi as never,
           functionName: 'getLock',
           args: [id],
@@ -496,12 +583,19 @@ async function readSettlements(
   };
 }
 
+type RegistrySet = {
+  readonly tag: DeploymentTag;
+  readonly config: OracleConfig | undefined;
+  readonly resolverFeeBps: number | undefined;
+};
+
 function toRow(
   raw: ScannedDispute,
-  rules: VotingRules | undefined,
+  set: RegistrySet,
   now: Date,
   settlement: ContestedSettlement | undefined,
 ): DisputeRow {
+  const rules: VotingRules | undefined = set.config;
   const clock = {
     status: raw.status,
     commitEndsAt: toDate(raw.commitEndsAt),
@@ -513,6 +607,9 @@ function toRow(
   const phase = rules === undefined ? 'unknown' : phaseOf(clock, rules, now);
 
   return {
+    deployment: set.tag,
+    config: set.config,
+    resolverFeeBps: set.resolverFeeBps,
     id: raw.id,
     escrowId: raw.escrowId,
     status: raw.status,

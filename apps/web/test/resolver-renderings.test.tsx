@@ -8,6 +8,7 @@ import type { Address } from 'viem';
 
 import { BondPanel } from '@/app/(app)/resolvers/bond-panel';
 import type { ContestedSettlement, DisputeRow, ResolverDesk } from '@/app/(app)/resolvers/desk';
+import type { DeploymentTag } from '@/chain';
 import { DisputeCard } from '@/app/(app)/resolvers/dispute-card';
 import { DisputeList } from '@/app/(app)/resolvers/dispute-list';
 import { DisputeStatus } from '@/app/(app)/resolvers/phases';
@@ -52,8 +53,19 @@ function settlement(): ContestedSettlement {
   };
 }
 
+const CURRENT: DeploymentTag = {
+  name: 'rhc-mainnet-v2',
+  contractSet: 'v2',
+  current: true,
+  escrow: '0x4315F8be7C9661345710910577Ec31cb867f3c20',
+  oracleRegistry: '0xE38349668f0C470C814487E95C14e7652F713B17',
+};
+
 function dispute(over: Partial<DisputeRow> = {}): DisputeRow {
   return {
+    deployment: CURRENT,
+    config: { commitWindow: 21_600n, revealWindow: 21_600n, unbondingPeriod: 604_800n, quorum: 2, maxVoters: 5, maxDeviation: 20, slashBps: 1_000 },
+    resolverFeeBps: 50,
     id: 1n,
     escrowId: 4n,
     status: DisputeStatus.Committing,
@@ -100,6 +112,7 @@ function desk(over: Partial<ResolverDesk> = {}): ResolverDesk {
     settled: over.settled ?? [],
     standing: undefined,
     scanned: { from: 1n, to: BigInt(disputes.length), truncated: false },
+    earlier: [],
     ...over,
   };
 }

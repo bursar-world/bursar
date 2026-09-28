@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import type { Address, Hex } from 'viem';
 
 import type { ContestedSettlement, DisputeRow, ResolverDesk } from '@/app/(app)/resolvers/desk';
+import type { DeploymentTag } from '@/chain';
 import { DisputeList } from '@/app/(app)/resolvers/dispute-list';
 import { DisputeStatus, silenceSlash } from '@/app/(app)/resolvers/phases';
 import type { DisputeRead, EscrowTerms, ProviderLock } from '@/app/(app)/providers/desk';
@@ -108,8 +109,19 @@ function settlement(): ContestedSettlement {
   };
 }
 
+const CURRENT: DeploymentTag = {
+  name: 'rhc-mainnet-v2',
+  contractSet: 'v2',
+  current: true,
+  escrow: '0x4315F8be7C9661345710910577Ec31cb867f3c20',
+  oracleRegistry: '0xE38349668f0C470C814487E95C14e7652F713B17',
+};
+
 function dispute(over: Partial<DisputeRow> = {}): DisputeRow {
   return {
+    deployment: CURRENT,
+    config: { commitWindow: 21_600n, revealWindow: 21_600n, unbondingPeriod: 604_800n, quorum: 2, maxVoters: 5, maxDeviation: 20, slashBps: 1_000 },
+    resolverFeeBps: RESOLVER_FEE_BPS,
     id: 1n,
     escrowId: 5n,
     status: DisputeStatus.Revealing,
@@ -156,6 +168,7 @@ function desk(over: Partial<ResolverDesk> = {}): ResolverDesk {
     settled: over.settled ?? [],
     standing: undefined,
     scanned: { from: 1n, to: 1n, truncated: false },
+    earlier: [],
     ...over,
   };
 }
@@ -215,7 +228,7 @@ describe('the resolver desk, before a dispute is closed without a ruling', () =>
   it('keeps an unread fee apart from a fee of nothing', () => {
     const html = renderToStaticMarkup(
       <DisputeList
-        desk={desk({ disputes: [dispute()], resolverFeeBps: undefined })}
+        desk={desk({ disputes: [dispute({ resolverFeeBps: undefined })], resolverFeeBps: undefined })}
         error={null}
         account={undefined}
         blockedBy={[]}
@@ -257,6 +270,7 @@ function disputeRead(over: Partial<DisputeRead> = {}): DisputeRead {
 
 function providerLock(over: Partial<ProviderLock> = {}): ProviderLock {
   return {
+    deployment: CURRENT,
     id: 5n,
     payer: PAYER,
     disputer: PAYER,

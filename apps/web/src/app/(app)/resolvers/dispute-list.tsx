@@ -78,13 +78,13 @@ export function DisputeList({
         <div className="space-y-6">
           {ordered(desk.open).map((row) => (
             <DisputeCard
-              key={row.id.toString()}
+              key={rowKey(row)}
               dispute={row}
-              config={desk.config}
-              resolverFeeBps={desk.resolverFeeBps}
+              config={row.config}
+              resolverFeeBps={row.resolverFeeBps}
               chainTime={desk.chainTime}
               account={account}
-              registry={desk.registry}
+              registry={row.deployment.oracleRegistry}
               standing={
                 desk.standing === undefined
                   ? undefined
@@ -114,13 +114,13 @@ export function SettledList({ desk }: { readonly desk: ResolverDesk | undefined 
       <div className="space-y-6">
         {desk.settled.map((row) => (
           <DisputeCard
-            key={row.id.toString()}
+            key={rowKey(row)}
             dispute={row}
-            config={desk.config}
-            resolverFeeBps={desk.resolverFeeBps}
+            config={row.config}
+            resolverFeeBps={row.resolverFeeBps}
             chainTime={desk.chainTime}
             account={undefined}
-            registry={desk.registry}
+            registry={row.deployment.oracleRegistry}
             standing={undefined}
             blockedBy={[]}
             onDone={() => undefined}
@@ -131,17 +131,27 @@ export function SettledList({ desk }: { readonly desk: ResolverDesk | undefined 
   );
 }
 
+/** Dispute ids restart with every deployment, so a row is named by both. */
+function rowKey(row: DisputeRow): string {
+  return `${row.deployment.name}:${row.id.toString()}`;
+}
+
 function ScanNote({ desk }: { readonly desk: ResolverDesk }) {
   if (!desk.disputesReadable) return null;
-  if (desk.scanned.to === 0n) return <span className="text-note text-[color:var(--color-muted)]">No dispute has ever been opened.</span>;
 
-  return (
-    <span className="text-note text-[color:var(--color-muted)]">
-      {desk.scanned.truncated
+  const current =
+    desk.scanned.to === 0n
+      ? 'No dispute has been opened on the current contracts.'
+      : desk.scanned.truncated
         ? `Disputes ${desk.scanned.from.toString()} to ${desk.scanned.to.toString()}, the newest ${(desk.scanned.to - desk.scanned.from + 1n).toString()}.`
-        : `All ${desk.scanned.to.toString()} disputes read.`}
-    </span>
+        : `All ${desk.scanned.to.toString()} disputes read.`;
+  const earlier = desk.earlier.map((entry) =>
+    !entry.disputesReadable
+      ? `The ${entry.deployment.contractSet} registry did not answer.`
+      : `${entry.scanned.to.toString()} on the ${entry.deployment.contractSet} registry.`,
   );
+
+  return <span className="text-note text-[color:var(--color-muted)]">{[current, ...earlier].join(' ')}</span>;
 }
 
 /**

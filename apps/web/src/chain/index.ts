@@ -32,6 +32,9 @@ export {
 } from './abi';
 
 export { onPoolEvent, probeProviders, rhcClient, rhcPool } from './client';
+
+export { currentDeployment, deploymentLabel, readableDeployments } from './deployments';
+export type { DeploymentTag } from './deployments';
 export type { ProviderHealth } from './client';
 
 export { BatchResults, ReadBatch, addBlockNumber, addChainTime, runBatch } from './batch';

@@ -13,10 +13,10 @@ import type { RulingReading } from './ruling';
 const REFETCH_MS = 60_000;
 
 /** The published reasons behind a dispute, under the on-chain outcome they explain. */
-export function RulingNote({ disputeId }: { readonly disputeId: bigint }) {
+export function RulingNote({ disputeId, registry }: { readonly disputeId: bigint; readonly registry?: string }) {
   const query = useQuery({
-    queryKey: ['bursar', 'ruling', disputeId.toString()],
-    queryFn: ({ signal }) => readRuling(disputeId, signal),
+    queryKey: ['bursar', 'ruling', registry ?? 'current', disputeId.toString()],
+    queryFn: ({ signal }) => readRuling(disputeId, signal, registry),
     refetchInterval: (state) => (state.state.data?.kind === 'published' ? false : REFETCH_MS),
   });
 

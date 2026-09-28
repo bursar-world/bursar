@@ -6,7 +6,7 @@ import type { Micro } from '@bursar/core';
 import { useState } from 'react';
 import type { Address } from 'viem';
 
-import { ADDRESSES, RHC, shortAddress } from '@/chain';
+import { ADDRESSES, RHC, deploymentLabel, shortAddress } from '@/chain';
 import { Address as AddressView } from '@/components/address';
 import { LevelDot } from '@/components/badge';
 import { Button } from '@/components/button';
@@ -262,7 +262,7 @@ function Work({ desk, owned }: { readonly desk: ProviderDesk; readonly owned: bo
         <Table
           caption="Open locks"
           rows={desk.working}
-          rowKey={(lock) => lock.id.toString()}
+          rowKey={lockKey}
           columns={lockColumns(desk, owned)}
           empty={
             desk.complete ? (
@@ -300,10 +300,10 @@ function Disputes({ desk, owned }: { readonly desk: ProviderDesk; readonly owned
     >
       <div className="space-y-6">
         <Card>
-          <Table caption="Disputed locks" rows={rows} rowKey={(lock) => lock.id.toString()} columns={lockColumns(desk, owned, true)} />
+          <Table caption="Disputed locks" rows={rows} rowKey={lockKey} columns={lockColumns(desk, owned, true)} />
         </Card>
         {awaitingEvidence.map((lock) => (
-          <EvidenceForm key={lock.id.toString()} lock={lock} />
+          <EvidenceForm key={lockKey(lock)} lock={lock} />
         ))}
       </div>
     </Section>
@@ -314,19 +314,19 @@ function Settled({ desk, owned }: { readonly desk: ProviderDesk; readonly owned:
   return (
     <Section
       title="Settled"
-      description={
+      description={`${
         !desk.complete
           ? 'The escrow did not answer how many jobs it holds.'
           : desk.scanned.truncated
             ? `The most recent ${(desk.scanned.to - desk.scanned.from + 1n).toString()} jobs on the escrow, ending at job ${desk.scanned.to.toString()}.`
             : `Everything the escrow has recorded against ${owned ? 'your address' : 'this address'}.`
-      }
+      }${earlierNote(desk)}`}
     >
       <Card>
         <Table
           caption="Settled locks"
           rows={desk.settled}
-          rowKey={(lock) => lock.id.toString()}
+          rowKey={lockKey}
           columns={lockColumns(desk, owned)}
           empty={
             desk.complete ? (
@@ -502,6 +502,21 @@ function Condition({ level, text }: { readonly level: 'ok' | 'attention' | 'bloc
   );
 }
 
+function earlierNote(desk: ProviderDesk): string {
+  return desk.earlier
+    .map((entry) =>
+      entry.complete
+        ? ` Jobs on the earlier ${entry.deployment.contractSet} escrow are included and marked.`
+        : ` The earlier ${entry.deployment.contractSet} escrow did not answer.`,
+    )
+    .join('');
+}
+
+/** Lock ids restart with every escrow, so a row is named by both. */
+function lockKey(lock: ProviderLock): string {
+  return `${lock.deployment.name}:${lock.id.toString()}`;
+}
+
 function totalNet(locks: readonly ProviderLock[]): Micro {
   return micro(locks.reduce((total, lock) => total + lock.net, 0n));
 }
@@ -517,13 +532,16 @@ function lockColumns(desk: ProviderDesk, owned: boolean, withRuling = false): re
             <LevelDot level={stageLevel(lock.stage)} label={stageLabel(lock.stage)} />
             {lock.id.toString()}
             <span className="font-normal text-[color:var(--color-muted)]">{stageLabel(lock.stage)}</span>
+            {!lock.deployment.current && (
+              <span className="font-normal text-note text-[color:var(--color-muted)]">{deploymentLabel(lock.deployment)}</span>
+            )}
           </div>
           <p className="max-w-prose text-detail text-[color:var(--color-muted)]">
             {stageDetail(lock, desk.terms, desk.chainTime, owned ? 'payee' : 'public')}
           </p>
           {withRuling && lock.dispute !== undefined && lock.releasedAt === null && (
             <div className="pt-2">
-              <RulingNote disputeId={lock.dispute.id} />
+              <RulingNote disputeId={lock.dispute.id} registry={lock.deployment.current ? undefined : lock.deployment.oracleRegistry} />
             </div>
           )}
         </div>

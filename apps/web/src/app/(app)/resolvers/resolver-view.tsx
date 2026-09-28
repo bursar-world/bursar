@@ -160,8 +160,9 @@ function Headline({ desk, account }: { readonly desk: ResolverDesk | undefined; 
   // figure is believed harder than the list under it, and "0 reveals you owe" from a failed read
   // is the one sentence on this page that costs a resolver part of their bond.
   const open = countOpen(desk);
-  const owed = countOpen(desk, revealOwed);
-  const closable = countOpen(desk, (row) => row.exit !== 'none');
+  // Only the current registry takes a call from this page, so only its disputes count as work.
+  const owed = countOpen(desk, (row) => row.deployment.current && revealOwed(row));
+  const closable = countOpen(desk, (row) => row.deployment.current && row.exit !== 'none');
   const standing = desk?.standing;
 
   return (

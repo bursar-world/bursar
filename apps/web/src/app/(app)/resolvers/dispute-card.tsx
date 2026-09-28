@@ -3,7 +3,7 @@
 import type { Micro } from '@bursar/core';
 import type { Address } from 'viem';
 
-import { oracleRegistryAbi, shortAddress, splitSettlement } from '@/chain';
+import { deploymentLabel, oracleRegistryAbi, shortAddress, splitSettlement } from '@/chain';
 import { publishedCapability } from '@/chain/capabilities';
 import { Address as AddressLine } from '@/components/address';
 import { LevelBadge } from '@/components/badge';
@@ -67,6 +67,7 @@ export function DisputeCard({
         <span className="flex flex-wrap items-center gap-2">
           Dispute {dispute.id.toString()}
           <LevelBadge level={phaseLevel(dispute.phase)}>{phaseLabel(dispute.phase)}</LevelBadge>
+          <span className="text-note font-normal text-[color:var(--color-muted)]">{deploymentLabel(dispute.deployment)}</span>
         </span>
       }
       description={
@@ -137,10 +138,17 @@ export function DisputeCard({
         )}
 
         <Outcome dispute={dispute} resolverFeeBps={resolverFeeBps} />
-        <RulingNote disputeId={dispute.id} />
+        <RulingNote disputeId={dispute.id} registry={dispute.deployment.current ? undefined : registry} />
         {account !== undefined && <YourPart dispute={dispute} />}
 
-        {config !== undefined && (
+        {!dispute.deployment.current && dispute.phase !== 'finalized' && dispute.phase !== 'failed' && (
+          <p className="border-t border-[color:var(--color-line)] pt-4 text-detail text-[color:var(--color-muted)]">
+            This dispute is on the earlier {dispute.deployment.contractSet} registry at {shortAddress(registry)}. It runs to
+            its ruling there under that registry&rsquo;s rules. This page shows it and takes no vote or closing call on it.
+          </p>
+        )}
+
+        {config !== undefined && dispute.deployment.current && (
           <Action
             dispute={dispute}
             config={config}

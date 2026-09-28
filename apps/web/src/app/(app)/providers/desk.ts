@@ -9,6 +9,7 @@ import {
   addBlockNumber,
   addChainTime,
   agentRegistryAbi,
+  readableDeployments,
   rhcClient,
   escrowAbi,
   oracleRegistryAbi,
@@ -18,6 +19,7 @@ import {
   settlementComplianceAbi,
   splitSettlement,
 } from '@/chain';
+import type { DeploymentTag } from '@/chain';
 
 /**
  * The escrow indexes locks by id and by nothing else. Its `Locked` event carries an indexed payee,
@@ -92,6 +94,11 @@ export type LockPayout =
   | { readonly kind: 'unread' };
 
 export type ProviderLock = {
+  /**
+   * The escrow this lock is held by. Lock ids restart with every deployment, so a lock is named by
+   * the pair. A lock on an earlier escrow is shown and never written to from here.
+   */
+  readonly deployment: DeploymentTag;
   readonly id: bigint;
   readonly payer: Address;
   readonly disputer: Address;
@@ -219,7 +226,24 @@ export type ProviderDesk = {
   readonly recordable: readonly ProviderLock[];
   /** Where the cap lands if every recordable release is written in. */
   readonly projectedCap: Micro | undefined;
-  readonly scanned: { readonly from: bigint; readonly to: bigint; readonly truncated: boolean };
+  /** The ids read on the current escrow. */
+  readonly scanned: Scanned;
+  /**
+   * The earlier escrows this chain still carries, read for the locks this payee still has on them.
+   * Their locks are in `locks`, `working`, `settled` and `contested` with the rest, tagged with the
+   * deployment. They are never in `unrecorded` or `recordable`: recording is a call to that escrow,
+   * and this page writes only to the current one.
+   */
+  readonly earlier: readonly EarlierEscrow[];
+};
+
+export type Scanned = { readonly from: bigint; readonly to: bigint; readonly truncated: boolean };
+
+export type EarlierEscrow = {
+  readonly deployment: DeploymentTag;
+  /** False when that escrow did not answer how many locks it holds. */
+  readonly complete: boolean;
+  readonly scanned: Scanned;
 };
 
 type RawLock = {
@@ -318,14 +342,25 @@ export async function readRegistryTerms(signal?: AbortSignal): Promise<RegistryT
  */
 export async function readProviderDesk(payee: Address, signal?: AbortSignal): Promise<ProviderDesk> {
   const client = rhcClient();
+  const [currentTag, ...older] = readableDeployments();
+  const current: DeploymentTag = currentTag ?? {
+    name: 'current',
+    contractSet: 'v2',
+    current: true,
+    escrow: ADDRESSES.escrow,
+    oracleRegistry: ADDRESSES.oracleRegistry,
+  };
 
   const head = new ReadBatch();
-  const escrowCall = (functionName: string, args?: readonly unknown[]) => ({
-    address: ADDRESSES.escrow,
-    abi: escrowAbi as never,
-    functionName,
-    ...(args === undefined ? {} : { args }),
-  });
+  const escrowAt =
+    (escrow: Address) =>
+    (functionName: string, args?: readonly unknown[]) => ({
+      address: escrow,
+      abi: escrowAbi as never,
+      functionName,
+      ...(args === undefined ? {} : { args }),
+    });
+  const escrowCall = escrowAt(current.escrow);
   const registryCall = (functionName: string, args?: readonly unknown[]) => ({
     address: ADDRESSES.agentRegistry,
     abi: agentRegistryAbi as never,
@@ -376,62 +411,60 @@ export async function readProviderDesk(payee: Address, signal?: AbortSignal): Pr
     paused: head.add<boolean>('usdg.paused', { address: ADDRESSES.usdg, abi: settlementComplianceAbi as never, functionName: 'paused' }),
   };
 
+  // The earlier escrows are read in the same request. They answer the same view functions, and
+  // their fees and windows are their own, so a lock there is priced by the escrow that holds it.
+  const earlierSlots = older.map((tag) => {
+    const call = escrowAt(tag.escrow);
+    return {
+      tag,
+      nextId: head.add<bigint>(`escrow.nextId@${tag.name}`, call('nextId')),
+      feeBps: head.add<number>(`escrow.feeBps@${tag.name}`, call('feeBps')),
+      resolverFeeBps: head.add<number>(`escrow.resolverFeeBps@${tag.name}`, call('resolverFeeBps')),
+      disputeWindow: head.add<bigint>(`escrow.disputeWindow@${tag.name}`, call('disputeWindow')),
+    };
+  });
+
   const headResults = await runBatch(client, head, signal);
   let requests = 1;
 
   const chainSeconds = headResults.get(slots.chainTime);
   const chainTime = chainSeconds === undefined ? new Date() : new Date(Number(chainSeconds) * 1000);
-  const nextId = headResults.get(slots.nextId) ?? 1n;
   const feeBps = headResults.get(slots.feeBps);
   const resolverFeeBps = headResults.get(slots.resolverFeeBps);
   const disputeWindow = headResults.get(slots.disputeWindow);
   const curve = headResults.get(slots.curve);
 
-  const highest = nextId > 0n ? nextId - 1n : 0n;
-  const from = highest > SCAN_LIMIT ? highest - SCAN_LIMIT + 1n : 1n;
-  const ids: bigint[] = [];
-  for (let id = highest; id >= from && id >= 1n; id -= 1n) ids.push(id);
+  const sets = [
+    { tag: current, nextId: headResults.get(slots.nextId), rates: { feeBps, resolverFeeBps, disputeWindow } },
+    ...earlierSlots.map((entry) => ({
+      tag: entry.tag,
+      nextId: headResults.get(entry.nextId),
+      rates: {
+        feeBps: headResults.get(entry.feeBps),
+        resolverFeeBps: headResults.get(entry.resolverFeeBps),
+        disputeWindow: headResults.get(entry.disputeWindow),
+      },
+    })),
+  ];
 
-  const chunks: bigint[][] = [];
-  for (let index = 0; index < ids.length; index += SCAN_CHUNK) chunks.push(ids.slice(index, index + SCAN_CHUNK));
-
-  const scanned = await Promise.all(
-    chunks.map(async (chunk) => {
-      const batch = new ReadBatch();
-      const lockSlots = chunk.map((id) => ({ id, slot: batch.add<RawLock>(`escrow.getLock:${id}`, escrowCall('getLock', [id])) }));
-      const results = await runBatch(client, batch, signal);
-      return lockSlots.map((entry) => ({ id: entry.id, raw: results.get(entry.slot) }));
-    }),
+  const read = await Promise.all(
+    sets.map((set) => readEscrowLocks(set.tag, set.nextId, set.rates, payee, chainTime, signal)),
   );
-  requests += chunks.length;
+  for (const entry of read) requests += entry.requests;
 
-  const mine = scanned
-    .flat()
-    .filter((entry): entry is { id: bigint; raw: RawLock } => entry.raw !== undefined)
-    .filter((entry) => entry.raw.status !== LockStatus.None && entry.raw.payee.toLowerCase() === payee.toLowerCase());
-
-  // A ruling is the moment a lock stops being disputed. Reading the dispute only for locks still
-  // sitting in `Disputed` therefore dropped it in the same block its outcome became readable, and
-  // the desk fell back to a stage label that claimed a ruling nobody had made. `Resolved` is the
-  // status every closed dispute lands in, whether a panel ruled or the escrow timed it out.
-  const disputeReads = await readDisputes(
-    mine
-      .filter((entry) => entry.raw.status === LockStatus.Disputed || entry.raw.status === LockStatus.Resolved)
-      .map((entry) => entry.id),
-    signal,
-  );
-  if (disputeReads.requests > 0) requests += disputeReads.requests;
-
-  const locks = mine.map((entry) =>
-    toLock(entry.id, entry.raw, { feeBps, resolverFeeBps, disputeWindow }, chainTime, disputeReads.byLock.get(entry.id)),
-  );
+  const locks = read.flatMap((entry) => entry.locks);
+  const scanned = read[0]?.scanned ?? scanRange(undefined);
 
   const working = locks.filter((lock) => lock.status === LockStatus.Locked);
   const contested = locks.filter((lock) => lock.status === LockStatus.Disputed);
   const settled = locks.filter(
     (lock) => lock.status !== LockStatus.Locked && lock.status !== LockStatus.Disputed,
   );
-  const unrecorded = locks.filter((lock) => lock.status === LockStatus.Released && !lock.counted);
+  // Recording is a call to the escrow that holds the lock, and to the reputation contract behind
+  // it. Only the current set's locks feed the record on this page.
+  const unrecorded = locks.filter(
+    (lock) => lock.deployment.current && lock.status === LockStatus.Released && !lock.counted,
+  );
   const recordable = unrecorded.filter((lock) => lock.stage === 'paid-unrecorded');
 
   const stats = headResults.get(slots.stats);
@@ -496,11 +529,86 @@ export async function readProviderDesk(payee: Address, signal?: AbortSignal): Pr
     unrecorded,
     recordable,
     projectedCap: projectCap(record, BigInt(recordable.length)),
-    scanned: { from, to: highest, truncated: highest > SCAN_LIMIT },
+    scanned,
+    earlier: read.slice(1).map((entry) => ({ deployment: entry.tag, complete: entry.complete, scanned: entry.scanned })),
   };
 }
 
-async function readDisputes(lockIds: readonly bigint[], signal?: AbortSignal): Promise<{
+function scanRange(nextId: bigint | undefined): Scanned {
+  const highest = nextId !== undefined && nextId > 0n ? nextId - 1n : 0n;
+  const from = highest > SCAN_LIMIT ? highest - SCAN_LIMIT + 1n : 1n;
+  return { from, to: highest, truncated: highest > SCAN_LIMIT };
+}
+
+/** This payee's locks on one escrow, with the disputes behind the contested ones. */
+async function readEscrowLocks(
+  tag: DeploymentTag,
+  nextId: bigint | undefined,
+  rates: LockRates,
+  payee: Address,
+  chainTime: Date,
+  signal?: AbortSignal,
+): Promise<{
+  readonly tag: DeploymentTag;
+  readonly locks: readonly ProviderLock[];
+  readonly scanned: Scanned;
+  readonly complete: boolean;
+  readonly requests: number;
+}> {
+  const client = rhcClient();
+  const scanned = scanRange(nextId);
+  const ids: bigint[] = [];
+  for (let id = scanned.to; id >= scanned.from && id >= 1n; id -= 1n) ids.push(id);
+
+  const chunks: bigint[][] = [];
+  for (let index = 0; index < ids.length; index += SCAN_CHUNK) chunks.push(ids.slice(index, index + SCAN_CHUNK));
+
+  const found = await Promise.all(
+    chunks.map(async (chunk) => {
+      const batch = new ReadBatch();
+      const lockSlots = chunk.map((id) => ({
+        id,
+        slot: batch.add<RawLock>(`escrow.getLock:${id}`, {
+          address: tag.escrow,
+          abi: escrowAbi as never,
+          functionName: 'getLock',
+          args: [id],
+        }),
+      }));
+      const results = await runBatch(client, batch, signal);
+      return lockSlots.map((entry) => ({ id: entry.id, raw: results.get(entry.slot) }));
+    }),
+  );
+  let requests = chunks.length;
+
+  const mine = found
+    .flat()
+    .filter((entry): entry is { id: bigint; raw: RawLock } => entry.raw !== undefined)
+    .filter((entry) => entry.raw.status !== LockStatus.None && entry.raw.payee.toLowerCase() === payee.toLowerCase());
+
+  // A ruling is the moment a lock stops being disputed. Reading the dispute only for locks still
+  // sitting in `Disputed` therefore dropped it in the same block its outcome became readable, and
+  // the desk fell back to a stage label that claimed a ruling nobody had made. `Resolved` is the
+  // status every closed dispute lands in, whether a panel ruled or the escrow timed it out.
+  const disputeReads = await readDisputes(
+    tag.oracleRegistry,
+    mine
+      .filter((entry) => entry.raw.status === LockStatus.Disputed || entry.raw.status === LockStatus.Resolved)
+      .map((entry) => entry.id),
+    signal,
+  );
+  requests += disputeReads.requests;
+
+  return {
+    tag,
+    locks: mine.map((entry) => toLock(tag, entry.id, entry.raw, rates, chainTime, disputeReads.byLock.get(entry.id))),
+    scanned,
+    complete: nextId !== undefined,
+    requests,
+  };
+}
+
+async function readDisputes(registry: Address, lockIds: readonly bigint[], signal?: AbortSignal): Promise<{
   readonly byLock: ReadonlyMap<bigint, DisputeRead>;
   readonly requests: number;
 }> {
@@ -509,7 +617,7 @@ async function readDisputes(lockIds: readonly bigint[], signal?: AbortSignal): P
 
   const client = rhcClient();
   const oracleCall = (functionName: string, args: readonly unknown[]) => ({
-    address: ADDRESSES.oracleRegistry,
+    address: registry,
     abi: oracleRegistryAbi as never,
     functionName,
     args,
@@ -569,7 +677,14 @@ type LockRates = {
   readonly disputeWindow: bigint | undefined;
 };
 
-function toLock(id: bigint, raw: RawLock, rates: LockRates, now: Date, dispute: DisputeRead | undefined): ProviderLock {
+function toLock(
+  deployment: DeploymentTag,
+  id: bigint,
+  raw: RawLock,
+  rates: LockRates,
+  now: Date,
+  dispute: DisputeRead | undefined,
+): ProviderLock {
   const amount = micro(raw.amount);
   const fee = rates.feeBps === undefined ? micro(0n) : mulBps(amount, rates.feeBps);
   const releasedAt = toDate(raw.releasedAt);
@@ -579,6 +694,7 @@ function toLock(id: bigint, raw: RawLock, rates: LockRates, now: Date, dispute: 
       : new Date(releasedAt.getTime() + Number(rates.disputeWindow) * 1000);
 
   return {
+    deployment,
     id,
     payer: raw.payer,
     disputer: raw.disputer,

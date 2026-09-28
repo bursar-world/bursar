@@ -71,9 +71,11 @@ export function readRulingBody(status: number, body: unknown): RulingReading {
   };
 }
 
-export async function readRuling(disputeId: bigint, signal?: AbortSignal): Promise<RulingReading> {
+/** `registry` names an earlier registry; absent, the resolver answers for the current one. */
+export async function readRuling(disputeId: bigint, signal?: AbortSignal, registry?: string): Promise<RulingReading> {
   try {
-    const response = await fetch(`/api/rulings?dispute=${disputeId.toString()}`, { cache: 'no-store', signal });
+    const query = registry === undefined ? '' : `&registry=${registry}`;
+    const response = await fetch(`/api/rulings?dispute=${disputeId.toString()}${query}`, { cache: 'no-store', signal });
     return readRulingBody(response.status, await response.json().catch(() => null));
   } catch {
     return { kind: 'unavailable' };

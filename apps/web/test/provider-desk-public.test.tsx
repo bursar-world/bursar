@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import { toWithdrawal } from '@/app/(app)/providers/desk';
 import type { ProviderDesk, ProviderLock } from '@/app/(app)/providers/desk';
+import type { DeploymentTag } from '@/chain';
 import { DeskHeadline, DeskStanding } from '@/app/(app)/providers/desk-view';
 import { ReputationPanel } from '@/app/(app)/providers/reputation';
 import { stageDetail } from '@/app/(app)/providers/stages';
@@ -31,8 +32,17 @@ const ZERO_HASH = `0x${'0'.repeat(64)}` as Hex;
 const DAY = 86_400;
 const NOW = new Date('2026-09-22T12:00:00.000Z');
 
+const CURRENT: DeploymentTag = {
+  name: 'rhc-mainnet-v2',
+  contractSet: 'v2',
+  current: true,
+  escrow: '0x4315F8be7C9661345710910577Ec31cb867f3c20',
+  oracleRegistry: '0xE38349668f0C470C814487E95C14e7652F713B17',
+};
+
 function lock(over: Partial<ProviderLock> = {}): ProviderLock {
   return {
+    deployment: CURRENT,
     id: 7n,
     payer: PAYER,
     disputer: PAYER,
@@ -112,6 +122,7 @@ function desk(over: Partial<ProviderDesk> = {}): ProviderDesk {
     recordable: [],
     projectedCap: micro(100_000_000n),
     scanned: { from: 1n, to: 12n, truncated: false },
+    earlier: [],
     ...over,
   };
 }

@@ -8,7 +8,7 @@ import { useId, useState } from 'react';
 import type { Hex } from 'viem';
 import { useSignTypedData } from 'wagmi';
 
-import { ADDRESSES, CHAIN_ID } from '@/chain/rhc';
+import { CHAIN_ID } from '@/chain/rhc';
 import { Button } from '@/components/button';
 import { ErrorSurface } from '@/components/error-surface';
 import { TextField } from '@/components/fields';
@@ -50,11 +50,11 @@ export function EvidenceForm({ lock }: { readonly lock: ProviderLock }) {
     setFailure(null);
     try {
       const evidence: DeliveryEvidence = { escrowId: lock.id, inputCommit: lock.inputCommit, ...draft.evidence, deliveredAt: BigInt(Math.floor(Date.now() / 1000)) };
-      const signature = await signTypedDataAsync(deliveryEvidenceTypedData(ADDRESSES.escrow, CHAIN_ID, evidence));
+      const signature = await signTypedDataAsync(deliveryEvidenceTypedData(lock.deployment.escrow, CHAIN_ID, evidence));
       const response = await fetch('/api/evidence', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(encodeEvidence({ kind: 'delivery', chainId: CHAIN_ID, escrow: ADDRESSES.escrow, evidence, signature: signature as Hex })),
+        body: JSON.stringify(encodeEvidence({ kind: 'delivery', chainId: CHAIN_ID, escrow: lock.deployment.escrow, evidence, signature: signature as Hex })),
       });
       const body = (await response.json().catch(() => ({}))) as { counted?: unknown; cutoff?: unknown; detail?: unknown };
       if (!response.ok) throw new Error(typeof body.detail === 'string' ? body.detail : `The ruling service answered ${response.status}.`);
