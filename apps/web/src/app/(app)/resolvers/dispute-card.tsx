@@ -20,6 +20,7 @@ import { commitCheck, phaseLabel, phaseLevel, revealCheck, silenceSlash } from '
 import type { CommitBlocker, RevealBlocker } from './phases';
 import { resolverFailure } from './refusal';
 import { RevealForm } from './reveal-form';
+import { RulingNote } from './ruling-note';
 import { useWriteContract } from '@/wallet/write';
 
 /**
@@ -136,6 +137,7 @@ export function DisputeCard({
         )}
 
         <Outcome dispute={dispute} resolverFeeBps={resolverFeeBps} />
+        <RulingNote disputeId={dispute.id} />
         {account !== undefined && <YourPart dispute={dispute} />}
 
         {config !== undefined && (

@@ -1,6 +1,7 @@
 'use client';
 
 import { micro, mulBps, subMicro } from '@bursar/core';
+import { LockStatus } from '@bursar/sdk';
 import type { Micro } from '@bursar/core';
 import { useState } from 'react';
 import type { Address } from 'viem';
@@ -21,6 +22,8 @@ import { bps, usd, usdExact } from '@/money';
 import { useSystemState } from '@/state';
 import type { AnyState } from '@/state';
 
+import { RulingNote } from '../resolvers/ruling-note';
+import { EvidenceForm } from './[payee]/evidence-form';
 import type { ProviderDesk, ProviderLock } from './desk';
 import { AddStakeCard, AvailabilityCard, RegisterCard, WithdrawalCard } from './onboarding';
 import { RecordCard } from './record-card';
@@ -286,14 +289,23 @@ function Disputes({ desk, owned }: { readonly desk: ProviderDesk; readonly owned
   const rows = [...desk.contested, ...closed];
   if (rows.length === 0) return null;
 
+  // Only a lock frozen before release has a ruling to reach. One contested after it was paid is a
+  // mark on the record and nothing more, so it gets no form.
+  const awaitingEvidence = owned ? desk.contested.filter((lock) => lock.status === LockStatus.Disputed && lock.releasedAt === null) : [];
+
   return (
     <Section
       title={owned ? 'Disputes against you' : 'Disputes against this address'}
-      description="A payer challenged these. Each states where the ruling stands."
+      description="A payer challenged these. Each states where the ruling stands and, once the resolvers have revealed, why."
     >
-      <Card>
-        <Table caption="Disputed locks" rows={rows} rowKey={(lock) => lock.id.toString()} columns={lockColumns(desk, owned)} />
-      </Card>
+      <div className="space-y-6">
+        <Card>
+          <Table caption="Disputed locks" rows={rows} rowKey={(lock) => lock.id.toString()} columns={lockColumns(desk, owned, true)} />
+        </Card>
+        {awaitingEvidence.map((lock) => (
+          <EvidenceForm key={lock.id.toString()} lock={lock} />
+        ))}
+      </div>
     </Section>
   );
 }
@@ -494,7 +506,7 @@ function totalNet(locks: readonly ProviderLock[]): Micro {
   return micro(locks.reduce((total, lock) => total + lock.net, 0n));
 }
 
-function lockColumns(desk: ProviderDesk, owned: boolean): readonly Column<ProviderLock>[] {
+function lockColumns(desk: ProviderDesk, owned: boolean, withRuling = false): readonly Column<ProviderLock>[] {
   return [
     {
       key: 'job',
@@ -509,6 +521,11 @@ function lockColumns(desk: ProviderDesk, owned: boolean): readonly Column<Provid
           <p className="max-w-prose text-detail text-[color:var(--color-muted)]">
             {stageDetail(lock, desk.terms, desk.chainTime, owned ? 'payee' : 'public')}
           </p>
+          {withRuling && lock.dispute !== undefined && lock.releasedAt === null && (
+            <div className="pt-2">
+              <RulingNote disputeId={lock.dispute.id} />
+            </div>
+          )}
         </div>
       ),
     },

@@ -1,6 +1,8 @@
 import { micro } from '@bursar/core';
 import { LockStatus } from '@bursar/sdk';
-import { renderToStaticMarkup } from 'react-dom/server';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactNode } from 'react';
+import { renderToStaticMarkup as renderMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { Address } from 'viem';
 
@@ -11,6 +13,11 @@ import { DisputeList } from '@/app/(app)/resolvers/dispute-list';
 import { DisputeStatus } from '@/app/(app)/resolvers/phases';
 import { countOpen, disputeListState } from '@/app/(app)/resolvers/reading';
 import { brsr } from '@/money';
+
+/** A dispute card reads its published ruling through the query client, as it does in the app. */
+function renderToStaticMarkup(node: ReactNode): string {
+  return renderMarkup(<QueryClientProvider client={new QueryClient()}>{node}</QueryClientProvider>);
+}
 
 /**
  * Loading, unreadable and empty are three answers on the one screen where confusing them is paid

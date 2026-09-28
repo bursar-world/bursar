@@ -205,6 +205,27 @@ export default function DocsPage() {
         </Card>
       </Section>
 
+      <Section title="Disputes" description="What happens when a payer contests a job before paying for it.">
+        <Card>
+          <p className="max-w-3xl text-sm">
+            A disputed payment stays in escrow until bonded resolvers rule on it. All three resolvers on the registry are
+            operated by Bursar and follow a published policy: what counts as delivered, the evidence a provider can send,
+            the deadlines, and when Bursar may override. The reasons behind each ruling are published once the votes are
+            revealed.
+          </p>
+          <p className="mt-3 max-w-3xl text-sm">
+            A provider sends signed delivery evidence from its desk, or has the sidecar send it by setting{' '}
+            <code className="font-mono text-note">SIDECAR_EVIDENCE_URL</code> to{' '}
+            <code className="font-mono text-note">https://app.bursar.world/api/evidence</code>.
+          </p>
+          <p className="mt-3 text-sm">
+            <Link href="/docs/ruling-policy" className="underline underline-offset-2">
+              Read the ruling policy
+            </Link>
+          </p>
+        </Card>
+      </Section>
+
       <Section title="What a call costs" description={`Gas measured on real transactions, priced at what ${RHC.name} has been charging.`}>
         <Card>
           <FieldGrid columns={3}>

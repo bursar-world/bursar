@@ -96,6 +96,8 @@ export type ProviderLock = {
   readonly payer: Address;
   readonly disputer: Address;
   readonly capabilityId: Hex;
+  /** What the payer committed the job to. Delivery evidence has to name the same one. */
+  readonly inputCommit: Hex;
   readonly inputURI: string;
   readonly outputURI: string;
   /** What the payer locked. */
@@ -581,6 +583,7 @@ function toLock(id: bigint, raw: RawLock, rates: LockRates, now: Date, dispute: 
     payer: raw.payer,
     disputer: raw.disputer,
     capabilityId: raw.capabilityId,
+    inputCommit: raw.inputCommit,
     inputURI: raw.inputURI,
     outputURI: raw.outputURI,
     amount,

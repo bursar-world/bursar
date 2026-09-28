@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 
 import { Button } from '@/components/button';
@@ -19,6 +20,7 @@ import { DisputeList, SettledList } from './dispute-list';
 import { ResolverStatus } from './phases';
 import { countOpen } from './reading';
 import { RewardsPanel } from './rewards-panel';
+import { POLICY_PATH } from './ruling';
 import { UnbondPanel } from './unbond-panel';
 import { useResolverDesk } from './use-desk';
 
@@ -97,6 +99,8 @@ export function ResolverView() {
         </Unread>
       )}
 
+      <Operator />
+
       <Headline desk={desk} account={account !== undefined} />
 
       <BondPanel desk={desk} account={account} blockedBy={writeBlockers} onDone={refresh} />
@@ -120,6 +124,33 @@ export function ResolverView() {
 
       <ConnectModal open={connecting} onClose={() => setConnecting(false)} />
     </div>
+  );
+}
+
+/**
+ * Who the panel is, said before anything else a reader could weigh a ruling by. Every bonded
+ * resolver on this registry is Bursar's, which makes Bursar the arbiter of every dispute here.
+ */
+function Operator() {
+  return (
+    <Card title="Who rules today">
+      <div className="max-w-3xl space-y-3 text-sm">
+        <p>
+          All three bonded resolvers on this registry are operated by Bursar, so Bursar is the arbiter of every dispute it hears.
+          Each ruling follows the published policy, all three resolvers cast the same score, and the reasons are published on
+          the dispute once the votes are revealed.
+        </p>
+        <p>
+          A provider who delivered can send signed evidence from its desk until three hours after the dispute opens. Bursar never
+          overrides a dispute in which it is the payer or the provider.
+        </p>
+        <p>
+          <Link href={POLICY_PATH} className="underline underline-offset-2">
+            Read the ruling policy
+          </Link>
+        </p>
+      </div>
+    </Card>
   );
 }
 

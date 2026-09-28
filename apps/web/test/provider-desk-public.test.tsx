@@ -37,6 +37,7 @@ function lock(over: Partial<ProviderLock> = {}): ProviderLock {
     payer: PAYER,
     disputer: PAYER,
     capabilityId: ZERO_HASH,
+    inputCommit: ZERO_HASH,
     inputURI: '',
     outputURI: '',
     amount: micro(10_000_000n),

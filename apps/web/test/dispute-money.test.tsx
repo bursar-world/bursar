@@ -1,6 +1,8 @@
 import { micro } from '@bursar/core';
 import { LockStatus } from '@bursar/sdk';
-import { renderToStaticMarkup } from 'react-dom/server';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactNode } from 'react';
+import { renderToStaticMarkup as renderMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { Address, Hex } from 'viem';
 
@@ -12,6 +14,11 @@ import { stageDetail } from '@/app/(app)/providers/stages';
 import { rebateReason, rebateSentence } from '@/app/(app)/token/rebate';
 import { splitSettlement } from '@/chain/settlement';
 import { brsr } from '@/money';
+
+/** A dispute card reads its published ruling through the query client, as it does in the app. */
+function renderToStaticMarkup(node: ReactNode): string {
+  return renderMarkup(<QueryClientProvider client={new QueryClient()}>{node}</QueryClientProvider>);
+}
 
 /**
  * The figures in here are the ones dispute 1 produced on chain on 2026-09-24: a 0.100000 USDG
@@ -254,6 +261,7 @@ function providerLock(over: Partial<ProviderLock> = {}): ProviderLock {
     payer: PAYER,
     disputer: PAYER,
     capabilityId: ZERO_HASH,
+    inputCommit: ZERO_HASH,
     inputURI: '',
     outputURI: '',
     amount: LOCK,
