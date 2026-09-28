@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 
 import {
   EnvError,
-  deploymentForChain,
+  contractSetOf,
+  deploymentsForChain,
   envVar,
   isBursarError,
   loadEnv,
@@ -12,18 +13,23 @@ import {
   rhcRpcProviders,
   withDefault,
 } from '@bursar/core';
-import type { EnvProblem, EnvSource, EnvValues, RhcChain, RpcProvider } from '@bursar/core';
+import type { ContractSet, EnvProblem, EnvSource, EnvValues, RhcChain, RpcProvider } from '@bursar/core';
 import { getAddress } from 'viem';
 import type { Address, Hex } from 'viem';
 
 import type { KeySource } from './keys.js';
 import { passwordFromFile, passwordFromKeychain } from './keys.js';
 
-/** One escrow and the registry it rules through. A second record is how a v2 set is served too. */
+/** One escrow and the registry it rules through. v2 and v1 are served side by side. */
 export type Served = {
   readonly name: string;
   readonly escrow: Address;
   readonly registry: Address;
+  /**
+   * Which contract build the pair runs. It decides what a dispute that misses quorum does to the
+   * lock: v1 refunds the payer, v2 reopens the lock and returns the bond.
+   */
+  readonly contractSet: ContractSet;
 };
 
 export type ResolverConfig = {
@@ -69,8 +75,8 @@ const SCHEMA = {
   RHC_NETWORK: withDefault(envVar.oneOf(['testnet', 'mainnet']), 'mainnet'),
 
   /**
-   * Deployment records to serve, as paths. Unset serves the record bundled for the chain. Naming
-   * two is how the v2 contract set joins without the v1 escrow losing its resolvers mid-drain.
+   * Deployment records to serve, as paths. Unset serves every live record bundled for the chain,
+   * newest first, so the v1 escrow keeps its resolvers while its last locks and disputes settle.
    */
   RESOLVER_DEPLOYMENTS: optional(envVar.list()),
 
@@ -212,8 +218,17 @@ function servedFrom(paths: readonly string[] | undefined, chain: RhcChain, probl
   try {
     const records =
       paths === undefined
-        ? [deploymentForChain(chain.chainId)]
+        ? [...deploymentsForChain(chain.chainId)]
         : paths.map((path) => parseDeployment(JSON.parse(readFileSync(path, 'utf8')) as unknown, path));
+
+    if (records.length === 0) {
+      problems.push({
+        name: 'RESOLVER_DEPLOYMENTS',
+        reason: `is not set, and no live deployment is bundled for chain ${chain.chainId}`,
+        expected: 'paths to deployment records such as contracts/deployments/rhc-mainnet-v2.json',
+      });
+      return undefined;
+    }
 
     const wrong = records.find((record) => record.chainId !== chain.chainId);
     if (wrong !== undefined) {
@@ -229,6 +244,7 @@ function servedFrom(paths: readonly string[] | undefined, chain: RhcChain, probl
       name: record.network,
       escrow: getAddress(record.contracts.Escrow),
       registry: getAddress(record.contracts.OracleRegistry),
+      contractSet: contractSetOf(record),
     }));
   } catch (error) {
     if (!isBursarError(error) && !(error instanceof SyntaxError) && !isFsError(error)) throw error;

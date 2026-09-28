@@ -260,7 +260,7 @@ Every refusal outside `/verify` and `/settle` has one shape: `error` is a stable
 
 Every body below was sent to a local facilitator on the Postgres from the quick start, with the
 in-process underwriter reading the example mandate account
-`0xB4Bd99d8604fDB876fA1B38a3f8bA024D20ccD0b` on chain 4663. Responses are trimmed to their fields;
+`0x420BeB507F72173E7d78e0f956968f64fb508356` on chain 4663. Responses are trimmed to their fields;
 ids and timestamps will differ. Money is always a string.
 
 **`POST /accounts`** creates or updates an agent. `agentId`, `payerWallet` and `repayWallet` are
@@ -272,7 +272,7 @@ record, including `status`.
   "agentId": "agent-1",
   "payerWallet": "0x877c349EFb5926082C413833E8055F0991185c61",
   "repayWallet": "0x877c349EFb5926082C413833E8055F0991185c61",
-  "mandateAccount": "0xB4Bd99d8604fDB876fA1B38a3f8bA024D20ccD0b",
+  "mandateAccount": "0x420BeB507F72173E7d78e0f956968f64fb508356",
   "networks": ["eip155:4663"],
   "perCallCapMicro": "100000",
   "dailyCapMicro": "500000",
@@ -330,7 +330,7 @@ these instead, and leave `FACILITATOR_UNDERWRITER` unset so they choose the in-p
 ```sh
 unset FACILITATOR_UNDERWRITER
 export MANDATE_DOCUMENT_SOURCE=chain
-export MANDATE_ACCOUNT=0xB4Bd99d8604fDB876fA1B38a3f8bA024D20ccD0b
+export MANDATE_ACCOUNT=0x420BeB507F72173E7d78e0f956968f64fb508356
 export MANDATE_SUBJECT=agent-1
 ```
 

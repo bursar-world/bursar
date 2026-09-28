@@ -1,5 +1,5 @@
-import { micro, toCapabilityId } from '@bursar/core';
-import type { Micro } from '@bursar/core';
+import { SPEND_CLASS_BIT, classOfLabel, contractSetOfEscrow, deploymentsForChain, micro, toCapabilityId } from '@bursar/core';
+import type { ContractSet, Micro } from '@bursar/core';
 import { wei } from '../money';
 import type { Wei } from '../money';
 import { denialReasonFor } from '@bursar/sdk';
@@ -13,12 +13,13 @@ import type {
 import { toFunctionSelector } from 'viem';
 import type { Address, Hex } from 'viem';
 
-import { ADDRESSES, MULTICALL3 } from './rhc';
+import { ADDRESSES, CHAIN_ID, MULTICALL3, sameAddress } from './rhc';
 import {
   adminTimelockAbi,
   agentRegistryAbi,
   escrowAbi,
   mandateAccountAbi,
+  mandateAccountAbiV1,
   multicall3Abi,
   reputationAbi,
   settlementAssetAbi,
@@ -44,7 +45,8 @@ export type ReadScope = {
   readonly gasPayer?: Address;
 };
 
-export type RawLimits = {
+/** The limit struct a v1 account holds. */
+export type RawLimitsV1 = {
   perCallCap: bigint;
   dailyCap: bigint;
   monthlyCap: bigint;
@@ -55,10 +57,28 @@ export type RawLimits = {
   validUntil: bigint;
 };
 
+/** The limit struct as the current contracts take it: v1's eight fields and three more. */
+export type RawLimits = RawLimitsV1 & {
+  /** Bit c allows spend class c: 0 services, 1 agent hires, 2 eligible stocks. */
+  classMask: number;
+  /** Lifetime ceiling on committed spend, net of refunds. Zero means none. */
+  totalCap: bigint;
+  /** Where funds settle. 0 is the escrow, the only lane with contracts behind it. */
+  lane: number;
+};
+
 type RawWindow = { cap: bigint; spent: bigint; duration: bigint; start: bigint; epoch: bigint };
 
 export type MandateRead = {
   readonly address: Address;
+  /**
+   * Which build of the contracts the account runs. A v2 account holds its classes and its total
+   * budget natively; a v1 account keeps classes in the capability namespace and the total budget
+   * in a second window that never rolls.
+   */
+  readonly contractSet: ContractSet;
+  /** Committed spend counted against `limits.totalCap`, net of refunds. Undefined on v1. */
+  readonly totalSpent: Micro | undefined;
   readonly principal: Address;
   readonly pendingPrincipal: Address;
   readonly agent: Address;
@@ -174,7 +194,7 @@ export type ChainSnapshot = {
  * `0xcc70389d` into "the daily limit is exhausted".
  */
 const SELECTORS: ReadonlyMap<string, string> = new Map(
-  mandateAccountAbi
+  [...mandateAccountAbi, ...mandateAccountAbiV1]
     .filter((entry): entry is Extract<typeof entry, { type: 'error' }> => entry.type === 'error')
     .map((entry) => [
       toFunctionSelector(`${entry.name}(${entry.inputs.map((input) => input.type).join(',')})`),
@@ -243,15 +263,19 @@ export async function readSystem(scope: ReadScope): Promise<ChainSnapshot> {
     functionName: 'timelockPeriod',
   });
 
-  const escrowSlots = {
-    feeBps: batch.add<number>('escrow.feeBps', { address: ADDRESSES.escrow, abi: escrowAbi as never, functionName: 'feeBps' }),
-    minTtl: batch.add<bigint>('escrow.minTtl', { address: ADDRESSES.escrow, abi: escrowAbi as never, functionName: 'minTtl' }),
-    maxTtl: batch.add<bigint>('escrow.maxTtl', { address: ADDRESSES.escrow, abi: escrowAbi as never, functionName: 'maxTtl' }),
-    disputeWindow: batch.add<bigint>('escrow.disputeWindow', { address: ADDRESSES.escrow, abi: escrowAbi as never, functionName: 'disputeWindow' }),
-    disputeBondBps: batch.add<number>('escrow.disputeBondBps', { address: ADDRESSES.escrow, abi: escrowAbi as never, functionName: 'disputeBondBps' }),
-    resolverFeeBps: batch.add<number>('escrow.resolverFeeBps', { address: ADDRESSES.escrow, abi: escrowAbi as never, functionName: 'resolverFeeBps' }),
-    treasury: batch.add<Address>('escrow.treasury', { address: ADDRESSES.escrow, abi: escrowAbi as never, functionName: 'treasury' }),
-  };
+  // Every live escrow on the chain, because the one that matters is the mandate's own and that is
+  // only known once this batch lands. A v1 mandate settles through the v1 escrow.
+  const escrowRead = (escrow: Address, functionName: string) => ({ address: escrow, abi: escrowAbi as never, functionName });
+  const escrowSlots = liveEscrows().map((escrow) => ({
+    address: escrow,
+    feeBps: batch.add<number>('escrow.feeBps', escrowRead(escrow, 'feeBps')),
+    minTtl: batch.add<bigint>('escrow.minTtl', escrowRead(escrow, 'minTtl')),
+    maxTtl: batch.add<bigint>('escrow.maxTtl', escrowRead(escrow, 'maxTtl')),
+    disputeWindow: batch.add<bigint>('escrow.disputeWindow', escrowRead(escrow, 'disputeWindow')),
+    disputeBondBps: batch.add<number>('escrow.disputeBondBps', escrowRead(escrow, 'disputeBondBps')),
+    resolverFeeBps: batch.add<number>('escrow.resolverFeeBps', escrowRead(escrow, 'resolverFeeBps')),
+    treasury: batch.add<Address>('escrow.treasury', escrowRead(escrow, 'treasury')),
+  }));
 
   const blockedSlots = new Map<string, Slot<boolean>>();
   const watchBlocked = (address: Address | undefined, label: string) => {
@@ -282,7 +306,11 @@ export async function readSystem(scope: ReadScope): Promise<ChainSnapshot> {
         paused: batch.add<boolean>('mandate.paused', account('paused')),
         revoked: batch.add<boolean>('mandate.revoked', account('revoked')),
         version: batch.add<bigint>('mandate.version', account('version')),
+        // `limits()` has one selector and two return shapes. The v2 decode fails on a v1 account's
+        // shorter answer, so whichever lands says which struct this is.
         limits: batch.add<RawLimits>('mandate.limits', account('limits')),
+        limitsV1: batch.add<RawLimitsV1>('mandate.limits.v1', { ...account('limits'), abi: mandateAccountAbiV1 as never }),
+        totalSpent: batch.add<bigint>('mandate.totalSpent', account('totalSpent')),
         remaining: batch.add<readonly [bigint, bigint, bigint]>('mandate.remaining', account('remaining')),
         daily: batch.add<RawWindow>('mandate.window.daily', account('window', [0])),
         monthly: batch.add<RawWindow>('mandate.window.monthly', account('window', [1])),
@@ -300,9 +328,21 @@ export async function readSystem(scope: ReadScope): Promise<ChainSnapshot> {
           merchantAllowed: scope.merchant ? batch.add<boolean>('mandate.merchants', account('merchants', [scope.merchant])) : undefined,
           merchantLeaf: scope.merchant ? batch.add<Hex>('mandate.merchantLeaf', account('merchantLeaf', [scope.merchant])) : undefined,
           capabilityAllowed: capabilityId ? batch.add<boolean>('mandate.capabilities', account('capabilities', [capabilityId])) : undefined,
+          // The two builds take different arguments, so the selector differs and only the one the
+          // account has answers.
           preview:
             scope.merchant && capabilityId && scope.amount !== undefined
-              ? batch.add<readonly [boolean, Hex]>('mandate.previewSpend', account('previewSpend', [scope.merchant, capabilityId, scope.amount]))
+              ? batch.add<readonly [boolean, Hex]>(
+                  'mandate.previewSpend',
+                  account('previewSpend', [scope.merchant, capabilityId, scope.amount, previewClass(scope.capability)]),
+                )
+              : undefined,
+          previewV1:
+            scope.merchant && capabilityId && scope.amount !== undefined
+              ? batch.add<readonly [boolean, Hex]>('mandate.previewSpend.v1', {
+                  ...account('previewSpend', [scope.merchant, capabilityId, scope.amount]),
+                  abi: mandateAccountAbiV1 as never,
+                })
               : undefined,
         }
       : undefined;
@@ -335,6 +375,10 @@ export async function readSystem(scope: ReadScope): Promise<ChainSnapshot> {
     : undefined;
 
   const results = await runBatch(client, batch);
+  const mandate = mandateSlots ? decodeMandate(scope.mandate as Address, mandateSlots, results) : undefined;
+  const escrowSlot =
+    escrowSlots.find((slot) => sameAddress(slot.address, mandate?.escrow)) ??
+    (escrowSlots[0] as (typeof escrowSlots)[number]);
 
   // Multicall3 answers the block number out of its own storage, so that slot can only be empty if
   // the aggregate call never landed. viem folds a transport failure into a failure on every slot,
@@ -359,7 +403,7 @@ export async function readSystem(scope: ReadScope): Promise<ChainSnapshot> {
     readAt: new Date(),
     calls: batch.size,
     failures: results.failures,
-    mandate: mandateSlots ? decodeMandate(scope.mandate as Address, mandateSlots, results) : undefined,
+    mandate,
     asset: {
       token: settlementAsset,
       symbol: results.get(assetSymbol),
@@ -378,7 +422,7 @@ export async function readSystem(scope: ReadScope): Promise<ChainSnapshot> {
           capability: scope.capability,
           capabilityId,
           capabilityAllowed: results.get(permissionSlots.capabilityAllowed),
-          preview: decodePreview(results.get(permissionSlots.preview)),
+          preview: decodePreview(results.get(permissionSlots.preview) ?? results.get(permissionSlots.previewV1)),
         }
       : undefined,
     funding: {
@@ -402,14 +446,14 @@ export async function readSystem(scope: ReadScope): Promise<ChainSnapshot> {
         }
       : undefined,
     escrow: {
-      address: ADDRESSES.escrow,
-      feeBps: results.get(escrowSlots.feeBps),
-      minTtl: results.get(escrowSlots.minTtl),
-      maxTtl: results.get(escrowSlots.maxTtl),
-      disputeWindow: results.get(escrowSlots.disputeWindow),
-      disputeBondBps: results.get(escrowSlots.disputeBondBps),
-      resolverFeeBps: results.get(escrowSlots.resolverFeeBps),
-      treasury: results.get(escrowSlots.treasury),
+      address: escrowSlot.address,
+      feeBps: results.get(escrowSlot.feeBps),
+      minTtl: results.get(escrowSlot.minTtl),
+      maxTtl: results.get(escrowSlot.maxTtl),
+      disputeWindow: results.get(escrowSlot.disputeWindow),
+      disputeBondBps: results.get(escrowSlot.disputeBondBps),
+      resolverFeeBps: results.get(escrowSlot.resolverFeeBps),
+      treasury: results.get(escrowSlot.treasury),
     },
     governance: {
       timelock: ADDRESSES.adminTimelock,
@@ -428,6 +472,8 @@ type MandateSlots = {
   readonly revoked: Slot<boolean>;
   readonly version: Slot<bigint>;
   readonly limits: Slot<RawLimits>;
+  readonly limitsV1: Slot<RawLimitsV1>;
+  readonly totalSpent: Slot<bigint>;
   readonly remaining: Slot<readonly [bigint, bigint, bigint]>;
   readonly daily: Slot<RawWindow>;
   readonly monthly: Slot<RawWindow>;
@@ -439,7 +485,12 @@ type MandateSlots = {
 };
 
 function decodeMandate(address: Address, slots: MandateSlots, results: BatchResults): MandateRead | undefined {
-  const limits = results.get(slots.limits);
+  const escrow = results.get(slots.escrow) ?? ADDRESSES.escrow;
+  const native = results.get(slots.limits);
+  const legacy = results.get(slots.limitsV1);
+  const contractSet: ContractSet = contractSetOfEscrow(escrow) ?? (native === undefined && legacy !== undefined ? 'v1' : 'v2');
+  const limits: RawLimits | undefined =
+    contractSet === 'v2' ? native : legacy === undefined ? undefined : { ...legacy, classMask: 0, totalCap: 0n, lane: 0 };
   const remaining = results.get(slots.remaining);
   const daily = results.get(slots.daily);
   const monthly = results.get(slots.monthly);
@@ -454,10 +505,12 @@ function decodeMandate(address: Address, slots: MandateSlots, results: BatchResu
 
   return {
     address,
+    contractSet,
+    totalSpent: contractSet === 'v2' ? asMicro(results.get(slots.totalSpent)) : undefined,
     principal,
     pendingPrincipal: results.get(slots.pendingPrincipal) ?? ('0x' as Address),
     agent: results.get(slots.agent) ?? ('0x' as Address),
-    escrow: results.get(slots.escrow) ?? ADDRESSES.escrow,
+    escrow,
     settlementAsset: results.get(slots.settlementAsset) ?? ADDRESSES.usdg,
     paused: results.get(slots.paused) ?? false,
     revoked: results.get(slots.revoked) ?? false,
@@ -471,6 +524,9 @@ function decodeMandate(address: Address, slots: MandateSlots, results: BatchResu
       approvalThreshold: micro(limits.approvalThreshold),
       validFrom: limits.validFrom,
       validUntil: limits.validUntil,
+      classMask: Number(limits.classMask),
+      totalCap: micro(limits.totalCap),
+      lane: Number(limits.lane),
     },
     remaining: {
       perCall: micro(remaining[0]),
@@ -487,6 +543,18 @@ function decodeMandate(address: Address, slots: MandateSlots, results: BatchResu
     nonce: results.get(slots.nonce) ?? 0n,
     balance: asMicro(results.get(slots.balance)) ?? micro(0n),
   };
+}
+
+/** Every escrow a live record on this chain names, the chain's default first. */
+function liveEscrows(): readonly Address[] {
+  const escrows = deploymentsForChain(CHAIN_ID).map((d) => d.contracts.Escrow);
+  return escrows.length > 0 ? escrows : [ADDRESSES.escrow];
+}
+
+/** The spend class a preview is asked under: the label's namespace, or services when it has none. */
+function previewClass(capability: string | undefined): number {
+  const spendClass = capability === undefined ? undefined : classOfLabel(capability.trim());
+  return SPEND_CLASS_BIT[spendClass ?? 'service'];
 }
 
 function decodeWindow(kind: 0 | 1, raw: RawWindow): SpendWindow {

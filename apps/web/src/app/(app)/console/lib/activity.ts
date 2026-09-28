@@ -3,7 +3,7 @@ import type { Micro } from '@bursar/core';
 import { decodeEventLog, decodeFunctionData } from 'viem';
 import type { Abi, Address, Hex } from 'viem';
 
-import { escrowAbi, mandateAccountAbi } from '@/chain/abi';
+import { escrowAbi, mandateAccountAbi, mandateAccountAbiV1 } from '@/chain/abi';
 import type { IndexedLog, IndexedTransaction } from './explorer';
 
 /**
@@ -52,13 +52,24 @@ export type LockEvents = {
   readonly disputed: (EventBase & { readonly opener: Address }) | undefined;
   readonly resolved: (EventBase & { readonly refundBps: number; readonly refunded: Micro; readonly paid: Micro }) | undefined;
   readonly cancelled: EventBase | undefined;
+  /** A v2 dispute that closed without a ruling put the payment back in escrow, with a new deadline. */
+  readonly reopened: (EventBase & { readonly deadline: Date }) | undefined;
 };
+
+/**
+ * The account's events across both builds. They share every event but `LimitsUpdated`, whose
+ * struct grew three fields in v2 and so hashes to a different topic.
+ */
+const MANDATE_EVENTS = [
+  ...mandateAccountAbi,
+  ...mandateAccountAbiV1.filter((entry) => entry.type === 'event' && entry.name === 'LimitsUpdated'),
+] as Abi;
 
 export function decodeMandateEvents(logs: readonly IndexedLog[]): readonly MandateEvent[] {
   const events: MandateEvent[] = [];
 
   for (const log of logs) {
-    const entry = decode(mandateAccountAbi as Abi, log);
+    const entry = decode(MANDATE_EVENTS, log);
     if (!entry) continue;
     const base: EventBase = { at: log.at, transactionHash: log.transactionHash, blockNumber: log.blockNumber, logIndex: log.logIndex };
     const args = entry.args;
@@ -160,6 +171,7 @@ export function approvedCapabilities(transactions: readonly IndexedTransaction[]
 
     let decoded: { functionName: string; args?: readonly unknown[] };
     try {
+      // approveSpend has the same selector on both builds.
       decoded = decodeFunctionData({ abi: mandateAccountAbi, data: transaction.input });
     } catch {
       continue;
@@ -197,6 +209,7 @@ export function decodeLockEvents(logs: readonly IndexedLog[]): ReadonlyMap<strin
       disputed: undefined,
       resolved: undefined,
       cancelled: undefined,
+      reopened: undefined,
     };
     byId.set(key, fresh);
     return fresh;
@@ -231,6 +244,9 @@ export function decodeLockEvents(logs: readonly IndexedLog[]): ReadonlyMap<strin
         break;
       case 'Cancelled':
         record.cancelled = base;
+        break;
+      case 'DisputeReopened':
+        record.reopened = { ...base, deadline: new Date(Number(big(args.deadline)) * 1000) };
         break;
       default:
         break;

@@ -1,9 +1,12 @@
 import {
+  type ContractSet,
   type Micro,
   type RhcPublicClient,
   agentRegistryAbi,
+  contractSetOfEscrow,
   escrowAbi,
   mandateAccountAbi,
+  mandateAccountAbiV1,
   micro,
   reputationAbi,
   settlementAssetAbi,
@@ -31,6 +34,12 @@ export type ChainLimits = {
   readonly approvalThresholdMicros: Micro;
   readonly validFrom: bigint;
   readonly validUntil: bigint;
+  /** v2 only: the classes the mandate allows, one bit per class (0 service, 1 hire, 2 rwa). */
+  readonly classMask?: number;
+  /** v2 only: the lifetime total, zero for none. */
+  readonly totalCapMicros?: Micro;
+  /** v2 only: the settlement lane (0 escrow, 1 treasury, 2 collateral). */
+  readonly lane?: number;
 };
 
 export type ChainMerchantGate = { readonly kind: 'allowlist' } | { readonly kind: 'merkleRoot'; readonly root: Hex32 };
@@ -45,6 +54,8 @@ export type AccountState = {
   readonly agent: Address;
   readonly settlementAsset: Address;
   readonly escrow: Address;
+  /** Which contract build the account runs, known from its escrow. Absent reads as v2. */
+  readonly contractSet?: ContractSet;
   readonly paused: boolean;
   readonly revoked: boolean;
   readonly version: bigint;
@@ -118,6 +129,8 @@ export type SpendCall = {
   readonly amountMicros: Micro;
   readonly deadline: bigint;
   readonly merchantProof: readonly Hex32[];
+  /** v2 only: 0 service, 1 hire. Checked against the mandate's class mask. */
+  readonly spendClass?: number;
   readonly blockNumber?: bigint;
 };
 
@@ -159,6 +172,7 @@ export type MandateChain = {
     capabilityId: Hex32,
     amountMicros: Micro,
     blockNumber?: bigint,
+    spendClass?: number,
   ): Promise<PreviewResult>;
   readEscrowTerms(escrow: Address, blockNumber?: bigint): Promise<EscrowTerms>;
   /**
@@ -335,6 +349,22 @@ export function createMandateChain(client: RhcPublicClient): MandateChain {
     }
   };
 
+  // An account's escrow is immutable, so which build it runs is read once. An escrow no record
+  // names is taken as the current build.
+  const sets = new Map<string, ContractSet>();
+  const contractSet = async (account: Address): Promise<ContractSet> => {
+    const known = sets.get(account.toLowerCase());
+    if (known !== undefined) return known;
+    const escrow = (await client.readContract({
+      address: account,
+      abi: mandateAccountAbi,
+      functionName: 'escrow',
+    })) as Address;
+    const set = contractSetOfEscrow(escrow) ?? 'v2';
+    sets.set(account.toLowerCase(), set);
+    return set;
+  };
+
   /** Spread into every read, so one decision's reads cannot straddle two heights. */
   const at = (blockNumber: bigint | undefined): { blockNumber?: bigint } =>
     blockNumber === undefined ? {} : { blockNumber };
@@ -401,6 +431,9 @@ export function createMandateChain(client: RhcPublicClient): MandateChain {
           approvalThreshold: bigint;
           validFrom: bigint;
           validUntil: bigint;
+          classMask?: number;
+          totalCap?: bigint;
+          lane?: number;
         },
         { cap: bigint; spent: bigint; duration: bigint; start: bigint; epoch: bigint },
         { cap: bigint; spent: bigint; duration: bigint; start: bigint; epoch: bigint },
@@ -408,6 +441,9 @@ export function createMandateChain(client: RhcPublicClient): MandateChain {
         number,
         Hex32,
       ];
+
+      const set = contractSetOfEscrow(escrow) ?? 'v2';
+      sets.set(account.toLowerCase(), set);
 
       const balance = (await client.readContract({
         address: settlementAsset,
@@ -423,6 +459,7 @@ export function createMandateChain(client: RhcPublicClient): MandateChain {
         agent,
         settlementAsset,
         escrow,
+        contractSet: set,
         paused,
         revoked,
         version,
@@ -437,6 +474,9 @@ export function createMandateChain(client: RhcPublicClient): MandateChain {
           approvalThresholdMicros: micro(limits.approvalThreshold),
           validFrom: limits.validFrom,
           validUntil: limits.validUntil,
+          ...(limits.classMask === undefined ? {} : { classMask: Number(limits.classMask) }),
+          ...(limits.totalCap === undefined ? {} : { totalCapMicros: micro(limits.totalCap) }),
+          ...(limits.lane === undefined ? {} : { lane: Number(limits.lane) }),
         },
         daily: toWindow(daily),
         monthly: toWindow(monthly),
@@ -453,15 +493,25 @@ export function createMandateChain(client: RhcPublicClient): MandateChain {
   return {
     readAccount,
 
-    previewSpend: async (account, merchant, capabilityId, amountMicros, blockNumber) =>
+    previewSpend: async (account, merchant, capabilityId, amountMicros, blockNumber, spendClass = 0) =>
       read(async () => {
-        const [allowed, selector] = (await client.readContract({
-          address: account,
-          abi: mandateAccountAbi,
-          functionName: 'previewSpend',
-          args: [merchant, capabilityId, amountMicros],
-          ...at(blockNumber),
-        })) as readonly [boolean, Selector];
+        const [allowed, selector] = (
+          (await contractSet(account)) === 'v1'
+            ? await client.readContract({
+                address: account,
+                abi: mandateAccountAbiV1,
+                functionName: 'previewSpend',
+                args: [merchant, capabilityId, amountMicros],
+                ...at(blockNumber),
+              })
+            : await client.readContract({
+                address: account,
+                abi: mandateAccountAbi,
+                functionName: 'previewSpend',
+                args: [merchant, capabilityId, amountMicros, spendClass],
+                ...at(blockNumber),
+              })
+        ) as readonly [boolean, Selector];
         return { allowed, selector: (allowed ? ZERO_SELECTOR : selector.toLowerCase()) as Selector };
       }, `previewSpend on ${account}`, account),
 
@@ -622,23 +672,24 @@ export function createMandateChain(client: RhcPublicClient): MandateChain {
       ),
 
     simulateSpend: async (call) => {
-      const data = encodeFunctionData({
-        abi: mandateAccountAbi,
-        functionName: 'spend',
-        args: [
-          {
-            merchant: call.merchant,
-            capabilityId: call.capabilityId,
-            inputCommit: call.inputCommit,
-            inputURI: call.inputURI,
-            amount: call.amountMicros,
-            deadline: call.deadline,
-          },
-          call.merchantProof,
-        ],
-      });
+      const request = {
+        merchant: call.merchant,
+        capabilityId: call.capabilityId,
+        inputCommit: call.inputCommit,
+        inputURI: call.inputURI,
+        amount: call.amountMicros,
+        deadline: call.deadline,
+      };
 
       try {
+        const data =
+          (await contractSet(call.account)) === 'v1'
+            ? encodeFunctionData({ abi: mandateAccountAbiV1, functionName: 'spend', args: [request, call.merchantProof] })
+            : encodeFunctionData({
+                abi: mandateAccountAbi,
+                functionName: 'spend',
+                args: [{ ...request, spendClass: call.spendClass ?? 0 }, call.merchantProof],
+              });
         await client.call({ account: call.agent, to: call.account, data, ...at(call.blockNumber) });
         return { ok: true };
       } catch (error) {

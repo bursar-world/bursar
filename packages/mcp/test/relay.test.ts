@@ -14,6 +14,8 @@ const REQUEST: RelaySpendRequest = {
   deadline: '1800000300',
   merchantProof: [],
   approval: null,
+  spendClass: 0,
+  contractSet: 'v2',
 };
 
 type Call = { url: string; init: RequestInit };

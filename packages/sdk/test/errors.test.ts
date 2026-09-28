@@ -30,6 +30,9 @@ const SNAPSHOT: MandateSnapshot = {
     approvalThreshold: micro(25_000_000n),
     validFrom: 1_700_000_000n,
     validUntil: 1_800_000_000n,
+    classMask: 0b011,
+    totalCap: micro(0n),
+    lane: 0,
   },
   remaining: {
     perCall: micro(1_000_000n),

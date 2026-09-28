@@ -137,7 +137,7 @@ the mandate's writes and leaves the resolver's and the provider's off, because i
 | `BURSAR_RESOLVER_ACCOUNT` | one role required | The address this server votes as. It has to be the address the signer holds: it sits inside every commitment a resolver seals, and a mismatch writes commitments nobody can reveal. |
 | `BURSAR_PROVIDER_ACCOUNT` | one role required | The address this server is listed under in the provider registry. |
 | `BURSAR_ORACLE_REGISTRY`, `BURSAR_AGENT_REGISTRY`, `BURSAR_REPUTATION` | no | Override the contracts the two roles read. They default to the committed deployment for the chain. |
-| `MANDATE_ESCROW` | no | Leave it unset on 4663: it defaults to the escrow in the committed deployment. Name one only for an escrow this package has not recorded, such as a local fork. A value that is not the escrow the mandate settles through stops the server at startup. |
+| `MANDATE_ESCROW` | no | Leave it unset on 4663: the server then accepts a mandate on the current escrow or on the previous set's, and reads each through its own ABI. Name one only for an escrow this package has not recorded, such as a local fork. A value that is not the escrow the mandate settles through stops the server at startup. |
 | `BURSAR_SETTLEMENT_ASSET` | no | Defaults to USDG at `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168`, six decimals. |
 | `BURSAR_SIGNER` | for spending in this process | `local` signs here with `BURSAR_SIGNER_KEY`. Anything else, or unset, signs through `BURSAR_RELAY_URL` or not at all. |
 | `BURSAR_SIGNER_KEY` | with `BURSAR_SIGNER=local` | The 32-byte key this server signs the mandate's transactions with. It never leaves the process and is scrubbed from everything it prints. Refused unless `BURSAR_SIGNER=local` says to hold it. |
@@ -208,10 +208,18 @@ POST {BURSAR_RELAY_URL}/v1/spends
   "amount":         "1000000",
   "deadline":       "1800000300",
   "merchantProof":  [],
-  "approval":       null
+  "approval":       null,
+  "spendClass":     0,
+  "contractSet":    "v2"
 }
 → 200 { "escrowId": "42", "txHash": "0x…" }
+```
 
+`spendClass` is 0 for a service payment and 1 for a hire. A v2 mandate checks it against the classes
+its principal allows. `contractSet` says which account ABI to encode against: a v1 mandate takes the
+spend request without `spendClass`.
+
+```
 POST {BURSAR_RELAY_URL}/v1/spends/{escrowId}/dispute
 { "mandateAccount": "0x…" }
 → 200 { "txHash": "0x…" }

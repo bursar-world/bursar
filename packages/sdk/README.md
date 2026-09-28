@@ -58,7 +58,7 @@ import { connect } from '@bursar/sdk';
 
 const connection = connect();
 
-connection.addresses.escrow;           // 0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4
+connection.addresses.escrow;           // 0x4315F8be7C9661345710910577Ec31cb867f3c20
 connection.addresses.settlementAsset;  // 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168
 ```
 
@@ -100,7 +100,7 @@ The mandate below is live on Robinhood Chain. Run this as `read.mjs` after insta
 ```js
 import { formatUsdg, mandateAccount, usdg } from '@bursar/sdk';
 
-const mandate = await mandateAccount('0xB4Bd99d8604fDB876fA1B38a3f8bA024D20ccD0b');
+const mandate = await mandateAccount('0x420BeB507F72173E7d78e0f956968f64fb508356');
 const status = await mandate.status();
 
 console.log('balance   ', formatUsdg(status.balance));
@@ -118,11 +118,11 @@ console.log('preview   ', decision.allowed ? 'allowed' : decision.message);
 ```
 
 ```
-balance    0.6995 USDG
+balance    0.20 USDG
 per call   0.10 USDG
 daily left 0.50 USDG of 0.50 USDG
 state      active
-preview    Mandate 0xB4Bd99d8604fDB876fA1B38a3f8bA024D20ccD0b refused a 0.05 USDG payment to
+preview    Mandate 0x420BeB507F72173E7d78e0f956968f64fb508356 refused a 0.05 USDG payment to
 0x000000000000000000000000000000000000dEaD: gpu.render:1 is not on its capability allowlist.
 ```
 

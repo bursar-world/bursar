@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { TOTAL_BUDGET_MIN_SECONDS, micro } from '@bursar/core';
 
 import { EMPTY_DRAFT, NEVER_REFILLS, draftFromLimits, isTotalDraft, problemFor, readDraft } from '@/app/(app)/console/limits-form';
-import { DAY_SECONDS, MONTH_SECONDS } from '@/chain/limits';
+import { DAY_SECONDS, MONTH_SECONDS, showsSecondCap, totalBudgetOf } from '@/chain/limits';
 import type { LimitsDraft } from '@/app/(app)/console/limits-form';
 
 /**
@@ -113,6 +113,9 @@ describe('the total budget is the second window, set never to roll', () => {
       approvalThreshold: micro(1n),
       validFrom: 0n,
       validUntil: 0n,
+      classMask: 0,
+      totalCap: micro(0n),
+      lane: 0,
     };
     expect(draftFromLimits({ ...limits, monthlyWindow: BigInt(TOTAL_BUDGET_MIN_SECONDS) }).longWindow).toBe(NEVER_REFILLS);
     expect(isTotalDraft(draftFromLimits({ ...limits, monthlyWindow: BigInt(TOTAL_BUDGET_MIN_SECONDS) }))).toBe(true);
@@ -122,5 +125,87 @@ describe('the total budget is the second window, set never to roll', () => {
   it('keeps a rolling second cap rolling when one is chosen', () => {
     const reading = readDraft({ ...EMPTY_DRAFT, perCall: '1', daily: '2', monthly: '3', longWindow: MONTH_SECONDS, approvalAmount: '1' });
     expect(reading.limits?.monthlyWindow).toBe(MONTH_SECONDS);
+  });
+});
+
+describe('a draft written to a v2 account', () => {
+  const target = { contractSet: 'v2' as const, classMask: 0b011 };
+
+  it('puts the total budget in totalCap and leaves the second window as a copy of the first', () => {
+    const reading = readDraft({ ...EMPTY_DRAFT, perCall: '0.50', daily: '0.50', monthly: '1.00', approvalAmount: '1' }, Date.now(), target);
+    expect(reading.problems).toEqual([]);
+    expect(reading.limits?.totalCap).toBe(1_000_000n);
+    expect(reading.limits?.classMask).toBe(0b011);
+    expect(reading.limits?.monthlyWindow).toBe(DAY_SECONDS);
+    expect(reading.limits?.monthlyCap).toBe(500_000n);
+  });
+
+  it('writes no total for a rolling second cap', () => {
+    const reading = readDraft({ ...EMPTY_DRAFT, perCall: '1', daily: '2', monthly: '3', longWindow: MONTH_SECONDS, approvalAmount: '1' }, Date.now(), target);
+    expect(reading.limits?.totalCap).toBe(0n);
+    expect(reading.limits?.monthlyWindow).toBe(MONTH_SECONDS);
+  });
+
+  it('refuses a mandate that allows no spend class', () => {
+    const reading = readDraft({ ...EMPTY_DRAFT, perCall: '1', daily: '2', monthly: '3', approvalAmount: '1' }, Date.now(), { ...target, classMask: 0 });
+    expect(problemFor(reading.problems, 'classMask')).toMatch(/at least one spend class/);
+  });
+
+  it('reads a native total back into the total field', () => {
+    const draft = draftFromLimits(
+      {
+        perCallCap: micro(1n),
+        dailyCap: micro(2n),
+        monthlyCap: micro(2n),
+        dailyWindow: BigInt(DAY_SECONDS),
+        monthlyWindow: BigInt(DAY_SECONDS),
+        approvalThreshold: micro(1n),
+        validFrom: 0n,
+        validUntil: 0n,
+        classMask: 0b011,
+        totalCap: micro(9_000_000n),
+        lane: 0,
+      },
+      'v2',
+    );
+    expect(isTotalDraft(draft)).toBe(true);
+    expect(draft.monthly).toBe('9');
+  });
+});
+
+describe('where the total budget lives', () => {
+  const window_ = (kind: 0 | 1, cap: bigint, spent: bigint, duration: bigint) => ({
+    kind,
+    cap: micro(cap),
+    spent: micro(spent),
+    remaining: micro(cap - spent),
+    duration,
+    startsAt: new Date(0),
+    resetsAt: new Date(0),
+    epoch: 0n,
+  });
+
+  it('reads a v2 total from totalCap and hides the mirrored second window', () => {
+    const account = {
+      contractSet: 'v2' as const,
+      limits: { totalCap: micro(1_000_000n) },
+      totalSpent: micro(250_000n),
+      daily: window_(0, 500_000n, 0n, BigInt(DAY_SECONDS)),
+      monthly: window_(1, 500_000n, 0n, BigInt(DAY_SECONDS)),
+    };
+    expect(totalBudgetOf(account)).toEqual({ cap: 1_000_000n, spent: 250_000n, remaining: 750_000n });
+    expect(showsSecondCap(account)).toBe(false);
+  });
+
+  it('reads a v1 total from a second window that never rolls', () => {
+    const account = {
+      contractSet: 'v1' as const,
+      limits: { totalCap: micro(0n) },
+      totalSpent: undefined,
+      daily: window_(0, 500_000n, 0n, BigInt(DAY_SECONDS)),
+      monthly: window_(1, 1_000_000n, 100_000n, BigInt(TOTAL_BUDGET_MIN_SECONDS)),
+    };
+    expect(totalBudgetOf(account)?.remaining).toBe(900_000n);
+    expect(showsSecondCap(account)).toBe(false);
   });
 });

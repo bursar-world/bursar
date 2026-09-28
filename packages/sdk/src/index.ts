@@ -88,8 +88,10 @@ export {
   MANDATE_ACCOUNT_DOMAIN_NAME,
   MANDATE_ACCOUNT_DOMAIN_VERSION,
   SET_LIMITS_TYPES,
+  SET_LIMITS_TYPES_V1,
   SPEND_APPROVAL_TYPES,
   assertMandateDomain,
+  limitsV1,
   mandateDomain,
   signLimitsAuthorization,
   signSpendApproval,
@@ -109,6 +111,7 @@ export type {
   SignedApproval,
   SpendApproval,
   SpendWindow,
+  TotalSpend,
 } from './types.js';
 
 export {

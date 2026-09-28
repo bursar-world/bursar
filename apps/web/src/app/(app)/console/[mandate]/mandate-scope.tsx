@@ -6,7 +6,7 @@ import type { ReactNode } from 'react';
 import type { Address } from 'viem';
 import type { Micro } from '@bursar/core';
 
-import { isBursarMandate } from '@/chain/mandates';
+import { mandateCodeVersion } from '@/chain/mandates';
 import { sameAddress } from '@/chain/rhc';
 import type { MandateRead } from '@/chain/reader';
 import type { TxContext } from '@/components/tx-button';
@@ -89,15 +89,15 @@ export function MandateScopeProvider({ address, children }: { readonly address: 
   const { address: connected } = useWalletAccount();
   const [proposed, propose] = useState<Proposed>(EMPTY);
   const system = useSystemState({ mandate: address, ...proposed });
-  const ledger = useMandateLedger(address, connected);
   const read = system.mandate.facts.account;
+  const ledger = useMandateLedger(address, connected, read !== undefined && sameAddress(read.address, address) ? read.escrow : undefined);
   const principal = read !== undefined && sameAddress(read.address, address) ? read.principal : undefined;
 
   // Code at an address does not change, so one answer per address holds for the life of the page.
   // It waits for the account read so an address that is not a mandate at all takes the absent path.
   const provenance = useQuery({
     queryKey: ['console', 'provenance', address],
-    queryFn: () => isBursarMandate(address),
+    queryFn: async () => (await mandateCodeVersion(address)) !== undefined,
     enabled: principal !== undefined,
     staleTime: Infinity,
   });

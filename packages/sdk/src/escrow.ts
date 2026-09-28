@@ -240,10 +240,16 @@ export class EscrowClient {
   }
 }
 
-/** Opens a client for the escrow, reading the terms that bound every lock it holds. */
-export async function escrow(options: Connection | ConnectOptions = {}): Promise<EscrowClient> {
+/**
+ * Opens a client for an escrow, reading the terms that bound every lock it holds. The connection's
+ * escrow unless another is named: the v1 escrow on 4663 still holds locks that have to be read.
+ */
+export async function escrow(
+  options: Connection | ConnectOptions = {},
+  at?: Address,
+): Promise<EscrowClient> {
   const connection = connectFor(options, 'escrow()');
-  const address = connection.addresses.escrow;
+  const address = at ?? connection.addresses.escrow;
   const read = getContract({ address, abi: escrowAbi, client: connection.publicClient }).read;
 
   const [

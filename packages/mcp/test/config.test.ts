@@ -1,4 +1,4 @@
-import { RHC_MAINNET, RHC_TESTNET, isBursarError } from '@bursar/core';
+import { RHC_MAINNET, RHC_TESTNET, deployment, isBursarError } from '@bursar/core';
 import { describe, expect, it } from 'vitest';
 
 import { loadConfig, secretsOf } from '../src/config.js';
@@ -162,6 +162,16 @@ describe('configuration', () => {
 
   it('rejects an account that is not an address', () => {
     expect(codeOf(() => loadConfig({ ...ENV, MANDATE_ACCOUNT: '0x1234' }))).toBe('env_invalid');
+  });
+
+  it('accepts mandates on every live escrow on the chain unless one is pinned', () => {
+    const escrows = loadConfig({ ...ENV, MANDATE_ESCROW: undefined }).escrows;
+
+    expect(escrows).toEqual([
+      deployment('rhc-mainnet-v2').contracts.Escrow,
+      deployment('rhc-mainnet').contracts.Escrow,
+    ]);
+    expect(loadConfig({ ...ENV, MANDATE_ESCROW: ACCOUNT }).escrows).toEqual([ACCOUNT]);
   });
 
   it('asks for the escrow by name on a chain with no recorded deployment', () => {

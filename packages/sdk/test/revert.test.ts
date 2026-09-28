@@ -274,6 +274,7 @@ const SPEND = encodeFunctionData({
       inputURI: '',
       amount: 1_500_000n,
       deadline: 1_800_000_340n,
+      spendClass: 0,
     },
     [],
   ],

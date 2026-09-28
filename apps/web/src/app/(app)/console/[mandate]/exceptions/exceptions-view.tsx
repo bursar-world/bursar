@@ -1,6 +1,7 @@
 'use client';
 
 import { isTotalBudgetWindow, mulBps } from '@bursar/core';
+import type { ContractSet } from '@bursar/core';
 import type { Micro } from '@bursar/core';
 import { LockStatus } from '@bursar/sdk';
 
@@ -36,7 +37,10 @@ export function ExceptionsView() {
   const { address, account, system, ledger, isOwner, writeContext, refresh } = useMandateScope();
   const { labelFor } = useCapabilityLabels();
   const { writeContractAsync } = useWriteContract();
-  const feed = useRefusals(address, { totalBudget: account !== undefined && isTotalBudgetWindow(account.monthly.duration) });
+  // Only a v1 total budget comes back as MonthlyCapExceeded. A v2 total has its own error.
+  const feed = useRefusals(address, {
+    totalBudget: account !== undefined && account.contractSet === 'v1' && isTotalBudgetWindow(account.monthly.duration),
+  });
 
   const disputeWindow = system.snapshot?.escrow.disputeWindow;
   const bondBps = system.snapshot?.escrow.disputeBondBps;
@@ -216,7 +220,8 @@ export function ExceptionsView() {
                         context={{ ...writeContext, merchant: lock.payee, amount: lock.amount }}
                         send={() =>
                           writeContractAsync({
-                            address: ADDRESSES.escrow,
+                            // The mandate's own escrow: a v1 mandate's payments sit in the v1 one.
+                            address: account?.escrow ?? ADDRESSES.escrow,
                             abi: escrowAbi,
                             functionName: 'timeout',
                             args: [lock.id],
@@ -315,7 +320,7 @@ export function ExceptionsView() {
                             <>
                               The escrow still holds it. The provider has until <Countdown to={lock.deadline} /> to
                               deliver, and a bond of {bond === undefined ? 'the escrow’s rate' : usdExact(bond)} is posted
-                              from this mandate when you contest. {feeWarning(lock.amount, resolverFeeBps)}
+                              from this mandate when you contest. {feeWarning(lock.amount, resolverFeeBps, account.contractSet)}
                             </>
                           ) : (
                             <>
@@ -345,6 +350,7 @@ export function ExceptionsView() {
                             ? `A bond is posted from this mandate and a resolver decides how the locked amount is split. ${feeWarning(
                                 lock.amount,
                                 resolverFeeBps,
+                                account.contractSet,
                               )}`
                             : 'The complaint is recorded against the provider. The payment itself is not reversed.'
                         }
@@ -387,11 +393,20 @@ function refusalLine(error: unknown): string {
  * What contesting costs on top of the bond.
  *
  * `Escrow._split` takes the resolver fee off the lock before it applies the refund, so the best
- * outcome a payer can get out of a dispute is the payment less that fee. `failDispute` charges it
- * on a panel that never reached a quorum as well, where it reaches no resolver at all and ends up
- * in `unallocatedRewards` with nothing that returns it here.
+ * outcome a payer can get out of a dispute is the payment less that fee. On v1, `failDispute`
+ * charges it on a panel that never reached a quorum as well, where it reaches no resolver at all
+ * and ends up in `unallocatedRewards` with nothing that returns it here. On v2 a panel that does
+ * not rule takes no fee: the payment goes back into escrow and the bond comes back.
  */
-function feeWarning(amount: Micro, resolverFeeBps: number | undefined): string {
+function feeWarning(amount: Micro, resolverFeeBps: number | undefined, contractSet: ContractSet): string {
+  if (contractSet === 'v2') {
+    const fee =
+      resolverFeeBps === undefined
+        ? 'a resolver fee'
+        : `a ${resolverFeeBps / 100}% resolver fee, ${usdExact(mulBps(amount, resolverFeeBps))},`;
+    return `When the panel rules, the escrow takes ${fee} off the payment before it works out any refund. If no ruling is reached, the payment goes back into escrow with a new deadline, no fee is taken and the bond is returned. A payment can be contested once.`;
+  }
+
   if (resolverFeeBps === undefined) {
     return 'The escrow also takes a resolver fee off the payment before it works out any refund, which is charged even where no resolver rules. What that fee is could not be read.';
   }

@@ -36,11 +36,23 @@ export type WatcherOptions = {
   readonly now?: () => number;
 };
 
+/** One registry this process votes on, as far as the log scan has read it. */
+export type ServedHealth = {
+  readonly name: string;
+  readonly contractSet: Served['contractSet'];
+  readonly registry: Served['registry'];
+  readonly escrow: Served['escrow'];
+  /** The last block the `DisputeOpened` scan covered. Null until the first scan finishes. */
+  readonly lastScannedBlock: bigint | null;
+  readonly open: number;
+};
+
 export type Health = {
   readonly lastPollAt: number | null;
   readonly lastError: string | null;
   readonly consecutiveFailures: number;
   readonly open: number;
+  readonly served: readonly ServedHealth[];
 };
 
 export type Watcher = {
@@ -68,6 +80,7 @@ export function createWatcher(options: WatcherOptions): Watcher {
   let lastError: string | null = null;
   let consecutiveFailures = 0;
   let nextHeartbeat = 0;
+  const scanned = new Map<string, bigint>();
 
   const key = (entry: Served, disputeId: bigint): string => `${entry.registry}:${disputeId}`;
 
@@ -86,6 +99,7 @@ export function createWatcher(options: WatcherOptions): Watcher {
       from = to + 1n;
       await journal.setCursor(entry.registry, from);
     }
+    if (from > 0n) scanned.set(entry.registry, from - 1n);
   }
 
   async function reconcile(entry: Served): Promise<void> {
@@ -194,7 +208,20 @@ export function createWatcher(options: WatcherOptions): Watcher {
     },
     run,
     heartbeat,
-    health: () => ({ lastPollAt, lastError, consecutiveFailures, open: tracked.size }),
+    health: () => ({
+      lastPollAt,
+      lastError,
+      consecutiveFailures,
+      open: tracked.size,
+      served: served.map((entry) => ({
+        name: entry.name,
+        contractSet: entry.contractSet,
+        registry: entry.registry,
+        escrow: entry.escrow,
+        lastScannedBlock: scanned.get(entry.registry) ?? null,
+        open: [...tracked.values()].filter((item) => item.served.registry === entry.registry).length,
+      })),
+    }),
   };
 }
 

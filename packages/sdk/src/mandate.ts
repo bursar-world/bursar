@@ -1,19 +1,25 @@
 import { encodeFunctionData, getContract, parseEventLogs } from 'viem';
 import type { Address, GetContractReturnType, Hex, PublicClient, Transport, Chain, TypedDataDomain } from 'viem';
 import {
+  CLASS_MASK_ALL,
+  DEFAULT_CLASS_MASK,
+  SPEND_CLASS_BIT,
   SpendClassError,
   classLabel,
+  classMaskOf,
   classOfLabel,
+  contractSetOfEscrow,
   escrowAbi,
   mandateAccountAbi,
+  mandateAccountAbiV1,
   micro,
   reputationAbi,
   settlementAssetAbi,
 } from '@bursar/core';
-import type { SpendClass } from '@bursar/core';
+import type { ContractSet, SpendClass } from '@bursar/core';
 import type { Micro } from '@bursar/core';
 
-import { assertMandateDomain, signLimitsAuthorization, signSpendApproval } from './authorization.js';
+import { assertMandateDomain, limitsV1, signLimitsAuthorization, signSpendApproval } from './authorization.js';
 import type { LimitsAuthorization } from './authorization.js';
 import { canonicalStringify, commitCanonical, toCapabilityId, toDataUri } from './commit.js';
 import { connectFor, requireSigner, type Connection, type ConnectOptions } from './connection.js';
@@ -62,6 +68,7 @@ import {
   type SignedApproval,
   type SpendApproval,
   type SpendWindow,
+  type TotalSpend,
 } from './types.js';
 
 /** How long a provider has to answer when the caller does not say. Clamped to the escrow's bounds. */
@@ -263,6 +270,10 @@ type RawLimits = {
   approvalThreshold: bigint;
   validFrom: bigint;
   validUntil: bigint;
+  /** Absent on a v1 account. */
+  classMask?: number;
+  totalCap?: bigint;
+  lane?: number;
 };
 
 function toWindow(kind: WindowKind, raw: RawWindow): SpendWindow {
@@ -288,6 +299,9 @@ function toLimits(raw: RawLimits): MandateLimits {
     approvalThreshold: micro(raw.approvalThreshold),
     validFrom: raw.validFrom,
     validUntil: raw.validUntil,
+    classMask: raw.classMask ?? 0,
+    totalCap: micro(raw.totalCap ?? 0n),
+    lane: raw.lane ?? 0,
   };
 }
 
@@ -329,7 +343,42 @@ export function encodeLimits(input: MandateLimitsInput): MandateLimits {
     approvalThreshold: checkPositiveAmount('approvalThreshold', input.approvalThreshold),
     validFrom: toSeconds('validFrom', input.validFrom ?? 0n),
     validUntil: toSeconds('validUntil', input.validUntil ?? 0n),
+    classMask: checkClassMask(
+      input.classMask ?? (input.classes === undefined ? DEFAULT_CLASS_MASK : classMaskOf(input.classes)),
+    ),
+    totalCap: checkAmount('totalCap', input.totalCap ?? micro(0n)),
+    lane: checkEnum('lane', input.lane ?? 0, [0, 1, 2]),
   };
+}
+
+/** A mask the account would take: at least one class, and no bit it does not know. */
+function checkClassMask(mask: number): number {
+  if (!Number.isInteger(mask) || mask <= 0 || (mask & ~CLASS_MASK_ALL) !== 0) {
+    throw new InvalidArgumentError(
+      'classMask',
+      `classMask must allow at least one class and use only bits 0 to 2, received ${mask}. ` +
+        'A mandate that allows no class refuses every spend, and the account will not store one.',
+      { classMask: mask },
+    );
+  }
+  return mask;
+}
+
+/**
+ * Limits for a v1 account, which holds eight fields. A lifetime total cannot be dropped silently:
+ * the principal asked for a ceiling the account would not enforce.
+ */
+function encodeLimitsV1(input: MandateLimitsInput) {
+  const limits = encodeLimits(input);
+  if (limits.totalCap > 0n) {
+    throw new InvalidArgumentError(
+      'totalCap',
+      'This is a v1 mandate, which holds no lifetime total. Set the total budget as a second window ' +
+        'instead, or create a v2 mandate.',
+      { totalCap: limits.totalCap.toString() },
+    );
+  }
+  return limitsV1(limits);
 }
 
 /**
@@ -345,6 +394,11 @@ export class MandateAccountClient {
   /** The escrow this account settles through, fixed when the account was deployed. */
   readonly escrow: Address;
   readonly settlementAsset: Address;
+  /**
+   * Which build of the contracts this account runs. A v1 account is read and written through the
+   * v1 ABI: eight-field limits, no class in the spend request, no native total.
+   */
+  readonly contractSet: ContractSet;
 
   readonly #account: AccountContract;
   readonly #terms: EscrowBounds;
@@ -356,7 +410,9 @@ export class MandateAccountClient {
     escrow: Address;
     settlementAsset: Address;
     terms: EscrowBounds;
+    contractSet?: ContractSet;
   }) {
+    this.contractSet = init.contractSet ?? 'v2';
     this.address = init.address;
     this.connection = init.connection;
     this.escrow = init.escrow;
@@ -370,7 +426,25 @@ export class MandateAccountClient {
   }
 
   async limits(): Promise<MandateLimits> {
+    if (this.contractSet === 'v1') {
+      return toLimits(
+        await this.connection.publicClient.readContract({
+          address: this.address,
+          abi: mandateAccountAbiV1,
+          functionName: 'limits',
+        }),
+      );
+    }
     return toLimits(await this.#account.read.limits());
+  }
+
+  /** The lifetime total as the account counts it. Null on a v1 account, which has none. */
+  async total(): Promise<TotalSpend | null> {
+    if (this.contractSet === 'v1') return null;
+    const { totalCap: cap } = await this.limits();
+    if (cap === 0n) return null;
+    const spent = await this.#account.read.totalSpent();
+    return { cap, spent: micro(spent), remaining: micro(cap > spent ? cap - spent : 0n) };
   }
 
   async window(kind: WindowKind): Promise<SpendWindow> {
@@ -428,6 +502,7 @@ export class MandateAccountClient {
       daily,
       monthly,
       balance,
+      total,
     ] = await Promise.all([
       read.principal(),
       read.pendingPrincipal(),
@@ -444,10 +519,12 @@ export class MandateAccountClient {
       this.window(WindowKind.Daily),
       this.window(WindowKind.Monthly),
       this.balance(),
+      this.total(),
     ]);
 
     return {
       address: this.address,
+      contractSet: this.contractSet,
       principal,
       pendingPrincipal,
       agent,
@@ -465,6 +542,7 @@ export class MandateAccountClient {
       merchantRoot,
       documentHash,
       nonce,
+      total,
     };
   }
 
@@ -514,9 +592,17 @@ export class MandateAccountClient {
       classOfLabel(written) === undefined ? spendLabel(request.spendClass ?? 'service', written) : written;
     const capabilityId = toCapabilityId(capability);
     const amount = checkAmount('amount', request.amount);
+    const spendClass = SPEND_CLASS_BIT[classOfLabel(capability) ?? 'service'];
 
     const [[allowed, selector], remaining, daily, monthly] = await Promise.all([
-      this.#account.read.previewSpend([to, capabilityId, amount]),
+      this.contractSet === 'v1'
+        ? this.connection.publicClient.readContract({
+            address: this.address,
+            abi: mandateAccountAbiV1,
+            functionName: 'previewSpend',
+            args: [to, capabilityId, amount],
+          })
+        : this.#account.read.previewSpend([to, capabilityId, amount, spendClass]),
       this.remaining(),
       this.window(WindowKind.Daily),
       this.window(WindowKind.Monthly),
@@ -548,7 +634,7 @@ export class MandateAccountClient {
           capability,
           capabilityId,
           amount,
-          snapshot: { limits: await this.limits(), remaining, daily, monthly },
+          snapshot: { limits: await this.limits(), remaining, daily, monthly, total: await this.total() },
         })
       : undefined;
 
@@ -649,7 +735,49 @@ export class MandateAccountClient {
     } as const;
 
     const approval = request.approval;
-    const data = approval
+    const data = this.contractSet === 'v1'
+      ? encodeFunctionData(
+          approval
+            ? {
+                abi: mandateAccountAbiV1,
+                functionName: 'spendApproved',
+                args: [
+                  spendRequest,
+                  proof,
+                  checkApproval(approval.approval),
+                  checkSignature('approval.signature', approval.signature),
+                ],
+              }
+            : { abi: mandateAccountAbiV1, functionName: 'spend', args: [spendRequest, proof] },
+        )
+      : this.#spendData({ ...spendRequest, spendClass: SPEND_CLASS_BIT[action === 'hire' ? 'hire' : 'service'] }, proof, approval);
+
+    const context: SpendContext = { merchant: to, capability, capabilityId, amount };
+
+    const sent = await sendCall(this.connection, {
+      to: this.address,
+      data,
+      action: approval ? 'spendApproved' : 'spend',
+      explain: this.#explainSpend(context),
+    });
+
+    return this.#receipt(sent, { to, capability, capabilityId, amount, inputCommit, inputURI, deadline });
+  }
+
+  #spendData(
+    spendRequest: {
+      merchant: Address;
+      capabilityId: Hex;
+      inputCommit: Hex;
+      inputURI: string;
+      amount: Micro;
+      deadline: bigint;
+      spendClass: number;
+    },
+    proof: readonly Hex[],
+    approval: SignedApproval | undefined,
+  ): Hex {
+    return approval
       ? encodeFunctionData({
           abi: mandateAccountAbi,
           functionName: 'spendApproved',
@@ -665,16 +793,21 @@ export class MandateAccountClient {
           functionName: 'spend',
           args: [spendRequest, proof],
         });
+  }
 
-    const context: SpendContext = { merchant: to, capability, capabilityId, amount };
-
-    const sent = await sendCall(this.connection, {
-      to: this.address,
-      data,
-      action: approval ? 'spendApproved' : 'spend',
-      explain: this.#explainSpend(context),
-    });
-
+  async #receipt(
+    sent: Sent,
+    paid: {
+      to: Address;
+      capability: string;
+      capabilityId: Hex;
+      amount: Micro;
+      inputCommit: Hex;
+      inputURI: string;
+      deadline: bigint;
+    },
+  ): Promise<PaymentReceipt> {
+    // `Spent` is the same event on both sets, so the current ABI decodes a v1 receipt too.
     const spends = parseEventLogs({
       abi: mandateAccountAbi,
       eventName: 'Spent',
@@ -693,13 +826,13 @@ export class MandateAccountClient {
       hash: sent.hash,
       explorer: sent.explorer,
       blockNumber: sent.blockNumber,
-      merchant: to,
-      capability,
-      capabilityId,
-      amount,
-      inputCommit,
-      inputURI,
-      deadline: toDate(deadline),
+      merchant: paid.to,
+      capability: paid.capability,
+      capabilityId: paid.capabilityId,
+      amount: paid.amount,
+      inputCommit: paid.inputCommit,
+      inputURI: paid.inputURI,
+      deadline: toDate(paid.deadline),
       spent: { daily: micro(spent.args.dailySpent), monthly: micro(spent.args.monthlySpent) },
       remaining: await this.remaining(),
     };
@@ -813,11 +946,9 @@ export class MandateAccountClient {
   async setLimits(limits: MandateLimitsInput): Promise<Sent> {
     return this.#send(
       'setLimits',
-      encodeFunctionData({
-        abi: mandateAccountAbi,
-        functionName: 'setLimits',
-        args: [encodeLimits(limits)],
-      }),
+      this.contractSet === 'v1'
+        ? encodeFunctionData({ abi: mandateAccountAbiV1, functionName: 'setLimits', args: [encodeLimitsV1(limits)] })
+        : encodeFunctionData({ abi: mandateAccountAbi, functionName: 'setLimits', args: [encodeLimits(limits)] }),
     );
   }
 
@@ -832,29 +963,37 @@ export class MandateAccountClient {
     const nonce =
       options.nonce === undefined ? await this.#account.read.nonce() : checkRange('nonce', options.nonce, UINT256_MAX);
 
+    if (this.contractSet === 'v1') encodeLimitsV1(limits);
+
     return signLimitsAuthorization(
       this.connection,
       this.address,
       encodeLimits(limits),
       nonce,
       toSeconds('deadline', options.deadline),
+      this.contractSet,
     );
   }
 
   /** Relays a signed limit change. Anyone can send it; only the principal can have signed it. */
   async relayLimits(authorization: LimitsAuthorization): Promise<Sent> {
+    const nonce = checkRange('nonce', authorization.nonce, UINT256_MAX);
+    const deadline = toSeconds('deadline', authorization.deadline);
+    const signature = checkSignature('signature', authorization.signature);
+
     return this.#send(
       'setLimitsWithAuthorization',
-      encodeFunctionData({
-        abi: mandateAccountAbi,
-        functionName: 'setLimitsWithAuthorization',
-        args: [
-          encodeLimits(authorization.limits),
-          checkRange('nonce', authorization.nonce, UINT256_MAX),
-          toSeconds('deadline', authorization.deadline),
-          checkSignature('signature', authorization.signature),
-        ],
-      }),
+      this.contractSet === 'v1'
+        ? encodeFunctionData({
+            abi: mandateAccountAbiV1,
+            functionName: 'setLimitsWithAuthorization',
+            args: [encodeLimitsV1(authorization.limits), nonce, deadline, signature],
+          })
+        : encodeFunctionData({
+            abi: mandateAccountAbi,
+            functionName: 'setLimitsWithAuthorization',
+            args: [encodeLimits(authorization.limits), nonce, deadline, signature],
+          }),
     );
   }
 
@@ -1072,7 +1211,7 @@ export class MandateAccountClient {
 
   /** Opened once and kept, because the escrow's pairing and the voting parameters do not move. */
   #disputes(): Promise<DisputeClient> {
-    this.#disputeClient ??= disputes(this.connection);
+    this.#disputeClient ??= disputes(this.connection, this.escrow);
 
     return this.#disputeClient;
   }
@@ -1163,14 +1302,15 @@ export class MandateAccountClient {
   }
 
   async #snapshot(): Promise<MandateSnapshot> {
-    const [limits, remaining, daily, monthly] = await Promise.all([
+    const [limits, remaining, daily, monthly, total] = await Promise.all([
       this.limits(),
       this.remaining(),
       this.window(WindowKind.Daily),
       this.window(WindowKind.Monthly),
+      this.total(),
     ]);
 
-    return { limits, remaining, daily, monthly };
+    return { limits, remaining, daily, monthly, total };
   }
 
   /**
@@ -1494,6 +1634,8 @@ export async function mandateAccount(
     escrow,
     settlementAsset,
     terms: { minTtl, maxTtl, reputation, registry },
+    // An escrow no record names is a local or forked deployment, which runs the current source.
+    contractSet: contractSetOfEscrow(escrow) ?? 'v2',
   });
 }
 

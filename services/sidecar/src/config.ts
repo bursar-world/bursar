@@ -233,6 +233,10 @@ function capture<T>(resolve: () => T, problems: EnvProblem[]): T | undefined {
  * A payee on a chain the address book covers should never have to paste an address it already
  * holds. On a fork, or on a chain with no record, the lookup fails and the operator is asked for
  * the escrow by name, because a bare chain-id miss says nothing useful about what to fix.
+ *
+ * The record that answers for the chain is the current one. A payee still holding locks on a
+ * superseded escrow runs a second sidecar with ESCROW_ADDRESS set to it: the calls a payee makes
+ * (release, finalizeRelease, dispute) are the same on both.
  */
 function knownEscrow(chain: RhcChain, problems: EnvProblem[]): Address | undefined {
   try {

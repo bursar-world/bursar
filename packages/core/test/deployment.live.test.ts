@@ -17,7 +17,7 @@ import {
   RHC_MAINNET_USDG_DOMAIN_SEPARATOR,
   rhcMainnet,
 } from '../src/chain.js';
-import { liveDeployments } from '../src/deployments.js';
+import { isSuperseded, liveDeployments } from '../src/deployments.js';
 import type { Deployment } from '../src/deployments.js';
 import { RAW_DEPLOYMENTS } from '../src/generated/deployments.js';
 import { createRhcClient } from '../src/rpc/client.js';
@@ -59,7 +59,10 @@ function client() {
 }
 
 /** The deployment serving this chain, or nothing before the first deploy. */
-const record: Deployment | undefined = liveDeployments().find((d) => d.chainId === chain.chainId);
+// The record that answers for the chain: v2 where v2 supersedes v1.
+const record: Deployment | undefined = liveDeployments().find(
+  (d) => d.chainId === chain.chainId && !isSuperseded(d),
+);
 
 describe.skipIf(!RPC)('the chain constants against 4663', () => {
   it('is pointed at the chain this package pins', async () => {
@@ -240,7 +243,7 @@ describe.skipIf(!RPC || !record)('the shipped ABIs against the live deployment',
 /** The address the record documents, read from the record rather than repeated here. */
 function exampleMandate(deployed: Deployment): `0x${string}` {
   const raw = Object.values(RAW_DEPLOYMENTS).find(
-    (entry) => (entry as { chainId?: unknown }).chainId === deployed.chainId,
+    (entry) => (entry as { network?: unknown }).network === deployed.network,
   ) as { exampleMandate?: { address?: unknown } } | undefined;
   const address = raw?.exampleMandate?.address;
 

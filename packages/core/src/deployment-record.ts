@@ -53,6 +53,14 @@ export type Deployment = {
    * ran and is never resolved by chain id again.
    */
   readonly retired?: string;
+  /**
+   * The record this one replaces on its chain. The replaced record stays live and readable by
+   * name, because its contracts still hold locks and disputes, but it no longer answers a lookup
+   * by chain id.
+   */
+  readonly supersedes?: string;
+  /** A development deployment: live on its chain, with settings that change before launch. */
+  readonly dev?: boolean;
   /** Gas cost of the deploy, in ETH. What a Robinhood Chain deploy writes. */
   readonly deployCostEth?: string;
   /** The same figure from a retired deployment on a chain where gas was paid in USDC. */
@@ -163,6 +171,8 @@ export function parseDeployment(json: unknown, label = 'record'): Deployment {
     verifiedOnChain: Object.freeze(verifiedOnChain),
     ...(optionalString('pending') === undefined ? {} : { pending: optionalString('pending') }),
     ...(optionalString('retired') === undefined ? {} : { retired: optionalString('retired') }),
+    ...(optionalString('supersedes') === undefined ? {} : { supersedes: optionalString('supersedes') }),
+    ...(record['dev'] === true ? { dev: true } : {}),
     ...(optionalString('deployCostEth') === undefined
       ? {}
       : { deployCostEth: optionalString('deployCostEth') }),
@@ -205,13 +215,23 @@ export function isMandateDeploymentRecord(json: unknown): boolean {
 }
 
 /**
+ * The name of the record a live record replaces, if any.
+ */
+function supersededName(json: unknown): string | undefined {
+  if (typeof json !== 'object' || json === null || Array.isArray(json)) return undefined;
+  const value = (json as { supersedes?: unknown }).supersedes;
+  return typeof value === 'string' ? value : undefined;
+}
+
+/**
  * The records this package may serve, in the order given.
  *
  * Emitting anything else is what turns a new file in contracts/deployments into an import-time
  * crash in every service, since the address book is parsed on load. Two live records answering to
- * one chain stops here as well: a service looks a deployment up by chain id, and a lookup that
- * depends on directory order is not a lookup. Retired records are exempt from that check because
- * nothing resolves them by chain.
+ * one chain stop here as well, unless one names the other in `supersedes`: then the newer one
+ * answers for the chain and the older one stays readable by name. Two records left unclaimed on
+ * one chain means a lookup by chain id would depend on directory order, and that is not a lookup.
+ * Retired records are exempt because nothing resolves them by chain.
  *
  * An empty result is allowed. The workspace has to build before anything is
  * deployed, and it has to build on a checkout whose only records are retired ones; a throw here
@@ -221,21 +241,27 @@ export function selectDeploymentRecords(
   files: readonly DeploymentRecordFile[],
 ): readonly DeploymentRecordFile[] {
   const selected = files.filter((file) => isMandateDeploymentRecord(file.json));
+  const live = selected.filter((file) => !isRetiredDeploymentRecord(file.json));
 
-  const byChain = new Map<number, string>();
-  for (const file of selected) {
-    if (isRetiredDeploymentRecord(file.json)) continue;
+  const heads = new Map<number, string>();
+  for (const file of live) {
     const { chainId } = parseDeployment(file.json, file.name);
-    const clash = byChain.get(chainId);
+    const replaced = live.some(
+      (other) =>
+        supersededName(other.json) === file.name &&
+        parseDeployment(other.json, other.name).chainId === chainId,
+    );
+    if (replaced) continue;
+    const clash = heads.get(chainId);
     if (clash !== undefined) {
       throw new BursarError(
         'deployment_ambiguous',
-        `${file.name} and ${clash} both claim chain ${chainId}. One of them has to go: a service ` +
-          'asks for a chain, not for a file.',
+        `${file.name} and ${clash} both claim chain ${chainId}. One of them has to go, or name the ` +
+          'other in "supersedes": a service asks for a chain, not for a file.',
         { chainId, records: [clash, file.name] },
       );
     }
-    byChain.set(chainId, file.name);
+    heads.set(chainId, file.name);
   }
 
   return selected;

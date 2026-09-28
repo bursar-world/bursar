@@ -40,6 +40,8 @@ function spendRequest(overrides: Partial<RelaySpendRequest> = {}): RelaySpendReq
     deadline: '1800000300',
     merchantProof: [],
     approval: null,
+    spendClass: 0,
+    contractSet: 'v2',
     ...overrides,
   };
 }
@@ -95,6 +97,7 @@ describe('a key held in this process', () => {
       inputURI: 'data:application/json;base64,eyJjaXR5IjoiUGFyaXMifQ==',
       amount: 1_000_000n,
       deadline: 1_800_000_300n,
+      spendClass: 0,
     });
     expect(call.args?.[1]).toEqual([]);
   });

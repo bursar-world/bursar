@@ -41,7 +41,12 @@ const KEYCHAIN_ITEM = 'bursar-rh-deployer/keystore';
 const RESOLVER_KEYS = ['resolver-1', 'resolver-2', 'resolver-3'];
 /** Keys the operator pays and gets paid from in its own drills. Their disputes are never overridden. */
 const OPERATOR_KEYSTORES = ['payer', 'payee'];
-const RECORD = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'contracts', 'deployments', 'rhc-mainnet.json');
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+/**
+ * The records the service votes for, newest first, as paths from the repository root. The service
+ * starts from that root on Render, so the same relative paths resolve there.
+ */
+const RECORDS = ['contracts/deployments/rhc-mainnet-v2.json', 'contracts/deployments/rhc-mainnet.json'];
 
 const dryRun = process.argv.includes('--dry-run');
 const out = (line: string): void => {
@@ -79,29 +84,40 @@ function operatorToken(): string {
   return value;
 }
 
-/**
- * Every address the operator controls as a payer or a payee: the deployment's own roles, the
- * public example mandate and whoever holds it, the resolver keys, the drill keys, and anything
- * listed in RESOLVER_OPERATOR_EXTRA in ~/.config/bursar/resolver.env.
- */
-function operatorAddresses(resolvers: readonly Address[], password: string): Address[] {
-  const record = JSON.parse(readFileSync(RECORD, 'utf8')) as {
-    deployer: string;
-    roles: { timelockSigners: string[]; guardian: string; treasury: string; slashSink: string };
-    exampleMandate?: { address: string; principal: string; agent: string };
-  };
-  const drill = OPERATOR_KEYSTORES.filter((name) => existsSync(join(KEYSTORES, name))).map(
-    (name) => privateKeyToAccount(openKeystoreKey(KEYSTORES, name, password)).address,
-  );
-  const extra = (fromFile('resolver.env', 'RESOLVER_OPERATOR_EXTRA') ?? '').split(',').filter((entry) => entry.trim() !== '');
+type OperatorRecord = {
+  deployer: string;
+  roles: { timelockSigners: string[]; guardian: string; treasury: string; slashSink: string };
+  exampleMandate?: { address: string; principal: string; agent: string };
+  resolvers?: { bonded?: string[] };
+};
 
-  const all = [
+/** One record's roles, example mandate and bonded resolvers. */
+function recordAddresses(record: OperatorRecord): string[] {
+  return [
     record.deployer,
     ...record.roles.timelockSigners,
     record.roles.guardian,
     record.roles.treasury,
     record.roles.slashSink,
     ...(record.exampleMandate === undefined ? [] : [record.exampleMandate.address, record.exampleMandate.principal, record.exampleMandate.agent]),
+    ...(record.resolvers?.bonded ?? []),
+  ];
+}
+
+/**
+ * Every address the operator controls as a payer or a payee: each served deployment's roles, its
+ * public example mandate and whoever holds it, the resolver keys, the drill keys, and anything
+ * listed in RESOLVER_OPERATOR_EXTRA in ~/.config/bursar/resolver.env.
+ */
+function operatorAddresses(resolvers: readonly Address[], password: string): Address[] {
+  const records = RECORDS.map((path) => JSON.parse(readFileSync(join(REPO_ROOT, path), 'utf8')) as OperatorRecord);
+  const drill = OPERATOR_KEYSTORES.filter((name) => existsSync(join(KEYSTORES, name))).map(
+    (name) => privateKeyToAccount(openKeystoreKey(KEYSTORES, name, password)).address,
+  );
+  const extra = (fromFile('resolver.env', 'RESOLVER_OPERATOR_EXTRA') ?? '').split(',').filter((entry) => entry.trim() !== '');
+
+  const all = [
+    ...records.flatMap(recordAddresses),
     ...resolvers,
     ...drill,
     ...extra,
@@ -127,6 +143,7 @@ function environment(): { vars: EnvVar[]; secret: ReadonlySet<string>; addresses
     RHC_NETWORK: 'mainnet',
     RHC_RPC_PRIMARY: 'https://rpc.mainnet.chain.robinhood.com',
     RHC_RPC_FALLBACK: 'https://robinhood.drpc.org',
+    RESOLVER_DEPLOYMENTS: RECORDS.join(','),
     RESOLVER_KEYS: keys.join(','),
     RESOLVER_KEYS_ORDER: RESOLVER_KEYS.join(','),
     RESOLVER_HTTP_HOST: '0.0.0.0',

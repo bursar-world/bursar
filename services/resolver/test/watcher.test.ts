@@ -61,6 +61,8 @@ describe('watcher', () => {
 
     await watcher.poll();
     expect(watcher.health().open).toBe(1);
+    expect(watcher.health().served[0]).toMatchObject({ registry: REGISTRY, open: 1 });
+    expect(watcher.health().served[0]?.lastScannedBlock).not.toBeNull();
     expect(await journal.get(REGISTRY, disputeId)).toBeDefined();
   });
 

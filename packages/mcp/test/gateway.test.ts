@@ -1,4 +1,4 @@
-import { RHC_MAINNET, createRhcClient, toMicro } from '@bursar/core';
+import { RHC_MAINNET, createRhcClient, deployment, toMicro } from '@bursar/core';
 import { toFunctionSelector } from 'viem';
 import type { Hex } from 'viem';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -38,6 +38,7 @@ function gatewayFor(
   node: FakeNode,
   relay: SpendRelay | null = relayDouble(),
   index: SettlementIndex = createFakeIndex(node.state).index,
+  escrows: readonly Hex[] = [ESCROW],
 ): MandateGateway {
   const { client } = createRhcClient({
     chain: RHC_MAINNET,
@@ -48,7 +49,7 @@ function gatewayFor(
     fetchFn: node.fetchFn,
   });
 
-  return createChainGateway({ client, account: ACCOUNT, escrow: ESCROW, settlementAsset: ASSET, relay, index });
+  return createChainGateway({ client, account: ACCOUNT, escrows, settlementAsset: ASSET, relay, index });
 }
 
 function selector(signature: string): Hex {
@@ -110,12 +111,43 @@ describe('inspect', () => {
     expect(view.validUntil).toBeNull();
   });
 
-  it('reads the whole mandate in one multicall', async () => {
+  // The escrow terms are read from the mandate's own escrow, so the first inspect learns it first.
+  // The limits are read on their own, because their shape depends on the contract set.
+  it('reads the mandate in one multicall and its limits beside it once the wiring is known', async () => {
+    const node = createFakeNode(state);
+    const gateway = gatewayFor(node);
+    const reads = (): number => node.calls.filter((entry) => entry.method === 'eth_call').length;
+
+    await gateway.inspect();
+    const first = reads();
+    await gateway.inspect();
+
+    expect(first).toBe(3);
+    expect(reads() - first).toBe(2);
+  });
+
+  // The node answers limits in the v2 shape; the v1 ABI reads the eight words a v1 account returns.
+  it('reads a mandate on the v1 escrow through the v1 ABI', async () => {
+    const v1 = deployment('rhc-mainnet').contracts.Escrow;
+    state.escrow = v1;
     const node = createFakeNode(state);
 
-    await gatewayFor(node).inspect();
+    const view = await gatewayFor(node, relayDouble(), createFakeIndex(node.state).index, [ESCROW, v1]).inspect();
 
-    expect(node.calls.filter((entry) => entry.method === 'eth_call')).toHaveLength(1);
+    expect(view.contractSet).toBe('v1');
+    expect(view.classes).toBeNull();
+    expect(view.escrow.address).toBe(v1);
+  });
+
+  it('reports the contract set, the allowed classes and the native total', async () => {
+    state.limits.classMask = 1;
+    state.limits.totalCap = 5_000_000n;
+
+    const view = await gatewayFor(createFakeNode(state)).inspect();
+
+    expect(view.contractSet).toBe('v2');
+    expect(view.classes).toEqual(['service']);
+    expect(view.totalCap?.micro).toBe('5000000');
   });
 
   it.each([
@@ -182,8 +214,9 @@ describe('quote', () => {
     const first = reads();
     await gateway.quote(request);
 
-    expect(first).toBe(2);
-    expect(reads() - first).toBe(1);
+    // The preview is its own read: a v1 account takes three arguments and a v2 account four.
+    expect(first).toBe(3);
+    expect(reads() - first).toBe(2);
   });
 
   it('refuses to quote for a mandate wired to another escrow', async () => {
@@ -366,6 +399,8 @@ describe('pay', () => {
       deadline: '1800000300',
       merchantProof: [],
       approval: null,
+      spendClass: 0,
+      contractSet: 'v2',
     });
     expect(view.settlementId).toBe('42');
     expect(view.deliverBy).toBe('2027-01-15T08:05:00Z');

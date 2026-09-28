@@ -1,13 +1,17 @@
 import {
+  SPEND_CLASS_BIT,
   SpendClassError,
   classLabel,
+  classesInMask,
   classOfLabel,
+  contractSetOfEscrow,
   escrowAbi,
   mandateAccountAbi,
+  mandateAccountAbiV1,
   oracleRegistryAbi,
   settlementAssetAbi,
 } from '@bursar/core';
-import type { RhcPublicClient, SpendClass } from '@bursar/core';
+import type { ContractSet, RhcPublicClient, SpendClass } from '@bursar/core';
 import { decodeEventLog, encodeEventTopics } from 'viem';
 import type { Address, Hex } from 'viem';
 
@@ -61,7 +65,12 @@ import type {
 export type ChainGatewayOptions = {
   readonly client: RhcPublicClient;
   readonly account: Address;
-  readonly escrow: Address;
+  /**
+   * Every escrow this server accepts a mandate on. By default the escrows of every live deployment
+   * on the chain, so a mandate on the previous contract set still reads; one when MANDATE_ESCROW
+   * pins it.
+   */
+  readonly escrows: readonly Address[];
   readonly settlementAsset: Address;
   /** Absent when no signer is configured. The server then advertises the read-only tools only. */
   readonly relay: SpendRelay | null;
@@ -92,10 +101,9 @@ const MONTHLY = 1;
 const DEADLINE_MARGIN_SECONDS = 60n;
 
 export function createChainGateway(options: ChainGatewayOptions): MandateGateway {
-  const { client, account, escrow, settlementAsset, relay } = options;
+  const { client, account, escrows, settlementAsset, relay } = options;
 
   const accountContract = { address: account, abi: mandateAccountAbi } as const;
-  const escrowContract = { address: escrow, abi: escrowAbi } as const;
   const assetContract = { address: settlementAsset, abi: settlementAssetAbi } as const;
 
   function requireRelay(): SpendRelay {
@@ -117,7 +125,16 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
   // screen until the money has moved.
   let wiring: Promise<{ readonly escrow: Address; readonly asset: Address }> | null = null;
 
-  async function assertWired(): Promise<void> {
+  type Wired = {
+    readonly escrowContract: { readonly address: Address; readonly abi: typeof escrowAbi };
+    readonly contractSet: ContractSet;
+  };
+
+  /**
+   * The mandate's own escrow, checked, and the contract set it belongs to. Escrow reads are the same
+   * on both sets; the account's limits and spend request are not, so the set decides the ABI.
+   */
+  async function assertWired(): Promise<Wired> {
     wiring ??= client
       .multicall({
         allowFailure: false,
@@ -135,12 +152,49 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
 
     const wired = await wiring;
 
-    assertWiring(wired.escrow, escrow, 'escrow');
+    assertEscrow(wired.escrow, escrows);
     assertWiring(wired.asset, settlementAsset, 'settlement asset');
+
+    return {
+      escrowContract: { address: wired.escrow, abi: escrowAbi },
+      // An escrow no record names is one MANDATE_ESCROW pinned, on a deployment of the current source.
+      contractSet: contractSetOfEscrow(wired.escrow) ?? 'v2',
+    };
+  }
+
+  async function readLimits(contractSet: ContractSet) {
+    if (contractSet === 'v1') {
+      const v1 = await client.readContract({ address: account, abi: mandateAccountAbiV1, functionName: 'limits' });
+      return { ...v1, classMask: 0, totalCap: 0n, lane: 0 };
+    }
+    return client.readContract({ ...accountContract, functionName: 'limits' });
+  }
+
+  async function previewSpend(
+    contractSet: ContractSet,
+    provider: Address,
+    capabilityId: Hex,
+    amount: bigint,
+    spendClass: SpendClass,
+  ): Promise<readonly [boolean, Hex]> {
+    if (contractSet === 'v1') {
+      return client.readContract({
+        address: account,
+        abi: mandateAccountAbiV1,
+        functionName: 'previewSpend',
+        args: [provider, capabilityId, amount],
+      });
+    }
+    return client.readContract({
+      ...accountContract,
+      functionName: 'previewSpend',
+      args: [provider, capabilityId, amount, SPEND_CLASS_BIT[spendClass]],
+    });
   }
 
   async function inspect(): Promise<MandateView> {
-    const [block, reads] = await Promise.all([
+    const { escrowContract, contractSet } = await assertWired();
+    const [block, reads, limits] = await Promise.all([
       client.getBlock({ blockTag: 'latest' }),
       client.multicall({
         allowFailure: false,
@@ -153,7 +207,6 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
           { ...accountContract, functionName: 'documentHash' },
           { ...accountContract, functionName: 'settlementAsset' },
           { ...accountContract, functionName: 'escrow' },
-          { ...accountContract, functionName: 'limits' },
           { ...accountContract, functionName: 'window', args: [DAILY] },
           { ...accountContract, functionName: 'window', args: [MONTHLY] },
           { ...accountContract, functionName: 'merchantGate' },
@@ -167,6 +220,7 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
           { ...assetContract, functionName: 'balanceOf', args: [account] },
         ],
       }),
+      readLimits(contractSet),
     ]);
 
     const [
@@ -178,7 +232,6 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
       documentHash,
       accountAsset,
       accountEscrow,
-      limits,
       dailyWindow,
       monthlyWindow,
       gate,
@@ -192,10 +245,7 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
       balance,
     ] = reads;
 
-    // Read in the same call as everything else, so inspect costs one request and seeds the check
-    // the other tools make.
-    wiring ??= Promise.resolve({ escrow: accountEscrow, asset: accountAsset });
-    assertWiring(accountEscrow, escrow, 'escrow');
+    assertEscrow(accountEscrow, escrows);
     assertWiring(accountAsset, settlementAsset, 'settlement asset');
 
     const now = block.timestamp;
@@ -224,8 +274,11 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
       providerGate: gate === 0 ? 'allowlist' : 'roster',
       providerRoster: gate === 0 ? null : roster,
       documentHash: isZeroHash(documentHash) ? null : documentHash,
+      contractSet,
+      classes: contractSet === 'v1' ? null : classesInMask(limits.classMask),
+      totalCap: limits.totalCap === 0n ? null : moneyFromUint(limits.totalCap),
       escrow: {
-        address: escrow,
+        address: escrowContract.address,
         minTtlSeconds: Number(minTtl),
         maxTtlSeconds: Number(maxTtl),
         disputeWindowSeconds: Number(disputeWindow),
@@ -239,7 +292,7 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
   }
 
   async function quote(request: QuoteRequest): Promise<QuoteView> {
-    await assertWired();
+    const { contractSet } = await assertWired();
 
     // A label already namespaced is quoted as written; a bare one under the class being quoted.
     const capability =
@@ -247,12 +300,12 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
         ? spendLabel(request.spendClass ?? 'service', request.capability)
         : request.capability.trim();
     const capabilityId = toCapabilityId(capability);
-    const [block, reads] = await Promise.all([
+    const [block, preview, reads] = await Promise.all([
       client.getBlock({ blockTag: 'latest' }),
+      previewSpend(contractSet, request.provider, capabilityId, request.amount, classOfLabel(capability) ?? 'service'),
       client.multicall({
         allowFailure: false,
         contracts: [
-          { ...accountContract, functionName: 'previewSpend', args: [request.provider, capabilityId, request.amount] },
           { ...accountContract, functionName: 'remaining' },
           { ...accountContract, functionName: 'approvalThreshold' },
           { ...assetContract, functionName: 'balanceOf', args: [account] },
@@ -262,7 +315,8 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
       }),
     ]);
 
-    const [[allowed, reason], [perCall, daily, monthly], threshold, balance, dailyWindow, monthlyWindow] = reads;
+    const [allowed, reason] = preview;
+    const [[perCall, daily, monthly], threshold, balance, dailyWindow, monthlyWindow] = reads;
     const now = block.timestamp;
     const refusal = refusalView(
       refusalForSelector(reason),
@@ -303,7 +357,7 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
    */
   async function spend(order: PayOrder, spendClass: SpendClass): Promise<PayView> {
     const submitter = requireRelay();
-    await assertWired();
+    const { escrowContract, contractSet } = await assertWired();
     const capability = spendLabel(spendClass, order.capability);
     const capabilityId = toCapabilityId(capability);
     const canonical = canonicalStringify(order.input);
@@ -322,12 +376,12 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
       );
     }
 
-    const [block, reads] = await Promise.all([
+    const [block, [, reason], reads] = await Promise.all([
       client.getBlock({ blockTag: 'latest' }),
+      previewSpend(contractSet, order.provider, capabilityId, order.amount, spendClass),
       client.multicall({
         allowFailure: false,
         contracts: [
-          { ...accountContract, functionName: 'previewSpend', args: [order.provider, capabilityId, order.amount] },
           { ...accountContract, functionName: 'merchantGate' },
           { ...escrowContract, functionName: 'minTtl' },
           { ...escrowContract, functionName: 'maxTtl' },
@@ -338,7 +392,7 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
       }),
     ]);
 
-    const [[, reason], gate, minTtl, maxTtl, balance, dailyWindow, monthlyWindow] = reads;
+    const [gate, minTtl, maxTtl, balance, dailyWindow, monthlyWindow] = reads;
 
     // The escrow bounds the delivery window on both sides, so a job cannot be created that is
     // impossible to answer or that ties the mandate's funds up indefinitely.
@@ -408,6 +462,8 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
       deadline: deadline.toString(),
       merchantProof: order.providerProof,
       approval: order.approval === null ? null : toRelayApproval(order.approval, order.provider, capabilityId),
+      spendClass: SPEND_CLASS_BIT[spendClass],
+      contractSet,
     });
 
     return {
@@ -461,7 +517,7 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
   }
 
   async function settlements(query: SettlementsQuery): Promise<SettlementsView> {
-    await assertWired();
+    const { escrowContract } = await assertWired();
 
     const head = await client.getBlock({ blockTag: 'latest' });
     const to = query.beforeBlock === null ? head.number : minBigint(query.beforeBlock, head.number);
@@ -534,7 +590,7 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
   }
 
   async function settlement(settlementId: bigint): Promise<SettlementDetailView> {
-    await assertWired();
+    const { escrowContract } = await assertWired();
 
     const [block, reads] = await Promise.all([
       client.getBlock({ blockTag: 'latest' }),
@@ -606,7 +662,7 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
 
   async function openDispute(settlementId: bigint): Promise<DisputeReceiptView> {
     const submitter = requireRelay();
-    await assertWired();
+    const { escrowContract } = await assertWired();
     const [block, reads] = await Promise.all([
       client.getBlock({ blockTag: 'latest' }),
       client.multicall({
@@ -653,7 +709,7 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
    * neither is described as the other.
    */
   async function dispute(settlementId: bigint): Promise<DisputeDetailView> {
-    await assertWired();
+    const { escrowContract } = await assertWired();
 
     const [block, reads] = await Promise.all([
       client.getBlock({ blockTag: 'latest' }),
@@ -937,6 +993,17 @@ function toSpendLogs(logs: readonly IndexedLog[]): readonly SpendLog[] {
   }
 
   return spends;
+}
+
+function assertEscrow(onChain: Address, accepted: readonly Address[]): void {
+  if (accepted.some((escrow) => escrow.toLowerCase() === onChain.toLowerCase())) return;
+
+  throw new ToolError(
+    'config_mismatch',
+    'This mandate settles through a different escrow than any this server serves, so nothing was ' +
+      'sent. Check MANDATE_ACCOUNT and MANDATE_ESCROW, then restart the server.',
+    { onChain, accepted: [...accepted] },
+  );
 }
 
 function assertWiring(onChain: Address, configured: Address, label: string): void {

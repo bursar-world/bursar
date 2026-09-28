@@ -20,16 +20,33 @@ function problems(env: Record<string, string>): string[] {
 }
 
 describe('config', () => {
-  it('serves the bundled mainnet record and prefers the primary for writes', () => {
+  it('serves every live mainnet record, v2 first, and prefers the primary for writes', () => {
     const { config, keys } = loadConfig(BASE);
     expect(config.served).toEqual([
-      { name: 'rhc-mainnet', escrow: '0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4', registry: '0xCb7c60037eC43b9692A5dDcA42A500181Cf549FF' },
+      {
+        name: 'rhc-mainnet-v2',
+        escrow: '0x4315F8be7C9661345710910577Ec31cb867f3c20',
+        registry: '0xE38349668f0C470C814487E95C14e7652F713B17',
+        contractSet: 'v2',
+      },
+      {
+        name: 'rhc-mainnet',
+        escrow: '0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4',
+        registry: '0xCb7c60037eC43b9692A5dDcA42A500181Cf549FF',
+        contractSet: 'v1',
+      },
     ]);
     expect(config.writeUrls).toEqual(['https://rpc.mainnet.chain.robinhood.com/', 'https://robinhood.drpc.org/']);
     expect(keys).toMatchObject({ kind: 'raw', names: ['resolver-1', 'resolver-2', 'resolver-3'] });
     expect(config.operatorToken).toBeNull();
     expect(config.operatorAddresses).toBeNull();
     expect(config.journal).toEqual({ kind: 'file', path: './resolver-journal.json' });
+  });
+
+  it('serves exactly the records RESOLVER_DEPLOYMENTS names, in that order', () => {
+    const v1 = new URL('../../../contracts/deployments/rhc-mainnet.json', import.meta.url).pathname;
+    const { config } = loadConfig({ ...BASE, RESOLVER_DEPLOYMENTS: v1 });
+    expect(config.served.map((entry) => [entry.name, entry.contractSet])).toEqual([['rhc-mainnet', 'v1']]);
   });
 
   it('keeps the keys out of the configuration object', () => {

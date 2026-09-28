@@ -6,7 +6,7 @@ import type { Address, Hex } from 'viem';
 import { eth, formatDeadline, toDate, usd } from './format.js';
 import { issuerRefusal } from './refusals.js';
 import type { Refusal } from './refusals.js';
-import type { MandateLimits, Remaining, SpendWindow } from './types.js';
+import type { MandateLimits, Remaining, SpendWindow, TotalSpend } from './types.js';
 
 /**
  * Why a mandate refused a spend, in the vocabulary a caller can branch on. One reason per
@@ -22,6 +22,7 @@ export type DenialReason =
   | 'daily-cap'
   | 'monthly-cap'
   | 'total-budget'
+  | 'class-not-allowed'
   | 'capability-not-allowed'
   | 'merchant-not-allowed'
   | 'merchant-proof-required'
@@ -44,6 +45,8 @@ const DENIAL_REASONS: Readonly<Record<string, DenialReason>> = {
   PerCallCapExceeded: 'per-call-cap',
   DailyCapExceeded: 'daily-cap',
   MonthlyCapExceeded: 'monthly-cap',
+  TotalCapExceeded: 'total-budget',
+  ClassNotAllowed: 'class-not-allowed',
   CapabilityNotAllowed: 'capability-not-allowed',
   MerchantNotAllowed: 'merchant-not-allowed',
   MerkleGateActive: 'merchant-proof-required',
@@ -76,6 +79,8 @@ export type MandateSnapshot = {
   readonly remaining: Remaining;
   readonly daily: SpendWindow;
   readonly monthly: SpendWindow;
+  /** The native lifetime total of a v2 account. Absent or null where there is none. */
+  readonly total?: TotalSpend | null;
 };
 
 export type MandateDenial = {
@@ -145,6 +150,13 @@ function clauseFor(denial: MandateDenial, now: Date): string {
         ? windowClause('monthly', snapshot.monthly, snapshot.remaining.monthly, denial, now)
         : 'the monthly limit is exhausted.';
     case 'total-budget': {
+      if (snapshot?.total) {
+        const asked = denial.amount === undefined ? '' : ` and this call asks for ${usd(denial.amount)}`;
+        return (
+          `the total budget has ${usd(snapshot.total.remaining)} left of ${usd(snapshot.total.cap)}${asked}. ` +
+          'The total budget does not refill; the principal raises it with setLimits.'
+        );
+      }
       if (!snapshot) return 'the total budget is spent. It does not refill; the principal raises it with setLimits.';
       const asked = denial.amount === undefined ? '' : ` and this call asks for ${usd(denial.amount)}`;
       return (
@@ -152,6 +164,8 @@ function clauseFor(denial: MandateDenial, now: Date): string {
         'The total budget does not refill; the principal raises it with setLimits.'
       );
     }
+    case 'class-not-allowed':
+      return 'its principal has not allowed this class of spend. The principal changes the allowed classes with setLimits.';
     case 'capability-not-allowed':
       return `${capabilityLabel(denial)} is not on its capability allowlist.`;
     case 'merchant-not-allowed':

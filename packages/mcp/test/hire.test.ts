@@ -49,7 +49,7 @@ function gatewayFor(node: FakeNode, relay: SpendRelay | null = relayDouble()): M
   return createChainGateway({
     client,
     account: ACCOUNT,
-    escrow: ESCROW,
+    escrows: [ESCROW],
     settlementAsset: ASSET,
     relay,
     index: createFakeIndex(node.state).index,

@@ -126,9 +126,10 @@ function recordFor(options: ConnectOptions): Deployment {
 
 /** The chains connect() can open: a live record, and a settlement asset on that chain. */
 function supportedChains(): number[] {
-  return liveDeployments()
+  const chains = liveDeployments()
     .map((record) => record.chainId)
     .filter((chainId) => chainId !== RHC_TESTNET.chainId);
+  return [...new Set(chains)];
 }
 
 function recordForChain(chainId: number): Deployment {

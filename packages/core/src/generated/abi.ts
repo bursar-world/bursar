@@ -69,6 +69,21 @@ export const mandateAccountAbi = [
             "name": "validUntil",
             "type": "uint64",
             "internalType": "uint64"
+          },
+          {
+            "name": "classMask",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "totalCap",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "lane",
+            "type": "uint8",
+            "internalType": "uint8"
           }
         ]
       }
@@ -143,6 +158,19 @@ export const mandateAccountAbi = [
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "approvalEpoch",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
       }
     ],
     "stateMutability": "view"
@@ -226,6 +254,40 @@ export const mandateAccountAbi = [
   },
   {
     "type": "function",
+    "name": "buy",
+    "inputs": [
+      {
+        "name": "asset",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "usdgIn",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "minOut",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "quotedPriceE8",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "amountOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "capabilities",
     "inputs": [
       {
@@ -239,6 +301,19 @@ export const mandateAccountAbi = [
         "name": "",
         "type": "bool",
         "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "classMask",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
       }
     ],
     "stateMutability": "view"
@@ -377,6 +452,47 @@ export const mandateAccountAbi = [
   },
   {
     "type": "function",
+    "name": "grantDisclosure",
+    "inputs": [
+      {
+        "name": "escrowId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "resolver",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "sliceCommit",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "ciphertext",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "lane",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "limits",
     "inputs": [],
     "outputs": [
@@ -424,6 +540,21 @@ export const mandateAccountAbi = [
             "name": "validUntil",
             "type": "uint64",
             "internalType": "uint64"
+          },
+          {
+            "name": "classMask",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "totalCap",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "lane",
+            "type": "uint8",
+            "internalType": "uint8"
           }
         ]
       }
@@ -564,6 +695,11 @@ export const mandateAccountAbi = [
         "name": "amount",
         "type": "uint128",
         "internalType": "uint128"
+      },
+      {
+        "name": "spendClass",
+        "type": "uint8",
+        "internalType": "uint8"
       }
     ],
     "outputs": [
@@ -618,6 +754,19 @@ export const mandateAccountAbi = [
   },
   {
     "type": "function",
+    "name": "remainingTotal",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint128",
+        "internalType": "uint128"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "revokeAgent",
     "inputs": [],
     "outputs": [],
@@ -645,6 +794,19 @@ export const mandateAccountAbi = [
         "name": "",
         "type": "bool",
         "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "router",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -741,6 +903,21 @@ export const mandateAccountAbi = [
             "name": "validUntil",
             "type": "uint64",
             "internalType": "uint64"
+          },
+          {
+            "name": "classMask",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "totalCap",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "lane",
+            "type": "uint8",
+            "internalType": "uint8"
           }
         ]
       }
@@ -796,6 +973,21 @@ export const mandateAccountAbi = [
             "name": "validUntil",
             "type": "uint64",
             "internalType": "uint64"
+          },
+          {
+            "name": "classMask",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "totalCap",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "lane",
+            "type": "uint8",
+            "internalType": "uint8"
           }
         ]
       },
@@ -869,6 +1061,37 @@ export const mandateAccountAbi = [
   },
   {
     "type": "function",
+    "name": "setRouter",
+    "inputs": [
+      {
+        "name": "router_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setTermsCommitment",
+    "inputs": [
+      {
+        "name": "termsCommitment_",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "verifier_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "settlementAsset",
     "inputs": [],
     "outputs": [
@@ -918,6 +1141,11 @@ export const mandateAccountAbi = [
             "name": "deadline",
             "type": "uint64",
             "internalType": "uint64"
+          },
+          {
+            "name": "spendClass",
+            "type": "uint8",
+            "internalType": "uint8"
           }
         ]
       },
@@ -974,6 +1202,11 @@ export const mandateAccountAbi = [
             "name": "deadline",
             "type": "uint64",
             "internalType": "uint64"
+          },
+          {
+            "name": "spendClass",
+            "type": "uint8",
+            "internalType": "uint8"
           }
         ]
       },
@@ -1031,6 +1264,45 @@ export const mandateAccountAbi = [
   },
   {
     "type": "function",
+    "name": "termsCommitment",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "totalCap",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint128",
+        "internalType": "uint128"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "totalSpent",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint128",
+        "internalType": "uint128"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "transferPrincipal",
     "inputs": [
       {
@@ -1064,6 +1336,19 @@ export const mandateAccountAbi = [
         "name": "",
         "type": "uint64",
         "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "verifier",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -1210,6 +1495,37 @@ export const mandateAccountAbi = [
   },
   {
     "type": "event",
+    "name": "Bought",
+    "inputs": [
+      {
+        "name": "asset",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "usdgIn",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      },
+      {
+        "name": "amountOut",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "quotedPriceE8",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "CapabilityUpdated",
     "inputs": [
       {
@@ -1320,6 +1636,21 @@ export const mandateAccountAbi = [
             "name": "validUntil",
             "type": "uint64",
             "internalType": "uint64"
+          },
+          {
+            "name": "classMask",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "totalCap",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "lane",
+            "type": "uint8",
+            "internalType": "uint8"
           }
         ]
       }
@@ -1408,6 +1739,19 @@ export const mandateAccountAbi = [
       },
       {
         "name": "to",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RouterUpdated",
+    "inputs": [
+      {
+        "name": "router",
         "type": "address",
         "indexed": true,
         "internalType": "address"
@@ -1522,6 +1866,25 @@ export const mandateAccountAbi = [
   },
   {
     "type": "event",
+    "name": "TermsCommitted",
+    "inputs": [
+      {
+        "name": "termsCommitment",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "verifier",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "Withdrawn",
     "inputs": [
       {
@@ -1582,6 +1945,16 @@ export const mandateAccountAbi = [
   },
   {
     "type": "error",
+    "name": "BadClassMask",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BadLane",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "BadMerkleProof",
     "inputs": []
   },
@@ -1612,6 +1985,11 @@ export const mandateAccountAbi = [
   },
   {
     "type": "error",
+    "name": "ClassNotAllowed",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "CreditExceedsSpend",
     "inputs": []
   },
@@ -1623,6 +2001,11 @@ export const mandateAccountAbi = [
   {
     "type": "error",
     "name": "Expired",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InsufficientOutput",
     "inputs": []
   },
   {
@@ -1692,6 +2075,11 @@ export const mandateAccountAbi = [
   },
   {
     "type": "error",
+    "name": "RouterNotSet",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "SafeERC20FailedOperation",
     "inputs": [
       {
@@ -1711,6 +2099,11 @@ export const mandateAccountAbi = [
         "internalType": "string"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "TotalCapExceeded",
+    "inputs": []
   },
   {
     "type": "error",
@@ -1791,6 +2184,19 @@ export const mandateAccountFactoryAbi = [
   },
   {
     "type": "function",
+    "name": "blueprint",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "create",
     "inputs": [
       {
@@ -1852,6 +2258,21 @@ export const mandateAccountFactoryAbi = [
             "name": "validUntil",
             "type": "uint64",
             "internalType": "uint64"
+          },
+          {
+            "name": "classMask",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "totalCap",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "lane",
+            "type": "uint8",
+            "internalType": "uint8"
           }
         ]
       }
@@ -1941,6 +2362,21 @@ export const mandateAccountFactoryAbi = [
             "name": "validUntil",
             "type": "uint64",
             "internalType": "uint64"
+          },
+          {
+            "name": "classMask",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "totalCap",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "lane",
+            "type": "uint8",
+            "internalType": "uint8"
           }
         ]
       }
@@ -2001,6 +2437,16 @@ export const mandateAccountFactoryAbi = [
   {
     "type": "error",
     "name": "AlreadyDeployed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "CreateFailed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotPrincipal",
     "inputs": []
   },
   {
@@ -2302,6 +2748,34 @@ export const escrowAbi = [
   },
   {
     "type": "function",
+    "name": "grantDisclosure",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "resolver_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "sliceCommit",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "ciphertext",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "lock",
     "inputs": [
       {
@@ -2385,6 +2859,39 @@ export const escrowAbi = [
   },
   {
     "type": "function",
+    "name": "pause",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "paused",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "pauser",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "pendingTreasury",
     "inputs": [],
     "outputs": [
@@ -2434,6 +2941,19 @@ export const escrowAbi = [
   },
   {
     "type": "function",
+    "name": "reopen",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "reputation",
     "inputs": [],
     "outputs": [
@@ -2458,6 +2978,11 @@ export const escrowAbi = [
         "name": "refundBps",
         "type": "uint16",
         "internalType": "uint16"
+      },
+      {
+        "name": "shares",
+        "type": "uint8",
+        "internalType": "uint8"
       }
     ],
     "outputs": [],
@@ -2488,6 +3013,19 @@ export const escrowAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "setPauser",
+    "inputs": [
+      {
+        "name": "pauser_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -2581,6 +3119,13 @@ export const escrowAbi = [
     "stateMutability": "view"
   },
   {
+    "type": "function",
+    "name": "unpause",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
     "type": "event",
     "name": "BondForfeited",
     "inputs": [
@@ -2645,6 +3190,43 @@ export const escrowAbi = [
   },
   {
     "type": "event",
+    "name": "DisclosureGranted",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "grantor",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "resolver",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "sliceCommit",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "ciphertext",
+        "type": "bytes",
+        "indexed": false,
+        "internalType": "bytes"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "DisputeBonded",
     "inputs": [
       {
@@ -2664,6 +3246,25 @@ export const escrowAbi = [
         "type": "uint128",
         "indexed": false,
         "internalType": "uint128"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "DisputeReopened",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "deadline",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
       }
     ],
     "anonymous": false
@@ -2745,6 +3346,32 @@ export const escrowAbi = [
         "type": "uint64",
         "indexed": false,
         "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "Paused",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "PauserSet",
+    "inputs": [
+      {
+        "name": "pauser",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
       }
     ],
     "anonymous": false
@@ -2966,6 +3593,19 @@ export const escrowAbi = [
     "anonymous": false
   },
   {
+    "type": "event",
+    "name": "Unpaused",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "error",
     "name": "AlreadySet",
     "inputs": []
@@ -2997,12 +3637,37 @@ export const escrowAbi = [
   },
   {
     "type": "error",
+    "name": "DisputeRulable",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "EnforcedPause",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ExpectedPause",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InsufficientGas",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NotDeployer",
     "inputs": []
   },
   {
     "type": "error",
     "name": "NotParty",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotPauser",
     "inputs": []
   },
   {
@@ -4033,6 +4698,16 @@ export const oracleRegistryAbi = [
         "name": "escrowId",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "payer",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "payee",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "outputs": [
@@ -4059,6 +4734,50 @@ export const oracleRegistryAbi = [
         "name": "count",
         "type": "uint32",
         "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "partiesOf",
+    "inputs": [
+      {
+        "name": "disputeId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "payer",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "payee",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "pause",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "paused",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "stateMutability": "view"
@@ -4232,6 +4951,25 @@ export const oracleRegistryAbi = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "rulable",
+    "inputs": [
+      {
+        "name": "escrowId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "stateMutability": "view"
@@ -4446,6 +5184,13 @@ export const oracleRegistryAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "unpause",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -4682,6 +5427,19 @@ export const oracleRegistryAbi = [
   },
   {
     "type": "event",
+    "name": "Paused",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "ResolverRegistered",
     "inputs": [
       {
@@ -4878,6 +5636,19 @@ export const oracleRegistryAbi = [
   },
   {
     "type": "event",
+    "name": "Unpaused",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "VoteCommitted",
     "inputs": [
       {
@@ -5014,6 +5785,16 @@ export const oracleRegistryAbi = [
   },
   {
     "type": "error",
+    "name": "EnforcedPause",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ExpectedPause",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NoCommitment",
     "inputs": []
   },
@@ -5039,6 +5820,11 @@ export const oracleRegistryAbi = [
   },
   {
     "type": "error",
+    "name": "NotPauser",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NotPendingAdmin",
     "inputs": []
   },
@@ -5050,6 +5836,11 @@ export const oracleRegistryAbi = [
   {
     "type": "error",
     "name": "NothingToClaim",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "PartyCannotVote",
     "inputs": []
   },
   {
@@ -5188,6 +5979,19 @@ export const agentRegistryAbi = [
       }
     ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "MAX_MIN_STAKE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint128",
+        "internalType": "uint128"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -6656,6 +7460,30 @@ export const adminTimelockAbi = [
   },
   {
     "type": "function",
+    "name": "hasVetoed",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "isSigner",
     "inputs": [
       {
@@ -6709,6 +7537,25 @@ export const adminTimelockAbi = [
       }
     ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "proposerOf",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -6772,6 +7619,25 @@ export const adminTimelockAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "vetoes",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "count",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "event",
@@ -6901,6 +7767,31 @@ export const adminTimelockAbi = [
   },
   {
     "type": "event",
+    "name": "ProposalVetoed",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "signer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "vetoes",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "SignerUpdated",
     "inputs": [
       {
@@ -6937,6 +7828,11 @@ export const adminTimelockAbi = [
   {
     "type": "error",
     "name": "AlreadyExecuted",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "AlreadyVetoed",
     "inputs": []
   },
   {

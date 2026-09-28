@@ -3,6 +3,7 @@ import {
   rhcChain,
   rhcRpcProviders,
   deploymentForChain,
+  deploymentsForChain,
   envVar,
   isBursarError,
   loadEnv,
@@ -62,7 +63,14 @@ export type McpConfig = {
   readonly providers: readonly RpcProvider[];
   /** Null when this server serves a resolver or a provider and no mandate. */
   readonly account: Address | null;
+  /** The escrow of the deployment that answers for the chain, or MANDATE_ESCROW. */
   readonly escrow: Address;
+  /**
+   * Every escrow a mandate may settle through: MANDATE_ESCROW alone when it is set, otherwise the
+   * escrow of every live deployment on the chain, newest first. A mandate on the previous contract
+   * set keeps reading.
+   */
+  readonly escrows: readonly Address[];
   readonly settlementAsset: Address;
   /** Null unless this server acts for a resolver. */
   readonly resolver: ResolverConfig | null;
@@ -167,6 +175,7 @@ export function loadConfig(source: EnvSource = process.env): McpConfig {
     providers,
     account: account ?? null,
     escrow,
+    escrows: env.MANDATE_ESCROW === undefined && deployed !== null ? deployed.escrows : [escrow],
     settlementAsset: env.BURSAR_SETTLEMENT_ASSET ?? deployed?.settlementAsset ?? chain.usdg,
     resolver,
     provider,
@@ -298,6 +307,7 @@ function assertNoKeys(source: EnvSource): void {
 
 function deployedContracts(chainId: number): {
   escrow: Address;
+  escrows: Address[];
   settlementAsset: Address;
   oracleRegistry: Address;
   agentRegistry: Address;
@@ -308,6 +318,7 @@ function deployedContracts(chainId: number): {
 
     return {
       escrow: record.contracts.Escrow,
+      escrows: deploymentsForChain(chainId).map((d) => d.contracts.Escrow),
       settlementAsset: record.settlementAsset,
       oracleRegistry: record.contracts.OracleRegistry,
       agentRegistry: record.contracts.AgentRegistry,

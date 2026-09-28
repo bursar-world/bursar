@@ -190,6 +190,14 @@ export function createHandler(options: HttpOptions): (request: { method: string;
       lastPollAt: state.lastPollAt === null ? null : new Date(state.lastPollAt).toISOString(),
       lastError: state.lastError,
       openDisputes: state.open,
+      served: state.served.map((entry) => ({
+        name: entry.name,
+        contractSet: entry.contractSet,
+        registry: entry.registry,
+        escrow: entry.escrow,
+        lastScannedBlock: entry.lastScannedBlock === null ? null : entry.lastScannedBlock.toString(),
+        openDisputes: entry.open,
+      })),
       policyVersion: POLICY_VERSION,
     });
   }

@@ -3,7 +3,7 @@ import type { Micro } from '@bursar/core';
 import { decodeFunctionData, toFunctionSelector } from 'viem';
 import type { Abi, Address, Hex } from 'viem';
 
-import { escrowAbi, mandateAccountAbi } from '@/chain/abi';
+import { escrowAbi, mandateAccountAbi, mandateAccountAbiV1 } from '@/chain/abi';
 import type { ActionOwner, StateKey } from '@/state/types';
 
 /**
@@ -72,6 +72,18 @@ const CAUSES: Readonly<Record<string, Omit<RefusalCause, 'errorName'>>> = {
     state: 'mandate',
     headline: 'The second cap was reached',
     detail: 'The amount was more than the second window had left. That allowance returns when its window rolls.',
+    owner: 'principal',
+  },
+  TotalCapExceeded: {
+    state: 'mandate',
+    headline: 'The total budget is spent',
+    detail: 'The amount was more than the total budget had left. The total never refills; only the account owner can raise it.',
+    owner: 'principal',
+  },
+  ClassNotAllowed: {
+    state: 'permission',
+    headline: 'This kind of spend is not allowed',
+    detail: 'The mandate allows only the spend classes its owner chose, and this payment is in another one.',
     owner: 'principal',
   },
   MerchantNotAllowed: {
@@ -310,7 +322,7 @@ export type RefusalContext = {
 };
 
 /** Selector to error name, built from the ABIs at load so it cannot drift from them. */
-const SELECTORS: ReadonlyMap<string, string> = buildSelectors([mandateAccountAbi as Abi, escrowAbi as Abi]);
+const SELECTORS: ReadonlyMap<string, string> = buildSelectors([mandateAccountAbi as Abi, mandateAccountAbiV1 as Abi, escrowAbi as Abi]);
 
 function buildSelectors(abis: readonly Abi[]): ReadonlyMap<string, string> {
   const map = new Map<string, string>();
@@ -452,11 +464,14 @@ const ACTIONS: Readonly<Record<string, string>> = {
   setDocumentHash: 'Anchor the mandate document',
 };
 
+const EITHER_ACCOUNT_ABI = [...mandateAccountAbi, ...mandateAccountAbiV1] as Abi;
+
 export function describeAttempt(input: Hex): Attempt | undefined {
   if (input.length < 10) return undefined;
 
   try {
-    const decoded = decodeFunctionData({ abi: mandateAccountAbi, data: input });
+    // Both builds, because a v1 spend carries a shorter request and so a different selector.
+    const decoded = decodeFunctionData({ abi: EITHER_ACCOUNT_ABI, data: input });
     const name = decoded.functionName as string;
     const args = (decoded.args ?? []) as readonly unknown[];
     const request = args[0] as { merchant?: Address; capabilityId?: Hex; amount?: bigint } | undefined;

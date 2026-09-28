@@ -72,8 +72,11 @@ export {
   BURSAR_CONTRACT_NAMES,
   contractAddress,
   deployment,
+  deploymentByContract,
   deploymentForChain,
+  deploymentsForChain,
   isMandateDeploymentRecord,
+  isSuperseded,
   isRetiredDeploymentRecord,
   liveDeployments,
   parseDeployment,
@@ -98,6 +101,17 @@ export {
   reputationAbi,
   settlementAssetAbi,
 } from './generated/abi.js';
+
+export {
+  adminTimelockAbiV1,
+  escrowAbiV1,
+  mandateAccountAbiV1,
+  mandateAccountFactoryAbiV1,
+  oracleRegistryAbiV1,
+} from './abi-v1.js';
+
+export { V1_ABIS, V2_ABIS, contractSetOf, contractSetOfEscrow } from './contract-set.js';
+export type { ContractSet } from './contract-set.js';
 
 export { CircuitBreaker } from './rpc/breaker.js';
 export type { BreakerOptions, BreakerSnapshot, BreakerState } from './rpc/breaker.js';
@@ -222,12 +236,17 @@ export type {
 export type { Address as PolicyAddress } from './policy/index.js';
 
 export {
+  CLASS_MASK_ALL,
+  DEFAULT_CLASS_MASK,
   SPEND_CLASSES,
+  SPEND_CLASS_BIT,
   SPEND_CLASS_INFO,
   SpendClassError,
   bareLabel,
   classCapabilityId,
   classLabel,
+  classMaskOf,
+  classesInMask,
   classOfLabel,
   isSpendClass,
 } from './spend-classes.js';

@@ -14,12 +14,12 @@
 import { decodeFunctionData, encodeFunctionData, formatUnits, getAddress, isAddress, slice } from 'viem';
 import type { Abi, AbiFunction, Address, Hex } from 'viem';
 
-import { micro } from '@bursar/core';
-import type { Micro } from '@bursar/core';
+import { deploymentsForChain, micro } from '@bursar/core';
+import type { MandateContractName, Micro } from '@bursar/core';
 
 import { brsr } from '../money';
 import type { Brsr } from '../money';
-import { ADDRESSES } from './rhc';
+import { ADDRESSES, CHAIN_ID } from './rhc';
 import {
   adminTimelockAbi,
   agentRegistryAbi,
@@ -763,8 +763,37 @@ export type CallReading = {
  * numbers in it. Where it is not, the card says exactly that. A wrong description of a governance
  * action is worse than none.
  */
+/** The core contracts each governed key stands for in a deployment record. */
+const RECORD_NAMES: Partial<Record<GovernedKey, MandateContractName>> = {
+  agentRegistry: 'AgentRegistry',
+  escrow: 'Escrow',
+  oracleRegistry: 'OracleRegistry',
+  reputation: 'Reputation',
+  mandateAccountFactory: 'MandateAccountFactory',
+  adminTimelock: 'AdminTimelock',
+};
+
+/**
+ * The governed contract at an address, in the current set or in an older one still live on this
+ * chain. A proposal queued against the v1 registry names the registry, not an unknown contract.
+ */
+function governedAt(target: Address): GovernedContract | undefined {
+  const current = GOVERNED.find((entry) => sameAddress(addressOrUndefined(entry), target));
+  if (current) return current;
+  let records: readonly { readonly contracts: Readonly<Record<MandateContractName, Address>> }[] = [];
+  try {
+    records = deploymentsForChain(CHAIN_ID);
+  } catch {
+    return undefined;
+  }
+  return GOVERNED.find((entry) => {
+    const name = RECORD_NAMES[entry.key];
+    return name !== undefined && records.some((record) => sameAddress(record.contracts[name], target));
+  });
+}
+
 export function readCall(target: Address, data: Hex): CallReading {
-  const known = GOVERNED.find((entry) => sameAddress(addressOrUndefined(entry), target));
+  const known = governedAt(target);
   const selector = data.length >= 10 ? (slice(data, 0, 4) as Hex) : undefined;
 
   const decoded = decodeWith(data, known?.abi) ?? decodeAcrossAll(data);

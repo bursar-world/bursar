@@ -20,7 +20,7 @@ import {
   agentRegistryAbi,
   canonicalStringify,
   commitCanonical,
-  deploymentForChain,
+  deployment,
   escrowAbi,
   oracleRegistryAbi,
   rhcChain,
@@ -60,12 +60,13 @@ const DEAD_RPC = 'http://127.0.0.1:9';
 /** A live bonded resolver on 4663, impersonated as the third party. */
 const THIRD_PARTY: Address = '0x7062A480732EC7B0F00a3D0c968356e1671dd356';
 
-const record = deploymentForChain(4663);
+// The v1 set: the drill was written against its refund-on-failure rules.
+const record = deployment('rhc-mainnet');
 const ESCROW = getAddress(record.contracts.Escrow);
 const REGISTRY = getAddress(record.contracts.OracleRegistry);
 const AGENTS = getAddress(record.contracts.AgentRegistry);
 const USDG = getAddress(record.settlementAsset);
-const SERVED: Served = { name: 'rhc-mainnet', escrow: ESCROW, registry: REGISTRY };
+const SERVED: Served = { name: 'rhc-mainnet', escrow: ESCROW, registry: REGISTRY, contractSet: 'v1' };
 
 const chain = rhcChain('mainnet');
 const keys = testKeys(3);

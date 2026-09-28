@@ -84,6 +84,7 @@ export type {
   PermissionRead,
   ProviderRead,
   RawLimits,
+  RawLimitsV1,
   ReadScope,
 } from './reader';
 
@@ -98,8 +99,18 @@ export {
 } from './token';
 export type { BuybackState, StakingPool, StakingPosition, TokenSnapshot, VestingGrant } from './token';
 
-export { DAY_SECONDS, MONTH_SECONDS, ZERO_LIMITS, checkLimits, fromLimits, toLimitsTuple } from './limits';
-export type { LimitsForm, LimitsProblem } from './limits';
+export {
+  DAY_SECONDS,
+  MONTH_SECONDS,
+  ZERO_LIMITS,
+  checkLimits,
+  fromLimits,
+  showsSecondCap,
+  toLimitsTuple,
+  toLimitsTupleV1,
+  totalBudgetOf,
+} from './limits';
+export type { LimitsForm, LimitsProblem, TotalBudget, TotalBudgetSource } from './limits';
 
-export { mandatesOf, predictMandate, randomSalt, readMandateSummaries } from './mandates';
+export { mandateCodeSet, mandateCodeVersion, mandatesOf, predictMandate, randomSalt, readMandateSummaries } from './mandates';
 export type { MandateSummary } from './mandates';

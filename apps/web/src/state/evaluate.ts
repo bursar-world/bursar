@@ -1,4 +1,4 @@
-import { isTotalBudgetWindow } from '@bursar/core';
+import { showsSecondCap, totalBudgetOf } from '../chain/limits';
 import type { Micro } from '@bursar/core';
 import type { Address } from 'viem';
 
@@ -188,7 +188,9 @@ export function evaluateMandate(snapshot: ChainSnapshot | undefined, checkedAt: 
   const now = snapshot?.chainTime ?? new Date();
   const validFrom = fromUnix(account.limits.validFrom);
   const validUntil = fromUnix(account.limits.validUntil);
-  const total = isTotalBudgetWindow(account.monthly.duration);
+  const budget = totalBudgetOf(account);
+  const total = budget !== undefined;
+  const secondCap = showsSecondCap(account);
 
   const checks: Check[] = [
     {
@@ -218,12 +220,13 @@ export function evaluateMandate(snapshot: ChainSnapshot | undefined, checkedAt: 
       detail: `Up to ${usd(account.limits.perCallCap)} in one payment. At or above ${usd(account.limits.approvalThreshold)} the principal signs it personally.`,
     },
     windowCheck('daily', 'This period', account.remaining.daily, account.daily.cap, account.remaining.dailyResetsAt, now),
-    total
-      ? totalCheck(account.remaining.monthly, account.monthly.cap)
-      : windowCheck('monthly', 'Second cap', account.remaining.monthly, account.monthly.cap, account.remaining.monthlyResetsAt, now),
+    ...(secondCap
+      ? [windowCheck('monthly', 'Second cap', account.remaining.monthly, account.monthly.cap, account.remaining.monthlyResetsAt, now)]
+      : []),
+    ...(budget ? [totalCheck(budget.remaining, budget.cap)] : []),
   ];
 
-  const headroom = `${usd(account.remaining.daily)} left this period, ${usd(account.remaining.monthly)} left ${total ? 'in the total budget' : 'under the second cap'}.`;
+  const headroom = `${usd(account.remaining.daily)} left this period, ${usd(budget ? budget.remaining : account.remaining.monthly)} left ${total ? 'in the total budget' : 'under the second cap'}.`;
 
   if (account.revoked) {
     return report('mandate', 'Mandate', 'blocked', 'The agent is revoked.', 'The agent seated on this mandate was removed, so nothing can spend against it. Seat an agent to start again.', { label: 'Seat an agent', owner: 'principal', kind: 'transaction' }, checks, facts, checkedAt, stale);
@@ -245,11 +248,11 @@ export function evaluateMandate(snapshot: ChainSnapshot | undefined, checkedAt: 
     return report('mandate', 'Mandate', 'blocked', 'This period’s cap is spent.', `All ${usd(account.daily.cap)} of the period cap is used. The period rolls ${formatRelative(account.remaining.dailyResetsAt, now)}, at ${formatInstant(account.remaining.dailyResetsAt)}. Raise the period cap to spend sooner.`, { label: 'Wait for the period to roll', owner: 'principal', kind: 'wait', waitUntil: account.remaining.dailyResetsAt }, checks, facts, checkedAt, stale);
   }
 
-  if (account.remaining.monthly === 0n && total) {
-    return report('mandate', 'Mandate', 'blocked', 'The total budget is spent.', `All ${usd(account.monthly.cap)} of the total budget is used. It never refills, so nothing more can be spent until the owner raises it.`, { label: 'Raise the total budget', owner: 'principal', kind: 'transaction' }, checks, facts, checkedAt, stale);
+  if (budget && budget.remaining === 0n) {
+    return report('mandate', 'Mandate', 'blocked', 'The total budget is spent.', `All ${usd(budget.cap)} of the total budget is used. It never refills, so nothing more can be spent until the owner raises it.`, { label: 'Raise the total budget', owner: 'principal', kind: 'transaction' }, checks, facts, checkedAt, stale);
   }
 
-  if (account.remaining.monthly === 0n) {
+  if (secondCap && account.remaining.monthly === 0n) {
     return report('mandate', 'Mandate', 'blocked', 'The second cap is spent.', `All ${usd(account.monthly.cap)} of the second cap is used. Its window rolls ${formatRelative(account.remaining.monthlyResetsAt, now)}. Raise it to spend sooner.`, { label: 'Wait for the window to roll', owner: 'principal', kind: 'wait', waitUntil: account.remaining.monthlyResetsAt }, checks, facts, checkedAt, stale);
   }
 
@@ -332,7 +335,7 @@ export function evaluatePermission(snapshot: ChainSnapshot | undefined, checkedA
 
   if (permission.preview && !permission.preview.allowed) {
     const reason = permission.preview.reason;
-    const permissionReason = reason === 'merchant-not-allowed' || reason === 'capability-not-allowed' || reason === 'merchant-proof-required' || reason === 'merchant-proof-invalid' || reason === 'merchant-proof-unexpected';
+    const permissionReason = reason === 'merchant-not-allowed' || reason === 'capability-not-allowed' || reason === 'class-not-allowed' || reason === 'merchant-proof-required' || reason === 'merchant-proof-invalid' || reason === 'merchant-proof-unexpected';
     if (permissionReason) {
       return report('permission', 'Permission', 'blocked', 'The mandate would refuse this payment.', previewDetail(reason), { label: 'Update the allowlist', owner: 'principal', kind: 'transaction' }, checks, facts, checkedAt, stale);
     }
@@ -586,6 +589,8 @@ function previewDetail(reason: string | undefined): string {
       return 'The merchant is not on this mandate’s allowlist.';
     case 'capability-not-allowed':
       return 'This kind of work is not on the mandate’s list.';
+    case 'class-not-allowed':
+      return 'This kind of spend is outside the classes the mandate allows.';
     case 'merchant-proof-required':
       return 'This mandate checks merchants against a published list, so the payment has to carry proof the merchant is on it.';
     case 'merchant-proof-invalid':

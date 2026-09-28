@@ -1,12 +1,19 @@
 # Ruling policy
 
-Version 1. It applies to disputes heard by the Bursar dispute registry on Robinhood Chain
-(chain 4663), registry `0xCb7c60037eC43b9692A5dDcA42A500181Cf549FF`, for payments held by the
-escrow at `0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4`.
+Version 1. It applies to disputes heard by the Bursar dispute registries on Robinhood Chain
+(chain 4663):
+
+| Set | Registry | Escrow |
+|---|---|---|
+| v2, current (development deployment) | `0xE38349668f0C470C814487E95C14e7652F713B17` | `0x4315F8be7C9661345710910577Ec31cb867f3c20` |
+| v1, previous | `0xCb7c60037eC43b9692A5dDcA42A500181Cf549FF` | `0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4` |
+
+The rules and scores are the same on both. Where the two registries behave differently, the
+difference is stated below.
 
 ## Who rules
 
-All three bonded resolvers on this registry are operated by Bursar:
+All three bonded resolvers on both registries are operated by Bursar:
 
 | Resolver | Address |
 |---|---|
@@ -14,7 +21,8 @@ All three bonded resolvers on this registry are operated by Bursar:
 | resolver-2 | `0xC284CdA6c6982447f202830f4e969F13cBcB0b94` |
 | resolver-3 | `0x7062A480732EC7B0F00a3D0c968356e1671dd356` |
 
-Each has 25,000 BRSR bonded. Bursar is therefore the arbiter of every dispute on this registry.
+Each has 25,000 BRSR bonded in the shared `Staking` pool. Bursar is therefore the arbiter of every
+dispute on either registry.
 Every vote follows the rules below, every resolver casts the same score, and the reasons for each
 ruling are published once the votes are revealed.
 
@@ -43,6 +51,24 @@ On a payment of 1.00 USDG disputed by the payer:
 
 A complaint made after the provider has been paid is recorded against the provider's history.
 There is nothing left to split, so it is never ruled on.
+
+On the v2 registry, a payment can be disputed once, and the payer and provider of a disputed
+payment cannot vote on it, even when they are bonded resolvers.
+
+## When no ruling is reached
+
+A dispute needs two revealed votes. If fewer than two resolvers seal a score before sealing
+closes, or fewer than two reveal before the reveal window closes, the dispute fails:
+
+- On v2, the payment goes back to being held, with a new deadline no earlier than five minutes
+  from the moment the dispute fails. The dispute bond is returned to whoever opened the dispute,
+  and no resolver fee is taken. The provider can still deliver before the new deadline, and the
+  payer is refunded by the ordinary timeout if it does not. The payment cannot be disputed again.
+- On v1, the payer is refunded.
+
+The escrow's own dispute timeout, 48 hours after a dispute opens, returns the payment to the payer
+if the registry cannot settle it at all. On v2 it cannot be used while the registry can still
+settle the dispute.
 
 ## The rules
 
@@ -103,7 +129,10 @@ Those disputes are ruled by P0 to P5 alone, and the published ruling marks them 
 
 ## Timeline
 
-Times are counted from the moment the dispute opens.
+Times are counted from the moment the dispute opens. The table is for the v1 registry, whose
+sealing and reveal windows are six hours each. The v2 registry is a development deployment with
+one-hour windows, and every step moves in proportion: the evidence cutoff is at 30 minutes,
+sealing closes at 1 hour, and the ruling settles by 2 hours at the latest.
 
 | When | What happens |
 |---|---|

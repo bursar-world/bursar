@@ -15,6 +15,12 @@ export {
   settlementAssetAbi,
 } from '@bursar/core';
 
+/**
+ * The v1 account and factory ABIs. The v1 contracts on this chain still hold mandates, locks and
+ * disputes, and their limit struct is three fields shorter than the current one.
+ */
+export { mandateAccountAbiV1, mandateAccountFactoryAbiV1 } from '@bursar/core';
+
 import { multicall3Abi } from 'viem';
 
 export { multicall3Abi };

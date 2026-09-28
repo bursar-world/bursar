@@ -34,8 +34,9 @@ Use either channel:
   on this repository.
 
 If funds are at risk right now, start the email subject with `URGENT`. The timelock guardian can
-pause `AgentRegistry`, `Staking` and `Buyback` in the same block, and principals can revoke an
-agent on their own mandate accounts at once. An early report is what gives them the time.
+pause the v2 escrow, `OracleRegistry` and `AgentRegistry`, and the v1 `AgentRegistry`, `Staking`
+and `Buyback`, in the same block. Principals can revoke an agent on their own mandate accounts at
+once. An early report is what gives them the time.
 
 Please include:
 
@@ -65,22 +66,28 @@ There is no bug bounty programme yet. We will say so here when there is one.
 
 In scope:
 
-- The contracts deployed on Robinhood Chain mainnet, chain id 4663:
+- The contracts deployed on Robinhood Chain mainnet, chain id 4663. The current set (v2) is a
+  development deployment; the previous set (v1) still holds open locks and disputes.
+
+  | Contract | v2 (current) | v1 (previous) |
+  |---|---|---|
+  | `AdminTimelock` | `0x135eF562ac57845AeA1Bb650fc0E74D67A4a866B` | `0x5a32Eab02454f97a39857E85b536F83EE0f844Bf` |
+  | `MandateAccountFactory` | `0xe9f8cc653fF40E346e0591f353Be58DF0533cfD0` | `0xF8Ca04BEc1D7bcf767154AC6F7Ed1DD840CCF216` |
+  | `Escrow` | `0x4315F8be7C9661345710910577Ec31cb867f3c20` | `0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4` |
+  | `Reputation` | `0x48BF5F8Cea580148B2A5Ee3A9c487BF1dCafd9c3` | `0x8F123EDDDC586EEaAC3B1D6A5B9dF7BC0247680d` |
+  | `OracleRegistry` | `0xE38349668f0C470C814487E95C14e7652F713B17` | `0xCb7c60037eC43b9692A5dDcA42A500181Cf549FF` |
+  | `AgentRegistry` | `0x552E95102aE6B9232dD6A744B8f6bd348b379D26` | `0x4a9e90F15c0FEC02f7592C6E618cd3B64076035b` |
+
+  The token contracts, shared by both sets:
 
   | Contract | Address |
   |---|---|
-  | `AdminTimelock` | `0x5a32Eab02454f97a39857E85b536F83EE0f844Bf` |
-  | `MandateAccountFactory` | `0xF8Ca04BEc1D7bcf767154AC6F7Ed1DD840CCF216` |
-  | `Escrow` | `0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4` |
-  | `Reputation` | `0x8F123EDDDC586EEaAC3B1D6A5B9dF7BC0247680d` |
-  | `OracleRegistry` | `0xCb7c60037eC43b9692A5dDcA42A500181Cf549FF` |
-  | `AgentRegistry` | `0x4a9e90F15c0FEC02f7592C6E618cd3B64076035b` |
   | `BRSR` | `0x00e503925880c4b07E5Fb70232D83aD871F57a7d` |
   | `Vesting` | `0x5aD3d29C80C1617F3B195d74D593Bc9839681b2F` |
   | `Staking` | `0x3f2a0E7822B30aD928488F053348b137866Cf962` |
   | `Buyback` | `0xE979a30564a6F15DCCdB5488d5ac0D74a1bda6F0` |
 
-  and every `MandateAccount` created by that factory.
+  and every `MandateAccount` created by either factory.
 - The contract source, deploy scripts and packages in this repository (`contracts/`,
   `packages/*`).
 - The services in this repository: the facilitator, the underwriter and the sidecar.

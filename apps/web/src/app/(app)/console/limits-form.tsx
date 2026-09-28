@@ -1,7 +1,7 @@
 'use client';
 
-import { MICRO_DECIMALS, formatMicro, isTotalBudgetWindow, totalBudgetWindowSeconds } from '@bursar/core';
-import type { Micro } from '@bursar/core';
+import { MICRO_DECIMALS, formatMicro, isTotalBudgetWindow, micro, totalBudgetWindowSeconds } from '@bursar/core';
+import type { ContractSet, Micro } from '@bursar/core';
 import type { MandateLimits } from '@bursar/sdk';
 import { useId } from 'react';
 import type { ReactNode } from 'react';
@@ -100,7 +100,19 @@ export type DraftReading = {
   readonly problems: readonly LimitsProblem[];
 };
 
-export function readDraft(draft: LimitsDraft, now: number = Date.now()): DraftReading {
+/**
+ * The account a draft is written to. A v2 account takes the classes and the total budget as fields
+ * of their own. Without a target the total is the second window set never to roll, which is how a
+ * v1 account holds it and how the workspace rule check models a draft.
+ */
+export type DraftTarget = {
+  readonly contractSet: ContractSet;
+  /** One bit per allowed spend class. See `classMaskOf`. */
+  readonly classMask: number;
+  readonly lane?: number;
+};
+
+export function readDraft(draft: LimitsDraft, now: number = Date.now(), target?: DraftTarget): DraftReading {
   const problems: LimitsProblem[] = [];
   const total = isTotalDraft(draft);
 
@@ -131,30 +143,52 @@ export function readDraft(draft: LimitsDraft, now: number = Date.now()): DraftRe
   }
 
   const expiry = Number.isFinite(validUntil) ? validUntil : 0;
-  const limits: LimitsForm = {
-    perCallCap: perCall.value,
-    dailyCap: daily.value,
-    monthlyCap: monthly.value,
-    dailyWindow: draft.shortWindow,
-    monthlyWindow: total ? Number(totalBudgetWindowSeconds(expiry, Math.floor(now / 1000))) : draft.longWindow,
-    approvalThreshold: threshold.value,
-    validFrom: draft.validFrom,
-    validUntil: expiry,
-  };
+  const native = target?.contractSet === 'v2';
+  const limits: LimitsForm = native
+    ? {
+        perCallCap: perCall.value,
+        dailyCap: daily.value,
+        // With a native total the second window has nothing to do, so it repeats the first.
+        monthlyCap: total ? daily.value : monthly.value,
+        dailyWindow: draft.shortWindow,
+        monthlyWindow: total ? draft.shortWindow : draft.longWindow,
+        approvalThreshold: threshold.value,
+        validFrom: draft.validFrom,
+        validUntil: expiry,
+        classMask: target.classMask,
+        totalCap: total ? monthly.value : micro(0n),
+        lane: target.lane ?? 0,
+      }
+    : {
+        perCallCap: perCall.value,
+        dailyCap: daily.value,
+        monthlyCap: monthly.value,
+        dailyWindow: draft.shortWindow,
+        monthlyWindow: total ? Number(totalBudgetWindowSeconds(expiry, Math.floor(now / 1000))) : draft.longWindow,
+        approvalThreshold: threshold.value,
+        validFrom: draft.validFrom,
+        validUntil: expiry,
+      };
 
   const refused = [...problems, ...checkLimits(limits)];
   return refused.length > 0 ? { limits: undefined, problems: refused } : { limits, problems: [] };
 }
 
-export function draftFromLimits(limits: MandateLimits): LimitsDraft {
+/**
+ * A draft seeded from a mandate that exists. On v2 a native total fills the total field; a v2
+ * mandate that holds both a total and a separate rolling second cap is edited as its total, since
+ * the form holds one of the two.
+ */
+export function draftFromLimits(limits: MandateLimits, contractSet: ContractSet = 'v1'): LimitsDraft {
   const mode = approvalModeOf(limits.approvalThreshold, limits.perCallCap);
+  const nativeTotal = contractSet === 'v2' && limits.totalCap > 0n;
 
   return {
     perCall: plain(limits.perCallCap),
     daily: plain(limits.dailyCap),
-    monthly: plain(limits.monthlyCap),
+    monthly: plain(nativeTotal ? limits.totalCap : limits.monthlyCap),
     shortWindow: Number(limits.dailyWindow),
-    longWindow: isTotalBudgetWindow(limits.monthlyWindow) ? NEVER_REFILLS : Number(limits.monthlyWindow),
+    longWindow: nativeTotal || isTotalBudgetWindow(limits.monthlyWindow) ? NEVER_REFILLS : Number(limits.monthlyWindow),
     approvalMode: mode,
     approvalAmount: mode === 'above' ? plain(limits.approvalThreshold) : '',
     validUntil: limits.validUntil === 0n ? '' : isoDate(Number(limits.validUntil) * 1000),

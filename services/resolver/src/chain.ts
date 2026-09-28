@@ -1,8 +1,10 @@
 import {
   agentRegistryAbi,
+  contractSetOfEscrow,
   createRhcClient,
   escrowAbi,
   mandateAccountAbi,
+  mandateAccountAbiV1,
   oracleRegistryAbi,
   reputationAbi,
 } from '@bursar/core';
@@ -504,12 +506,19 @@ export function createChain(options: ChainOptions): { port: ChainPort; client: R
       // A contract payer that is not a mandate account answers none of these, and that is a fact
       // about the payer, not a fault in the reading. It is reported as no mandate at all.
       try {
-        const [capabilityAllowed, merchantAllowed, limits] = await Promise.all([
+        // A v1 account returns eight limit fields and a v2 account eleven, so the escrow it was
+        // created against decides which ABI decodes them.
+        const escrow = await client.readContract({ address: payer, abi: mandateAccountAbi, functionName: 'escrow', blockNumber });
+        const limits =
+          contractSetOfEscrow(escrow) === 'v1'
+            ? client.readContract({ address: payer, abi: mandateAccountAbiV1, functionName: 'limits', blockNumber })
+            : client.readContract({ address: payer, abi: mandateAccountAbi, functionName: 'limits', blockNumber });
+        const [capabilityAllowed, merchantAllowed, { validUntil }] = await Promise.all([
           client.readContract({ address: payer, abi: mandateAccountAbi, functionName: 'capabilities', args: [capabilityId], blockNumber }),
           client.readContract({ address: payer, abi: mandateAccountAbi, functionName: 'merchants', args: [payee], blockNumber }),
-          client.readContract({ address: payer, abi: mandateAccountAbi, functionName: 'limits', blockNumber }),
+          limits,
         ]);
-        return { capabilityAllowed, merchantAllowed, validUntil: limits.validUntil };
+        return { capabilityAllowed, merchantAllowed, validUntil };
       } catch (error) {
         if (/reverted|returned no data/i.test(describeError(error))) return null;
         throw error;

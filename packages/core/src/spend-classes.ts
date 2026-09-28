@@ -112,3 +112,23 @@ export function classLabel(spendClass: SpendClass, label: string): string {
 export function classCapabilityId(spendClass: SpendClass, label: string): Hex {
   return capabilityId(classLabel(spendClass, label));
 }
+
+/**
+ * A class's bit in a v2 mandate's `classMask`, and its value in `SpendRequest.spendClass`. The
+ * order is the contract's: 0 services, 1 agent hires, 2 eligible stocks.
+ */
+export const SPEND_CLASS_BIT: Readonly<Record<SpendClass, number>> = { service: 0, hire: 1, rwa: 2 };
+
+/** Every bit a v2 mandate accepts. Anything above is refused on chain with `BadClassMask`. */
+export const CLASS_MASK_ALL = 0b111;
+
+/** What a v2 mandate allows when its creator names no classes: the two that settle today. */
+export const DEFAULT_CLASS_MASK = 0b011;
+
+export function classMaskOf(classes: readonly SpendClass[]): number {
+  return classes.reduce((mask, spendClass) => mask | (1 << SPEND_CLASS_BIT[spendClass]), 0);
+}
+
+export function classesInMask(mask: number): SpendClass[] {
+  return SPEND_CLASSES.filter((spendClass) => (mask & (1 << SPEND_CLASS_BIT[spendClass])) !== 0);
+}

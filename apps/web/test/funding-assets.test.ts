@@ -49,6 +49,8 @@ function account(): MandateRead {
   const monthly = window_(1, 1_000_000_000n);
 
   return {
+    contractSet: 'v1',
+    totalSpent: undefined,
     address: MANDATE,
     principal: OWNER,
     pendingPrincipal: '0x0000000000000000000000000000000000000000' as Address,
@@ -67,6 +69,9 @@ function account(): MandateRead {
       approvalThreshold: micro(50_000_000n),
       validFrom: 0n,
       validUntil: 0n,
+      classMask: 0,
+      totalCap: micro(0n),
+      lane: 0,
     },
     remaining: {
       perCall: micro(10_000_000n),

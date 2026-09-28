@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  CLASS_MASK_ALL,
+  DEFAULT_CLASS_MASK,
   SPEND_CLASSES,
   SPEND_CLASS_INFO,
   SpendClassError,
@@ -8,7 +10,9 @@ import {
   capabilityId,
   classCapabilityId,
   classLabel,
+  classMaskOf,
   classOfLabel,
+  classesInMask,
 } from '../src/index.js';
 
 describe('spend-class namespaces', () => {
@@ -61,5 +65,15 @@ describe('spend-class namespaces', () => {
     expect(classOfLabel('gpu.render:1')).toBeUndefined();
     expect(bareLabel('hire:research.summarize:1')).toBe('research.summarize:1');
     expect(bareLabel('gpu.render:1')).toBe('gpu.render:1');
+  });
+});
+
+describe('class masks', () => {
+  it('sets one bit per class, in the contract order', () => {
+    expect(classMaskOf(['service'])).toBe(1);
+    expect(classMaskOf(['service', 'hire'])).toBe(DEFAULT_CLASS_MASK);
+    expect(classMaskOf(['service', 'hire', 'rwa'])).toBe(CLASS_MASK_ALL);
+    expect(classesInMask(0b101)).toEqual(['service', 'rwa']);
+    expect(classesInMask(0)).toEqual([]);
   });
 });

@@ -109,12 +109,14 @@ export function lockLevel(status: LockStatus): StateLevel {
  * listed as contestable in one place and refused in the other is the same bug twice.
  */
 export function contestable(
-  lock: { readonly status: LockStatus; readonly releasedAt: Date | null } | undefined,
+  lock: { readonly status: LockStatus; readonly releasedAt: Date | null; readonly disputedAt?: Date | null } | undefined,
   disputeWindow: bigint | undefined,
   now: Date = new Date(),
 ): boolean {
   if (!lock) return false;
-  if (lock.status === LockStatus.Locked) return true;
+  // A v2 dispute that closed without a ruling puts the lock back to Locked with its dispute time
+  // kept, and the registry refuses a second dispute on the same lock.
+  if (lock.status === LockStatus.Locked) return lock.disputedAt === undefined || lock.disputedAt === null;
   if (lock.status !== LockStatus.Released || lock.releasedAt === null || disputeWindow === undefined) return false;
   return lock.releasedAt.getTime() + Number(disputeWindow) * 1000 > now.getTime();
 }

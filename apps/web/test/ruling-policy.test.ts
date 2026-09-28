@@ -12,7 +12,7 @@ describe('the published ruling policy', () => {
 
   it('parses into the sections the page shows', () => {
     const headings = blocks.filter((block) => block.kind === 'heading').map((block) => block.text);
-    expect(headings).toEqual(['Ruling policy', 'Who rules', 'What a ruling decides', 'The rules', 'Evidence', 'Overrides', 'Timeline', 'Publication', 'Changes']);
+    expect(headings).toEqual(['Ruling policy', 'Who rules', 'What a ruling decides', 'When no ruling is reached', 'The rules', 'Evidence', 'Overrides', 'Timeline', 'Publication', 'Changes']);
   });
 
   it('keeps every table row as wide as its header', () => {
@@ -23,7 +23,7 @@ describe('the published ruling policy', () => {
   });
 
   it('names all three resolvers as operated by Bursar', () => {
-    expect(SOURCE).toContain('All three bonded resolvers on this registry are operated by Bursar');
+    expect(SOURCE).toContain('All three bonded resolvers on both registries are operated by Bursar');
     for (const address of ['0xD8D90e4c8f3419B1b8305dF2905eb31d3fBBf599', '0xC284CdA6c6982447f202830f4e969F13cBcB0b94', '0x7062A480732EC7B0F00a3D0c968356e1671dd356']) {
       expect(SOURCE).toContain(address);
     }

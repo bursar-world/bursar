@@ -15,7 +15,7 @@
  * its limits refuse whatever this process was told to send.
  */
 
-import { mandateAccountAbi, viemChain } from '@bursar/core';
+import { mandateAccountAbi, mandateAccountAbiV1, viemChain } from '@bursar/core';
 import type { RhcChain, RhcPublicClient } from '@bursar/core';
 import { createWalletClient, custom, encodeFunctionData, parseEventLogs } from 'viem';
 import type { Account, Address, Hex, TransactionReceipt, WalletClient } from 'viem';
@@ -180,14 +180,23 @@ export function createLocalSigner(options: LocalSignerOptions): SpendRelay {
 
       const proof = [...request.merchantProof];
       const approval = request.approval;
+      const classed = { ...spendRequest, spendClass: request.spendClass };
       const data =
-        approval === null
-          ? encodeFunctionData({ abi: mandateAccountAbi, functionName: 'spend', args: [spendRequest, proof] })
-          : encodeFunctionData({
-              abi: mandateAccountAbi,
-              functionName: 'spendApproved',
-              args: [spendRequest, proof, consent(approval), approval.signature ?? NO_SIGNATURE],
-            });
+        request.contractSet === 'v1'
+          ? approval === null
+            ? encodeFunctionData({ abi: mandateAccountAbiV1, functionName: 'spend', args: [spendRequest, proof] })
+            : encodeFunctionData({
+                abi: mandateAccountAbiV1,
+                functionName: 'spendApproved',
+                args: [spendRequest, proof, consent(approval), approval.signature ?? NO_SIGNATURE],
+              })
+          : approval === null
+            ? encodeFunctionData({ abi: mandateAccountAbi, functionName: 'spend', args: [classed, proof] })
+            : encodeFunctionData({
+                abi: mandateAccountAbi,
+                functionName: 'spendApproved',
+                args: [classed, proof, consent(approval), approval.signature ?? NO_SIGNATURE],
+              });
 
       const { hash, receipt } = await submit(data, approval === null ? 'spend' : 'spendApproved');
       const spends = parseEventLogs({

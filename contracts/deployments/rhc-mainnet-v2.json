@@ -1,0 +1,247 @@
+{
+  "network": "rhc-mainnet-v2",
+  "chainId": 4663,
+  "dev": true,
+  "rpc": "https://rpc.mainnet.chain.robinhood.com",
+  "rpcUsedForThisRun": "https://rpc.mainnet.chain.robinhood.com",
+  "explorer": "https://robinhoodchain.blockscout.com",
+  "settlementAsset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+  "settlementDecimals": 6,
+  "deployer": "0x6B6fC40Ed9652728A9B620C4e1B05fBF4F9712a4",
+  "deployedAt": "2026-09-28T13:06:38Z",
+  "deployCostEth": "0.000374181843776",
+  "sourceCommit": "651f540",
+  "note": "Robinhood Chain mainnet, contract set v2, deployed as a development build. It fixes the v1 defects from the September review, adds native spend classes, a lifetime total and a settlement lane to the mandate limits, and runs a one-hour timelock and one-hour vote windows so changes can be exercised in a day. The token contracts (BRSR, Vesting, Staking, Buyback) are the live v1 set: resolver bonds are BRSR and the bond floor is read from the live Staking pool. The cap curve is the v1 curve, 25 USDG to 250 USDG per payee. v1 stays readable and keeps serving its open locks and disputes.",
+  "contracts": {
+    "AdminTimelock": "0x135eF562ac57845AeA1Bb650fc0E74D67A4a866B",
+    "Reputation": "0x48BF5F8Cea580148B2A5Ee3A9c487BF1dCafd9c3",
+    "Escrow": "0x4315F8be7C9661345710910577Ec31cb867f3c20",
+    "OracleRegistry": "0xE38349668f0C470C814487E95C14e7652F713B17",
+    "AgentRegistry": "0x552E95102aE6B9232dD6A744B8f6bd348b379D26",
+    "MandateAccountFactory": "0xe9f8cc653fF40E346e0591f353Be58DF0533cfD0"
+  },
+  "reused": {
+    "BRSR": "0x00e503925880c4b07E5Fb70232D83aD871F57a7d",
+    "Staking": "0x3f2a0E7822B30aD928488F053348b137866Cf962",
+    "Vesting": "0x5aD3d29C80C1617F3B195d74D593Bc9839681b2F",
+    "Buyback": "0xE979a30564a6F15DCCdB5488d5ac0D74a1bda6F0",
+    "note": "Kept from rhc-mainnet-token. No v2 fix touches them. OracleRegistry.setStaking points the v2 registry at the live pool, so the bond floor, per-resolver floors and bars are the ones held there under the v1 timelock."
+  },
+  "supersedes": "rhc-mainnet",
+  "roles": {
+    "timelockSigners": [
+      "0xb51c63568324848DfC88A09f91F06fA86771aB69",
+      "0x3C7facc7C72c3aCeB2EF93703813652aC9039266",
+      "0x1f3eE000728EF363B9F867f88BBF618F2A17c42d"
+    ],
+    "guardian": "0x7cfF32B8B4DB47E2Cde5907c8F5c93EC6a095E2A",
+    "treasury": "0x7f2D3be9597fb538BDBA3Dbcb9BEcECCD9056d21",
+    "slashSink": "0xb4A7D77a710f6b1fF4cDDd9D3c9b66E3f917A4FF"
+  },
+  "keystores": {
+    "deployer": "rh-deployer",
+    "timelockSigners": [
+      "signer-1",
+      "signer-2",
+      "signer-3"
+    ],
+    "guardian": "guardian",
+    "treasury": "treasury",
+    "slashSink": "slash-sink",
+    "note": "Each role is a separate key. guardian, signer-1 and signer-2 hold 0.0004 ETH each so they can transact; signer-3, treasury and slash-sink receive value and have no gas, because nothing asks them to send a transaction yet."
+  },
+  "transactions": {
+    "AdminTimelock": {
+      "hash": "0x3ac5e6dd57c8e25858d6a7cc2948d50b741c85ae79364b14eb4480558ff14383",
+      "block": 74820086,
+      "gas": 1554409
+    },
+    "Reputation": {
+      "hash": "0x6350648bd007c47b400a9ab6cf4d52d06c2d4de081453fda42727983eb16489b",
+      "block": 74820111,
+      "gas": 845308
+    },
+    "Escrow": {
+      "hash": "0xba616ebaf8b916aa064f4fc0bcf8b21eaa5633a93b3d5a31bf8a4641541778ee",
+      "block": 74820136,
+      "gas": 3178487
+    },
+    "OracleRegistry": {
+      "hash": "0xd85b8e291ddc826e428dd82401ebe542b20e5a3189675273f428be9449c3d82c",
+      "block": 74820161,
+      "gas": 4197471
+    },
+    "AgentRegistry": {
+      "hash": "0x4e719a3dae843f27bd57576488d204d0a53ad42f872eaed50e15166e6f2b4968",
+      "block": 74820187,
+      "gas": 2652553
+    },
+    "Reputation.setEscrow": {
+      "hash": "0x236fdb8024b53e1901c3c3f83a2c7299f503452d31cb93a9f7d72a3bbbef80d9",
+      "block": 74820212,
+      "gas": 45743
+    },
+    "Escrow.setResolver": {
+      "hash": "0xe657ebc8477882177c981dbc653b76b2fd63475e8efcb0ebffbe43d0a727004e",
+      "block": 74820237,
+      "gas": 45713
+    },
+    "OracleRegistry.setEscrow": {
+      "hash": "0x41e411abf38879cb30c7cbf58f59bb6a692a9e257854be67925d98979bcf579a",
+      "block": 74820262,
+      "gas": 51712
+    },
+    "Escrow.setPauser": {
+      "hash": "0xc39787cd78161beb48c194a5e29bea05c13715a034a957f3e7c5b69e40c6089f",
+      "block": 74820287,
+      "gas": 45738
+    },
+    "OracleRegistry.setStaking": {
+      "hash": "0x55ba98230707e30718edcc0025e9639292c72cab30427072119b09775681dd9a",
+      "block": 74820312,
+      "gas": 72348
+    },
+    "Escrow.setRegistry": {
+      "hash": "0x8250f3e647e41253c3b4ece0f9a78f2d2206938c6ed8eb53492bf2b2f80c6989",
+      "block": 74820337,
+      "gas": 45712
+    },
+    "MandateAccountFactory": {
+      "hash": "0xcf5808aa806a6e3f3abf5f88680e569331f98fbe3a44c300838fb5fb9a862700",
+      "block": 74820362,
+      "gas": 5751359
+    }
+  },
+  "verifiedOnChain": {
+    "escrow.settlementAsset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+    "escrow.reputation": "0x48BF5F8Cea580148B2A5Ee3A9c487BF1dCafd9c3",
+    "escrow.resolver": "0xE38349668f0C470C814487E95C14e7652F713B17",
+    "escrow.registry": "0x552E95102aE6B9232dD6A744B8f6bd348b379D26",
+    "escrow.treasury": "0x7f2D3be9597fb538BDBA3Dbcb9BEcECCD9056d21",
+    "escrow.pendingTreasury": "0x0000000000000000000000000000000000000000",
+    "escrow.deployer": "0x6B6fC40Ed9652728A9B620C4e1B05fBF4F9712a4",
+    "escrow.pauser": "0x135eF562ac57845AeA1Bb650fc0E74D67A4a866B",
+    "escrow.feeBps": 100,
+    "escrow.resolverFeeBps": 50,
+    "escrow.disputeBondBps": 500,
+    "escrow.minTtl": 300,
+    "escrow.maxTtl": 604800,
+    "escrow.disputeWindow": 3600,
+    "escrow.disputeTimeoutPeriod": 172800,
+    "escrow.paused": "false",
+    "reputation.escrow": "0x4315F8be7C9661345710910577Ec31cb867f3c20",
+    "reputation.admin": "0x135eF562ac57845AeA1Bb650fc0E74D67A4a866B",
+    "reputation.pendingAdmin": "0x0000000000000000000000000000000000000000",
+    "reputation.baseCap": 25000000,
+    "reputation.capPerScore": 1000000,
+    "reputation.maxCap": 250000000,
+    "oracleRegistry.escrow": "0x4315F8be7C9661345710910577Ec31cb867f3c20",
+    "oracleRegistry.admin": "0x135eF562ac57845AeA1Bb650fc0E74D67A4a866B",
+    "oracleRegistry.slashSink": "0xb4A7D77a710f6b1fF4cDDd9D3c9b66E3f917A4FF",
+    "oracleRegistry.settlementAsset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+    "oracleRegistry.staking": "0x3f2a0E7822B30aD928488F053348b137866Cf962",
+    "oracleRegistry.bondAsset": "0x00e503925880c4b07E5Fb70232D83aD871F57a7d",
+    "oracleRegistry.commitWindow": 3600,
+    "oracleRegistry.revealWindow": 3600,
+    "oracleRegistry.unbondingPeriod": 604800,
+    "oracleRegistry.quorum": 2,
+    "oracleRegistry.maxVoters": 5,
+    "oracleRegistry.maxDeviation": 20,
+    "oracleRegistry.slashBps": 1000,
+    "oracleRegistry.paused": "false",
+    "agentRegistry.settlementAsset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+    "agentRegistry.admin": "0x135eF562ac57845AeA1Bb650fc0E74D67A4a866B",
+    "agentRegistry.pendingAdmin": "0x0000000000000000000000000000000000000000",
+    "agentRegistry.slasher": "0x0000000000000000000000000000000000000000",
+    "agentRegistry.slashSink": "0xb4A7D77a710f6b1fF4cDDd9D3c9b66E3f917A4FF",
+    "agentRegistry.minStake": 5000000,
+    "agentRegistry.slashBps": 1000,
+    "agentRegistry.paused": "false",
+    "factory.escrow": "0x4315F8be7C9661345710910577Ec31cb867f3c20",
+    "factory.settlementAsset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+    "factory.blueprint": "0x3E973f0E1B4E7Caa4e197dB3A59eaCD801Cdc686",
+    "timelock.period": 3600,
+    "timelock.minPeriod": 3600,
+    "timelock.guardian": "0x7cfF32B8B4DB47E2Cde5907c8F5c93EC6a095E2A",
+    "timelock.signer0": "0xb51c63568324848DfC88A09f91F06fA86771aB69",
+    "timelock.signer1": "0x3C7facc7C72c3aCeB2EF93703813652aC9039266",
+    "timelock.signer2": "0x1f3eE000728EF363B9F867f88BBF618F2A17c42d",
+    "timelock.requiredApprovals": 2,
+    "readBackAtBlock": 74820946
+  },
+  "governance": {
+    "model": "Two of three signers with a one-hour delay and a fourteen-day grace period after it. Proposing counts as the proposer's approval. A proposer can withdraw its own proposal; anyone else's takes two vetoes. The guardian can pause the escrow, the oracle registry and the agent registry in the same block and can do nothing else.",
+    "signerSet": "The same three plain keys and guardian as v1, with BURSAR_ALLOW_EOA_GOVERNANCE set to i-accept-eoa-governance for the deploy run.",
+    "adminOf": {
+      "Reputation": "AdminTimelock v2, from construction.",
+      "OracleRegistry": "AdminTimelock v2, from construction.",
+      "AgentRegistry": "AdminTimelock v2, from construction. No handover step.",
+      "Escrow": "No admin role. AdminTimelock v2 is its pauser, set once by the deploy key.",
+      "MandateAccountFactory": "No admin role.",
+      "Staking": "AdminTimelock v1 (0x5a32Eab02454f97a39857E85b536F83EE0f844Bf). The resolver allowlist is v1 proposals 4 to 7: floors of 25,000 BRSR for resolver-1, resolver-2 and resolver-3, then a minimum bond of 1,000,000,000 BRSR for everyone else."
+    }
+  },
+  "productionChecklist": [
+    "Raise AdminTimelock.MIN_TIMELOCK_PERIOD from 1 hour back to 48 hours and redeploy the timelock with a 172800-second period, then move every admin role to it.",
+    "Set OracleRegistry commitWindow and revealWindow back to 21600 seconds each by proposal.",
+    "Execute v1 timelock proposals 4 to 7 so only the three vetted resolvers can bond (they cover the v2 registry too, because it reads the same Staking pool).",
+    "Replace the three EOA timelock signers with a multisig, and move Escrow.treasury off the EOA with transferTreasury and acceptTreasury.",
+    "Add the console's 250 USDG per-mandate funding limit (F7), and keep it and the 250 USDG payee ceiling until an external review of the v2 contracts exists.",
+    "Retire the rhc-mainnet (v1) record once its escrow has no open locks and its disputes are settled.",
+    "Re-register the one v1 agent (0x5210D8df060A9D5ce4c1305045ED5c9548fca374) on the v2 AgentRegistry, or no v2 lock can name it as payee."
+  ],
+  "pending": "Development deployment. See productionChecklist for the settings that change before public launch.",
+  "exampleMandate": {
+    "address": "0x420BeB507F72173E7d78e0f956968f64fb508356",
+    "factory": "0xe9f8cc653fF40E346e0591f353Be58DF0533cfD0",
+    "principal": "0x877c349EFb5926082C413833E8055F0991185c61",
+    "agent": "0x877c349EFb5926082C413833E8055F0991185c61",
+    "escrow": "0x4315F8be7C9661345710910577Ec31cb867f3c20",
+    "salt": "keccak256(\"bursar.example-mandate.v2\")",
+    "limits": {
+      "perCallCap": 100000,
+      "dailyCap": 500000,
+      "monthlyCap": 2000000,
+      "dailyWindow": 86400,
+      "monthlyWindow": 2592000,
+      "approvalThreshold": 100000,
+      "validFrom": 0,
+      "validUntil": 0,
+      "classMask": 3,
+      "totalCap": 1000000,
+      "lane": 0
+    },
+    "createdTx": "0xba414385ee93325aa8d96f664c1be4a3d45447f8352ba192c746aaf3049858e8",
+    "createdBlock": 74822700,
+    "fundedTx": "0x3df0ce24fccb5b4e216651cee571972ccaf6a66fdfdc9346a258dc06250e86bd",
+    "funded": "0.20 USDG from the deployer",
+    "console": "https://app.bursar.world/console/0x420BeB507F72173E7d78e0f956968f64fb508356",
+    "note": "A live v2 mandate created by the payer key through this deployment's factory, kept as the public example to read. Services and agent hires are allowed, stock purchases are not, and the lifetime total is 1 USDG. It holds 0.20 USDG. Only its principal and agent can move its funds."
+  },
+  "resolvers": {
+    "bonded": [
+      "0xD8D90e4c8f3419B1b8305dF2905eb31d3fBBf599",
+      "0xC284CdA6c6982447f202830f4e969F13cBcB0b94",
+      "0x7062A480732EC7B0F00a3D0c968356e1671dd356"
+    ],
+    "bondEach": "25000 BRSR, sent from the treasury",
+    "transactions": {
+      "resolver-1": {
+        "brsr": "0xbd3ce457d44b9eb392b7a2d77146a23a52a49260c43c49103aca9d3957ba8738",
+        "approve": "0x8ea2d597f151b98bcb66aecec5ec64d4623fbde298c50a2673c689e9f7efc583",
+        "register": "0xe31fd89d361e5969eca9f4045c148e0fb1882c9ff13a35d63bcfa844125f8153"
+      },
+      "resolver-2": {
+        "brsr": "0x2695273c5a33dba73d40de7847f6cbead4c2c1d2e267185c2035be0189692a0e",
+        "approve": "0xee26e8c158b09bbc27c43eba0e08fe8c7c60ef140d45b8fcfea2e05cdc21c706",
+        "register": "0x18f64a4253c5a10de8a8eb9dd5f223a0e38bbc0a8078020887ef36455c8319fe"
+      },
+      "resolver-3": {
+        "brsr": "0x7f5042de9550bcaad2513806cdaab11c2ee2dc7c4ae62335b3954b3c74d605d0",
+        "approve": "0x5d887ee1e28a6a755e0279387ed9c745cc9cb9fa1e896e0c1b591e87e4e6e437",
+        "register": "0x05649fc2a75f557c7a18f75ce3c91cb8da378484686a463cd8617dc386e5c1d6"
+      }
+    },
+    "resolverCount": 3
+  }
+}

@@ -302,6 +302,13 @@ function nextFor(state: {
     case 'revealing':
       return 'Resolvers are publishing the scores they sealed. Read this again for the ruling.';
     case 'failed':
+      if (state.status === LockStatus.Locked) {
+        return (
+          'The vote produced no usable result, so the escrow put the payment back on hold with a new ' +
+          'deadline and returned the bond. The provider can still deliver, and the payer can reclaim ' +
+          'the funds once that deadline passes.'
+        );
+      }
       return state.status === LockStatus.Resolved
         ? 'The vote produced no usable result, so the escrow refunded the payer in full and the ' +
             'provider was paid nothing. Nothing further to decide.'
@@ -316,10 +323,16 @@ function nextFor(state: {
   }
 }
 
-/** Opens a reader for the dispute layer this escrow rules through. */
-export async function disputes(options: Connection | ConnectOptions = {}): Promise<DisputeClient> {
+/**
+ * Opens a reader for the dispute layer an escrow rules through. The connection's escrow unless
+ * another is named, which is how a mandate on an older contract set reads its own disputes.
+ */
+export async function disputes(
+  options: Connection | ConnectOptions = {},
+  escrowAt?: Address,
+): Promise<DisputeClient> {
   const connection = connectFor(options, 'disputes()');
-  const escrowAddress = connection.addresses.escrow;
+  const escrowAddress = escrowAt ?? connection.addresses.escrow;
   const read = getContract({
     address: escrowAddress,
     abi: escrowAbi,

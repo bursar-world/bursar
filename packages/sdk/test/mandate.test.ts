@@ -10,7 +10,7 @@ import {
   toFunctionSelector,
 } from 'viem';
 import type { Address, Hex, Log } from 'viem';
-import { RHC_MAINNET, mandateAccountAbi, micro } from '@bursar/core';
+import { RHC_MAINNET, deployment, mandateAccountAbi, micro } from '@bursar/core';
 
 import {
   AmbiguousSpendError,
@@ -892,5 +892,72 @@ describe('total budget', () => {
 
     expect(decision.reason).toBe('monthly-cap');
     expect(decision.denial?.resetsAt).toEqual(new Date(Number(MONTHLY.start + MONTHLY.duration) * 1000));
+  });
+});
+
+/**
+ * The v1 set on 4663 keeps serving its mandates. Its account holds eight limit fields and takes no
+ * class in a spend, so a v1 mandate is read and written through the frozen v1 ABI, picked by the
+ * escrow the account names.
+ */
+describe('contract sets', () => {
+  const V1_ESCROW = deployment('rhc-mainnet').contracts.Escrow;
+  const V2_ESCROW = deployment('rhc-mainnet-v2').contracts.Escrow;
+
+  it('reads a mandate on the v1 escrow as v1, with no native class or total', async () => {
+    const { mandate, reads } = await client({ read: answers({ escrow: V1_ESCROW }) });
+
+    expect(mandate.contractSet).toBe('v1');
+    expect(await mandate.limits()).toMatchObject({ classMask: 0, totalCap: 0n, lane: 0 });
+    expect(await mandate.total()).toBeNull();
+
+    await mandate.preview({ to: PROVIDER, amount: usdg('1.00'), capability: CAPABILITY });
+    expect(reads.find((call) => call.functionName === 'previewSpend')?.args).toHaveLength(3);
+  });
+
+  it('previews a v2 spend with its class, and reads the native total', async () => {
+    const { mandate, reads } = await client({
+      read: answers({
+        escrow: V2_ESCROW,
+        limits: { ...LIMITS, classMask: 3, totalCap: 1_000_000n, lane: 0 },
+        totalSpent: 250_000n,
+      }),
+    });
+
+    expect(mandate.contractSet).toBe('v2');
+    expect(await mandate.total()).toEqual({ cap: 1_000_000n, spent: 250_000n, remaining: 750_000n });
+
+    await mandate.preview({ to: PROVIDER, amount: usdg('0.10'), capability: CAPABILITY, spendClass: 'hire' });
+    expect(reads.find((call) => call.functionName === 'previewSpend')?.args[3]).toBe(1);
+  });
+
+  it('refuses a lifetime total on a v1 mandate rather than dropping it', async () => {
+    const { mandate } = await client({ read: answers({ escrow: V1_ESCROW }) });
+    const limits = {
+      perCallCap: usdg('5'),
+      dailyCap: usdg('50'),
+      monthlyCap: usdg('500'),
+      dailyWindow: 86_400,
+      monthlyWindow: 2_592_000,
+      approvalThreshold: usdg('25'),
+      totalCap: usdg('5'),
+    };
+
+    await expect(mandate.setLimits(limits)).rejects.toThrow(/v1 mandate, which holds no lifetime total/);
+  });
+
+  it('names a native total refusal as the total budget', async () => {
+    const { mandate } = await client({
+      read: answers({
+        escrow: V2_ESCROW,
+        limits: { ...LIMITS, classMask: 3, totalCap: 1_000_000n, lane: 0 },
+        totalSpent: 950_000n,
+        previewSpend: [false, toFunctionSelector('TotalCapExceeded()')],
+      }),
+    });
+
+    const decision = await mandate.preview({ to: PROVIDER, amount: usdg('0.10'), capability: CAPABILITY });
+    expect(decision.reason).toBe('total-budget');
+    expect(decision.message).toContain('0.05 USDG left of 1.00 USDG');
   });
 });

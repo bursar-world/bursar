@@ -202,6 +202,11 @@ export function SettlementsView() {
                           Returned <TxHash hash={row.events.timedOut.transactionHash} />
                         </span>
                       )}
+                      {row.events?.reopened && (
+                        <span className="text-note text-[color:var(--color-muted)]">
+                          Dispute closed without a ruling, back in escrow <TxHash hash={row.events.reopened.transactionHash} />
+                        </span>
+                      )}
                     </span>
                   ),
                 },

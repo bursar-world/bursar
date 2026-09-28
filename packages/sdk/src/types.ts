@@ -1,4 +1,4 @@
-import type { Micro } from '@bursar/core';
+import type { ContractSet, Micro, SpendClass } from '@bursar/core';
 import type { Address, Hex } from 'viem';
 
 /**
@@ -106,6 +106,15 @@ export type MandateLimits = {
   validFrom: bigint;
   /** Zero means no expiry. */
   validUntil: bigint;
+  /**
+   * Which spend classes the account allows, one bit each: 1 services, 2 agent hires, 4 eligible
+   * stocks. Zero on a v1 account, which holds no mask and keeps classes in the capability namespace.
+   */
+  classMask: number;
+  /** Lifetime ceiling on committed spend, net of refunds. Zero means none, and is all a v1 account holds. */
+  totalCap: Micro;
+  /** Where funds settle: 0 escrow, 1 treasury, 2 collateral. Always 0 on a v1 account. */
+  lane: number;
 };
 
 /**
@@ -122,6 +131,14 @@ export type MandateLimitsInput = {
   approvalThreshold: Micro;
   validFrom?: number | bigint;
   validUntil?: number | bigint;
+  /** The classes the mandate allows. Ignored when `classMask` is given. Defaults to services and hires. */
+  classes?: readonly SpendClass[];
+  /** The raw mask, for a caller that already holds one. See `MandateLimits.classMask`. */
+  classMask?: number;
+  /** Lifetime ceiling on committed spend. Zero or omitted means none. */
+  totalCap?: Micro;
+  /** Defaults to 0, the escrow lane, which is the only one with contracts behind it. */
+  lane?: number;
 };
 
 /** What an agent can still spend right now, with the clock attached to each bucket. */
@@ -133,9 +150,18 @@ export type Remaining = {
   monthlyResetsAt: Date;
 };
 
+/** A v2 account's lifetime total, as it counts it. */
+export type TotalSpend = {
+  cap: Micro;
+  spent: Micro;
+  remaining: Micro;
+};
+
 /** Everything the mandate holds, in one read. */
 export type MandateStatus = {
   address: Address;
+  /** Which build of the contracts the account runs, known from the escrow it settles through. */
+  contractSet: ContractSet;
   principal: Address;
   pendingPrincipal: Address;
   agent: Address;
@@ -154,6 +180,8 @@ export type MandateStatus = {
   documentHash: Hex;
   /** Next sequential nonce a relayed limit change has to carry. */
   nonce: bigint;
+  /** The native lifetime total. Null on a v1 account and on a v2 account with no total cap. */
+  total: TotalSpend | null;
 };
 
 /** A principal's consent to one spend at or above the approval threshold. */

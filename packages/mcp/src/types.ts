@@ -66,6 +66,12 @@ export type MandateView = {
   readonly providerGate: ProviderGate;
   readonly providerRoster: Hex | null;
   readonly documentHash: Hex | null;
+  /** Which build of the contracts the mandate runs. v1 holds its classes in the capability namespace. */
+  readonly contractSet: 'v1' | 'v2';
+  /** The spend classes the account allows natively. Null on v1, where no mask is held. */
+  readonly classes: readonly string[] | null;
+  /** The native lifetime total. Null when there is none, and always on v1. */
+  readonly totalCap: MoneyView | null;
   readonly escrow: EscrowTermsView;
   readonly observedAt: string;
   readonly blockNumber: string;

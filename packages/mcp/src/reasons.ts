@@ -235,6 +235,39 @@ const REFUSALS: Readonly<Record<MandateErrorName, Omit<Refusal, 'code'>>> = {
       'against. Nothing settled, and nothing an agent sends changes it. Report the account address to the ' +
       'principal.',
   },
+  ClassNotAllowed: {
+    subject: 'capability',
+    message:
+      'The principal has not allowed this class of spend on this mandate. A hire and a service payment ' +
+      'are separate classes, and only the principal can change which ones the mandate allows.',
+  },
+  TotalCapExceeded: {
+    subject: 'total_budget',
+    message:
+      'This spend would take the mandate past its lifetime total. The total does not refill; only the ' +
+      'principal can raise it.',
+  },
+  BadClassMask: {
+    subject: 'limits',
+    message:
+      'The limits allow no spend class, or name one the mandate does not know. A mandate has to allow ' +
+      'at least one of services, agent hires and eligible stocks. The limits in force are unchanged.',
+  },
+  BadLane: {
+    subject: 'limits',
+    message:
+      'The limits name a settlement lane the mandate does not know: 0 escrow, 1 treasury or 2 collateral. ' +
+      'The limits in force are unchanged.',
+  },
+  RouterNotSet: {
+    subject: 'mandate',
+    message: 'This mandate has no purchase router set, so it cannot buy. Only the principal can set one.',
+  },
+  InsufficientOutput: {
+    subject: 'amount',
+    message:
+      'The purchase would return less than the minimum it was sent with, so nothing was bought and nothing moved.',
+  },
   StringTooLong: {
     subject: 'mandate',
     message:
@@ -271,6 +304,26 @@ const RESOLVER_REFUSALS: Readonly<Record<OracleErrorName, Omit<Refusal, 'code'>>
     message:
       'This resolver is unbonding, so it takes no new disputes. resolver_cancel_unbond puts it back ' +
       'on the roster and leaves the bond where it is.',
+  },
+  PartyCannotVote: {
+    subject: 'dispute',
+    message:
+      'This resolver is the payer or the payee on the payment under dispute, so it cannot vote on it. ' +
+      'Nothing was committed and nothing is at stake.',
+  },
+  NotPauser: {
+    subject: 'governance',
+    message: 'Only the guardian can pause or unpause the dispute registry.',
+  },
+  EnforcedPause: {
+    subject: 'registry',
+    message:
+      'The dispute registry is paused, so no dispute opens and no vote is taken until governance lifts ' +
+      'it. Bonds and open disputes are held as they were.',
+  },
+  ExpectedPause: {
+    subject: 'registry',
+    message: 'The dispute registry is not paused, so there is nothing to lift.',
   },
   RosterFull: {
     subject: 'dispute',

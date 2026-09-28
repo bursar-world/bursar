@@ -87,6 +87,8 @@ export type LedgerState = {
 
 export type LedgerScope = {
   readonly mandate: Address;
+  /** The escrow the mandate settles through. A v1 mandate's locks are in the v1 escrow. */
+  readonly escrow?: Address;
   readonly owner?: Address;
   readonly lockIds: readonly bigint[];
   readonly merchants: readonly Address[];
@@ -118,7 +120,7 @@ export async function readLedgerState(scope: LedgerScope): Promise<LedgerState> 
   const lockSlots = scope.lockIds.map((id) => ({
     id,
     slot: batch.add<RawLock>(`escrow.getLock:${id}`, {
-      address: ADDRESSES.escrow,
+      address: scope.escrow ?? ADDRESSES.escrow,
       abi: escrowAbi as never,
       functionName: 'getLock',
       args: [id],

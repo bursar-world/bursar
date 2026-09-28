@@ -11,7 +11,7 @@ import { openMemoryJournal } from '../src/journal.js';
 import type { Journal } from '../src/journal.js';
 import { createVoter } from '../src/voter.js';
 import type { Voter } from '../src/voter.js';
-import { ESCROW, FakeChain, HOUR, REGISTRY, SERVED, tableFetcher } from './support/fake-chain.js';
+import { ESCROW, FakeChain, HOUR, REGISTRY, SERVED, SERVED_V2, tableFetcher } from './support/fake-chain.js';
 import { captureAlerts, silentLogger, testKeys } from './support/keys.js';
 
 const payee = privateKeyToAccount(`0x${'a1'.repeat(32)}`);
@@ -58,7 +58,7 @@ async function rig(options: { journal?: Journal; chain?: FakeChain; operator?: A
     chainId: 4663,
     operatorToken: 'o'.repeat(40),
     operatorAddresses,
-    health: () => ({ lastPollAt: Date.now(), lastError: null, consecutiveFailures: 0, open: 0 }),
+    health: () => ({ lastPollAt: Date.now(), lastError: null, consecutiveFailures: 0, open: 0, served: [] }),
     pollMs: 30_000,
     logger,
   });
@@ -316,6 +316,50 @@ describe('voter', () => {
     expect(await r.voter.step(SERVED, disputeId, await r.chain.head())).toBe('done');
     expect(r.alerts.sent).toEqual([]);
     expect(await r.journal.get(REGISTRY, disputeId)).toBeUndefined();
+  });
+});
+
+/**
+ * What a dispute that missed quorum leaves behind differs by contract set. v1 refunds the payer;
+ * v2 puts the lock back to Locked with a later deadline and returns the bond.
+ */
+describe('a failed dispute', () => {
+  async function failed(served: typeof SERVED, lockStatus: number) {
+    const r = await rig();
+    const { disputeId, escrowId } = openJob(r.chain);
+    await r.voter.step(served, disputeId, await r.chain.head());
+    const dispute = r.chain.disputes.get(disputeId);
+    const lock = r.chain.locks.get(escrowId);
+    if (dispute === undefined || lock === undefined) throw new Error('opened');
+    r.chain.disputes.set(disputeId, { ...dispute, status: DisputeStatus.Failed });
+    r.chain.locks.set(escrowId, { ...lock, status: lockStatus });
+    expect(await r.voter.step(served, disputeId, await r.chain.head())).toBe('done');
+    return r.alerts.sent.map((alert) => alert.event);
+  }
+
+  it('on v1 reports the refund', async () => {
+    const events = await failed(SERVED, LockStatus.Resolved);
+    expect(events).toContain('dispute_failed');
+    expect(events).not.toContain('dispute_failed_reopened');
+  });
+
+  it('on v2 reports the reopened lock and does not call it frozen', async () => {
+    const events = await failed(SERVED_V2, LockStatus.Locked);
+    expect(events).toContain('dispute_failed_reopened');
+    expect(events).not.toContain('dispute_failed');
+    expect(events).not.toContain('dispute_failed_lock_frozen');
+  });
+
+  it('on v2 says disputeTimeout stays refused while the dispute is open', async () => {
+    const r = await rig();
+    const { disputeId } = openJob(r.chain);
+    r.chain.advance(41n * HOUR);
+    const dispute = r.chain.disputes.get(disputeId);
+    if (dispute === undefined) throw new Error('opened');
+    r.chain.disputes.set(disputeId, { ...dispute, commitEndsAt: r.chain.time + HOUR, revealEndsAt: r.chain.time + 2n * HOUR });
+    await r.voter.step(SERVED_V2, disputeId, await r.chain.head());
+    const watchdog = r.alerts.sent.find((alert) => alert.event === 'dispute_watchdog');
+    expect(watchdog?.message).toMatch(/stays refused/);
   });
 });
 

@@ -23,6 +23,13 @@ export type RelaySpendRequest = {
   readonly deadline: string;
   readonly merchantProof: readonly Hex[];
   readonly approval: RelayApproval | null;
+  /** 0 for a service, 1 for a hire. A v2 account checks it against the classes it allows. */
+  readonly spendClass: number;
+  /**
+   * Which build of the account this is. A v1 account takes the spend request without a class, so
+   * a relay encodes against the v1 ABI when it says so.
+   */
+  readonly contractSet: 'v1' | 'v2';
 };
 
 export type RelayApproval = {

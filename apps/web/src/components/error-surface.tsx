@@ -205,6 +205,8 @@ function denialHeadline(reason: DenialReason | undefined): string {
       return 'the merchant is not on the allowlist';
     case 'capability-not-allowed':
       return 'this kind of work is not allowed';
+    case 'class-not-allowed':
+      return 'this kind of spend is not allowed';
     case 'paused':
       return 'spending is paused';
     case 'revoked':
@@ -264,7 +266,7 @@ function denialSentence(error: MandateShapedError): string | undefined {
         : `The second cap is spent.${asked} The allowance returns when its window rolls.`;
     case 'total-budget':
       return snapshot
-        ? `${usd(snapshot.remaining.monthly)} of the ${usd(snapshot.monthly.cap)} total budget is left.${asked} The total never refills; only the account owner can raise it.`
+        ? `${usd(snapshot.total?.remaining ?? snapshot.remaining.monthly)} of the ${usd(snapshot.total?.cap ?? snapshot.monthly.cap)} total budget is left.${asked} The total never refills; only the account owner can raise it.`
         : `The total budget is spent.${asked} It never refills; only the account owner can raise it.`;
     case 'per-call-cap':
       return snapshot
@@ -286,6 +288,8 @@ function denialSentence(error: MandateShapedError): string | undefined {
       return 'This mandate pays only the addresses its owner has allowed, and this payee is not one of them. The account owner adds it.';
     case 'capability-not-allowed':
       return 'The work being bought is outside what this mandate covers. The account owner decides what it covers.';
+    case 'class-not-allowed':
+      return 'This mandate allows only the spend classes its owner chose, such as services or agent hires, and this payment is in another one. The account owner decides which classes it allows.';
     case 'merchant-proof-required':
       return 'This mandate reads its payee list from a published root, so a payment has to carry a proof for the payee it names.';
     case 'merchant-proof-invalid':
@@ -318,6 +322,8 @@ type DenialSnapshot = {
   readonly remaining: { readonly daily: Micro; readonly monthly: Micro };
   readonly daily: DenialWindow;
   readonly monthly: DenialWindow;
+  /** A v2 account's native total. Absent on v1, where the total is the second window. */
+  readonly total?: { readonly cap: Micro; readonly remaining: Micro };
 };
 
 /**
@@ -327,13 +333,20 @@ type DenialSnapshot = {
  */
 function snapshotOf(value: unknown): DenialSnapshot | undefined {
   if (typeof value !== 'object' || value === null) return undefined;
-  const shaped = value as { limits?: unknown; remaining?: unknown; daily?: unknown; monthly?: unknown };
+  const shaped = value as { limits?: unknown; remaining?: unknown; daily?: unknown; monthly?: unknown; total?: unknown };
 
   if (!amounts(shaped.limits, ['perCallCap', 'approvalThreshold'])) return undefined;
   if (!amounts(shaped.remaining, ['daily', 'monthly'])) return undefined;
   if (!isWindow(shaped.daily) || !isWindow(shaped.monthly)) return undefined;
 
-  return { limits: shaped.limits, remaining: shaped.remaining, daily: shaped.daily, monthly: shaped.monthly };
+  const total = amounts(shaped.total, ['cap', 'remaining']) ? shaped.total : undefined;
+  return {
+    limits: shaped.limits,
+    remaining: shaped.remaining,
+    daily: shaped.daily,
+    monthly: shaped.monthly,
+    ...(total === undefined ? {} : { total }),
+  };
 }
 
 function amounts<K extends string>(value: unknown, keys: readonly K[]): value is Record<K, Micro> {
@@ -376,8 +389,8 @@ function limitRows(error: MandateShapedError): Row[] {
 
   if (snapshot && reason === 'total-budget') {
     return [
-      { label: 'Left in the total budget', value: usd(snapshot.remaining.monthly) },
-      { label: 'Total budget', value: usd(snapshot.monthly.cap) },
+      { label: 'Left in the total budget', value: usd(snapshot.total?.remaining ?? snapshot.remaining.monthly) },
+      { label: 'Total budget', value: usd(snapshot.total?.cap ?? snapshot.monthly.cap) },
     ];
   }
 

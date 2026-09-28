@@ -20,7 +20,13 @@ async function handler(lastPollAt: number | null) {
     chainId: 4663,
     operatorToken: null,
     operatorAddresses: [],
-    health: () => ({ lastPollAt, lastError: null, consecutiveFailures: 0, open: 0 }),
+    health: () => ({
+      lastPollAt,
+      lastError: null,
+      consecutiveFailures: 0,
+      open: 0,
+      served: [{ name: SERVED.name, contractSet: SERVED.contractSet, registry: SERVED.registry, escrow: SERVED.escrow, lastScannedBlock: 1_234n, open: 0 }],
+    }),
     pollMs: 30_000,
     logger,
     now: () => 100_000,
@@ -34,6 +40,13 @@ describe('http', () => {
     expect((await (await handler(90_000))(get('/health'))).status).toBe(200);
     expect((await (await handler(1_000))(get('/health'))).status).toBe(503);
     expect((await (await handler(null))(get('/health'))).status).toBe(503);
+  });
+
+  it('names every registry it serves in health, with how far each has been scanned', async () => {
+    const body = (await (await handler(90_000))(get('/health'))).body as { served: unknown[] };
+    expect(body.served).toEqual([
+      { name: 'test', contractSet: 'v1', registry: SERVED.registry, escrow: SERVED.escrow, lastScannedBlock: '1234', openDisputes: 0 },
+    ]);
   });
 
   it('answers 404 for a dispute it holds no record of', async () => {

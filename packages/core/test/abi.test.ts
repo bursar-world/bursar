@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { getAbiItem, toFunctionSelector } from 'viem';
 import { BURSAR_ABIS, mandateAccountAbi, escrowAbi, settlementAssetAbi } from '../src/generated/abi.js';
+import { escrowAbiV1, mandateAccountAbiV1 } from '../src/abi-v1.js';
+import { V1_ABIS, contractSetOfEscrow } from '../src/contract-set.js';
+import { deployment } from '../src/deployments.js';
 
 describe('generated ABIs', () => {
   it('covers every deployed contract', () => {
@@ -85,5 +88,28 @@ describe('generated ABIs', () => {
     const spend = getAbiItem({ abi: mandateAccountAbi, name: 'previewSpend' });
     expect(spend).toBeDefined();
     expect(toFunctionSelector(spend as never)).toMatch(/^0x[0-9a-f]{8}$/);
+  });
+});
+
+describe('the frozen v1 ABIs', () => {
+  it('read v1 limits as eight fields and v2 limits as eleven', () => {
+    const v1 = getAbiItem({ abi: mandateAccountAbiV1, name: 'limits' });
+    const v2 = getAbiItem({ abi: mandateAccountAbi, name: 'limits' });
+    expect(v1?.outputs[0]?.components).toHaveLength(8);
+    expect(v2?.outputs[0]?.components).toHaveLength(11);
+  });
+
+  it('keep the v1 escrow resolve and the v2 reopen apart', () => {
+    const v1 = getAbiItem({ abi: escrowAbiV1, name: 'resolve' });
+    expect(v1?.inputs.length).toBeGreaterThan(0);
+    const named = (abi: readonly { type: string; name?: string }[]) => abi.map((e) => e.name);
+    expect(named(escrowAbiV1)).not.toContain('reopen');
+    expect(named(escrowAbi)).toContain('reopen');
+  });
+
+  it('pick the set by the escrow a mandate names', () => {
+    expect(contractSetOfEscrow(deployment('rhc-mainnet').contracts.Escrow)).toBe('v1');
+    expect(contractSetOfEscrow(deployment('rhc-mainnet-v2').contracts.Escrow)).toBe('v2');
+    expect(V1_ABIS.MandateAccount).toBe(mandateAccountAbiV1);
   });
 });

@@ -97,6 +97,9 @@ export type NodeState = {
     approvalThreshold: bigint;
     validFrom: bigint;
     validUntil: bigint;
+    classMask: number;
+    totalCap: bigint;
+    lane: number;
   };
   daily: { cap: bigint; spent: bigint; duration: bigint; start: bigint; epoch: bigint };
   monthly: { cap: bigint; spent: bigint; duration: bigint; start: bigint; epoch: bigint };
@@ -275,6 +278,9 @@ export function defaultState(): NodeState {
       approvalThreshold: 20_000_000n,
       validFrom: 1_700_000_000n,
       validUntil: 1_900_000_000n,
+      classMask: 3,
+      totalCap: 0n,
+      lane: 0,
     },
     daily: { cap: 100_000_000n, spent: 30_000_000n, duration: 86_400n, start: 1_799_960_000n, epoch: 7n },
     monthly: { cap: 1_000_000_000n, spent: 400_000_000n, duration: 2_592_000n, start: 1_798_000_000n, epoch: 2n },
@@ -701,7 +707,7 @@ function call(state: NodeState, request: { to: Address; data: Hex }): Hex {
     return encodeFunctionResult({ abi: multicall3Abi, functionName: 'aggregate3', result: results });
   }
 
-  const table = tableFor(request.to);
+  const table = tableFor(request.to, state);
   const selector = request.data.slice(0, 10) as Hex;
   const entry = table.get(selector);
 
@@ -716,11 +722,12 @@ function call(state: NodeState, request: { to: Address; data: Hex }): Hex {
   });
 }
 
-function tableFor(to: Address): Map<Hex, Answer> {
+function tableFor(to: Address, state: NodeState): Map<Hex, Answer> {
   const target = to.toLowerCase();
 
   if (target === ACCOUNT.toLowerCase()) return ACCOUNT_ANSWERS;
-  if (target === ESCROW.toLowerCase()) return ESCROW_ANSWERS;
+  // Whichever escrow the account names answers as the escrow, so a mandate on another set reads.
+  if (target === ESCROW.toLowerCase() || target === state.escrow.toLowerCase()) return ESCROW_ANSWERS;
   if (target === ASSET.toLowerCase()) return ASSET_ANSWERS;
   if (target === ORACLE_REGISTRY.toLowerCase()) return ORACLE_ANSWERS;
   if (target === AGENT_REGISTRY.toLowerCase()) return REGISTRY_ANSWERS;

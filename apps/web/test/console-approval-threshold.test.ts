@@ -102,6 +102,9 @@ describe('reading a threshold back off a mandate that exists', () => {
     approvalThreshold: threshold,
     validFrom: 0n,
     validUntil: 0n,
+    classMask: 0,
+    totalCap: micro(0n),
+    lane: 0,
   });
 
   it('reads one micro-dollar as consent on every payment', () => {

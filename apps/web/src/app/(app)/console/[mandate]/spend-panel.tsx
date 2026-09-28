@@ -3,8 +3,9 @@
 import { useRef, useState } from 'react';
 import type { SpendWindow } from '@bursar/sdk';
 
-import { mandateAccountAbi } from '@/chain/abi';
-import { toLimitsTuple } from '@/chain/limits';
+import { mandateAccountAbi, mandateAccountAbiV1 } from '@/chain/abi';
+import { showsSecondCap, toLimitsTuple, toLimitsTupleV1, totalBudgetOf } from '@/chain/limits';
+import type { TotalBudget } from '@/chain/limits';
 import { Button } from '@/components/button';
 import { Card, Field, FieldGrid, Section } from '@/components/layout';
 import { Countdown, Instant } from '@/components/instant';
@@ -15,7 +16,6 @@ import { fromUnix } from '@/lib/time';
 import { describeApproval, windowWord } from '../lib/format';
 import { callGates } from '../lib/write-gates';
 import { LimitsFields, draftFromLimits, readDraft } from '../limits-form';
-import { isTotalBudgetWindow } from '@bursar/core';
 import type { LimitsDraft } from '../limits-form';
 import { useMandateScope } from './mandate-scope';
 import { useWriteContract } from '@/wallet/write';
@@ -41,13 +41,17 @@ export function SpendPanel() {
 
   if (!account) return null;
 
-  const reading = draft ? readDraft(draft) : undefined;
+  const reading = draft
+    ? readDraft(draft, Date.now(), { contractSet: account.contractSet, classMask: account.limits.classMask, lane: account.limits.lane })
+    : undefined;
+  const total = totalBudgetOf(account);
+  const secondCap = showsSecondCap(account);
   const validUntil = fromUnix(account.limits.validUntil);
   const validFrom = fromUnix(account.limits.validFrom);
   const landed = rewroteFrom !== undefined && account.version > rewroteFrom;
 
   const startEditing = () => {
-    setDraft(draftFromLimits(account.limits));
+    setDraft(draftFromLimits(account.limits, account.contractSet));
     setRewroteFrom(undefined);
     setEditing(true);
   };
@@ -56,7 +60,7 @@ export function SpendPanel() {
     <Section
       title="What is left"
       description={
-        isTotalBudgetWindow(account.monthly.duration)
+        total !== undefined && !secondCap
           ? 'The period cap refills each period. The total budget never refills, so it bounds the whole mandate.'
           : 'Both windows bind at once, so the tighter of the two is what the agent feels right now.'
       }
@@ -70,18 +74,15 @@ export function SpendPanel() {
     >
       <Card>
         <div className="space-y-6">
-          <StatGrid columns={3}>
+          <StatGrid columns={total !== undefined && secondCap ? 4 : 3}>
             <Stat
               label="Most per payment"
               value={usd(account.limits.perCallCap)}
               hint={`A single payment above this is refused. ${usd(account.remaining.perCall)} is the ceiling in force now.`}
             />
             <WindowStat window={account.daily} label="Period cap" />
-            {isTotalBudgetWindow(account.monthly.duration) ? (
-              <TotalStat window={account.monthly} />
-            ) : (
-              <WindowStat window={account.monthly} label="Second cap" />
-            )}
+            {secondCap && <WindowStat window={account.monthly} label="Second cap" />}
+            {total !== undefined && <TotalStat total={total} />}
           </StatGrid>
 
           <FieldGrid columns={3}>
@@ -127,12 +128,20 @@ export function SpendPanel() {
                   context={writeContext}
                   send={() => {
                     sentFrom.current = account.version;
-                    return writeContractAsync({
-                      address,
-                      abi: mandateAccountAbi,
-                      functionName: 'setLimits',
-                      args: [toLimitsTuple(reading!.limits!)],
-                    });
+                    // A v1 account takes the eight-field struct and has no class or total fields.
+                    return account.contractSet === 'v1'
+                      ? writeContractAsync({
+                          address,
+                          abi: mandateAccountAbiV1,
+                          functionName: 'setLimits',
+                          args: [toLimitsTupleV1(reading!.limits!)],
+                        })
+                      : writeContractAsync({
+                          address,
+                          abi: mandateAccountAbi,
+                          functionName: 'setLimits',
+                          args: [toLimitsTuple(reading!.limits!)],
+                        });
                   }}
                   onConfirmed={() => setRewroteFrom(sentFrom.current)}
                   onContinue={() => {
@@ -160,20 +169,20 @@ export function SpendPanel() {
   );
 }
 
-/** The second window when it is the total budget: it never resets, so it shows no countdown. */
-function TotalStat({ window: spendWindow }: { readonly window: SpendWindow }) {
-  const cap = Number(spendWindow.cap);
-  const spent = Number(spendWindow.spent);
-  const exhausted = spendWindow.remaining === 0n;
+/** The total budget: it never resets, so it shows no countdown. */
+function TotalStat({ total }: { readonly total: TotalBudget }) {
+  const cap = Number(total.cap);
+  const spent = Number(total.spent);
+  const exhausted = total.remaining === 0n;
   const level = exhausted ? 'blocked' : spent > cap * 0.8 ? 'attention' : 'ok';
 
   return (
     <div className="space-y-2">
       <Stat
         label="Total budget"
-        value={usd(spendWindow.remaining)}
+        value={usd(total.remaining)}
         level={level}
-        hint={`${usd(spendWindow.spent)} of ${usd(spendWindow.cap)} spent. It never refills; the owner can raise it.`}
+        hint={`${usd(total.spent)} of ${usd(total.cap)} spent. It never refills; the owner can raise it.`}
       />
       <LimitBar used={spent} total={cap} level={level} />
     </div>

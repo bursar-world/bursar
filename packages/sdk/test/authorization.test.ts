@@ -13,6 +13,8 @@ import { RHC_MAINNET } from '@bursar/core';
 
 import {
   SET_LIMITS_TYPES,
+  SET_LIMITS_TYPES_V1,
+  limitsV1,
   SPEND_APPROVAL_TYPES,
   assertMandateDomain,
   mandateDomain,
@@ -27,10 +29,15 @@ const MANDATE: Address = '0x1234567890123456789012345678901234567890';
 const MERCHANT: Address = '0x2222222222222222222222222222222222222222';
 
 /** The type strings `MandateAccount` hashes into its own typehashes, transcribed from the source. */
-const LIMITS_TYPE =
+const LIMITS_TYPE_V1 =
   'Limits(uint128 perCallCap,uint128 dailyCap,uint128 monthlyCap,uint64 dailyWindow,' +
   'uint64 monthlyWindow,uint128 approvalThreshold,uint64 validFrom,uint64 validUntil)';
+const LIMITS_TYPE =
+  'Limits(uint128 perCallCap,uint128 dailyCap,uint128 monthlyCap,uint64 dailyWindow,' +
+  'uint64 monthlyWindow,uint128 approvalThreshold,uint64 validFrom,uint64 validUntil,' +
+  'uint32 classMask,uint128 totalCap,uint8 lane)';
 const SET_LIMITS_TYPE = `SetLimits(Limits limits,uint256 nonce,uint64 deadline)${LIMITS_TYPE}`;
+const SET_LIMITS_TYPE_V1 = `SetLimits(Limits limits,uint256 nonce,uint64 deadline)${LIMITS_TYPE_V1}`;
 const SPEND_APPROVAL_TYPE =
   'SpendApproval(bytes32 approvalId,address merchant,bytes32 capabilityId,uint128 amount,uint64 expiry)';
 
@@ -46,6 +53,9 @@ const LIMITS: MandateLimits = {
   approvalThreshold: usdg('25'),
   validFrom: 0n,
   validUntil: 0n,
+  classMask: 0b011,
+  totalCap: usdg('1000'),
+  lane: 0,
 };
 
 const APPROVAL: SpendApproval = {
@@ -66,32 +76,42 @@ function accountDigest(structHash: Hex): Hex {
   return keccak256(concat(['0x1901', SEPARATOR, structHash]));
 }
 
+const V1_FIELDS = [
+  { type: 'uint128' },
+  { type: 'uint128' },
+  { type: 'uint128' },
+  { type: 'uint64' },
+  { type: 'uint64' },
+  { type: 'uint128' },
+  { type: 'uint64' },
+  { type: 'uint64' },
+] as const;
+
+function v1Values() {
+  return [
+    LIMITS.perCallCap,
+    LIMITS.dailyCap,
+    LIMITS.monthlyCap,
+    LIMITS.dailyWindow,
+    LIMITS.monthlyWindow,
+    LIMITS.approvalThreshold,
+    LIMITS.validFrom,
+    LIMITS.validUntil,
+  ] as const;
+}
+
 function limitsStructHash(): Hex {
   return keccak256(
     encodeAbiParameters(
-      [
-        { type: 'bytes32' },
-        { type: 'uint128' },
-        { type: 'uint128' },
-        { type: 'uint128' },
-        { type: 'uint64' },
-        { type: 'uint64' },
-        { type: 'uint128' },
-        { type: 'uint64' },
-        { type: 'uint64' },
-      ],
-      [
-        keccak256(toBytes(LIMITS_TYPE)),
-        LIMITS.perCallCap,
-        LIMITS.dailyCap,
-        LIMITS.monthlyCap,
-        LIMITS.dailyWindow,
-        LIMITS.monthlyWindow,
-        LIMITS.approvalThreshold,
-        LIMITS.validFrom,
-        LIMITS.validUntil,
-      ],
+      [{ type: 'bytes32' }, ...V1_FIELDS, { type: 'uint32' }, { type: 'uint128' }, { type: 'uint8' }],
+      [keccak256(toBytes(LIMITS_TYPE)), ...v1Values(), LIMITS.classMask, LIMITS.totalCap, LIMITS.lane],
     ),
+  );
+}
+
+function limitsStructHashV1(): Hex {
+  return keccak256(
+    encodeAbiParameters([{ type: 'bytes32' }, ...V1_FIELDS], [keccak256(toBytes(LIMITS_TYPE_V1)), ...v1Values()]),
   );
 }
 
@@ -110,6 +130,24 @@ describe('the typed data this package signs', () => {
         types: SET_LIMITS_TYPES,
         primaryType: 'SetLimits',
         message: { limits: LIMITS, nonce: 7n, deadline: 1_800_003_600n },
+      }),
+    ).toBe(accountDigest(structHash));
+  });
+
+  it('produces the eight-field SetLimits digest a v1 account verifies', () => {
+    const structHash = keccak256(
+      encodeAbiParameters(
+        [{ type: 'bytes32' }, { type: 'bytes32' }, { type: 'uint256' }, { type: 'uint64' }],
+        [keccak256(toBytes(SET_LIMITS_TYPE_V1)), limitsStructHashV1(), 7n, 1_800_003_600n],
+      ),
+    );
+
+    expect(
+      hashTypedData({
+        domain: DOMAIN,
+        types: SET_LIMITS_TYPES_V1,
+        primaryType: 'SetLimits',
+        message: { limits: limitsV1(LIMITS), nonce: 7n, deadline: 1_800_003_600n },
       }),
     ).toBe(accountDigest(structHash));
   });

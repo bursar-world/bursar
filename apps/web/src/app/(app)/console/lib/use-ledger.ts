@@ -71,7 +71,7 @@ export type MandateLedger = {
  * What the money is doing now comes from the contracts, in one batched request, because an index
  * is a copy and a copy is the wrong thing to answer "can this be spent" with.
  */
-export function useMandateLedger(mandate: Address | undefined, owner?: Address): MandateLedger {
+export function useMandateLedger(mandate: Address | undefined, owner?: Address, escrow?: Address): MandateLedger {
   const timeline = useQuery({
     queryKey: ['console', 'timeline', mandate ?? 'none'],
     queryFn: async () => decodeMandateEvents(await indexedLogs(mandate as Address)),
@@ -79,11 +79,14 @@ export function useMandateLedger(mandate: Address | undefined, owner?: Address):
     refetchInterval: INDEX_REFETCH_MS,
   });
 
-  // The escrow serves every mandate on this deployment, so its log is fetched once and shared
-  // across every screen that wants it.
+  // The escrow serves every mandate on its deployment, so its log is fetched once and shared
+  // across every screen that wants it. Which escrow is the mandate's own: a v1 mandate settles
+  // through the v1 one, and its locks are not in the current escrow's log.
+  const lockEscrow = escrow ?? ADDRESSES.escrow;
   const escrowLog = useQuery({
-    queryKey: ['console', 'escrow-log'],
-    queryFn: async () => decodeLockEvents(await indexedLogs(ADDRESSES.escrow)),
+    queryKey: ['console', 'escrow-log', lockEscrow.toLowerCase()],
+    queryFn: async () => decodeLockEvents(await indexedLogs(lockEscrow)),
+    enabled: escrow !== undefined,
     refetchInterval: INDEX_REFETCH_MS,
   });
 
@@ -130,17 +133,20 @@ export function useMandateLedger(mandate: Address | undefined, owner?: Address):
       candidates.capabilities.join(','),
       candidates.approvals.join(','),
       candidates.lockIds.join(','),
+      lockEscrow.toLowerCase(),
     ],
     queryFn: () =>
       readLedgerState({
         mandate: mandate as Address,
+        escrow: lockEscrow,
         ...(owner === undefined ? {} : { owner }),
         lockIds: candidates.lockIds,
         merchants: candidates.merchants,
         capabilities: candidates.capabilities,
         approvals: candidates.approvals,
       }),
-    enabled: mandate !== undefined,
+    // Lock ids only mean something against the escrow that issued them.
+    enabled: mandate !== undefined && (escrow !== undefined || candidates.lockIds.length === 0),
     refetchInterval: LEDGER_REFETCH_MS,
   });
 

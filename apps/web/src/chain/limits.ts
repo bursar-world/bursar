@@ -1,8 +1,8 @@
-import { isTotalBudgetWindow, micro } from '@bursar/core';
-import type { Micro } from '@bursar/core';
-import type { MandateLimits } from '@bursar/sdk';
+import { DEFAULT_CLASS_MASK, isTotalBudgetWindow, micro } from '@bursar/core';
+import type { ContractSet, Micro } from '@bursar/core';
+import type { MandateLimits, SpendWindow } from '@bursar/sdk';
 
-import type { RawLimits } from './reader';
+import type { RawLimits, RawLimitsV1 } from './reader';
 
 /**
  * The limit set as a form collects it and as the contract takes it.
@@ -28,6 +28,15 @@ export type LimitsForm = {
   readonly validFrom?: number;
   /** Zero, or absent, means no expiry. */
   readonly validUntil?: number;
+  /**
+   * The spend classes a v2 account allows, one bit each: 0 services, 1 agent hires, 2 eligible
+   * stocks. Absent means services and hires. A v1 account has no such field.
+   */
+  readonly classMask?: number;
+  /** A v2 account's lifetime total, net of refunds. Zero, or absent, means none. */
+  readonly totalCap?: Micro;
+  /** Where a v2 account settles. Zero, the escrow, is the only lane with contracts behind it. */
+  readonly lane?: number;
 };
 
 export const DAY_SECONDS = 86_400;
@@ -40,8 +49,15 @@ export function checkLimits(form: LimitsForm): readonly LimitsProblem[] {
   const problems: LimitsProblem[] = [];
 
   if (form.perCallCap <= 0n) problems.push({ field: 'perCallCap', problem: 'A mandate needs a ceiling on a single payment.' });
-  const total = isTotalBudgetWindow(form.monthlyWindow);
+  const native = (form.totalCap ?? 0n) > 0n;
+  const total = native || isTotalBudgetWindow(form.monthlyWindow);
   if (form.dailyCap < form.perCallCap) problems.push({ field: 'dailyCap', problem: 'The period cap has to be at least the per-payment limit.' });
+  if (native && (form.totalCap ?? 0n) < form.dailyCap) {
+    problems.push({ field: 'monthlyCap', problem: 'The total budget has to be at least the period cap.' });
+  }
+  if (form.classMask !== undefined && form.classMask === 0) {
+    problems.push({ field: 'classMask', problem: 'Allow at least one spend class, or the mandate refuses every payment.' });
+  }
   if (form.monthlyCap < form.dailyCap) {
     problems.push({
       field: 'monthlyCap',
@@ -58,8 +74,18 @@ export function checkLimits(form: LimitsForm): readonly LimitsProblem[] {
   return problems;
 }
 
-/** The struct the ABI takes. Ordering matters; the contract reads it positionally. */
+/** The struct the current ABI takes. Ordering matters; the contract reads it positionally. */
 export function toLimitsTuple(form: LimitsForm): RawLimits {
+  return {
+    ...toLimitsTupleV1(form),
+    classMask: form.classMask ?? DEFAULT_CLASS_MASK,
+    totalCap: form.totalCap ?? micro(0n),
+    lane: form.lane ?? 0,
+  };
+}
+
+/** The eight-field struct a v1 account takes. It has nowhere to put classes or a native total. */
+export function toLimitsTupleV1(form: LimitsForm): RawLimitsV1 {
   return {
     perCallCap: form.perCallCap,
     dailyCap: form.dailyCap,
@@ -70,6 +96,43 @@ export function toLimitsTuple(form: LimitsForm): RawLimits {
     validFrom: BigInt(form.validFrom ?? 0),
     validUntil: BigInt(form.validUntil ?? 0),
   };
+}
+
+/** What a mandate reading needs to say whether it carries a total budget, and what is left of it. */
+export type TotalBudgetSource = {
+  readonly contractSet: ContractSet;
+  readonly limits: Pick<MandateLimits, 'totalCap'>;
+  readonly totalSpent: Micro | undefined;
+  readonly daily: SpendWindow;
+  readonly monthly: SpendWindow;
+};
+
+export type TotalBudget = { readonly cap: Micro; readonly spent: Micro; readonly remaining: Micro };
+
+/**
+ * The mandate's total budget, or undefined when it has none.
+ *
+ * A v2 account holds it natively in `totalCap`. A v1 account has no such field, and the console
+ * gave it one by making the second window long enough never to roll.
+ */
+export function totalBudgetOf(account: TotalBudgetSource): TotalBudget | undefined {
+  if (account.contractSet === 'v2') {
+    const cap = account.limits.totalCap;
+    if (cap === 0n) return undefined;
+    const spent = account.totalSpent ?? micro(0n);
+    return { cap, spent, remaining: micro(cap > spent ? cap - spent : 0n) };
+  }
+  if (!isTotalBudgetWindow(account.monthly.duration)) return undefined;
+  return { cap: account.monthly.cap, spent: account.monthly.spent, remaining: account.monthly.remaining };
+}
+
+/**
+ * Whether the second window is a rolling cap worth showing. On v1 it is not when it stands in for
+ * the total. On v2 the console writes it as a copy of the first window, which binds nothing extra.
+ */
+export function showsSecondCap(account: TotalBudgetSource): boolean {
+  if (account.contractSet === 'v1') return !isTotalBudgetWindow(account.monthly.duration);
+  return !(account.monthly.duration === account.daily.duration && account.monthly.cap === account.daily.cap);
 }
 
 /** The other direction, for a form seeded from a mandate that already exists. */
@@ -83,6 +146,9 @@ export function fromLimits(limits: MandateLimits): LimitsForm {
     approvalThreshold: limits.approvalThreshold,
     validFrom: Number(limits.validFrom),
     validUntil: Number(limits.validUntil),
+    classMask: limits.classMask,
+    totalCap: limits.totalCap,
+    lane: limits.lane,
   };
 }
 

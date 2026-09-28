@@ -1,9 +1,9 @@
-import { encodeFunctionData, getContract, parseEventLogs } from 'viem';
+import { encodeFunctionData, getContract, isAddressEqual, parseEventLogs } from 'viem';
 import type { Address, Hex } from 'viem';
 import { mandateAccountFactoryAbi } from '@bursar/core';
 
-import { connectFor, type Connection, type ConnectOptions } from './connection.js';
-import { CallRefusedError } from './errors.js';
+import { connectFor, requireSigner, type Connection, type ConnectOptions } from './connection.js';
+import { CallRefusedError, InvalidArgumentError } from './errors.js';
 import { checkAddress, checkBytes32 } from './guards.js';
 import { encodeLimits, mandateAccount, type MandateAccountClient } from './mandate.js';
 import { random32 } from './random.js';
@@ -45,6 +45,17 @@ export async function deployMandate(
   const { principal, agent, salt } = checkSeed(seed);
   const limits = encodeLimits(seed.limits);
 
+  // The factory refuses anyone but the principal with NotPrincipal. Said here, it costs no gas.
+  const { account } = requireSigner(connection, 'deployMandate');
+  if (!isAddressEqual(account.address, principal)) {
+    throw new InvalidArgumentError(
+      'principal',
+      `A mandate has to be created by its principal. This connection signs as ${account.address} ` +
+        `and the seed names ${principal} as principal.`,
+      { principal, sender: account.address },
+    );
+  }
+
   const sent = await sendCall(connection, {
     to: factory,
     data: encodeFunctionData({
@@ -54,7 +65,13 @@ export async function deployMandate(
     }),
     action: 'create',
     explain: async (revert) =>
-      revert?.errorName === 'AlreadyDeployed'
+      revert?.errorName === 'NotPrincipal'
+        ? new CallRefusedError(
+            revert.errorName,
+            'The factory creates a mandate only when its principal sends the transaction.',
+            { factory, principal },
+          )
+        : revert?.errorName === 'AlreadyDeployed'
         ? new CallRefusedError(
             revert.errorName,
             'A mandate already exists at this address. The salt, the principal, the agent and the ' +

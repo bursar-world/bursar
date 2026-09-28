@@ -92,7 +92,7 @@ export function createContext(config: McpConfig, options: ContextOptions = {}): 
         : createChainGateway({
             client,
             account: config.account,
-            escrow: config.escrow,
+            escrows: config.escrows,
             settlementAsset: config.settlementAsset,
             relay: spender,
             index: createExplorerIndex({
@@ -191,8 +191,9 @@ export async function checkMandate(config: McpConfig, options: ContextOptions = 
 
   // The same comparison every tool makes, made once here so a wrong override is a startup failure
   // rather than a refusal on each call.
+  const served = config.escrows.find((known) => known.toLowerCase() === escrow.toLowerCase());
   const mismatches = [
-    { label: 'escrow', onChain: escrow, configured: config.escrow, variable: 'MANDATE_ESCROW' },
+    { label: 'escrow', onChain: escrow, configured: served ?? config.escrow, variable: 'MANDATE_ESCROW' },
     { label: 'settlement asset', onChain: asset, configured: config.settlementAsset, variable: 'BURSAR_SETTLEMENT_ASSET' },
   ].filter((pair) => pair.onChain.toLowerCase() !== pair.configured.toLowerCase());
 

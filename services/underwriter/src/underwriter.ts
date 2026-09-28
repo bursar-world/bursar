@@ -1,4 +1,4 @@
-import { type Micro, ZERO_MICRO, isBursarError, micro } from '@bursar/core';
+import { type Micro, ZERO_MICRO, classOfLabel, isBursarError, micro } from '@bursar/core';
 
 import type { AnchorStatus } from './anchor.js';
 import { type AssetCondition, assetCondition } from './asset.js';
@@ -180,6 +180,14 @@ function resolveSpend(request: SpendRequest): ResolvedSpend {
   }
 
   return { ...request, merchant: request.merchant, capabilityId };
+}
+
+/**
+ * The class a v2 account checks the spend against: a hire when the action is a `hire:` label,
+ * a service otherwise. A bare label is a service, which is what every v1 mandate spent as.
+ */
+function spendClassOf(request: SpendRequest): number {
+  return classOfLabel(request.action) === 'hire' ? 1 : 0;
 }
 
 function sameAddress(a: string | undefined, b: string | undefined): boolean {
@@ -755,6 +763,7 @@ export class Underwriter {
       capabilityId,
       request.amountMicros,
       blockNumber,
+      spendClassOf(request),
     );
 
     if (preview.allowed) return { kind: 'allow' };
@@ -800,6 +809,7 @@ export class Underwriter {
         amountMicros: request.amountMicros,
         deadline,
         merchantProof: request.merchantProof ?? [],
+        spendClass: spendClassOf(request),
         ...(blockNumber === undefined ? {} : { blockNumber }),
       });
       return result.ok ? null : spendRefusal(result.selector ?? '0x00000000');

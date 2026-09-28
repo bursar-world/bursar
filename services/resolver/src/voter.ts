@@ -299,7 +299,7 @@ export function createVoter(options: VoterOptions): Voter {
           'commit-critical',
           'CRITICAL',
           'quorum_at_risk',
-          `Dispute ${record.disputeId} has ${now.commitCount} of ${quorum} commits with the commit window closing. Below quorum, anyone can refund the payer with failDispute.`,
+          `Dispute ${record.disputeId} has ${now.commitCount} of ${quorum} commits with the commit window closing. Below quorum, anyone can call failDispute, which ${failureEffect(served)}.`,
           { commitEndsAt: new Date(Number(record.commitEndsAt) * 1_000).toISOString() },
         );
       }
@@ -454,7 +454,7 @@ export function createVoter(options: VoterOptions): Voter {
 
     if (dispute.revealCount < quorum) {
       if (windowShut) {
-        await once(served, record, 'quorum-missed', 'CRITICAL', 'quorum_missed', `Dispute ${record.disputeId} closed its reveal window with ${dispute.revealCount} of ${quorum} reveals. failDispute is callable and refunds the payer.`);
+        await once(served, record, 'quorum-missed', 'CRITICAL', 'quorum_missed', `Dispute ${record.disputeId} closed its reveal window with ${dispute.revealCount} of ${quorum} reveals. failDispute is callable and ${failureEffect(served)}.`);
       }
       return dispute;
     }
@@ -497,6 +497,17 @@ export function createVoter(options: VoterOptions): Voter {
 
     await patch(served, record.disputeId, (r) => ({ ...r, outcome, published: true, stage: advance(r.stage, 'closed') }));
 
+    // v2 answers a missed quorum by reopening the lock: Locked again, a fresh deadline, the bond
+    // back with the disputer, and no refund. That is the contract working, but the vote still
+    // failed, which is what this service is here to prevent.
+    if (served.contractSet === 'v2' && dispute.status === DisputeStatus.Failed && lock.status === LockStatus.Locked) {
+      await once(served, record, 'failed', 'CRITICAL', 'dispute_failed_reopened', `Dispute ${record.disputeId} closed without a ruling. The escrow reopened lock ${record.escrowId} with a new deadline of ${new Date(Number(lock.deadline) * 1_000).toISOString()} and returned the dispute bond; nobody was refunded.`, {
+        medianScore: dispute.medianScore,
+        refundBps: dispute.refundBps,
+      });
+      return;
+    }
+
     if (lock.status === LockStatus.Disputed) {
       // H1: the vote closed but the escrow never ruled, so the money is still frozen and the only
       // exit left is the escrow's own timeout.
@@ -531,7 +542,18 @@ export function createVoter(options: VoterOptions): Voter {
 
       const lock = await chain.lock(served.escrow, dispute.escrowId);
       if (lock.status === LockStatus.Disputed && head.timestamp >= lock.disputedAt + WATCHDOG_SECONDS) {
-        await once(served, record, 'watchdog', 'CRITICAL', 'dispute_watchdog', `Lock ${dispute.escrowId} has been disputed for 40 hours. disputeTimeout opens at 48 and would refund it without a ruling.`);
+        // v2 refuses disputeTimeout with DisputeRulable while this dispute is still open, so the
+        // lock waits for finalize or failDispute rather than a refund at 48 hours.
+        await once(
+          served,
+          record,
+          'watchdog',
+          'CRITICAL',
+          'dispute_watchdog',
+          served.contractSet === 'v2'
+            ? `Lock ${dispute.escrowId} has been disputed for 40 hours and dispute ${disputeId} is still open. disputeTimeout stays refused while it is; finalize or failDispute it.`
+            : `Lock ${dispute.escrowId} has been disputed for 40 hours. disputeTimeout opens at 48 and would refund it without a ruling.`,
+        );
       }
 
       const tl = timeline(dispute);
@@ -551,6 +573,13 @@ export function createVoter(options: VoterOptions): Voter {
       return 'open';
     },
   };
+}
+
+/** What failDispute does to the lock, in the words an alert needs. */
+function failureEffect(served: Served): string {
+  return served.contractSet === 'v2'
+    ? 'reopens the lock with a new deadline and returns the dispute bond'
+    : 'refunds the payer';
 }
 
 function upsertVote(votes: readonly StoredVote[], vote: StoredVote): StoredVote[] {

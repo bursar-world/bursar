@@ -1,6 +1,7 @@
 import { domainSeparator } from 'viem';
 import type { Address, Hex, TypedDataDomain } from 'viem';
 import { BursarError, mandateAccountAbi } from '@bursar/core';
+import type { ContractSet } from '@bursar/core';
 
 import { requireSigner, type Connection } from './connection.js';
 import type { MandateLimits, SpendApproval } from './types.js';
@@ -34,8 +35,32 @@ export const SET_LIMITS_TYPES = {
     { name: 'approvalThreshold', type: 'uint128' },
     { name: 'validFrom', type: 'uint64' },
     { name: 'validUntil', type: 'uint64' },
+    { name: 'classMask', type: 'uint32' },
+    { name: 'totalCap', type: 'uint128' },
+    { name: 'lane', type: 'uint8' },
   ],
 } as const;
+
+/** The eight-field Limits a v1 account signs over. */
+export const SET_LIMITS_TYPES_V1 = {
+  SetLimits: SET_LIMITS_TYPES.SetLimits,
+  Limits: SET_LIMITS_TYPES.Limits.slice(0, 8) as unknown as readonly [
+    (typeof SET_LIMITS_TYPES.Limits)[0],
+    (typeof SET_LIMITS_TYPES.Limits)[1],
+    (typeof SET_LIMITS_TYPES.Limits)[2],
+    (typeof SET_LIMITS_TYPES.Limits)[3],
+    (typeof SET_LIMITS_TYPES.Limits)[4],
+    (typeof SET_LIMITS_TYPES.Limits)[5],
+    (typeof SET_LIMITS_TYPES.Limits)[6],
+    (typeof SET_LIMITS_TYPES.Limits)[7],
+  ],
+} as const;
+
+/** The eight fields a v1 account holds. The v2 fields are dropped, never sent. */
+export function limitsV1(limits: MandateLimits) {
+  const { classMask: _mask, totalCap: _total, lane: _lane, ...v1 } = limits;
+  return v1;
+}
 
 /** The domain a mandate account signs under: the chain and the account, and nothing reusable. */
 export function mandateDomain(mandate: Address, chainId: number): TypedDataDomain {
@@ -129,17 +154,27 @@ export async function signLimitsAuthorization(
   limits: MandateLimits,
   nonce: bigint,
   deadline: bigint,
+  contractSet: ContractSet = 'v2',
 ): Promise<LimitsAuthorization> {
   const { walletClient, account } = requireSigner(connection, 'signLimits');
   const domain = await assertMandateDomain(connection, mandate);
 
-  const signature = await walletClient.signTypedData({
-    account,
-    domain,
-    types: SET_LIMITS_TYPES,
-    primaryType: 'SetLimits',
-    message: { limits, nonce, deadline },
-  });
+  const signature =
+    contractSet === 'v1'
+      ? await walletClient.signTypedData({
+          account,
+          domain,
+          types: SET_LIMITS_TYPES_V1,
+          primaryType: 'SetLimits',
+          message: { limits: limitsV1(limits), nonce, deadline },
+        })
+      : await walletClient.signTypedData({
+          account,
+          domain,
+          types: SET_LIMITS_TYPES,
+          primaryType: 'SetLimits',
+          message: { limits, nonce, deadline },
+        });
 
   return { limits, nonce, deadline, signature };
 }

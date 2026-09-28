@@ -1,4 +1,4 @@
-import { escrowAbi, mandateAccountAbi } from '@bursar/core';
+import { escrowAbi, escrowAbiV1, mandateAccountAbi, mandateAccountAbiV1 } from '@bursar/core';
 import { toFunctionSelector } from 'viem';
 
 import { type Bucket, RefuseReason, bucketFor } from './decision.js';
@@ -41,6 +41,10 @@ const ACCOUNT_REASONS: Readonly<Record<string, RefuseReason>> = {
   ZeroAmount: RefuseReason.ZeroAmount,
   ZeroAddress: RefuseReason.ZeroAddress,
   NotAgent: RefuseReason.NotAgent,
+  // v2 only. A class the mandate leaves out is a capability it does not allow, and the lifetime
+  // total is the cumulative ceiling the source document already names.
+  ClassNotAllowed: RefuseReason.CapabilityNotAllowed,
+  TotalCapExceeded: RefuseReason.OverCumulativeCeiling,
 };
 
 /** Used to read a revert back from a full `spend` simulation, which previewSpend cannot cover. */
@@ -69,8 +73,12 @@ function buildTable(abi: readonly unknown[], reasons: Readonly<Record<string, Re
   return table;
 }
 
-export const ACCOUNT_SELECTORS: ReadonlyMap<Selector, ChainRefusal> = buildTable(mandateAccountAbi, ACCOUNT_REASONS);
-export const ESCROW_SELECTORS: ReadonlyMap<Selector, ChainRefusal> = buildTable(escrowAbi, ESCROW_REASONS);
+// Both sets, so a v1 mandate's revert decodes as well as a v2 one. v2 only adds errors.
+export const ACCOUNT_SELECTORS: ReadonlyMap<Selector, ChainRefusal> = buildTable(
+  [...mandateAccountAbiV1, ...mandateAccountAbi],
+  ACCOUNT_REASONS,
+);
+export const ESCROW_SELECTORS: ReadonlyMap<Selector, ChainRefusal> = buildTable([...escrowAbiV1, ...escrowAbi], ESCROW_REASONS);
 
 export const APPROVAL_REQUIRED_SELECTOR: Selector = errorSelector('ApprovalRequired');
 export const MERKLE_GATE_ACTIVE_SELECTOR: Selector = errorSelector('MerkleGateActive');

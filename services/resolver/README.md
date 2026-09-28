@@ -4,8 +4,10 @@ The service that votes Bursar's three bonded resolver keys on every dispute the 
 under the published [ruling policy](../../docs/RULING-POLICY.md).
 
 A payer who disputes a job before paying freezes the lock and opens a vote on the
-`OracleRegistry`. If fewer than two resolvers commit and reveal, anyone can call `failDispute`
-and refund the payer in full, whatever was delivered. This service makes sure two always do: it
+`OracleRegistry`. If fewer than two resolvers commit and reveal, anyone can call `failDispute`.
+On the v1 contracts that refunds the payer in full, whatever was delivered. On v2 it reopens the
+lock with a new deadline and returns the dispute bond, and a lock can be disputed only once. This
+service makes sure two resolvers always vote: it
 reads the job and any delivery evidence, rules by the policy, seals the same score from two keys,
 reveals it, finalizes, and checks the escrow paid out. Every step is taken from the chain as it
 reads at that moment, so a restart, a lost journal or a dead RPC endpoint costs a poll, not a
@@ -27,8 +29,8 @@ registry's windows if governance changes them.
 | 10h00 | CRITICAL if any of our commitments is still sealed. |
 | 11h00 | Last-chance reveal at three times the estimated fee. CRITICAL: run the backup runner. |
 | 12h00 | If a resolver outside Bursar committed and never revealed, finalizes here. |
-| After | Verifies the dispute is `Finalized` and the lock `Resolved`. CRITICAL with the `disputeTimeout` time if the lock is still frozen. |
-| 40h after the dispute | CRITICAL watchdog for any lock still `Disputed`. |
+| After | Verifies the dispute is `Finalized` and the lock `Resolved`. If the vote failed, CRITICAL either way: on v1 the lock was refunded, or is still frozen and the alert gives the `disputeTimeout` time; on v2 the lock is `Locked` again with a new deadline, which is the contract working as designed. |
+| 40h after the dispute | CRITICAL watchdog for any lock still `Disputed`. On v2, `disputeTimeout` stays refused while the registry holds the dispute open, so the alert asks for `finalize` or `failDispute` instead. |
 
 Every retry of a write is priced a quarter higher than the last. Finalize is sent with at least
 1.5M gas and twice the estimate, so the escrow call inside it cannot be starved.
@@ -47,7 +49,7 @@ Nothing in it is needed to reveal, and the backup runner does not have one.
 | `POST /evidence` | A `DeliveryEvidence` signed by the lock's payee, or a `PayerStatement` signed by its payer (EIP-712, domain `Bursar Evidence` v1, verifying contract the escrow). Built with `@bursar/sdk` `signDeliveryEvidence`. |
 | `POST /override` | `{ disputeId, score, reason }` with `Authorization: Bearer <RESOLVER_OPERATOR_TOKEN>`. Scores 0, 60, 72 or 90, before the cutoff only, and refused when an operator address is the payer or payee. |
 | `GET /rulings/:disputeId` | The published ruling. Until this service's reveals land it answers `sealed` and nothing more. |
-| `GET /health` | 200 while polling, 503 once three polls are missed. |
+| `GET /health` | 200 while polling, 503 once three polls are missed. `served` lists each registry with its name, contract set, escrow, the last block its log scan covered and its open disputes. |
 
 The service has no public address. The console forwards `https://app.bursar.world/api/evidence`,
 `/api/rulings?dispute=<id>` and `/api/rulings/health` to it.
@@ -63,7 +65,7 @@ The service has no public address. The console forwards `https://app.bursar.worl
 | `RESOLVER_PASSWORD_FILE` | with keystores | File holding the keystore password. |
 | `RESOLVER_PASSWORD_KEYCHAIN` | with keystores | Or a macOS Keychain item as `service/account`. |
 | `RESOLVER_KEYS_ORDER` | `resolver-1,resolver-2,resolver-3` | Key names, in rotation order. |
-| `RESOLVER_DEPLOYMENTS` | bundled 4663 record | Deployment record paths to serve. Add the v2 record here when it exists. |
+| `RESOLVER_DEPLOYMENTS` | every live 4663 record, v2 then v1 | Deployment record paths to serve. The Render setup names `contracts/deployments/rhc-mainnet-v2.json,contracts/deployments/rhc-mainnet.json`. |
 | `BURSAR_ALERT_WEBHOOK` | unset | Slack, Discord or Telegram (`sendMessage?chat_id=`) URL. Unset means the log is the only channel. |
 | `RESOLVER_HTTP_HOST` | `127.0.0.1` | `0.0.0.0` on a host that routes to it. |
 | `RESOLVER_HTTP_PORT` | `10000` | |
@@ -135,7 +137,7 @@ nothing is sent.
 INFO: dispute observed with the provisional ruling, ruling decided, dispute ruled, the daily
 heartbeat. WARN: a key benched, the standby signing, a key under its gas floor or off its bond,
 open votes disagreeing with the journal. CRITICAL: quorum at risk, a reveal still owed, the
-backup runner needed, quorum missed, a dispute closed as failed, a lock still frozen after the
+backup runner needed, quorum missed, a dispute closed as failed (refunded on v1, reopened on v2), a lock still frozen after the
 vote, the 40-hour watchdog. Each is sent once per dispute. Point an uptime check at
 `https://app.bursar.world/api/rulings/health`, so a service that stops sending heartbeats is also
 noticed.

@@ -10,7 +10,8 @@ import type { ResolverKey } from '../../src/keys.js';
 
 export const REGISTRY: Address = getAddress('0xcb7c60037ec43b9692a5ddca42a500181cf549ff');
 export const ESCROW: Address = getAddress('0x7d82ad9dc36734adcf5cf985295096b2b575c8c4');
-export const SERVED: Served = { name: 'test', escrow: ESCROW, registry: REGISTRY };
+export const SERVED: Served = { name: 'test', escrow: ESCROW, registry: REGISTRY, contractSet: 'v1' };
+export const SERVED_V2: Served = { ...SERVED, name: 'test-v2', contractSet: 'v2' };
 
 export const HOUR = 3_600n;
 export const T0 = 1_790_000_000n;

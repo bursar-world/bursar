@@ -56,6 +56,9 @@ export function mandateView(): MandateView {
     providerGate: 'allowlist',
     providerRoster: null,
     documentHash: null,
+    contractSet: 'v2',
+    classes: ['service', 'hire'],
+    totalCap: null,
     escrow: {
       address: '0x4aCAeAdAE9AEf21D23719aa2F3E45A9c7Eda1BD3',
       minTtlSeconds: 30,

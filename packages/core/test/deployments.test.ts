@@ -6,8 +6,11 @@ import {
   DEPLOYMENTS,
   BURSAR_CONTRACT_NAMES,
   deployment,
+  deploymentByContract,
   deploymentForChain,
+  deploymentsForChain,
   isMandateDeploymentRecord,
+  isSuperseded,
   isRetiredDeploymentRecord,
   parseDeployment,
   selectDeploymentRecords,
@@ -147,10 +150,24 @@ describe('deployment records', () => {
     expect(() => deployment('rhc-testnet' as never)).toThrow(/codegen/);
   });
 
-  it('resolves the live Robinhood Chain record by name and by chain', () => {
+  it('answers for Robinhood Chain with v2 and keeps v1 live and readable by name', () => {
+    expect(deploymentForChain(4663).network).toBe('rhc-mainnet-v2');
+    expect(deployment('rhc-mainnet-v2').supersedes).toBe('rhc-mainnet');
     expect(deployment('rhc-mainnet').chainId).toBe(4663);
-    expect(deploymentForChain(4663).network).toBe('rhc-mainnet');
     expect(deployment('rhc-mainnet').retired).toBeUndefined();
+    expect(deploymentsForChain(4663).map((d) => d.network)).toEqual(['rhc-mainnet-v2', 'rhc-mainnet']);
+    expect(isSuperseded(deployment('rhc-mainnet'))).toBe(true);
+    expect(isSuperseded(deployment('rhc-mainnet-v2'))).toBe(false);
+  });
+
+  it('finds the record behind a contract address, whichever set it belongs to', () => {
+    const v1 = deployment('rhc-mainnet');
+    const v2 = deployment('rhc-mainnet-v2');
+    expect(deploymentByContract('Escrow', v1.contracts.Escrow)?.network).toBe('rhc-mainnet');
+    expect(deploymentByContract('Escrow', v2.contracts.Escrow.toLowerCase() as never)?.network).toBe(
+      'rhc-mainnet-v2',
+    );
+    expect(deploymentByContract('Escrow', fill('0') as never)).toBeUndefined();
   });
 });
 
@@ -212,6 +229,19 @@ describe('retired deployments', () => {
 
     expect(live).toContain('example-net');
     expect(live).not.toContain('example-old');
+  });
+
+  it('answers for a chain with the superseding record and keeps the older one live', async () => {
+    const v2 = { ...raw, network: 'example-net-v2', supersedes: 'example-net' };
+    const book = await withAddressBook({ 'example-net-v2': v2, 'example-net': raw });
+
+    expect(book.deploymentForChain(EXAMPLE_CHAIN).network).toBe('example-net-v2');
+    expect(book.deploymentsForChain(EXAMPLE_CHAIN).map((d) => d.network)).toEqual([
+      'example-net-v2',
+      'example-net',
+    ]);
+    expect(book.liveDeployments().map((d) => d.network)).toContain('example-net');
+    expect(book.deployment('example-net' as never).retired).toBeUndefined();
   });
 
   it('reports a chain nobody has deployed to as unknown, not retired', async () => {
@@ -278,6 +308,25 @@ describe('selecting what the address book may hold', () => {
     expect(() => selectDeploymentRecords(twice)).toThrow(
       new RegExp(`both claim chain ${EXAMPLE_CHAIN}`),
     );
+  });
+
+  it('lets a record share a chain with the one it names in supersedes', () => {
+    const pair = [
+      { name: 'example-net', json: raw },
+      { name: 'example-net-v2', json: { ...raw, network: 'example-net-v2', supersedes: 'example-net' } },
+    ];
+
+    expect(selectDeploymentRecords(pair)).toHaveLength(2);
+  });
+
+  it('still stops a third live record that nothing supersedes', () => {
+    const three = [
+      { name: 'example-net', json: raw },
+      { name: 'example-net-v2', json: { ...raw, network: 'example-net-v2', supersedes: 'example-net' } },
+      { name: 'example-net-copy', json: { ...raw, network: 'example-net-copy' } },
+    ];
+
+    expect(() => selectDeploymentRecords(three)).toThrow(/both claim chain/);
   });
 
   it('lets two retired records share a chain, because nothing resolves them by one', () => {

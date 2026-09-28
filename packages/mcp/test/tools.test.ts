@@ -53,7 +53,7 @@ const CAPABILITY_ID: Hex = `0x${'11'.repeat(32)}`;
 const CALLDATA = encodeFunctionData({
   abi: mandateAccountAbi,
   functionName: 'previewSpend',
-  args: [ACCOUNT, CAPABILITY_ID, 1_000_000n],
+  args: [ACCOUNT, CAPABILITY_ID, 1_000_000n, 0],
 });
 
 /** What a read against an address holding no mandate account throws, in full. */
@@ -67,7 +67,7 @@ function viemZeroData(): Error {
       abi: mandateAccountAbi,
       contractAddress: ACCOUNT,
       functionName: 'previewSpend',
-      args: [ACCOUNT, CAPABILITY_ID, 1_000_000n],
+      args: [ACCOUNT, CAPABILITY_ID, 1_000_000n, 0],
       docsPath: '/docs/contract/readContract',
     },
   );

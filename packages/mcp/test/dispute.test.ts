@@ -22,7 +22,7 @@ function gatewayFor(node: FakeNode): MandateGateway {
   return createChainGateway({
     client,
     account: ACCOUNT,
-    escrow: ESCROW,
+    escrows: [ESCROW],
     settlementAsset: ASSET,
     relay: null,
     index: createFakeIndex(node.state).index,

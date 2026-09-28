@@ -13,9 +13,12 @@ import { mandateAccountFactoryAbi } from '@bursar/core';
 import { CallRefusedError } from '../src/errors.js';
 import { deployMandate, mandatesOf, predictMandate } from '../src/factory.js';
 import { usdg } from '../src/money.js';
-import { ADDRESSES, FAKE_HASH, fakeConnection, type ReadCall } from './helpers/fake-connection.js';
+import { privateKeyToAccount } from 'viem/accounts';
 
-const PRINCIPAL: Address = '0x1111111111111111111111111111111111111111';
+import { ADDRESSES, FAKE_HASH, TEST_KEY, fakeConnection, type ReadCall } from './helpers/fake-connection.js';
+
+// The factory creates a mandate only for the principal sending the transaction.
+const PRINCIPAL: Address = privateKeyToAccount(TEST_KEY).address;
 const AGENT: Address = '0x2222222222222222222222222222222222222222';
 const DEPLOYED: Address = '0x3333333333333333333333333333333333333333';
 const PREDICTED: Address = '0x4444444444444444444444444444444444444444';
@@ -125,6 +128,28 @@ describe('deployMandate', () => {
 
     await expect(failure).rejects.toBeInstanceOf(CallRefusedError);
     await expect(failure).rejects.toThrow(/salt, the principal, the agent and the limits/);
+  });
+});
+
+describe('who may create', () => {
+  it('refuses a seed whose principal is not the signer, before any gas is spent', async () => {
+    const fake = fakeConnection({ logs: [createdLog(DEPLOYED)], read: reads });
+    const other: Address = '0x1111111111111111111111111111111111111111';
+
+    await expect(deployMandate(fake.connection, { ...SEED, principal: other })).rejects.toThrow(
+      /has to be created by its principal/,
+    );
+    expect(fake.sent).toHaveLength(0);
+  });
+
+  it('writes the class mask, the total and the lane into the constructor limits', async () => {
+    const fake = fakeConnection({ logs: [createdLog(DEPLOYED)], read: reads });
+    const deployed = await deployMandate(fake.connection, {
+      ...SEED,
+      limits: { ...SEED.limits, classes: ['service'], totalCap: usdg('100') },
+    });
+
+    expect(deployed.limits).toMatchObject({ classMask: 1, totalCap: usdg('100'), lane: 0 });
   });
 });
 

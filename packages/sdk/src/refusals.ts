@@ -198,6 +198,26 @@ const RESOLVER: Readonly<Record<OracleErrorName, Written>> = {
       'Only the escrow this registry rules for can open a dispute or post a resolver fee. A payer ' +
       'contests through the escrow, which calls in here.',
   },
+  PartyCannotVote: {
+    owner: 'caller',
+    message:
+      'This address is the payer or the payee on the payment under dispute, so it cannot vote on it. ' +
+      'Another bonded resolver has to rule.',
+  },
+  NotPauser: {
+    owner: 'governance',
+    message: 'Only the guardian set on the registry can pause or unpause it.',
+  },
+  EnforcedPause: {
+    owner: 'governance',
+    message:
+      'The dispute registry is paused, so no dispute opens and no vote is taken until governance ' +
+      'lifts it. Bonds and open disputes are held as they were.',
+  },
+  ExpectedPause: {
+    owner: 'governance',
+    message: 'The dispute registry is not paused, so there is nothing to lift.',
+  },
   NotAdmin: {
     owner: 'governance',
     message:
