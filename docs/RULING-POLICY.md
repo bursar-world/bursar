@@ -1,0 +1,129 @@
+# Ruling policy
+
+Version 1. It applies to disputes heard by the Bursar dispute registry on Robinhood Chain
+(chain 4663), registry `0xCb7c60037eC43b9692A5dDcA42A500181Cf549FF`, for payments held by the
+escrow at `0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4`.
+
+## Who rules
+
+All three bonded resolvers on this registry are operated by Bursar:
+
+| Resolver | Address |
+|---|---|
+| resolver-1 | `0xD8D90e4c8f3419B1b8305dF2905eb31d3fBBf599` |
+| resolver-2 | `0xC284CdA6c6982447f202830f4e969F13cBcB0b94` |
+| resolver-3 | `0x7062A480732EC7B0F00a3D0c968356e1671dd356` |
+
+Each has 25,000 BRSR bonded. Bursar is therefore the arbiter of every dispute on this registry.
+Every vote follows the rules below, every resolver casts the same score, and the reasons for each
+ruling are published once the votes are revealed.
+
+## What a ruling decides
+
+A payer who disputes a job before the provider has been paid freezes the payment. The resolvers
+score the delivery from 0 to 100, and the median score sets how much goes back to the payer:
+
+| Score | Refund to the payer |
+|---|---|
+| Below 50 | 100% |
+| 50 to 64 | 75% |
+| 65 to 79 | 35% |
+| 80 and above | None |
+
+The resolver fee, 0.5% of the payment, comes off first. The protocol fee, 1%, is charged only on
+the provider's share. This policy uses four scores: 0, 60, 72 and 90. Each sits in the middle of
+its band, so no rounding can move a ruling into the next one.
+
+On a payment of 1.00 USDG disputed by the payer:
+
+- At a score of 90, the provider receives 0.985050 USDG. The payer's 0.05 USDG dispute bond goes
+  to the resolvers with their fee.
+- At a score of 0, the payer receives 0.995000 USDG and the bond back. The resolvers receive
+  0.005000 USDG.
+
+A complaint made after the provider has been paid is recorded against the provider's history.
+There is nothing left to split, so it is never ruled on.
+
+## The rules
+
+The rules are checked in order and the first that applies decides.
+
+| Rule | When it applies | Score |
+|---|---|---|
+| P0 | The payment is not held in dispute when the resolvers read it | No vote |
+| P6 | Bursar overrode the ruling before the evidence cutoff (see Overrides) | The override |
+| P1 | The job the payer committed to cannot be read, or does not match its commitment | 0 |
+| P2 | The provider sent no signed delivery evidence before the cutoff | 0 |
+| P3 | The evidence is not valid (see below) | 0 |
+| P4 | The evidence is valid and the capability's published validator reports a partial delivery | 60 |
+| P5 | The evidence is valid and the output is complete | 90 |
+
+P1 means no verifiable job existed, so nothing was owed. P2 gives the payer the same result the
+delivery deadline would have given. Evidence is not valid when:
+
+- it is not signed by the provider named on the payment;
+- it names a different job from the one the payer committed to;
+- the output cannot be fetched from the address given, or that address is not public;
+- the fetched output does not match the output commitment in the evidence;
+- the capability's published validator rejects it, or, where no validator is published, the output
+  is empty or is not JSON.
+
+No capability publishes a validator today, so a complete delivery is one whose output is
+well-formed, non-empty JSON that matches its commitment.
+
+When the job was delivered is not scored. The chain cannot prove it, and a payer who disputes
+before the deadline has already stopped the provider from being paid.
+
+## Evidence
+
+Providers send a signed delivery statement. The Bursar console signs one from the provider's
+wallet on the provider desk, and the provider sidecar sends one automatically when a job it
+delivered is disputed. Both post to `https://app.bursar.world/api/evidence`.
+
+The statement is EIP-712 typed data under the domain `Bursar Evidence`, version `1`, chain 4663,
+with the escrow as the verifying contract:
+
+```
+DeliveryEvidence(uint256 escrowId, bytes32 inputCommit, bytes32 outputCommit, string outputURI, uint64 deliveredAt)
+```
+
+Evidence counts if it arrives within three hours of the dispute opening. Anything later is kept
+and published, and does not change the score.
+
+Payers can send a signed `PayerStatement(uint256 escrowId, string reason)`. Statements are
+published with the ruling. They are not scored, because only verifiable evidence moves a score.
+
+## Overrides
+
+Bursar may override a ruling before the evidence cutoff, with one of the four scores and a written
+reason. The override and its reason are published with the ruling.
+
+Bursar never overrides a dispute in which an address it controls is the payer or the provider.
+Those disputes are ruled by P0 to P5 alone, and the published ruling marks them as operator party.
+
+## Timeline
+
+Times are counted from the moment the dispute opens.
+
+| When | What happens |
+|---|---|
+| Within a minute | The resolvers read the payment and the job, and open the evidence window |
+| 3 hours | Evidence cutoff |
+| 3 hours 30 minutes | Two resolvers seal the score |
+| 4 hours 30 minutes | The third resolver seals it too if either of the first two has not |
+| 6 hours | Sealing closes and the scores are revealed |
+| Shortly after 6 hours | The ruling is settled and the escrow pays out |
+| 12 hours | The latest the ruling settles, if a resolver outside Bursar sealed a score and never revealed it |
+
+## Publication
+
+Each ruling is published once its votes are revealed, at
+`https://app.bursar.world/api/rulings?dispute=<dispute id>`, and shown on the resolver desk and the
+provider desk. It lists the policy version, the rule that applied, the score, the reasons, the hash
+of every piece of evidence, the block the payment was read at, and each resolver's vote with its
+transactions. Before the reveal it says only that the score is sealed, so no one can copy a vote.
+
+## Changes
+
+A new version of this policy is published here before it applies. A dispute is ruled under the
+version in force when it opened.
