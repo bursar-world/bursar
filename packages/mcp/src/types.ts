@@ -132,6 +132,26 @@ export type PayOrder = {
   readonly approval: ApprovalInput | null;
 };
 
+export type BuyStockOrder = {
+  /** A registry symbol ("SPY") or the token address. */
+  readonly asset: string;
+  readonly amount: Micro;
+};
+
+export type BuyStockView = {
+  readonly txHash: Hex;
+  readonly asset: Address;
+  readonly symbol: string;
+  readonly amount: MoneyView;
+  /** Raw token units delivered to the mandate. */
+  readonly received: string;
+  /** Reference price, USD per whole token. */
+  readonly referencePrice: string;
+  /** received × reference price. */
+  readonly valueAtReference: MoneyView;
+  readonly next: string;
+};
+
 export type PayView = {
   readonly settlementId: string;
   readonly txHash: Hex;
@@ -408,6 +428,7 @@ export type MandateGateway = {
   quote(request: QuoteRequest): Promise<QuoteView>;
   pay(order: PayOrder): Promise<PayView>;
   hire(order: HireOrder): Promise<HireView>;
+  buyStock(order: BuyStockOrder): Promise<BuyStockView>;
   settlements(query: SettlementsQuery): Promise<SettlementsView>;
   settlement(settlementId: bigint): Promise<SettlementDetailView>;
   openDispute(settlementId: bigint): Promise<DisputeReceiptView>;

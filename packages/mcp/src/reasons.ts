@@ -1,4 +1,11 @@
-import { agentRegistryAbi, mandateAccountAbi, oracleRegistryAbi } from '@bursar/core';
+import {
+  agentRegistryAbi,
+  assetRegistryAbi,
+  mandateAccountAbi,
+  oracleRegistryAbi,
+  priceGuardAbi,
+  stockSpendRouterAbi,
+} from '@bursar/core';
 import { toFunctionSelector } from 'viem';
 import type { Hex } from 'viem';
 
@@ -18,6 +25,7 @@ export type RefusalSubject =
   | 'mandate'
   | 'monthly'
   | 'per_call'
+  | 'price'
   | 'provider'
   | 'registry'
   | 'reward'
@@ -238,8 +246,8 @@ const REFUSALS: Readonly<Record<MandateErrorName, Omit<Refusal, 'code'>>> = {
   ClassNotAllowed: {
     subject: 'capability',
     message:
-      'The principal has not allowed this class of spend on this mandate. A hire and a service payment ' +
-      'are separate classes, and only the principal can change which ones the mandate allows.',
+      'The principal has not allowed this class of spend on this mandate. Services, agent hires and stock ' +
+      'purchases are separate classes, and only the principal can change which ones the mandate allows.',
   },
   TotalCapExceeded: {
     subject: 'total_budget',
@@ -672,6 +680,60 @@ const PROVIDER_REFUSALS: Readonly<Record<AgentErrorName, Omit<Refusal, 'code'>>>
   },
 };
 
+/** What the asset registry, the price guard and the stock router refuse a purchase for. */
+const RWA_REFUSALS: Readonly<Record<string, Omit<Refusal, 'code'>>> = {
+  NotRegistered: {
+    subject: 'asset',
+    message: 'This token is not in the asset registry, so no mandate can buy or park it. Assets are matched by address.',
+  },
+  NotEligible: {
+    subject: 'asset',
+    message: 'The registry has this asset marked as not eligible right now. Nothing can be bought in it.',
+  },
+  StalePrice: {
+    subject: 'price',
+    message:
+      'The reference price for this asset is older than its limit (26 hours for trades), which happens over ' +
+      'weekends and market holidays. Try again after the next price update.',
+  },
+  BadPrice: { subject: 'price', message: 'The reference price feed returned no usable price. Nothing was bought.' },
+  OraclePaused: {
+    subject: 'price',
+    message: 'The token issuer has paused its price reference, so the asset cannot be bought or valued.',
+  },
+  TokenPaused: { subject: 'asset', message: 'The token issuer has paused transfers of this asset.' },
+  AccessPaused: { subject: 'asset', message: "Robinhood's access registry is paused, so no stock token can move." },
+  Blocked: {
+    subject: 'mandate',
+    message: "Robinhood's access registry blocks this account from holding the asset. Nothing was bought.",
+  },
+  PoolPriceDeviation: {
+    subject: 'price',
+    message:
+      'The trading pool and the reference price disagree by more than the asset allows. The purchase is ' +
+      'refused until they agree again.',
+  },
+  PriceOutsideBand: {
+    subject: 'price',
+    message: 'The quoted price is outside the allowed band around the reference price. Quote again and retry.',
+  },
+  AssetNotAllowed: {
+    subject: 'asset',
+    message: "This asset is not on the mandate's list of stocks it may buy. Only the principal can add it.",
+  },
+  NotAStock: { subject: 'asset', message: 'This asset is a treasury token. It can be parked, not bought as a stock.' },
+  TradeCapExceeded: {
+    subject: 'amount',
+    message: 'The purchase is larger than the per-trade limit for this asset (25 USDG at launch). Buy less.',
+  },
+  SwapShort: {
+    subject: 'price',
+    message:
+      "The fill would have been worse than the mandate's slippage limit against the reference price, so " +
+      'nothing was bought.',
+  },
+};
+
 const TABLES: Readonly<Record<RefusalScope, Readonly<Record<string, Omit<Refusal, 'code'>>>>> = {
   mandate: REFUSALS,
   resolver: RESOLVER_REFUSALS,
@@ -679,15 +741,25 @@ const TABLES: Readonly<Record<RefusalScope, Readonly<Record<string, Omit<Refusal
 };
 
 /** The same table by name, so a name from outside this package cannot index it out of range. */
-const BY_NAME: ReadonlyMap<string, Omit<Refusal, 'code'>> = new Map(Object.entries(REFUSALS));
+const BY_NAME: ReadonlyMap<string, Omit<Refusal, 'code'>> = new Map([
+  ...Object.entries(RWA_REFUSALS),
+  ...Object.entries(REFUSALS),
+]);
 
 /**
  * Selectors come from the deployed ABI, so a renamed error cannot leave a stale selector behind
  * that reports the wrong refusal. Every name in that ABI has an entry above, which the key type
  * enforces at compile time.
  */
-const BY_SELECTOR: ReadonlyMap<Hex, Refusal> = new Map(
-  mandateAccountAbi
+const BY_SELECTOR: ReadonlyMap<Hex, Refusal> = new Map([
+  ...[...assetRegistryAbi, ...priceGuardAbi, ...stockSpendRouterAbi]
+    .filter((item) => item.type === 'error' && RWA_REFUSALS[item.name] !== undefined)
+    .map((item) => {
+      const error = item as { name: string; inputs: readonly { type: string }[] };
+      const signature = `${error.name}(${error.inputs.map((input) => input.type).join(',')})`;
+      return [toFunctionSelector(signature), { code: error.name, ...RWA_REFUSALS[error.name]! }] as const;
+    }),
+  ...mandateAccountAbi
     .filter((item): item is Extract<(typeof mandateAccountAbi)[number], { type: 'error' }> => item.type === 'error')
     .map((item) => {
       const signature = `${item.name}(${item.inputs.map((input) => input.type).join(',')})`;
@@ -695,7 +767,7 @@ const BY_SELECTOR: ReadonlyMap<Hex, Refusal> = new Map(
 
       return [toFunctionSelector(signature), { code: item.name, ...known }] as const;
     }),
-);
+]);
 
 /** `previewSpend` answers with the selector of the error a spend would revert with, or zero. */
 export function refusalForSelector(selector: Hex): Refusal | null {

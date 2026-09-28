@@ -4,6 +4,7 @@ import type { Address, Hex } from 'viem';
 import type {
   DisputeDetailView,
   DisputeReceiptView,
+  BuyStockOrder,
   HireOrder,
   HireView,
   MandateGateway,
@@ -199,6 +200,7 @@ export type FakeGateway = {
   quotes: QuoteRequest[];
   orders: PayOrder[];
   hires: HireOrder[];
+  buys: BuyStockOrder[];
   queries: SettlementsQuery[];
   reads: bigint[];
   disputes: bigint[];
@@ -214,6 +216,7 @@ export function createFakeGateway(options: FakeGatewayOptions = {}): FakeGateway
   const quotes: QuoteRequest[] = [];
   const orders: PayOrder[] = [];
   const hires: HireOrder[] = [];
+  const buys: BuyStockOrder[] = [];
   const queries: SettlementsQuery[] = [];
   const reads: bigint[] = [];
   const disputes: bigint[] = [];
@@ -247,6 +250,21 @@ export function createFakeGateway(options: FakeGatewayOptions = {}): FakeGateway
 
       return hireView();
     },
+    async buyStock(order) {
+      buys.push(order);
+      check();
+
+      return {
+        txHash: `0x${'ab'.repeat(32)}`,
+        asset: '0x117cc2133c37B721F49dE2A7a74833232B3B4C0C',
+        symbol: 'SPY',
+        amount: { micro: order.amount.toString(), usdg: '0.05' },
+        received: '64961527959563',
+        referencePrice: '771.21',
+        valueAtReference: { micro: '50099', usdg: '0.050099' },
+        next: 'The mandate now holds SPY.',
+      };
+    },
     async settlements(query) {
       queries.push(query);
       check();
@@ -273,5 +291,5 @@ export function createFakeGateway(options: FakeGatewayOptions = {}): FakeGateway
     },
   };
 
-  return { gateway, quotes, orders, hires, queries, reads, disputes, rulings };
+  return { gateway, quotes, orders, hires, buys, queries, reads, disputes, rulings };
 }

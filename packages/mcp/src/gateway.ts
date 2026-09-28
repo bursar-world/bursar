@@ -9,10 +9,14 @@ import {
   mandateAccountAbi,
   mandateAccountAbiV1,
   oracleRegistryAbi,
+  priceGuardAbi,
+  rawToUsdgMicros,
+  rwaDeployment,
   settlementAssetAbi,
+  stockSpendRouterAbi,
 } from '@bursar/core';
 import type { ContractSet, RhcPublicClient, SpendClass } from '@bursar/core';
-import { decodeEventLog, encodeEventTopics } from 'viem';
+import { BaseError, ContractFunctionRevertedError, decodeEventLog, encodeEventTopics } from 'viem';
 import type { Address, Hex } from 'viem';
 
 import {
@@ -26,7 +30,7 @@ import {
 import { ToolError } from './errors.js';
 import type { IndexedLog, SettlementIndex } from './explorer.js';
 import { fromUint, instant, instantOrNull, money, moneyFromUint } from './format.js';
-import { refusalForSelector } from './reasons.js';
+import { refusalForName, refusalForSelector } from './reasons.js';
 import { toRelayApproval } from './relay.js';
 import type { SpendRelay } from './relay.js';
 import {
@@ -47,6 +51,8 @@ import type {
   DisputeReceiptView,
   DisputeRulingView,
   DisputeView,
+  BuyStockOrder,
+  BuyStockView,
   HireOrder,
   HireView,
   MandateGateway,
@@ -516,6 +522,67 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
     };
   }
 
+  /**
+   * Buys an eligible stock through the mandate's `buy`. The mandate checks the class and the caps;
+   * the router checks the asset list, the per-trade cap, the reference price and the fill.
+   */
+  async function buyStock(order: BuyStockOrder): Promise<BuyStockView> {
+    const submitter = requireRelay();
+    const { contractSet } = await assertWired();
+    if (contractSet === 'v1') {
+      throw new ToolError('mandate_refused', 'This mandate is on the first contract set, which cannot buy stocks.');
+    }
+
+    const lane = rwaDeployment(await client.getChainId());
+    if (lane === undefined) throw new ToolError('rwa_unavailable', 'Stock purchases are not available on this chain.');
+
+    const wanted = order.asset.toLowerCase();
+    const listed = lane.assets.find((a) => a.symbol.toLowerCase() === wanted || a.address.toLowerCase() === wanted);
+    if (listed === undefined || listed.kind !== 'stock') {
+      const eligible = lane.assets.filter((a) => a.kind === 'stock').map((a) => a.symbol);
+      throw new ToolError('invalid_arguments', `${order.asset} is not an eligible stock. Eligible: ${eligible.join(', ')}.`);
+    }
+
+    const [priceE8, minOut] = await refusing(() =>
+      Promise.all([
+        client.readContract({
+          address: lane.PriceGuard,
+          abi: priceGuardAbi,
+          functionName: 'tradePrice',
+          args: [listed.address, account],
+        }),
+        client.readContract({
+          address: lane.StockSpendRouter,
+          abi: stockSpendRouterAbi,
+          functionName: 'minOutFor',
+          args: [account, listed.address, order.amount],
+        }),
+      ]),
+    );
+
+    const receipt = await submitter.buy({
+      mandateAccount: account,
+      asset: listed.address,
+      usdgIn: order.amount.toString(),
+      minOut: minOut.toString(),
+      quotedPriceE8: priceE8.toString(),
+    });
+    const value = moneyFromUint(rawToUsdgMicros(receipt.amountOut, priceE8));
+
+    return {
+      txHash: receipt.txHash,
+      asset: listed.address,
+      symbol: listed.symbol,
+      amount: money(order.amount),
+      received: receipt.amountOut.toString(),
+      referencePrice: (Number(priceE8) / 1e8).toFixed(2),
+      valueAtReference: value,
+      next:
+        `The mandate now holds ${listed.symbol} worth ${value.usdg} USDG at the reference price. The ` +
+        'purchase counts against its budgets like any spend and is not refunded.',
+    };
+  }
+
   async function settlements(query: SettlementsQuery): Promise<SettlementsView> {
     const { escrowContract } = await assertWired();
 
@@ -809,7 +876,7 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
     };
   }
 
-  return { inspect, quote, pay, hire, settlements, settlement, openDispute, dispute };
+  return { inspect, quote, pay, hire, buyStock, settlements, settlement, openDispute, dispute };
 }
 
 /**
@@ -1034,5 +1101,18 @@ function spendLabel(spendClass: SpendClass, label: string): string {
       throw new ToolError('invalid_arguments', error.message, { ...error.details });
     }
     throw error;
+  }
+}
+
+/** A read the price guard or the router refuses comes back with the contract error named. */
+async function refusing<T>(read: () => Promise<T>): Promise<T> {
+  try {
+    return await read();
+  } catch (error) {
+    const reverted = error instanceof BaseError ? error.walk((e) => e instanceof ContractFunctionRevertedError) : null;
+    const name = reverted instanceof ContractFunctionRevertedError ? reverted.data?.errorName : undefined;
+    const refusal = name === undefined ? null : refusalForName(name);
+    if (refusal === null) throw error;
+    throw new ToolError('mandate_refused', refusal.message, { revert: refusal.code, subject: refusal.subject });
   }
 }

@@ -11,6 +11,7 @@ import { mandateAccountAbi } from '@bursar/core';
 import { describe, expect, it } from 'vitest';
 
 import { ToolError } from '../src/errors.js';
+import { refusalForName } from '../src/reasons.js';
 import { TOOLS, callTool, redactSecrets, toolsFor } from '../src/tools.js';
 import type { ToolContext, ToolResult } from '../src/tools.js';
 import { PROVIDER, createFakeGateway } from './fakes.js';
@@ -102,6 +103,7 @@ describe('the advertised tools', () => {
       'mandate_inspect',
       'mandate_quote_spend',
       'mandate_pay_provider',
+      'mandate_buy_stock',
       'mandate_list_settlements',
       'mandate_get_settlement',
       'mandate_open_dispute',
@@ -775,5 +777,27 @@ describe('what a hire and a ruling read like before they are made', () => {
 
     expect(dispute?.description).toContain('went back to the mandate and what went to the provider');
     expect(dispute?.description).toContain('no resolver and no ruling');
+  });
+});
+
+describe('mandate_buy_stock', () => {
+  it('passes the asset and amount through to the gateway', async () => {
+    const fake = createFakeGateway();
+    const context: ToolContext = {
+      gateway: fake.gateway,
+      resolver: null,
+      provider: null,
+      secrets: [],
+      canSign: { mandate: true, resolver: false, provider: false },
+    };
+    const result = await callTool(context, 'mandate_buy_stock', { asset: 'SPY', amount: '50000' });
+    expect(result.isError).toBe(false);
+    expect(fake.buys).toEqual([{ asset: 'SPY', amount: 50_000n }]);
+    expect(result.text).toContain('valueAtReference');
+  });
+
+  it('names the reference-price refusals', () => {
+    expect(refusalForName('StalePrice')?.message).toContain('26 hours');
+    expect(refusalForName('AssetNotAllowed')?.subject).toBe('asset');
   });
 });

@@ -304,6 +304,32 @@ export const TOOLS: readonly ToolDefinition[] = [
     },
   },
   {
+    name: 'mandate_buy_stock',
+    role: 'mandate',
+    writes: true,
+    description:
+      'Buy an eligible tokenized stock (SPY, NVDA or AAPL on Robinhood Chain) with USDG from this mandate. ' +
+      'The stock is delivered to the mandate account. The mandate has to allow stock purchases, and the ' +
+      'principal has to have listed the asset for it. The purchase is checked against the Chainlink ' +
+      'reference price: it is refused when that price is older than 26 hours, when the trading pool and the ' +
+      "reference disagree by more than the asset allows, or when the fill would be worse than the mandate's " +
+      'slippage limit. Each purchase is at most 25 USDG and counts against the per-call cap and every ' +
+      'budget, like any spend. A purchase is final: nothing is refunded.',
+    inputSchema: {
+      type: 'object',
+      required: ['asset', 'amount'],
+      properties: {
+        asset: {
+          type: 'string',
+          description: 'The stock to buy, by symbol ("SPY", "NVDA", "AAPL") or token address.',
+          pattern: '^(?:[A-Za-z]{1,10}|0x[0-9a-fA-F]{40})$',
+          patternMessage: 'asset must be a ticker symbol or a 0x address',
+        },
+        amount: amountProperty('amount', AMOUNT_HELP),
+      },
+    },
+  },
+  {
     name: 'mandate_list_settlements',
     role: 'mandate',
     writes: false,
@@ -848,6 +874,9 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
       providerProof: readProof(args),
       approval: readApproval(args),
     }),
+
+  mandate_buy_stock: (context, args) =>
+    mandateOf(context).buyStock({ asset: readString(args, 'asset'), amount: readAmount(args, 'amount') }),
 
   mandate_list_settlements: (context, args) =>
     mandateOf(context).settlements({

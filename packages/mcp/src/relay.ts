@@ -55,6 +55,21 @@ export type RelayTransactionReceipt = {
   readonly txHash: Hex;
 };
 
+/** A stock purchase through the mandate's `buy`. Amounts are atomic units, as strings. */
+export type RelayBuyRequest = {
+  readonly mandateAccount: Address;
+  readonly asset: Address;
+  readonly usdgIn: string;
+  readonly minOut: string;
+  readonly quotedPriceE8: string;
+};
+
+export type RelayBuyReceipt = {
+  readonly txHash: Hex;
+  /** Raw token units the mandate received. */
+  readonly amountOut: bigint;
+};
+
 /**
  * Signing lives behind this seam and nowhere else.
  *
@@ -65,6 +80,7 @@ export type RelayTransactionReceipt = {
 export type SpendRelay = {
   spend(request: RelaySpendRequest): Promise<RelaySpendReceipt>;
   dispute(request: RelayDisputeRequest): Promise<RelayTransactionReceipt>;
+  buy(request: RelayBuyRequest): Promise<RelayBuyReceipt>;
 };
 
 /**
@@ -199,6 +215,15 @@ export function createHttpRelay(options: HttpRelayOptions): BursarRelay {
       );
 
       return { txHash: readHash(payload, 'dispute') };
+    },
+    async buy(request: RelayBuyRequest): Promise<RelayBuyReceipt> {
+      const payload = await post('/v1/buys', request, 'mandate', 'transaction');
+      const out = payload['amountOut'];
+      if (typeof out !== 'string' || !/^[0-9]+$/u.test(out)) {
+        throw unusable('no amountOut', 'transaction', { amountOut: out });
+      }
+
+      return { txHash: readHash(payload, 'transaction'), amountOut: BigInt(out) };
     },
     async resolverCall(request: ResolverRequest): Promise<RelayTransactionReceipt> {
       const { action, ...body } = request;

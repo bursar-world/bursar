@@ -26,6 +26,8 @@ import { refusalForSelector } from './reasons.js';
 import { isJsonObject } from './schema.js';
 import type {
   RelayApproval,
+  RelayBuyReceipt,
+  RelayBuyRequest,
   RelayDisputeRequest,
   RelaySpendReceipt,
   RelaySpendRequest,
@@ -235,6 +237,22 @@ export function createLocalSigner(options: LocalSignerOptions): SpendRelay {
       );
 
       return { txHash: hash };
+    },
+
+    async buy(request: RelayBuyRequest): Promise<RelayBuyReceipt> {
+      assertScope(request.mandateAccount);
+
+      const { hash, receipt } = await submit(
+        encodeFunctionData({
+          abi: mandateAccountAbi,
+          functionName: 'buy',
+          args: [request.asset, BigInt(request.usdgIn), BigInt(request.minOut), BigInt(request.quotedPriceE8)],
+        }),
+        'buy',
+      );
+      const [bought] = parseEventLogs({ abi: mandateAccountAbi, eventName: 'Bought', logs: receipt.logs });
+
+      return { txHash: hash, amountOut: bought?.args.amountOut ?? 0n };
     },
   };
 }
