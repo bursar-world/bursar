@@ -1,0 +1,396 @@
+@import 'tailwindcss';
+
+/*
+ * The faces are the ones bursar.world serves, self-hosted so the console and the site render the
+ * same letters. A face that fails to load falls back through the list in --font-bursar-*, never to
+ * Times.
+ */
+@font-face {
+  font-family: 'Zalando Sans';
+  src: url('/fonts/zalando.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('/fonts/geist-mono.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --font-bursar-sans: 'Zalando Sans', Arial, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-bursar-mono: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+/*
+ * The single seam for colour and type. The names predate the identity; the values are bursar.world's
+ * palette, so a component written against ink and paper picks up plum and warm white unchanged.
+ */
+@theme {
+  --font-sans: var(--font-bursar-sans, 'Zalando Sans', Arial, sans-serif);
+  --font-mono: var(--font-bursar-mono, 'Geist Mono', ui-monospace, monospace);
+
+  /*
+   * The three steps below `text-sm`, named because a pixel value written into a component sits
+   * outside the theme: moving the scale would otherwise mean editing every file that spells one out.
+   */
+  --text-label: 11px;
+  --text-note: 12px;
+  --text-detail: 13px;
+
+  /* The site is square-cornered throughout, so every radius utility resolves to none. */
+  --radius-xs: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
+  --radius-2xl: 0;
+
+  --color-ink: #342440;
+  --color-paper: #faf8f7;
+  --color-muted: #786b7d;
+  --color-line: #ded8e0;
+  --color-raised: #f1ecf4;
+
+  /* A card, a dialog and a field sit a step above the page, as they do on the site's dashboard. */
+  --color-surface: #ffffff;
+  /* An outline that has to read as a control rather than a divider. */
+  --color-line-strong: #c9bccd;
+  --color-primary: #49345f;
+  --color-accent: #ecb29d;
+  --color-accent-hover: #b9dcef;
+  /* The small square in front of an eyebrow. */
+  --color-mark: #d99b89;
+  --color-band: #eee3ed;
+  --color-footer: #e9e0ec;
+  /* Muted text on the band and the footer, where --color-muted falls below AA. */
+  --color-muted-deep: #675a6d;
+  --color-ring: #896a9c;
+
+  /* What reads on top of --color-ink. An inverted identity moves this without touching a component. */
+  --color-on-ink: #ffffff;
+  /* The wash a dialog sits on. */
+  --color-scrim: color-mix(in srgb, #342440 38%, transparent);
+
+  /* Every state colour clears 4.5:1 on paper, on a surface and on the band. */
+  --color-state-ok: #2e6a4f;
+  --color-state-attention: #8a5413;
+  --color-state-blocked: #ab3549;
+  --color-state-unknown: #56657a;
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html {
+    font-family: var(--font-sans);
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  code,
+  kbd,
+  pre,
+  samp,
+  .font-mono {
+    font-family: var(--font-mono);
+  }
+
+  /*
+   * On the site every uppercase label is set in the mono face. Tying the face to the transform
+   * carries that to the dozens of field labels across the console without restating it in each.
+   */
+  .uppercase {
+    font-family: var(--font-mono);
+    font-weight: 400;
+  }
+
+  ::selection {
+    background: var(--color-accent);
+    color: var(--color-ink);
+  }
+
+  /*
+   * Anything a person can press says so under the cursor. The browser default is an arrow, and an
+   * arrow reads as decoration.
+   */
+  button,
+  summary,
+  select,
+  [role='button'],
+  [role='tab'],
+  [role='switch'],
+  a[href],
+  label[for],
+  input[type='checkbox'],
+  input[type='radio'],
+  input[type='range'],
+  input[type='file'] {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [aria-disabled='true'],
+  input:disabled,
+  select:disabled,
+  textarea:disabled {
+    cursor: not-allowed;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--color-muted);
+    opacity: 0.8;
+  }
+
+  input[type='checkbox'],
+  input[type='radio'] {
+    accent-color: var(--color-primary);
+  }
+
+  /* An inline link is underlined in the eyebrow's peach, and the rule takes the text colour on hover. */
+  .underline {
+    text-decoration-color: var(--color-mark);
+    text-decoration-thickness: 1.5px;
+    transition: text-decoration-color 0.2s;
+  }
+
+  .underline:hover {
+    text-decoration-color: currentColor;
+  }
+
+  hr {
+    border: 0;
+    border-top: 1px solid var(--color-line);
+  }
+
+  /* Amounts line up in a column only if their digits are the same width. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-family: var(--font-mono);
+  }
+}
+
+@layer components {
+  /*
+   * The site's call to action: a plum bar with a mono label and a peach square holding a chevron.
+   * On hover the label rolls up and back in from below, and the square turns sky blue.
+   */
+  .action {
+    display: inline-flex;
+    align-items: stretch;
+    justify-content: space-between;
+    background: var(--color-primary);
+    color: var(--color-on-ink);
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+  }
+
+  .action-label {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  .action-label > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .action-square {
+    display: grid;
+    flex-shrink: 0;
+    place-items: center;
+    background: var(--color-accent);
+    color: #39273f;
+    transition: background-color 0.3s;
+  }
+
+  .action-square svg {
+    transition: transform 0.3s;
+  }
+
+  .action:not(:disabled):hover .action-square {
+    background: var(--color-accent-hover);
+  }
+
+  .action:not(:disabled):hover .action-square svg {
+    transform: translateX(3px);
+  }
+
+  .action:not(:disabled):hover .action-label > span {
+    animation: action-roll 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* The eyebrow: a small square, an optional number, then the label, all in mono capitals. */
+  .eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: var(--text-note);
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+  }
+
+  .eyebrow > i {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    background: var(--color-mark);
+  }
+
+  .eyebrow > span {
+    opacity: 0.55;
+  }
+}
+
+/*
+ * A page's first section is its title, set the way the site's dashboard sets one. This and the
+ * header rules below sit outside the layers because each overrides a utility the component already
+ * carries, and a layered rule loses to a utility whatever its specificity.
+ */
+.page > :first-child > section:first-child > header h2,
+.page > section:first-child > header h2,
+.page-title {
+  font-size: 37px;
+  font-weight: 400;
+  letter-spacing: -1.8px;
+  line-height: 1.1;
+}
+
+.page > :first-child > section:first-child > header p,
+.page > section:first-child > header p {
+  margin-top: 10px;
+  font-size: 15px;
+  max-width: 62ch;
+}
+
+@media (max-width: 639px) {
+  .page > :first-child > section:first-child > header h2,
+  .page > section:first-child > header h2,
+  .page-title {
+    font-size: 31px;
+    letter-spacing: -1.4px;
+  }
+}
+
+/* The header's primary control is the site's full-height action with the logo tile in front of it. */
+.header-action .action {
+  min-height: 50px;
+  font-size: 13px;
+}
+
+.header-action .action .action-label {
+  padding-inline: 22px;
+}
+
+.header-action .action .action-square {
+  width: 50px;
+}
+
+.header-action .action::before {
+  content: '';
+  flex-shrink: 0;
+  width: 50px;
+  background: url('/brand/logo.png') center / cover;
+}
+
+@media (max-width: 639px) {
+  .header-action .action {
+    min-height: 40px;
+    font-size: 11px;
+  }
+
+  .header-action .action .action-label {
+    padding-inline: 12px;
+  }
+
+  .header-action .action .action-square {
+    width: 36px;
+  }
+
+  .header-action .action::before {
+    width: 40px;
+  }
+}
+
+@keyframes action-roll {
+  0% {
+    transform: translateY(0);
+  }
+  45% {
+    transform: translateY(-160%);
+  }
+  46% {
+    transform: translateY(160%);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* Opacity only: a transform on the page would become the containing block of every fixed dialog in it. */
+.page {
+  animation: fade-in 0.45s ease-out both;
+}
+
+.dialog-scrim {
+  animation: fade-in 0.2s ease-out both;
+}
+
+.dialog-panel {
+  animation: rise-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page,
+  .dialog-scrim,
+  .dialog-panel,
+  .action-label > span,
+  .action-square,
+  .action-square svg {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .action:not(:disabled):hover .action-square svg {
+    transform: none;
+  }
+}

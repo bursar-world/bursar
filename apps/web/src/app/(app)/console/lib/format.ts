@@ -1,0 +1,171 @@
+import { micro } from '@bursar/core';
+import type { Micro } from '@bursar/core';
+import { LockStatus, MerchantGate } from '@bursar/sdk';
+
+import { DAY_SECONDS } from '@/chain/limits';
+import type { StateLevel } from '@/state/types';
+import { usd } from '@/money';
+import { formatDuration } from '@/lib/time';
+
+/**
+ * The approval threshold, in the three readings a person means.
+ *
+ * The field binds at and above, so zero means every payment needs consent. The contract refuses
+ * zero outright: a mandate that deployed that way would read to its owner like an outage. Turning
+ * approvals off is therefore the largest value, not the smallest. Everything in the console goes
+ * through these three so nobody has to hold that inversion in their head.
+ */
+export type ApprovalMode = 'every' | 'above' | 'never';
+
+/** Consent on every payment: one micro-dollar, since the threshold binds at and above. */
+export const APPROVE_EVERYTHING: Micro = micro(1n);
+
+/** Consent on nothing: the largest value the field holds, which no payment can reach. */
+export const APPROVE_NOTHING: Micro = micro(2n ** 128n - 1n);
+
+export function approvalModeOf(threshold: Micro, perCallCap: Micro): ApprovalMode {
+  if (threshold <= APPROVE_EVERYTHING) return 'every';
+  if (threshold > perCallCap) return 'never';
+  return 'above';
+}
+
+export function describeApproval(threshold: Micro, perCallCap: Micro): string {
+  switch (approvalModeOf(threshold, perCallCap)) {
+    case 'every':
+      return 'You approve every payment';
+    case 'never':
+      return 'No payment needs your approval';
+    case 'above':
+      return `You approve payments of ${usd(threshold)} and above`;
+  }
+}
+
+/** What a lock is doing with the money right now. */
+export function lockWord(status: LockStatus): string {
+  switch (status) {
+    case LockStatus.Locked:
+      return 'Held';
+    case LockStatus.Released:
+      return 'Paid';
+    case LockStatus.TimedOut:
+      return 'Returned';
+    case LockStatus.Disputed:
+      return 'Disputed';
+    case LockStatus.Cancelled:
+      return 'Cancelled';
+    case LockStatus.Resolved:
+      return 'Ruled on';
+    case LockStatus.None:
+    default:
+      return 'Unknown';
+  }
+}
+
+export function lockDetail(status: LockStatus): string {
+  switch (status) {
+    case LockStatus.Locked:
+      return 'The escrow holds the money until the provider delivers or the deadline passes.';
+    case LockStatus.Released:
+      return 'The provider delivered and was paid.';
+    case LockStatus.TimedOut:
+      return 'The provider did not answer in time. The money went back to the mandate and the allowance was credited back.';
+    case LockStatus.Disputed:
+      return 'One of the two sides contested the delivery. A bonded resolver decides where the money goes.';
+    case LockStatus.Cancelled:
+      return 'The payment was called off before it settled.';
+    case LockStatus.Resolved:
+      return 'A resolver ruled and split the locked amount between the two sides.';
+    case LockStatus.None:
+    default:
+      return 'The escrow holds no record under this id.';
+  }
+}
+
+export function lockLevel(status: LockStatus): StateLevel {
+  switch (status) {
+    case LockStatus.Released:
+      return 'ok';
+    case LockStatus.Locked:
+      return 'attention';
+    case LockStatus.TimedOut:
+    case LockStatus.Cancelled:
+      return 'attention';
+    case LockStatus.Disputed:
+      return 'blocked';
+    case LockStatus.Resolved:
+      return 'attention';
+    case LockStatus.None:
+    default:
+      return 'unknown';
+  }
+}
+
+/**
+ * Whether a complaint is still open on a payment, on the escrow's own two conditions.
+ *
+ * A lock it still holds can be contested by either side. A lock it has paid out can be contested
+ * by the payer alone, and only until the dispute window closes; after that the escrow answers
+ * `TooLate`. Both screens that offer the control read this one function, because a settlement
+ * listed as contestable in one place and refused in the other is the same bug twice.
+ */
+export function contestable(
+  lock: { readonly status: LockStatus; readonly releasedAt: Date | null } | undefined,
+  disputeWindow: bigint | undefined,
+  now: Date = new Date(),
+): boolean {
+  if (!lock) return false;
+  if (lock.status === LockStatus.Locked) return true;
+  if (lock.status !== LockStatus.Released || lock.releasedAt === null || disputeWindow === undefined) return false;
+  return lock.releasedAt.getTime() + Number(disputeWindow) * 1000 > now.getTime();
+}
+
+/**
+ * Whether the escrow would return this payment to the mandate right now.
+ *
+ * `Escrow.timeout` is open to anybody once a lock is past its deadline, and it refuses with
+ * `TooEarly` at any moment up to and including it. The clock it reads is the chain's, so that is
+ * the clock this answers against: a browser running a few seconds fast would otherwise offer a
+ * control that costs a refused simulation and nothing else. An unread chain time is not a passed
+ * deadline, so it answers no.
+ */
+export function returnable(
+  lock: { readonly status: LockStatus; readonly deadline: Date } | undefined,
+  chainTime: Date | undefined,
+): boolean {
+  if (!lock || chainTime === undefined) return false;
+  return lock.status === LockStatus.Locked && chainTime.getTime() > lock.deadline.getTime();
+}
+
+/**
+ * What a payment past its deadline is doing, which is nothing.
+ *
+ * `lockWord` answers `Held` for it, and held is what it was before the deadline. The money is
+ * still in the escrow and nobody is going to deliver against it, which is a different sentence and
+ * the one that tells the payer there is something to do.
+ */
+export const OVERDUE_WORD = 'Past its deadline';
+
+export const OVERDUE_DETAIL =
+  'The provider never answered and the deadline has gone. The escrow holds the money until somebody asks for it back.';
+
+export function gateWord(gate: MerchantGate): string {
+  return gate === MerchantGate.MerkleRoot ? 'Published roster' : 'Your own list';
+}
+
+export function gateDetail(gate: MerchantGate): string {
+  return gate === MerchantGate.MerkleRoot
+    ? 'Payees are checked against a roster published as a single root, and each payment carries a proof. The per-address list on this account is not read while that is true.'
+    : 'Payees are checked against the list held on this account. Anything not on it is refused.';
+}
+
+/**
+ * A window length as a person would say it. The contract holds two arbitrary periods and the
+ * product calls them daily and monthly, so a mandate set to eight hours has to read as eight
+ * hours. Calling that one "daily" would be a lie about the limit.
+ */
+export function windowWord(seconds: bigint | number): string {
+  const value = Number(seconds);
+  if (value === DAY_SECONDS) return 'day';
+  if (value === 30 * DAY_SECONDS) return 'month';
+  return formatDuration(value);
+}

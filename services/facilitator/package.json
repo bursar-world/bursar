@@ -1,0 +1,60 @@
+{
+  "name": "@bursar/facilitator",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bursar-world/bursar.git",
+    "directory": "services/facilitator"
+  },
+  "homepage": "https://github.com/bursar-world/bursar/tree/main/services/facilitator#readme",
+  "bugs": {
+    "url": "https://github.com/bursar-world/bursar/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "migrations"
+  ],
+  "bin": {
+    "bursar-facilitator": "./dist/main.js",
+    "bursar-facilitator-migrate": "./dist/db/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "start": "node dist/main.js",
+    "migrate": "node dist/db/cli.js",
+    "migrate:dry-run": "node dist/db/cli.js --dry-run"
+  },
+  "dependencies": {
+    "@bursar/core": "workspace:*",
+    "@bursar/underwriter": "workspace:*",
+    "@bursar/x402": "workspace:*",
+    "pg": "^8.16.0",
+    "viem": "^2.56.0"
+  },
+  "devDependencies": {
+    "@bursar/sdk": "workspace:*",
+    "@types/node": "^22.15.0",
+    "@types/pg": "^8.15.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

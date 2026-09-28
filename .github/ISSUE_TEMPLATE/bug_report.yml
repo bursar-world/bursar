@@ -1,0 +1,71 @@
+name: Bug report
+description: Something in this repository does not behave the way its code or documentation says it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. If the problem could put funds at risk, stop here and follow [SECURITY.md](https://github.com/bursar-world/bursar/security/policy) instead.
+
+        Never paste a private key, a keystore password, an API key or a database URL with credentials into this form.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - contracts
+        - packages/core
+        - packages/sdk
+        - packages/mcp
+        - packages/x402
+        - services/facilitator
+        - services/underwriter
+        - services/sidecar
+        - apps/web (console)
+        - build, CI or tooling
+        - not sure
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The smallest sequence of commands or calls that shows the problem. A failing test is ideal.
+      placeholder: |
+        1. pnpm install
+        2. pnpm --filter @bursar/sdk test
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: onchain
+    attributes:
+      label: On-chain references
+      description: Chain id, contract or mandate account address, and transaction hashes, if the problem involves a transaction.
+  - type: input
+    id: version
+    attributes:
+      label: Commit or version
+      description: The commit hash you ran, or the console URL and date if you saw it on app.bursar.world.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Node, pnpm and Foundry versions, and your operating system.
+      placeholder: |
+        node 22.x, pnpm 11.20.0, forge 1.8.1, macOS 15
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant output. It is formatted as code automatically.
+      render: text

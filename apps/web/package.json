@@ -1,0 +1,49 @@
+{
+  "name": "@bursar/web",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bursar-world/bursar.git",
+    "directory": "apps/web"
+  },
+  "homepage": "https://github.com/bursar-world/bursar/tree/main/apps/web#readme",
+  "bugs": {
+    "url": "https://github.com/bursar-world/bursar/issues"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "tsx scripts/preflight.ts && next dev --port ${PORT:-4310}",
+    "build": "tsx scripts/preflight.ts && next build",
+    "start": "next start --port ${PORT:-4310}",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "codegen:token": "tsx scripts/token-codegen.ts",
+    "probe": "tsx scripts/probe-chain.ts"
+  },
+  "dependencies": {
+    "@bursar/core": "workspace:*",
+    "@bursar/sdk": "workspace:*",
+    "@tanstack/react-query": "^5.102.0",
+    "buffer": "^6.0.3",
+    "next": "15.5.25",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "viem": "^2.56.0",
+    "wagmi": "^2.19.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

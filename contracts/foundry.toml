@@ -1,0 +1,23 @@
+[profile.default]
+src = "src"
+test = "test"
+script = "script"
+out = "out"
+libs = ["lib"]
+solc = "0.8.24"
+optimizer = true
+optimizer_runs = 200
+ffi = false
+
+[fuzz]
+runs = 256
+
+[invariant]
+runs = 128
+depth = 32
+fail_on_revert = false
+
+# The lints fire thousands of times across tests and vendored patterns, which buries real compiler
+# warnings on every build. Run `forge lint` on its own when you want them.
+[lint]
+lint_on_build = false

@@ -1,0 +1,229 @@
+{
+  "description": "Conformance vector for the spend-policy semantics. Every implementation must reproduce every decision and the same final root. Preimage: compact JSON {\"seq\",\"prev_hash\",\"body\"} in struct-declaration order, SHA-256, hex; timestamps are RFC 3339 with whole seconds and a Z suffix. Only this description line differs from the vector as it was received; the mandate, the steps and the expected roots are byte-identical.",
+  "mandate": {
+    "subject": "wallet:0x1111111111111111111111111111111111111111",
+    "expires_at": "2027-01-01T00:00:00Z",
+    "rules": [
+      {
+        "effect": "allow",
+        "pattern": "gpu.*"
+      },
+      {
+        "effect": "deny",
+        "pattern": "gpu.experimental"
+      }
+    ],
+    "ceiling_micros": 2000000,
+    "per_call_cap_micros": 1000000,
+    "approval_threshold_micros": 500000
+  },
+  "steps": [
+    {
+      "type": "request",
+      "request": {
+        "request_id": "00000000-0000-0000-0000-000000000001",
+        "subject": "wallet:0x1111111111111111111111111111111111111111",
+        "action": "gpu.lease",
+        "amount_micros": 300000,
+        "at": "2026-01-02T00:00:00Z"
+      },
+      "expect": {
+        "decision": "allow"
+      },
+      "expect_idempotent": false,
+      "note": "in bounds, below threshold"
+    },
+    {
+      "type": "request",
+      "request": {
+        "request_id": "00000000-0000-0000-0000-000000000002",
+        "subject": "wallet:0x1111111111111111111111111111111111111111",
+        "action": "gpu.lease",
+        "amount_micros": 700000,
+        "at": "2026-01-02T00:01:00Z"
+      },
+      "expect": {
+        "decision": "hold",
+        "threshold_micros": 500000
+      },
+      "expect_idempotent": false,
+      "note": "above threshold: held"
+    },
+    {
+      "type": "settle",
+      "settles": "00000000-0000-0000-0000-000000000002",
+      "resolution": "approve",
+      "at": "2026-01-02T00:02:00Z",
+      "expect": {
+        "decision": "allow"
+      },
+      "note": "approve keeps the reservation"
+    },
+    {
+      "type": "request",
+      "request": {
+        "request_id": "00000000-0000-0000-0000-000000000003",
+        "subject": "wallet:0x1111111111111111111111111111111111111111",
+        "action": "gpu.experimental",
+        "amount_micros": 100000,
+        "at": "2026-01-02T00:03:00Z"
+      },
+      "expect": {
+        "decision": "refuse",
+        "reason": "outside_mandate"
+      },
+      "expect_idempotent": false,
+      "note": "deny rule carves it out"
+    },
+    {
+      "type": "request",
+      "request": {
+        "request_id": "00000000-0000-0000-0000-000000000004",
+        "subject": "wallet:0x1111111111111111111111111111111111111111",
+        "action": "gpu.render",
+        "amount_micros": 1500000,
+        "at": "2026-01-02T00:04:00Z"
+      },
+      "expect": {
+        "decision": "refuse",
+        "reason": "over_per_call_cap"
+      },
+      "expect_idempotent": false,
+      "note": "over the per-call cap"
+    },
+    {
+      "type": "request",
+      "request": {
+        "request_id": "00000000-0000-0000-0000-000000000005",
+        "subject": "wallet:0x1111111111111111111111111111111111111111",
+        "action": "gpu.lease",
+        "amount_micros": 900000,
+        "at": "2026-01-02T00:05:00Z"
+      },
+      "expect": {
+        "decision": "hold",
+        "threshold_micros": 500000
+      },
+      "expect_idempotent": false,
+      "note": "above threshold: held"
+    },
+    {
+      "type": "settle",
+      "settles": "00000000-0000-0000-0000-000000000005",
+      "resolution": "deny",
+      "at": "2026-01-02T00:06:00Z",
+      "expect": {
+        "decision": "refuse",
+        "reason": "over_cumulative_ceiling"
+      },
+      "note": "deny releases the reservation"
+    },
+    {
+      "type": "request",
+      "request": {
+        "request_id": "00000000-0000-0000-0000-000000000006",
+        "subject": "wallet:0x1111111111111111111111111111111111111111",
+        "action": "gpu.lease",
+        "amount_micros": 400000,
+        "at": "2026-01-02T00:07:00Z"
+      },
+      "expect": {
+        "decision": "allow"
+      },
+      "expect_idempotent": false,
+      "note": "at threshold: allowed"
+    },
+    {
+      "type": "request",
+      "request": {
+        "request_id": "00000000-0000-0000-0000-000000000007",
+        "subject": "wallet:0x2222222222222222222222222222222222222222",
+        "action": "gpu.lease",
+        "amount_micros": 1,
+        "at": "2026-01-02T00:08:00Z"
+      },
+      "expect": {
+        "decision": "refuse",
+        "reason": "wrong_subject"
+      },
+      "expect_idempotent": false,
+      "note": "wrong subject"
+    },
+    {
+      "type": "request",
+      "request": {
+        "request_id": "00000000-0000-0000-0000-000000000008",
+        "subject": "wallet:0x1111111111111111111111111111111111111111",
+        "action": "gpu.lease",
+        "amount_micros": 700000,
+        "at": "2026-01-02T00:09:00Z"
+      },
+      "expect": {
+        "decision": "refuse",
+        "reason": "over_cumulative_ceiling"
+      },
+      "expect_idempotent": false,
+      "note": "would breach the ceiling"
+    },
+    {
+      "type": "request",
+      "request": {
+        "request_id": "00000000-0000-0000-0000-000000000009",
+        "subject": "wallet:0x1111111111111111111111111111111111111111",
+        "action": "gpu.lease",
+        "amount_micros": 600000,
+        "at": "2026-01-02T00:10:00Z"
+      },
+      "expect": {
+        "decision": "hold",
+        "threshold_micros": 500000
+      },
+      "expect_idempotent": false,
+      "note": "exactly at the ceiling, above threshold: held"
+    },
+    {
+      "type": "settle",
+      "settles": "00000000-0000-0000-0000-000000000009",
+      "resolution": "approve",
+      "at": "2026-01-02T00:11:00Z",
+      "expect": {
+        "decision": "allow"
+      },
+      "note": "approve keeps it at the ceiling"
+    },
+    {
+      "type": "request",
+      "request": {
+        "request_id": "00000000-0000-0000-0000-000000000001",
+        "subject": "wallet:0x1111111111111111111111111111111111111111",
+        "action": "gpu.lease",
+        "amount_micros": 999999,
+        "at": "2026-01-02T00:12:00Z"
+      },
+      "expect": {
+        "decision": "allow"
+      },
+      "expect_idempotent": true,
+      "note": "retried id: first decision stands, no charge"
+    },
+    {
+      "type": "request",
+      "request": {
+        "request_id": "00000000-0000-0000-0000-000000000010",
+        "subject": "wallet:0x1111111111111111111111111111111111111111",
+        "action": "gpu.lease",
+        "amount_micros": 1,
+        "at": "2027-06-01T00:00:00Z"
+      },
+      "expect": {
+        "decision": "refuse",
+        "reason": "expired"
+      },
+      "expect_idempotent": false,
+      "note": "after expiry"
+    }
+  ],
+  "expected_entries": 13,
+  "expected_committed_micros": 2000000,
+  "expected_root": "4abbd498ef7387e3f4ee2face00982d028b3c58cd9622eab25aa8791b9b552ec"
+}

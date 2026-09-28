@@ -1,0 +1,6 @@
+{
+  "weather.get:1": {
+    "method": "POST",
+    "path": "/v1/weather"
+  }
+}

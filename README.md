@@ -1,0 +1,196 @@
+# Bursar
+
+[![CI](https://github.com/bursar-world/bursar/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bursar-world/bursar/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/bursar-world/bursar/badge)](https://scorecard.dev/viewer/?uri=github.com/bursar-world/bursar)
+
+Spending mandates for AI agents on Robinhood Chain.
+
+A principal gives an agent a budget: how much per call, per day and per month, which providers
+it may pay, for which capabilities, and above what amount a person has to approve. Those limits
+live in a contract on chain, so a payment that exceeds them reverts there, whatever any service
+in front of it says. The agent pays providers in USDG over [x402](https://www.x402.org), the HTTP
+payment standard where a server answers `402` with a price and the client's retry carries the
+payment. Each payment is held in escrow for the life of one job and can be disputed.
+
+This repository holds all of it: the contracts, the TypeScript SDK and MCP server an agent
+uses, the services that verify and settle payments, and the console at
+[app.bursar.world](https://app.bursar.world). More at [bursar.world](https://bursar.world).
+
+## Status
+
+Bursar is live on Robinhood Chain mainnet (chain 4663) and settles in USDG. The contracts were
+deployed on 2026-09-22 and hold real funds.
+
+**No external audit has been performed.** The caps on mainnet are deliberately low: a provider
+with no history can be paid at most 25 USDG per job, rising with its settlement record to at most
+125 USDG per job under the current curve. The cap applies to each payment, not to a provider's
+total. Size any mandate you fund accordingly.
+
+Packages are not yet published to npm. Build them from this repository.
+
+## Repository layout
+
+| Path | What it is |
+|---|---|
+| [`contracts/`](contracts/README.md) | Solidity contracts, Foundry tests, deploy scripts and the mainnet deployment records. |
+| [`packages/core/`](packages/core/README.md) | Chain configuration, contract addresses and ABIs, money types, and the RPC pool every other package reads the chain through. |
+| [`packages/sdk/`](packages/sdk/README.md) | What an agent developer imports to pay a provider inside a mandate. |
+| [`packages/mcp/`](packages/mcp/README.md) | The same capability as an MCP server, for an agent without code of its own. |
+| [`packages/x402/`](packages/x402/README.md) | The x402 codec and the `exact` EVM payment scheme for USDG. |
+| [`services/facilitator/`](services/facilitator/README.md) | Verifies and settles x402 payments and keeps the ledger behind the funding lanes. |
+| [`services/underwriter/`](services/underwriter/README.md) | Decides whether an agent may spend, against the live mandate account, and journals the decision. |
+| [`services/sidecar/`](services/sidecar/README.md) | Runs on the provider's side: watches escrow for its jobs, does the work, releases payment. |
+| [`apps/web/`](apps/web/README.md) | The console at app.bursar.world, for principals, providers, resolvers and governance. |
+
+## Quick start
+
+### Prerequisites
+
+| Tool | Version |
+|---|---|
+| Node.js | 22 or newer (`.nvmrc` pins 22) |
+| pnpm | 11.20.0, pinned in `packageManager`. `corepack enable` installs it. |
+| Foundry | 1.8 or newer, for the contracts |
+| Docker | Any current release, for the Postgres the facilitator uses |
+
+### Install, build and test
+
+```sh
+git clone https://github.com/bursar-world/bursar.git
+cd bursar
+
+pnpm install --frozen-lockfile
+pnpm -r build
+pnpm -r typecheck
+pnpm -r test
+```
+
+The contracts need their Solidity dependencies once. `contracts/lib/` is not committed:
+
+```sh
+cd contracts
+forge install --no-git foundry-rs/forge-std@v1.9.4 OpenZeppelin/openzeppelin-contracts@v5.1.0
+forge build
+forge test
+```
+
+Some tests need something the default run does not have, and skip without it:
+
+| Variable | Adds |
+|---|---|
+| `BURSAR_TEST_DATABASE_URL` | Facilitator and underwriter tests against a real Postgres. |
+| `BURSAR_LIVE_RPC` | Checks of the shipped ABIs and constants against the live deployment. |
+| `BLOCKSCOUT_API_KEY` | Reads of the hosted chain index. |
+| `BURSAR_RHC_FORK_RPC` | Contract tests against a fork of chain 4663. |
+
+### Run the console
+
+```sh
+pnpm --filter @bursar/web dev
+```
+
+It serves on port 4310, or on `PORT` if set (open http://localhost:4310), and reads the live
+contracts on chain 4663 through public RPC endpoints. No configuration is needed;
+[`apps/web/README.md`](apps/web/README.md) lists the optional variables.
+
+### Run the facilitator
+
+Start Postgres:
+
+```sh
+docker run -d --name bursar-pg \
+  -e POSTGRES_USER=bursar -e POSTGRES_PASSWORD=bursar -e POSTGRES_DB=bursar \
+  -p 55432:5432 postgres:16
+```
+
+Create a throwaway relayer key with `cast wallet new`. Then start a facilitator that settles only
+and takes no spending decisions of its own (the funding addresses below are placeholders; each
+role needs its own address):
+
+```sh
+export DATABASE_URL=postgres://bursar:bursar@127.0.0.1:55432/bursar
+export RHC_RPC_PRIMARY=https://rpc.mainnet.chain.robinhood.com
+export FACILITATOR_RELAYER_KEY=0x...          # from cast wallet new
+export FACILITATOR_GAS_FLOAT=0x...            # that key's address
+export FACILITATOR_SETTLEMENT=0x0000000000000000000000000000000000000001
+export FACILITATOR_COLLATERAL=0x0000000000000000000000000000000000000002
+export FACILITATOR_TREASURY=0x0000000000000000000000000000000000000003
+export FACILITATOR_GAS_FLOAT_MINIMUM_ETH=0.004
+export FACILITATOR_FEE_BPS=100
+export FACILITATOR_FEE_FLOOR_MICRO=1000
+export FACILITATOR_UNDERWRITER=none
+
+pnpm --filter @bursar/facilitator start
+curl http://127.0.0.1:8402/config
+```
+
+It applies its migrations on start and listens on `127.0.0.1:8402`. `/healthz` reports
+`degraded` until the relayer holds the ETH reserve, which is expected for a local run.
+[`services/facilitator/README.md`](services/facilitator/README.md) documents every variable and
+route, and the underwriter and sidecar READMEs do the same for those services. The same Postgres
+serves the database tests:
+
+```sh
+BURSAR_TEST_DATABASE_URL=postgres://bursar:bursar@127.0.0.1:55432/bursar pnpm -r test
+```
+
+## Deployed contracts
+
+Robinhood Chain mainnet, chain id 4663. Settlement asset: USDG at
+[`0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168`](https://robinhoodchain.blockscout.com/address/0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168).
+The full records, including transactions, parameters and roles, are in
+[`contracts/deployments/`](contracts/deployments).
+
+| Contract | Address |
+|---|---|
+| `AdminTimelock` | [`0x5a32Eab02454f97a39857E85b536F83EE0f844Bf`](https://robinhoodchain.blockscout.com/address/0x5a32Eab02454f97a39857E85b536F83EE0f844Bf) |
+| `MandateAccountFactory` | [`0xF8Ca04BEc1D7bcf767154AC6F7Ed1DD840CCF216`](https://robinhoodchain.blockscout.com/address/0xF8Ca04BEc1D7bcf767154AC6F7Ed1DD840CCF216) |
+| `Escrow` | [`0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4`](https://robinhoodchain.blockscout.com/address/0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4) |
+| `Reputation` | [`0x8F123EDDDC586EEaAC3B1D6A5B9dF7BC0247680d`](https://robinhoodchain.blockscout.com/address/0x8F123EDDDC586EEaAC3B1D6A5B9dF7BC0247680d) |
+| `OracleRegistry` | [`0xCb7c60037eC43b9692A5dDcA42A500181Cf549FF`](https://robinhoodchain.blockscout.com/address/0xCb7c60037eC43b9692A5dDcA42A500181Cf549FF) |
+| `AgentRegistry` | [`0x4a9e90F15c0FEC02f7592C6E618cd3B64076035b`](https://robinhoodchain.blockscout.com/address/0x4a9e90F15c0FEC02f7592C6E618cd3B64076035b) |
+| `BRSR` | [`0x00e503925880c4b07E5Fb70232D83aD871F57a7d`](https://robinhoodchain.blockscout.com/address/0x00e503925880c4b07E5Fb70232D83aD871F57a7d) |
+| `Vesting` | [`0x5aD3d29C80C1617F3B195d74D593Bc9839681b2F`](https://robinhoodchain.blockscout.com/address/0x5aD3d29C80C1617F3B195d74D593Bc9839681b2F) |
+| `Staking` | [`0x3f2a0E7822B30aD928488F053348b137866Cf962`](https://robinhoodchain.blockscout.com/address/0x3f2a0E7822B30aD928488F053348b137866Cf962) |
+| `Buyback` | [`0xE979a30564a6F15DCCdB5488d5ac0D74a1bda6F0`](https://robinhoodchain.blockscout.com/address/0xE979a30564a6F15DCCdB5488d5ac0D74a1bda6F0) |
+
+Mandate accounts are created per principal by the factory and are not listed here.
+
+### An example mandate to read
+
+[`0xB4Bd99d8604fDB876fA1B38a3f8bA024D20ccD0b`](https://app.bursar.world/console/0xB4Bd99d8604fDB876fA1B38a3f8bA024D20ccD0b)
+is a live mandate account created by the factory above, and it is the one to point at while you
+learn the system. It settles through the escrow above and has no expiry. It allows up to 0.10 USDG
+per payment, 0.50 USDG a day and 2.00 USDG a month, and its approval threshold is also 0.10 USDG:
+payments below 0.10 go through on the agent's signature, and a payment of exactly 0.10 waits for
+the principal to approve it. One address, `0x877c349EFb5926082C413833E8055F0991185c61`, is both
+its principal and its agent. That suits a demonstration; a mandate in use gives its agent a key of
+its own. Open it in the
+[console](https://app.bursar.world/console/0xB4Bd99d8604fDB876fA1B38a3f8bA024D20ccD0b) to see its
+limits and history.
+
+Reading it needs no key. With the SDK, `mandateAccount('0xB4Bd99d8604fDB876fA1B38a3f8bA024D20ccD0b')`
+opens a read-only client (see [`packages/sdk/README.md`](packages/sdk/README.md)). With the MCP
+server, set `MANDATE_ACCOUNT` to that address and no signer, and it serves only the tools that read
+(see [`packages/mcp/README.md`](packages/mcp/README.md)). Paying through it takes its agent key,
+which is not published. To spend, create a mandate of your own in the console.
+
+## Contributing
+
+Bug reports, fixes and improvements are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers
+setup, coding standards, commit style and the DCO sign-off every commit needs. Questions go to
+[GitHub Discussions](https://github.com/bursar-world/bursar/discussions); see
+[SUPPORT.md](SUPPORT.md). Everyone taking part agrees to the [Code of Conduct](CODE_OF_CONDUCT.md).
+How decisions are made, including changes to on-chain parameters, is in
+[GOVERNANCE.md](GOVERNANCE.md).
+
+## Security
+
+Do not open a public issue for a vulnerability. Email security@bursar.world or use
+[GitHub private vulnerability reporting](https://github.com/bursar-world/bursar/security/advisories/new).
+[SECURITY.md](SECURITY.md) has the scope and what to expect.
+
+## License
+
+MIT. See [LICENSE](LICENSE). Third-party material is listed in [NOTICE](NOTICE).

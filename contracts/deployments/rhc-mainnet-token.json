@@ -1,0 +1,225 @@
+{
+  "network": "rhc-mainnet",
+  "chainId": 4663,
+  "rpc": "https://rpc.mainnet.chain.robinhood.com",
+  "rpcUsedForThisRun": "https://rpc.mainnet.chain.robinhood.com",
+  "explorer": "https://robinhoodchain.blockscout.com",
+  "settlementAsset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+  "settlementDecimals": 6,
+  "deployer": "0x6B6fC40Ed9652728A9B620C4e1B05fBF4F9712a4",
+  "deployedAt": "2026-09-22T09:59:25Z",
+  "deployCostEth": "0.000418638443658",
+  "contracts": {
+    "BRSR": "0x00e503925880c4b07E5Fb70232D83aD871F57a7d",
+    "Vesting": "0x5aD3d29C80C1617F3B195d74D593Bc9839681b2F",
+    "Staking": "0x3f2a0E7822B30aD928488F053348b137866Cf962",
+    "Buyback": "0xE979a30564a6F15DCCdB5488d5ac0D74a1bda6F0",
+    "PoolManager": "0x8366a39CC670B4001A1121B8F6A443A643e40951"
+  },
+  "roles": {
+    "adminTimelock": "0x5a32Eab02454f97a39857E85b536F83EE0f844Bf",
+    "treasury": "0x7f2D3be9597fb538BDBA3Dbcb9BEcECCD9056d21",
+    "slashSink": "0xb4A7D77a710f6b1fF4cDDd9D3c9b66E3f917A4FF",
+    "community": "0x5a32Eab02454f97a39857E85b536F83EE0f844Bf",
+    "liquidity": "0x0DF776dBD1Ce5A8F38993Bc98bc3D81661FA51B2",
+    "oracleRegistry": "0xCb7c60037eC43b9692A5dDcA42A500181Cf549FF",
+    "vestingBeneficiaries": [
+      "0x71136dd3db60DF7b5A2411F92d164898081e0Ee8"
+    ],
+    "keystores": {
+      "liquidity": "brsr-liquidity",
+      "vestingBeneficiary": "brsr-team-1",
+      "note": "Separate keys for the liquidity and team roles. Neither holds ETH: the liquidity address has to send transactions before it can seed the pool and will need gas then."
+    }
+  },
+  "supply": {
+    "total": "1000000000000000000000000000",
+    "decimals": 18,
+    "split": "80 / 10 / 5 / 5",
+    "community": "800000000000000000000000000",
+    "team": "100000000000000000000000000",
+    "treasury": "50000000000000000000000000",
+    "liquidity": "50000000000000000000000000",
+    "communityHolder": "The community and ecosystem share is held by AdminTimelock, so every release is a two-of-three proposal with the same 172800-second delay as any other change.",
+    "teamHolder": "The team share is held by the Vesting contract, not by a wallet. One grant, four-year term, one-year cliff, and the deploy key finished the run holding no BRSR at all."
+  },
+  "parameters": {
+    "source": "contracts/script/TOKEN-README.md",
+    "staking.unbondingPeriod": "604800 seconds, the contract's own seven-day floor.",
+    "staking.minBondWei": "25000000000000000000000, which is 25,000 BRSR per resolver. Set at construction rather than by proposal, because the dispute layer reads it from the first block and a pool deployed at zero would ship a dispute layer no resolver could join until a forty-eight hour proposal landed. Governance can raise it globally or per resolver and OracleRegistry reads it live on every vote.",
+    "buyback.spendPerCallMicroUsd": "500000",
+    "buyback.maxSpendPerWindowMicroUsd": "5000000",
+    "buyback.minSpendMicroUsd": "100000",
+    "buyback.maxPriceMicroUsdPerBrsr": "0, deployed from an unset variable on purpose. It is the most a buyback will pay for one whole BRSR and the pool has never been initialised, so there is no price to read. Zero refuses every trade: buyback() reverts with PriceCeilingUnset and available() reports nothing.",
+    "buyback.window": 86400,
+    "buyback.minInterval": 3600,
+    "why these figures": "Sized to the float Release 1 actually has rather than to the round numbers in contracts/script/TOKEN-README.md. The buyback can only spend what has been transferred to it, the pool will be seeded with single-digit USDG, and a per-call target above the balance would never be the binding constraint. All six move on a Buyback.setParams proposal; only the pool identity is frozen."
+  },
+  "pool": {
+    "state": "not initialised",
+    "liquidity": "none",
+    "id": "0x95bdade638ae86f8f1e424a2561796dd3aea34d75f594bd03cdb8d9e615ec765",
+    "key": {
+      "currency0": "0x00e503925880c4b07E5Fb70232D83aD871F57a7d",
+      "currency1": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+      "fee": 3000,
+      "tickSpacing": 60,
+      "hooks": "0x0000000000000000000000000000000000000000"
+    },
+    "sortOrder": "This BRSR sorts below USDG, so it is currency0 and settlementIsCurrency0 is false.",
+    "poolManager": "Uniswap v4's canonical PoolManager on Robinhood Chain, not one of ours. A native ETH/USDG pool at the 0.05% tier already has depth there, which is not the pair this buyback trades.",
+    "verified": "PoolManager.extsload of the pool's slot0 returns zero at block 69575881, which is what an uninitialised pool reads.",
+    "consequence": "The buyback is deployed and cannot execute. It holds no USDG, the staking pool holds no shares, the venue it is pointed at has no pool behind that key, and its price ceiling is zero. Nothing about it has been exercised on chain.",
+    "toMakeItLive": "Initialise the pool, add liquidity from the liquidity address, stake, have governance set a real price ceiling through Buyback.setParams against a market that now exists, and only then fund the buyback by transferring USDG to it from the treasury. Adding liquidity needs a contract that implements the v4 unlock callback; none is deployed here."
+  },
+  "transactions": {
+    "Vesting": {
+      "hash": "0x2724f6e48fa41d7ad39f266a188aa031edb86849cdd60eb9e034cfa44c0d3fff",
+      "block": 69565960,
+      "gas": 1246747
+    },
+    "BRSR": {
+      "hash": "0xc97bc10b06a8c29a1190d7cb79654d0bc042b25659a0ca8a45bc6b683da824bd",
+      "block": 69565986,
+      "gas": 1981944
+    },
+    "Staking": {
+      "hash": "0xc9ffdb490cb5d252a2a898c8193aef14abb73c878745e5693b9af2e896bcd39e",
+      "block": 69566012,
+      "gas": 2336848
+    },
+    "OracleRegistry.setStaking": {
+      "hash": "0x9627ca8819bcbee9dde7b18d2c5a3b883dc385f6fa81f769a0bed3961e2e0e26",
+      "block": 69566038,
+      "gas": 71917
+    },
+    "Buyback": {
+      "hash": "0x356f1fca848491b6dbcb393c113d03fdd65976de870f5d37445df27a516b126f",
+      "block": 69566064,
+      "gas": 2328889
+    },
+    "Vesting.createGrants": {
+      "hash": "0x8e66b3420b275f70370f849a724cfefd6e92931039e078126e29499c36fa02d1",
+      "block": 69566090,
+      "gas": 120538
+    }
+  },
+  "verifiedOnChain": {
+    "brsr.name": "Bursar",
+    "brsr.symbol": "BRSR",
+    "brsr.decimals": 18,
+    "brsr.CLOCK_MODE": "mode=timestamp",
+    "brsr.totalSupply": "1000000000000000000000000000",
+    "brsr.TOTAL_SUPPLY": "1000000000000000000000000000",
+    "brsr.COMMUNITY_ALLOCATION": "800000000000000000000000000",
+    "brsr.TEAM_ALLOCATION": "100000000000000000000000000",
+    "brsr.TREASURY_ALLOCATION": "50000000000000000000000000",
+    "brsr.LIQUIDITY_ALLOCATION": "50000000000000000000000000",
+    "brsr.balanceOf(timelock)": "800000000000000000000000000",
+    "brsr.balanceOf(vesting)": "100000000000000000000000000",
+    "brsr.balanceOf(treasury)": "50000000000000000000000000",
+    "brsr.balanceOf(liquidity)": "50000000000000000000000000",
+    "brsr.balanceOf(deployer)": "0",
+    "vesting.token": "0x00e503925880c4b07E5Fb70232D83aD871F57a7d",
+    "vesting.admin": "0x5a32Eab02454f97a39857E85b536F83EE0f844Bf",
+    "vesting.pendingAdmin": "0x0000000000000000000000000000000000000000",
+    "vesting.deployer": "0x6B6fC40Ed9652728A9B620C4e1B05fBF4F9712a4",
+    "vesting.treasury": "0x7f2D3be9597fb538BDBA3Dbcb9BEcECCD9056d21",
+    "vesting.CLIFF": 31536000,
+    "vesting.DURATION": 126144000,
+    "vesting.grantsWritten": "true",
+    "vesting.outstandingWei": "100000000000000000000000000",
+    "vesting.unallocatedWei": "0",
+    "vesting.grant.start": 1790035200,
+    "vesting.grant.cliffAt": 1821571200,
+    "vesting.grant.endsAt": 1916179200,
+    "vesting.grant.amountWei": "100000000000000000000000000",
+    "vesting.claimableToday": "0",
+    "staking.stakeToken": "0x00e503925880c4b07E5Fb70232D83aD871F57a7d",
+    "staking.rewardToken": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+    "staking.admin": "0x5a32Eab02454f97a39857E85b536F83EE0f844Bf",
+    "staking.pendingAdmin": "0x0000000000000000000000000000000000000000",
+    "staking.treasury": "0x7f2D3be9597fb538BDBA3Dbcb9BEcECCD9056d21",
+    "staking.slashSink": "0xb4A7D77a710f6b1fF4cDDd9D3c9b66E3f917A4FF",
+    "staking.creditManager": "0x0000000000000000000000000000000000000000",
+    "staking.minBond": "25000000000000000000000",
+    "staking.unbondingPeriod": 604800,
+    "staking.tiers": "empty, so rebateBpsOf returns zero for everyone. Proposal 1 writes four rungs.",
+    "staking.totalShares": "0",
+    "staking.totalStaked": "0",
+    "staking.wipeEpoch": "0",
+    "staking.paused": "false",
+    "staking.isBondable(resolver, minBond)": "true",
+    "oracleRegistry.staking": "0x3f2a0E7822B30aD928488F053348b137866Cf962",
+    "oracleRegistry.bondAsset": "0x00e503925880c4b07E5Fb70232D83aD871F57a7d",
+    "buyback.brsr": "0x00e503925880c4b07E5Fb70232D83aD871F57a7d",
+    "buyback.staking": "0x3f2a0E7822B30aD928488F053348b137866Cf962",
+    "buyback.settlementAsset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+    "buyback.treasury": "0x7f2D3be9597fb538BDBA3Dbcb9BEcECCD9056d21",
+    "buyback.admin": "0x5a32Eab02454f97a39857E85b536F83EE0f844Bf",
+    "buyback.pendingAdmin": "0x0000000000000000000000000000000000000000",
+    "buyback.poolManager": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+    "buyback.poolFee": 3000,
+    "buyback.poolTickSpacing": 60,
+    "buyback.poolHooks": "0x0000000000000000000000000000000000000000",
+    "buyback.currency0": "0x00e503925880c4b07E5Fb70232D83aD871F57a7d",
+    "buyback.currency1": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+    "buyback.settlementIsCurrency0": "false",
+    "buyback.spendPerCallMicroUsd": 500000,
+    "buyback.maxSpendPerWindowMicroUsd": 5000000,
+    "buyback.minSpendMicroUsd": 100000,
+    "buyback.maxPriceMicroUsdPerBrsr": 0,
+    "buyback.window": 86400,
+    "buyback.minInterval": 3600,
+    "buyback.available": "0",
+    "buyback.lastBuybackAt": 0,
+    "buyback.paused": "false",
+    "buyback.balanceOfSettlementAsset": "0",
+    "poolManager.owner": "0x2BAD8182C09F50c8318d769245beA52C32Be46CD",
+    "pool.slot0": "zero, which is what an uninitialised pool reads",
+    "readBackAtBlock": 69575881,
+    "bytecode": "The deployed runtime of BRSR, Vesting, Staking and Buyback matches the contracts/out build byte for byte once the immutable words each constructor writes are masked out, which read as zero in the artifact. Checked at block 69566482 by reading eth_getCode and masking the immutableReferences spans in both copies. PoolManager is Uniswap's, not ours, and was not compared. Source comments naming the previous chain were corrected after this check. Solidity hashes the source into a metadata word at the end of the runtime, so the current build no longer reproduces those trailing bytes. That match was made against the source as it stood at deployment; later changes to these contracts ship as a new deployment. Every byte of executable code is unchanged, verified by rebuilding with the metadata suffix stripped and comparing: BRSR 7,533 bytes, Buyback 9,530, Staking 9,786, Vesting 5,238, AgentRegistry 11,374, all identical."
+  },
+  "governance": {
+    "adminTimelock": "0x5a32Eab02454f97a39857E85b536F83EE0f844Bf",
+    "model": "Two of three signers with a forty-eight hour delay and a fourteen-day grace period after it. Proposing counts as the proposer's approval, so a change needs one more signer and not two, and any single signer can cancel a pending one. The guardian is the one exception to the delay: it can pause an administered contract in the same block and can do nothing else.",
+    "adminOf": {
+      "Vesting": "AdminTimelock",
+      "Staking": "AdminTimelock",
+      "Buyback": "AdminTimelock",
+      "BRSR": "No admin role. Fixed supply, no minter, no owner, no upgrade path."
+    },
+    "openProposals": [
+      {
+        "id": 1,
+        "target": "0x3f2a0E7822B30aD928488F053348b137866Cf962",
+        "targetName": "Staking",
+        "signature": "setTiers((uint256,uint16)[])",
+        "executeAfterIso": "2026-09-24T10:07:51Z",
+        "recordedIn": "contracts/deployments/rhc-mainnet.json"
+      }
+    ]
+  },
+  "usdgCompliance": {
+    "finding": "USDG is a diamond proxy. It routes paused() and isFrozen(address) and reverts FacetNotFound on anything it does not route, isBlacklisted and version() included. Both reads are ordinary storage behind a delegatecall with no precompile in the path, so they are read straight, with no gas stipend and no three-valued answer.",
+    "paused": false,
+    "isFrozen": {
+      "deployer": false,
+      "treasury": false,
+      "slashSink": false,
+      "liquidity": false,
+      "vestingBeneficiary": false,
+      "adminTimelock": false,
+      "buyback": false,
+      "poolManager": false
+    }
+  },
+  "pending": [
+    "Proposal 1 against Staking.setTiers is approved to the threshold and executable from 2026-09-24T10:07:51Z. Until it lands the rebate table is empty and rebateBpsOf returns zero for everyone.",
+    "Staking.creditManager is unset and Staking.slash and Staking.distribute refuse every caller. The contract that would charge the credit-lane spread is not built, so leaving the slot unset is the accurate state rather than an oversight. An address that cannot charge a spread is worse there than nothing.",
+    "The buyback's price ceiling is zero and every call reverts with PriceCeilingUnset. Governance sets a real one through Buyback.setParams once the pool has a price, and that proposal has to land before the buyback is funded.",
+    "The BRSR/USDG pool is not initialised and holds no liquidity. Seeding it needs a contract that implements the Uniswap v4 unlock callback; none is deployed here.",
+    "The staking pool holds no shares, so a buyback would revert with NoStakeToDistributeTo before it traded, even with a ceiling and a seeded pool."
+  ],
+  "audit": "No external review has been performed on any of these contracts."
+}

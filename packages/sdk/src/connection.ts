@@ -1,0 +1,380 @@
+import { createWalletClient, custom, isAddressEqual } from 'viem';
+import type { Account, Chain, Hex, PublicClient, Transport, WalletClient } from 'viem';
+import { nonceManager, privateKeyToAccount } from 'viem/accounts';
+import {
+  RHC_TESTNET,
+  BursarError,
+  RpcPool,
+  createRhcClient,
+  deployment,
+  deploymentForChain,
+  liveDeployments,
+  rhcChain,
+  viemChain,
+} from '@bursar/core';
+import type {
+  RhcChain,
+  Deployment,
+  DeploymentName,
+  RpcPoolEvent,
+  RpcProvider,
+} from '@bursar/core';
+
+import { InvalidArgumentError, NoSignerError, UnsupportedChainError } from './errors.js';
+import { checkAddress } from './guards.js';
+
+/** Every contract in a BURSAR deployment an agent-side caller has reason to touch. */
+export type MandateAddresses = {
+  readonly mandateAccountFactory: `0x${string}`;
+  readonly escrow: `0x${string}`;
+  readonly reputation: `0x${string}`;
+  readonly agentRegistry: `0x${string}`;
+  readonly oracleRegistry: `0x${string}`;
+  readonly adminTimelock: `0x${string}`;
+  readonly settlementAsset: `0x${string}`;
+};
+
+export type ConnectOptions = {
+  /**
+   * Which recorded deployment to use. Defaults to the one recorded for Robinhood Chain mainnet,
+   * chain 4663, which is the only network BURSAR settles on: testnet 46630 has no USDG contract.
+   */
+  readonly network?: DeploymentName;
+  /**
+   * The chain to connect to, for a caller who thinks in chain ids. 4663 is the only one with a
+   * deployment today; any other id throws UnsupportedChainError rather than falling back to it.
+   */
+  readonly chainId?: number;
+  /**
+   * A deployment record supplied by the caller, for a deployment this package has not recorded.
+   * Takes precedence over `network`. Useful against a local fork of 4663, where the addresses are
+   * whatever that fork was given.
+   */
+  readonly deployment?: Deployment;
+  /**
+   * One endpoint, or several. A second endpoint turns on the failover pool: each provider keeps
+   * its own circuit breaker, and a call that fails on one moves down the list.
+   */
+  readonly rpc?: string | readonly string[];
+  /** A private key or an account built elsewhere, such as a remote or hardware signer. */
+  readonly account?: Account | Hex;
+  /** A wallet client built elsewhere, for a browser extension or an injected provider. */
+  readonly walletClient?: WalletClient<Transport, Chain, Account>;
+  /** A public client built elsewhere. Supplying one bypasses the pool entirely. */
+  readonly publicClient?: PublicClient<Transport, Chain>;
+  /** Share breaker state with other clients in the same process. */
+  readonly pool?: RpcPool;
+  readonly onRpcEvent?: (event: RpcPoolEvent) => void;
+  /** Override individual contract addresses, for a deployment this package has not recorded. */
+  readonly addresses?: Partial<MandateAddresses>;
+  /** How long a write waits for its receipt before reporting the transaction as unconfirmed. */
+  readonly receiptTimeoutMs?: number;
+};
+
+export type Connection = {
+  readonly chain: RhcChain;
+  readonly deployment: Deployment;
+  readonly addresses: MandateAddresses;
+  readonly publicClient: PublicClient<Transport, Chain>;
+  readonly walletClient: WalletClient<Transport, Chain, Account> | undefined;
+  readonly account: Account | undefined;
+  readonly pool: RpcPool | undefined;
+  readonly receiptTimeoutMs: number;
+};
+
+export const DEFAULT_RECEIPT_TIMEOUT_MS = 60_000;
+
+/**
+ * Chain facts for a record, chosen by the chain the record names rather than by its label.
+ *
+ * A fork of 4663 is mainnet as far as every address in it is concerned, and it is the chain id in
+ * the record that decides which USDG address and explorer apply. Every field can still be
+ * overridden through RHC_MAINNET_*. There is no testnet equivalent, because 46630 has no
+ * settlement asset to configure and `rhcChain('testnet')` refuses rather than returning one.
+ */
+function chainFor(record: Deployment): RhcChain {
+  return record.chainId === RHC_TESTNET.chainId ? rhcChain('testnet') : rhcChain('mainnet');
+}
+
+/**
+ * The record a caller who named none gets.
+ *
+ * Mainnet, because it is the only Robinhood Chain network with a USDG contract and therefore the
+ * only one a payment can settle on. Before the deploy lands this throws and names the chain,
+ * which is the truth: there is nothing to connect to yet.
+ */
+function recordFor(options: ConnectOptions): Deployment {
+  const record =
+    options.deployment ??
+    (options.network !== undefined
+      ? deployment(options.network)
+      : options.chainId !== undefined
+        ? recordForChain(options.chainId)
+        : deploymentForChain(rhcChain('mainnet').chainId));
+
+  if (options.chainId !== undefined && record.chainId !== options.chainId) {
+    throw new InvalidArgumentError(
+      'chainId',
+      `connect() was asked for chain ${options.chainId} and given a deployment on chain ` +
+        `${record.chainId}. Drop one of the two, or make them agree.`,
+      { chainId: options.chainId, deploymentChainId: record.chainId },
+    );
+  }
+
+  return record;
+}
+
+/** The chains connect() can open: a live record, and a settlement asset on that chain. */
+function supportedChains(): number[] {
+  return liveDeployments()
+    .map((record) => record.chainId)
+    .filter((chainId) => chainId !== RHC_TESTNET.chainId);
+}
+
+function recordForChain(chainId: number): Deployment {
+  const supported = supportedChains();
+  if (!supported.includes(chainId)) throw new UnsupportedChainError(chainId, supported);
+
+  return deploymentForChain(chainId);
+}
+
+function providersFor(options: ConnectOptions, record: Deployment): readonly RpcProvider[] {
+  const rpc = options.rpc;
+  if (rpc === undefined) return [{ name: 'deployment', url: record.rpc }];
+  if (typeof rpc === 'string') return [{ name: 'primary', url: rpc }];
+
+  if (rpc.length === 0) {
+    throw new InvalidArgumentError('rpc', 'connect() was given an empty list of RPC endpoints.');
+  }
+
+  return rpc.map((url, index) => ({ name: index === 0 ? 'primary' : `fallback-${index}`, url }));
+}
+
+function accountFor(options: ConnectOptions): Account | undefined {
+  if (options.account !== undefined && options.walletClient !== undefined) {
+    throw new InvalidArgumentError(
+      'account',
+      'connect() takes either an account or a walletClient, not both.',
+    );
+  }
+
+  if (options.account === undefined) return options.walletClient?.account;
+
+  if (typeof options.account !== 'string') return options.account;
+
+  // A local nonce manager so two writes sent from one key in the same block get consecutive
+  // nonces instead of both claiming the pending one.
+  try {
+    return privateKeyToAccount(options.account, { nonceManager });
+  } catch {
+    // The key itself is never quoted back, here or anywhere else.
+    throw new InvalidArgumentError(
+      'account',
+      'connect() was given an account that is not a 32-byte 0x private key. Pass an Account built ' +
+        'elsewhere to keep the key out of this process.',
+    );
+  }
+}
+
+/**
+ * The address book, with any override checked where it was given.
+ *
+ * An override that is not an address would otherwise surface much later, as a failure from
+ * whichever call happened to touch that contract first, naming the contract and not the option
+ * that was wrong.
+ */
+function addressesFor(record: Deployment, overrides: Partial<MandateAddresses> = {}): MandateAddresses {
+  const pick = (field: keyof MandateAddresses, fallback: `0x${string}`): `0x${string}` => {
+    const override = overrides[field];
+
+    return override === undefined ? fallback : checkAddress(`addresses.${field}`, override);
+  };
+
+  return {
+    mandateAccountFactory: pick('mandateAccountFactory', record.contracts.MandateAccountFactory),
+    escrow: pick('escrow', record.contracts.Escrow),
+    reputation: pick('reputation', record.contracts.Reputation),
+    agentRegistry: pick('agentRegistry', record.contracts.AgentRegistry),
+    oracleRegistry: pick('oracleRegistry', record.contracts.OracleRegistry),
+    adminTimelock: pick('adminTimelock', record.contracts.AdminTimelock),
+    settlementAsset: pick('settlementAsset', record.settlementAsset),
+  };
+}
+
+/**
+ * A client built elsewhere has to be on the chain the deployment records.
+ *
+ * Every address in the record is a contract on that chain. A public client on another one reads
+ * whatever lives at those addresses there, and a wallet client on another one signs for a chain
+ * the escrow is not on. Neither fails where the mistake was made, so it is refused here. A wallet
+ * client with no chain of its own, which an injected provider often is, passes: every write names
+ * the deployment's chain and viem compares it with the wallet's before signing.
+ */
+function assertClientChain(
+  field: 'walletClient' | 'publicClient',
+  clientChain: Chain | undefined,
+  chainId: number,
+): void {
+  if (clientChain === undefined && field === 'walletClient') return;
+  if (clientChain?.id === chainId) return;
+
+  throw new InvalidArgumentError(
+    field,
+    clientChain === undefined
+      ? `connect() was given a ${field} with no chain. Build it with the chain for ${chainId}.`
+      : `connect() was given a ${field} on chain ${clientChain.id}, and this deployment is on chain ` +
+          `${chainId}. Build the client for ${chainId}.`,
+    { chainId: clientChain?.id, expected: chainId },
+  );
+}
+
+/**
+ * Opens a connection to a BURSAR deployment.
+ *
+ * Read-only with no account: every write path throws with a message naming what it needed.
+ * Nothing here holds a key on the caller's behalf: an account passed as a hex string is turned
+ * into a viem account in this process and is never written anywhere.
+ */
+export function connect(options: ConnectOptions = {}): Connection {
+  const record = recordFor(options);
+  const name = record.network;
+  const chain = chainFor(record);
+
+  // The deployment record and the chain config are maintained separately, and a settlement asset
+  // that differs between them means one of the two is stale. Paying against the wrong token
+  // address is not a failure that shows up until funds are gone.
+  if (!isAddressEqual(record.settlementAsset, chain.usdg)) {
+    throw new BursarError(
+      'deployment_invalid',
+      `Deployment ${name} settles in ${record.settlementAsset} but the chain config names ` +
+        `${chain.usdg} as USDG. One of the two is stale; do not spend against either until it is resolved.`,
+      { network: name, deploymentAsset: record.settlementAsset, chainAsset: chain.usdg },
+    );
+  }
+
+  if (record.chainId !== chain.chainId) {
+    throw new BursarError(
+      'deployment_invalid',
+      `Deployment ${name} records chain ${record.chainId} but the chain config is ${chain.chainId}.`,
+      { network: name, deploymentChainId: record.chainId, chainId: chain.chainId },
+    );
+  }
+
+  if (options.walletClient) assertClientChain('walletClient', options.walletClient.chain, chain.chainId);
+  if (options.publicClient) assertClientChain('publicClient', options.publicClient.chain, chain.chainId);
+
+  const account = accountFor(options);
+  const viem = viemChain(chain);
+
+  // A caller who brings a public client owns its transport, so writes go through the wallet
+  // client they bring alongside it. Building one here would guess at an endpoint they already
+  // configured.
+  if (options.publicClient) {
+    if (account && !options.walletClient) {
+      throw new InvalidArgumentError(
+        'walletClient',
+        'connect() was given a publicClient and an account but no walletClient. A caller that ' +
+          'brings its own transport has to bring the wallet client that signs on it.',
+      );
+    }
+
+    return {
+      chain,
+      deployment: record,
+      addresses: addressesFor(record, options.addresses),
+      publicClient: options.publicClient,
+      walletClient: options.walletClient,
+      account: options.walletClient?.account ?? account,
+      pool: options.pool,
+      receiptTimeoutMs: options.receiptTimeoutMs ?? DEFAULT_RECEIPT_TIMEOUT_MS,
+    };
+  }
+
+  const rhc = createRhcClient({
+    chain,
+    providers: providersFor(options, record),
+    ...(options.pool === undefined ? {} : { pool: options.pool }),
+    ...(options.onRpcEvent === undefined ? {} : { onEvent: options.onRpcEvent }),
+    // An agent-side library has to run against whatever endpoint the developer has. Two
+    // endpoints get failover and a breaker; one gets the single endpoint it asked for. The
+    // two-provider rule binds the services this project operates, not this package.
+    requireRedundancy: false,
+  });
+
+  const pool = rhc.pool;
+  const transport: Transport = custom(
+    { request: ({ method, params }) => pool.request(method, (params ?? []) as readonly unknown[]) },
+    { retryCount: 0 },
+  );
+
+  const walletClient =
+    options.walletClient ?? (account ? createWalletClient({ account, chain: viem, transport }) : undefined);
+
+  return {
+    chain,
+    deployment: record,
+    addresses: addressesFor(record, options.addresses),
+    publicClient: rhc.client,
+    walletClient,
+    account,
+    pool,
+    receiptTimeoutMs: options.receiptTimeoutMs ?? DEFAULT_RECEIPT_TIMEOUT_MS,
+  };
+}
+
+/**
+ * Which public call built each connection, for the error a read-only write raises. Kept beside the
+ * connection rather than on it, so a Connection a caller assembles by hand needs no extra field.
+ */
+const openedBy = new WeakMap<Connection, string>();
+
+/**
+ * The connection an entry point such as mandateAccount() runs on: the one it was given, or a new
+ * one built from its options and remembered as opened by that entry point.
+ */
+export function connectFor(options: Connection | ConnectOptions, entry: string): Connection {
+  if (isConnection(options)) return options;
+
+  const connection = connect(options);
+  openedBy.set(connection, entry);
+
+  return connection;
+}
+
+/**
+ * Distinguishes an open connection from the options that would build one, so every entry point
+ * can take either without the caller choosing a spelling.
+ */
+export function isConnection(value: Connection | ConnectOptions): value is Connection {
+  return 'publicClient' in value && 'deployment' in value && 'addresses' in value;
+}
+
+export type Signer = {
+  readonly walletClient: WalletClient<Transport, Chain, Account>;
+  readonly account: Account;
+};
+
+/** The signer a write needs. Missing one throws an error naming the call, never a null dereference. */
+export function requireSigner(connection: Connection, action: string): Signer {
+  const walletClient = connection.walletClient;
+  const account = connection.account ?? walletClient?.account;
+
+  if (!walletClient || !account) throw new NoSignerError(action, openedBy.get(connection));
+
+  return { walletClient, account };
+}
+
+/** Write options every helper shares, so the chain guard is declared in exactly one place. */
+export function writeOptions(signer: Signer, chain: RhcChain): { account: Account; chain: Chain } {
+  return { account: signer.account, chain: viemChain(chain) };
+}
+
+/**
+ * A link to the transaction on the explorer this deployment records, for a person to open.
+ *
+ * Robinhood Chain's human explorer sits behind a browser challenge, so this is a link and never
+ * something to fetch. Code that needs the index reads the keyed API instead.
+ */
+export function explorerTx(connection: Connection, hash: Hex): string {
+  return `${connection.deployment.explorer.replace(/\/$/, '')}/tx/${hash}`;
+}

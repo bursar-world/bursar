@@ -1,0 +1,274 @@
+{
+  "network": "rhc-mainnet",
+  "chainId": 4663,
+  "rpc": "https://rpc.mainnet.chain.robinhood.com",
+  "rpcUsedForThisRun": "https://rpc.mainnet.chain.robinhood.com",
+  "explorer": "https://robinhoodchain.blockscout.com",
+  "settlementAsset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+  "settlementDecimals": 6,
+  "deployer": "0x6B6fC40Ed9652728A9B620C4e1B05fBF4F9712a4",
+  "deployedAt": "2026-09-22T09:57:01Z",
+  "deployCostEth": "0.000846489277304",
+  "note": "Robinhood Chain mainnet, Release 1. Gas is ETH and settlement is USDG, two different assets, so deployCostEth says nothing about the settlement balance and neither figure is convertible into the other. The cap curve is set low on purpose: these contracts have had no external review, and the 250 USDG ceiling is the number that bounds the damage from one payee that turns out to be wrong.",
+  "contracts": {
+    "AdminTimelock": "0x5a32Eab02454f97a39857E85b536F83EE0f844Bf",
+    "Reputation": "0x8F123EDDDC586EEaAC3B1D6A5B9dF7BC0247680d",
+    "Escrow": "0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4",
+    "OracleRegistry": "0xCb7c60037eC43b9692A5dDcA42A500181Cf549FF",
+    "AgentRegistry": "0x4a9e90F15c0FEC02f7592C6E618cd3B64076035b",
+    "MandateAccountFactory": "0xF8Ca04BEc1D7bcf767154AC6F7Ed1DD840CCF216"
+  },
+  "roles": {
+    "timelockSigners": [
+      "0xb51c63568324848DfC88A09f91F06fA86771aB69",
+      "0x3C7facc7C72c3aCeB2EF93703813652aC9039266",
+      "0x1f3eE000728EF363B9F867f88BBF618F2A17c42d"
+    ],
+    "guardian": "0x7cfF32B8B4DB47E2Cde5907c8F5c93EC6a095E2A",
+    "treasury": "0x7f2D3be9597fb538BDBA3Dbcb9BEcECCD9056d21",
+    "slashSink": "0xb4A7D77a710f6b1fF4cDDd9D3c9b66E3f917A4FF"
+  },
+  "exampleMandate": {
+    "address": "0xB4Bd99d8604fDB876fA1B38a3f8bA024D20ccD0b",
+    "factory": "0xF8Ca04BEc1D7bcf767154AC6F7Ed1DD840CCF216",
+    "principal": "0x877c349EFb5926082C413833E8055F0991185c61",
+    "agent": "0x877c349EFb5926082C413833E8055F0991185c61",
+    "escrow": "0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4",
+    "createdTx": "0xfab88848258d6ae3bb1aafac5d5d92da781790dcf654a63fb0e555bc590bbfdd",
+    "createdBlock": 70668307,
+    "console": "https://app.bursar.world/console/0xB4Bd99d8604fDB876fA1B38a3f8bA024D20ccD0b",
+    "note": "A live mandate account created by this deployment's factory, kept as the public example to read. Its escrow and settlement asset are the ones above, it has no expiry, and it holds at least its own per-payment cap of 0.10 USDG. Point the SDK or MCP server at it read-only; only its principal and agent can move its funds."
+  },
+  "keystores": {
+    "deployer": "rh-deployer",
+    "timelockSigners": [
+      "signer-1",
+      "signer-2",
+      "signer-3"
+    ],
+    "guardian": "guardian",
+    "treasury": "treasury",
+    "slashSink": "slash-sink",
+    "note": "Each role is a separate key. guardian, signer-1 and signer-2 hold 0.0004 ETH each so they can transact; signer-3, treasury and slash-sink receive value and have no gas, because nothing asks them to send a transaction yet."
+  },
+  "transactions": {
+    "AdminTimelock": {
+      "hash": "0xe3b68a32921acf459772e30d3094a49fa10e39aa34fa338f27497cd0f09c744b",
+      "block": 69564399,
+      "gas": 1430990
+    },
+    "Reputation": {
+      "hash": "0xf65b156b608c4c7cc50e3c625d7914c4b9376c8b3fcc3eddeb2aa9da891b0567",
+      "block": 69564427,
+      "gas": 828254
+    },
+    "Escrow": {
+      "hash": "0xceb6f484cdb75468be45d8809f2e7930d5d0f5059fdf9bf33281e01925b684ae",
+      "block": 69564453,
+      "gas": 2704676
+    },
+    "OracleRegistry": {
+      "hash": "0xa000a9a094c754c7776420ee5be010852a2a25f0ad392c7c250f566989cf7c38",
+      "block": 69564478,
+      "gas": 3824813
+    },
+    "AgentRegistry": {
+      "hash": "0xb0c0af2521368909a09ce5df342f8c9ac1fde9b5668f30e34cd1c92f3bbb58ac",
+      "block": 69564504,
+      "gas": 2622740
+    },
+    "Reputation.setEscrow": {
+      "hash": "0x1654058cc30e901754b1329ffde82bd5078380f180897b0d066301580ba6ce78",
+      "block": 69564529,
+      "gas": 45315
+    },
+    "Escrow.setResolver": {
+      "hash": "0x24b62a59a2f8ed0309b1f19a530257005802030ef4b5c285e72705763204b7f0",
+      "block": 69564554,
+      "gas": 45346
+    },
+    "OracleRegistry.setEscrow": {
+      "hash": "0xc9a260d6fd6d3978abecedc428e4553a923b840d117033bd4e8ae36c3e9e20c4",
+      "block": 69564581,
+      "gas": 45379
+    },
+    "Escrow.setRegistry": {
+      "hash": "0x091c21682e0452b88ac11bdf376bff2e6d8a9af3784f88ca01ae22c04f609848",
+      "block": 69564607,
+      "gas": 45292
+    },
+    "AgentRegistry.transferAdmin": {
+      "hash": "0x24f01314e4edb7a4bb8e204f39ad709d13dae55d0ed672a0db909576ece0e6df",
+      "block": 69564632,
+      "gas": 47661
+    },
+    "MandateAccountFactory": {
+      "hash": "0xa0ab81f23e5d8b2495cef76defc46926c51eca504176e2689121586ec37a7798",
+      "block": 69564657,
+      "gas": 4680833
+    }
+  },
+  "verifiedOnChain": {
+    "escrow.settlementAsset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+    "escrow.reputation": "0x8F123EDDDC586EEaAC3B1D6A5B9dF7BC0247680d",
+    "escrow.resolver": "0xCb7c60037eC43b9692A5dDcA42A500181Cf549FF",
+    "escrow.registry": "0x4a9e90F15c0FEC02f7592C6E618cd3B64076035b",
+    "escrow.treasury": "0x7f2D3be9597fb538BDBA3Dbcb9BEcECCD9056d21",
+    "escrow.pendingTreasury": "0x0000000000000000000000000000000000000000",
+    "escrow.deployer": "0x6B6fC40Ed9652728A9B620C4e1B05fBF4F9712a4",
+    "escrow.feeBps": 100,
+    "escrow.resolverFeeBps": 50,
+    "escrow.disputeBondBps": 500,
+    "escrow.minTtl": 300,
+    "escrow.maxTtl": 604800,
+    "escrow.disputeWindow": 3600,
+    "escrow.disputeTimeoutPeriod": 172800,
+    "reputation.escrow": "0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4",
+    "reputation.admin": "0x5a32Eab02454f97a39857E85b536F83EE0f844Bf",
+    "reputation.pendingAdmin": "0x0000000000000000000000000000000000000000",
+    "reputation.baseCap": 25000000,
+    "reputation.capPerScore": 1000000,
+    "reputation.maxCap": 250000000,
+    "oracleRegistry.escrow": "0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4",
+    "oracleRegistry.admin": "0x5a32Eab02454f97a39857E85b536F83EE0f844Bf",
+    "oracleRegistry.slashSink": "0xb4A7D77a710f6b1fF4cDDd9D3c9b66E3f917A4FF",
+    "oracleRegistry.settlementAsset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+    "oracleRegistry.staking": "0x3f2a0E7822B30aD928488F053348b137866Cf962",
+    "oracleRegistry.bondAsset": "0x00e503925880c4b07E5Fb70232D83aD871F57a7d",
+    "oracleRegistry.commitWindow": 21600,
+    "oracleRegistry.revealWindow": 21600,
+    "oracleRegistry.unbondingPeriod": 604800,
+    "oracleRegistry.quorum": 2,
+    "oracleRegistry.maxVoters": 5,
+    "oracleRegistry.maxDeviation": 20,
+    "oracleRegistry.slashBps": 1000,
+    "agentRegistry.settlementAsset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+    "agentRegistry.admin": "0x6B6fC40Ed9652728A9B620C4e1B05fBF4F9712a4",
+    "agentRegistry.pendingAdmin": "0x5a32Eab02454f97a39857E85b536F83EE0f844Bf",
+    "agentRegistry.slasher": "0x0000000000000000000000000000000000000000",
+    "agentRegistry.slashSink": "0xb4A7D77a710f6b1fF4cDDd9D3c9b66E3f917A4FF",
+    "agentRegistry.minStake": 5000000,
+    "agentRegistry.slashBps": 1000,
+    "agentRegistry.paused": "false",
+    "factory.escrow": "0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4",
+    "factory.settlementAsset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+    "timelock.period": 172800,
+    "timelock.guardian": "0x7cfF32B8B4DB47E2Cde5907c8F5c93EC6a095E2A",
+    "timelock.signer0": "0xb51c63568324848DfC88A09f91F06fA86771aB69",
+    "timelock.signer1": "0x3C7facc7C72c3aCeB2EF93703813652aC9039266",
+    "timelock.signer2": "0x1f3eE000728EF363B9F867f88BBF618F2A17c42d",
+    "timelock.requiredApprovals": 2,
+    "usdg.paused": "false",
+    "usdg.isFrozen.deployer": "false",
+    "usdg.isFrozen.treasury": "false",
+    "usdg.isFrozen.slashSink": "false",
+    "usdg.isFrozen.escrow": "false",
+    "usdg.decimals": 6,
+    "readBackAtBlock": 69566482,
+    "bytecode": "The deployed runtime of AdminTimelock, Reputation, Escrow, OracleRegistry, AgentRegistry and MandateAccountFactory matches the contracts/out build byte for byte once the immutable words each constructor writes are masked out, which read as zero in the artifact. Checked at block 69566482 by reading eth_getCode and masking the immutableReferences spans in both copies. Source comments naming the previous chain were corrected after this check. Solidity hashes the source into a metadata word at the end of the runtime, so the current build no longer reproduces those trailing bytes. That match was made against the source as it stood at deployment; later changes to these contracts ship as a new deployment. Every byte of executable code is unchanged, verified by rebuilding with the metadata suffix stripped and comparing: BRSR 7,533 bytes, Buyback 9,530, Staking 9,786, Vesting 5,238, AgentRegistry 11,374, all identical."
+  },
+  "governance": {
+    "model": "Two of three signers with a forty-eight hour delay and a fourteen-day grace period after it. Proposing counts as the proposer's approval, so a change needs one more signer and not two, and any single signer can cancel a pending one. The guardian is the one exception to the delay: it can pause an administered contract in the same block and can do nothing else.",
+    "signerSet": "Three plain keys, by operator decision, with BURSAR_ALLOW_EOA_GOVERNANCE set to i-accept-eoa-governance for the deploy run. The script prints what that means before it deploys anything: every timelock signer is a plain key, so whoever holds those three keys can change any parameter in this deployment once the delay passes, and no contract stands between them and it. The multisig follows public launch.",
+    "adminOf": {
+      "Reputation": "AdminTimelock, from construction.",
+      "OracleRegistry": "AdminTimelock, from construction.",
+      "AgentRegistry": "The deploy key, with AdminTimelock as pendingAdmin. Proposal 0 closes it.",
+      "Escrow": "No admin role. Its fee, TTL bounds and dispute windows are fixed at construction.",
+      "MandateAccountFactory": "No admin role. Everything it holds is immutable.",
+      "Vesting": "AdminTimelock, from construction.",
+      "Staking": "AdminTimelock, from construction.",
+      "Buyback": "AdminTimelock, from construction."
+    },
+    "costEth": "0.000032883243674",
+    "proposals": [
+      {
+        "id": 0,
+        "intent": "Hand the AgentRegistry's admin role to the timelock. It is the one contract in the deployment the timelock does not already administer: the registry has to name a resolver that does not exist until later in the deploy run, so the deploy key held admin for the length of that run and then called transferAdmin. Until this executes the deploy key is still the registry's admin and the guardian's brake does not reach it.",
+        "target": "0x4a9e90F15c0FEC02f7592C6E618cd3B64076035b",
+        "targetName": "AgentRegistry",
+        "signature": "acceptAdmin()",
+        "calldata": "0x0e18b681",
+        "proposedBy": "0xb51c63568324848DfC88A09f91F06fA86771aB69",
+        "proposedByKeystore": "signer-1",
+        "approvals": 2,
+        "requiredApprovals": 2,
+        "approvedBy": [
+          "0xb51c63568324848DfC88A09f91F06fA86771aB69",
+          "0x3C7facc7C72c3aCeB2EF93703813652aC9039266"
+        ],
+        "createdAt": 1790071636,
+        "createdAtIso": "2026-09-22T10:07:16Z",
+        "executeAfter": 1790244436,
+        "executeAfterIso": "2026-09-24T10:07:16Z",
+        "expiresAt": 1791454036,
+        "expiresAtIso": "2026-10-08T10:07:16Z",
+        "state": "approved to the threshold, inside the delay",
+        "executeCommand": "AdminTimelock.execute(0) from a timelock signer, once the delay has passed",
+        "transactions": {
+          "propose": "0x06ad44fe54c69cf7494af220620d294ff7f34b79c579cf63e00c2224d531a7f2",
+          "proposeBlock": 69570727,
+          "proposeGas": 141537,
+          "approve": "0x18c0e8f05564457876789473a3241037d2cddf64ad883c1060c15f66023011ed",
+          "approveBlock": 69570904,
+          "approveGas": 60460
+        }
+      },
+      {
+        "id": 1,
+        "intent": "Write the fee rebate table into the staking pool. It ships empty, so rebateBpsOf returns zero for everyone and a staked balance earns nothing off the facilitator fee until this lands. Four rungs: 25,000 BRSR for 5% off the fee, 100,000 for 10%, 500,000 for 20%, 2,500,000 for 30%. The first rung is the resolver bond floor, which is the figure already published as enough to take part. The top rung stops at 30% against a contract ceiling of 50%, because a table that gives most of the fee back makes the protocol fee decorative and leaves governance no room to move without a redesign.",
+        "target": "0x3f2a0E7822B30aD928488F053348b137866Cf962",
+        "targetName": "Staking",
+        "signature": "setTiers((uint256,uint16)[])",
+        "calldata": "0xe2058f5f0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000054b40b1f852bda0000000000000000000000000000000000000000000000000000000000000000001f400000000000000000000000000000000000000000000152d02c7e14af680000000000000000000000000000000000000000000000000000000000000000003e80000000000000000000000000000000000000000000069e10de76676d080000000000000000000000000000000000000000000000000000000000000000007d000000000000000000000000000000000000000000002116545850052128000000000000000000000000000000000000000000000000000000000000000000bb8",
+        "arguments": [
+          {
+            "minStakeBrsrWei": "25000000000000000000000",
+            "minStakeBrsr": "25,000",
+            "rebateBps": 500
+          },
+          {
+            "minStakeBrsrWei": "100000000000000000000000",
+            "minStakeBrsr": "100,000",
+            "rebateBps": 1000
+          },
+          {
+            "minStakeBrsrWei": "500000000000000000000000",
+            "minStakeBrsr": "500,000",
+            "rebateBps": 2000
+          },
+          {
+            "minStakeBrsrWei": "2500000000000000000000000",
+            "minStakeBrsr": "2,500,000",
+            "rebateBps": 3000
+          }
+        ],
+        "proposedBy": "0xb51c63568324848DfC88A09f91F06fA86771aB69",
+        "proposedByKeystore": "signer-1",
+        "approvals": 2,
+        "requiredApprovals": 2,
+        "approvedBy": [
+          "0xb51c63568324848DfC88A09f91F06fA86771aB69",
+          "0x3C7facc7C72c3aCeB2EF93703813652aC9039266"
+        ],
+        "createdAt": 1790071671,
+        "createdAtIso": "2026-09-22T10:07:51Z",
+        "executeAfter": 1790244471,
+        "executeAfterIso": "2026-09-24T10:07:51Z",
+        "expiresAt": 1791454071,
+        "expiresAtIso": "2026-10-08T10:07:51Z",
+        "state": "approved to the threshold, inside the delay",
+        "executeCommand": "AdminTimelock.execute(1) from a timelock signer, once the delay has passed",
+        "transactions": {
+          "propose": "0x1d732973c3c0eae82d72c3fb52816eba9b0b4948a60a56c9584070dcca0a0ee8",
+          "proposeBlock": 69571081,
+          "proposeGas": 372967,
+          "approve": "0xf34c27cbb75b98d2c1aac385ff5787240efb146d481c559e880983623b27e8d1",
+          "approveBlock": 69571258,
+          "approveGas": 60472
+        }
+      }
+    ]
+  },
+  "pending": "Proposals 0 and 1 executed on 2026-09-24 from the governance page. AgentRegistry.admin is now AdminTimelock at 0x5a32Eab02454f97a39857E85b536F83EE0f844Bf with pendingAdmin cleared, so its parameters take the forty-eight hour delay and the guardian's brake reaches it. The staking rebate table holds four rungs: 25,000 BRSR for 5%, 100,000 for 10%, 500,000 for 20%, 2,500,000 for 30%. Proposal 2 lifts the guardian's pause on the buyback and is executable 2026-09-25T17:49Z; the buyback is paused until it lands. Still open: Escrow.treasury is an EOA at 0x7f2D3be9597fb538BDBA3Dbcb9BEcECCD9056d21. It receives every swept fee and is the only address that can name its successor, so AdminTimelock cannot move it. Point it at a multisig while that key is still in hand."
+}

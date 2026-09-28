@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/bursar-world/bursar/discussions
+    about: Ask how something works or float an idea before it becomes a feature request.
+  - name: Report a vulnerability
+    url: https://github.com/bursar-world/bursar/security/policy
+    about: Do not open an issue for a security problem. Follow the security policy instead.
+  - name: Updates on X
+    url: https://x.com/UseBursar
+    about: Release notes and service announcements.

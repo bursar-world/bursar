@@ -1,0 +1,20 @@
+node_modules/
+dist/
+out/
+cache/
+broadcast/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+contracts/lib/
+# The underwriter's spend journal and its lock, written under UNDERWRITER_JOURNAL_DIR, which
+# defaults to ./.mandate/journal. Starting the service from the repository root puts it here.
+.mandate/
+node_modules/
+packages/*/dist/
+services/*/dist/
+
+# forge script preprocesses into this directory; it is build output like out/ and cache/.
+contracts/foundry-pp/
