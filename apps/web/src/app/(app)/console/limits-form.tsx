@@ -39,6 +39,12 @@ export type LimitsDraft = {
   readonly validUntil: string;
   /** Carried through a limit change untouched. Zero means the mandate is open already. */
   readonly validFrom: number;
+  /**
+   * A v2 account's native total budget, when it holds one alongside a rolling second cap. Then
+   * `monthly` and `longWindow` are that second cap. Absent otherwise, and `monthly` is whichever of
+   * the two the mandate has.
+   */
+  readonly total?: string;
 };
 
 /**
@@ -110,6 +116,13 @@ export type DraftTarget = {
   /** One bit per allowed spend class. See `classMaskOf`. */
   readonly classMask: number;
   readonly lane?: number;
+  /**
+   * The limits the draft was seeded from, when it edits a mandate that exists. A field the reader
+   * left as seeded is written back exactly as the chain holds it, so saving an untouched form is a
+   * no-op: the form's own encodings (an expiry at the end of a local day, a threshold above the
+   * per-payment cap read as "approve nothing") are not allowed to drift a value nobody changed.
+   */
+  readonly from?: MandateLimits;
 };
 
 export function readDraft(draft: LimitsDraft, now: number = Date.now(), target?: DraftTarget): DraftReading {
@@ -123,11 +136,17 @@ export function readDraft(draft: LimitsDraft, now: number = Date.now(), target?:
     total ? 'Set the total budget: the most this agent may spend over the life of the mandate.' : 'Set the second cap.',
   );
   const threshold = thresholdOf(draft);
+  const native = target?.contractSet === 'v2';
+  const separateTotal = native && draft.total !== undefined;
+  const totalAmount = separateTotal
+    ? readAmount(draft.total ?? '', 'Set the total budget: the most this agent may spend over the life of the mandate.')
+    : undefined;
 
   if (perCall.problem) problems.push({ field: 'perCallCap', problem: perCall.problem });
   if (daily.problem) problems.push({ field: 'dailyCap', problem: daily.problem });
   if (monthly.problem) problems.push({ field: 'monthlyCap', problem: monthly.problem });
   if (threshold.problem) problems.push({ field: 'approvalThreshold', problem: threshold.problem });
+  if (totalAmount?.problem) problems.push({ field: 'totalCap', problem: totalAmount.problem });
 
   const validUntil = draft.validUntil === '' ? 0 : Math.floor(endOfDay(draft.validUntil) / 1000);
   if (draft.validUntil !== '' && !Number.isFinite(validUntil)) {
@@ -138,13 +157,32 @@ export function readDraft(draft: LimitsDraft, now: number = Date.now(), target?:
     problems.push({ field: 'validUntil', problem: 'That date has passed, so the mandate would refuse every payment.' });
   }
 
-  if (perCall.value === undefined || daily.value === undefined || monthly.value === undefined || threshold.value === undefined) {
+  if (
+    perCall.value === undefined ||
+    daily.value === undefined ||
+    monthly.value === undefined ||
+    threshold.value === undefined ||
+    (separateTotal && totalAmount?.value === undefined)
+  ) {
     return { limits: undefined, problems };
   }
 
   const expiry = Number.isFinite(validUntil) ? validUntil : 0;
-  const native = target?.contractSet === 'v2';
-  const limits: LimitsForm = native
+  const drafted: LimitsForm = separateTotal
+    ? {
+        perCallCap: perCall.value,
+        dailyCap: daily.value,
+        monthlyCap: monthly.value,
+        dailyWindow: draft.shortWindow,
+        monthlyWindow: draft.longWindow,
+        approvalThreshold: threshold.value,
+        validFrom: draft.validFrom,
+        validUntil: expiry,
+        classMask: target.classMask,
+        totalCap: totalAmount?.value ?? micro(0n),
+        lane: target.lane ?? 0,
+      }
+    : native
     ? {
         perCallCap: perCall.value,
         dailyCap: daily.value,
@@ -169,30 +207,62 @@ export function readDraft(draft: LimitsDraft, now: number = Date.now(), target?:
         validFrom: draft.validFrom,
         validUntil: expiry,
       };
+  const limits = target?.from ? keepSeeded(drafted, draft, target) : drafted;
 
   const refused = [...problems, ...checkLimits(limits)];
   return refused.length > 0 ? { limits: undefined, problems: refused } : { limits, problems: [] };
 }
 
 /**
- * A draft seeded from a mandate that exists. On v2 a native total fills the total field; a v2
- * mandate that holds both a total and a separate rolling second cap is edited as its total, since
- * the form holds one of the two.
+ * A draft seeded from a mandate that exists.
+ *
+ * On v2 a native total fills the total field. A v2 mandate that holds both a total and a rolling
+ * second cap of its own gets both: `monthly` is the second cap and `total` the budget, so an edit
+ * never drops either. A v2 second window is always rolling, however long, because v2 keeps its
+ * total in a field of its own.
  */
 export function draftFromLimits(limits: MandateLimits, contractSet: ContractSet = 'v1'): LimitsDraft {
   const mode = approvalModeOf(limits.approvalThreshold, limits.perCallCap);
-  const nativeTotal = contractSet === 'v2' && limits.totalCap > 0n;
+  const v2 = contractSet === 'v2';
+  const nativeTotal = v2 && limits.totalCap > 0n;
+  const secondIsCopy = limits.monthlyWindow === limits.dailyWindow && limits.monthlyCap === limits.dailyCap;
+  const both = nativeTotal && !secondIsCopy;
+  const totalOnly = nativeTotal && !both;
 
   return {
     perCall: plain(limits.perCallCap),
     daily: plain(limits.dailyCap),
-    monthly: plain(nativeTotal ? limits.totalCap : limits.monthlyCap),
+    monthly: plain(totalOnly ? limits.totalCap : limits.monthlyCap),
     shortWindow: Number(limits.dailyWindow),
-    longWindow: nativeTotal || isTotalBudgetWindow(limits.monthlyWindow) ? NEVER_REFILLS : Number(limits.monthlyWindow),
+    longWindow: totalOnly || (!v2 && isTotalBudgetWindow(limits.monthlyWindow)) ? NEVER_REFILLS : Number(limits.monthlyWindow),
     approvalMode: mode,
     approvalAmount: mode === 'above' ? plain(limits.approvalThreshold) : '',
     validUntil: limits.validUntil === 0n ? '' : isoDate(Number(limits.validUntil) * 1000),
     validFrom: Number(limits.validFrom),
+    ...(both ? { total: plain(limits.totalCap) } : {}),
+  };
+}
+
+/**
+ * Puts back the chain's own value for every field the reader left as it was seeded. Amounts and
+ * windows already round-trip exactly; the threshold, the expiry and a v1 total's window do not,
+ * because the form reads them through a mode, a calendar date and the time of writing.
+ */
+function keepSeeded(limits: LimitsForm, draft: LimitsDraft, target: DraftTarget): LimitsForm {
+  const from = target.from;
+  if (!from) return limits;
+  const seed = draftFromLimits(from, target.contractSet);
+
+  const sameApproval = draft.approvalMode === seed.approvalMode && draft.approvalAmount === seed.approvalAmount;
+  const sameExpiry = draft.validUntil === seed.validUntil;
+  const sameV1Total =
+    target.contractSet === 'v1' && sameExpiry && isTotalDraft(draft) && isTotalDraft(seed);
+
+  return {
+    ...limits,
+    approvalThreshold: sameApproval ? from.approvalThreshold : limits.approvalThreshold,
+    validUntil: sameExpiry ? Number(from.validUntil) : limits.validUntil,
+    monthlyWindow: sameV1Total ? Number(from.monthlyWindow) : limits.monthlyWindow,
   };
 }
 
@@ -216,10 +286,16 @@ export function LimitsFields({
   const approvalAmount = amountOf(draft.approvalAmount);
 
   const total = isTotalDraft(draft);
+  const separateTotal = draft.total !== undefined;
+  const longWindows = withCurrent(
+    separateTotal ? LONG_WINDOWS.filter((entry) => entry.seconds !== NEVER_REFILLS) : LONG_WINDOWS,
+    draft.longWindow,
+    'Every ',
+  );
 
   return (
     <div className="space-y-5">
-      <FieldGrid columns={3}>
+      <FieldGrid columns={separateTotal ? 4 : 3}>
         <AmountInput
           label="Most per payment"
           asset="USDG"
@@ -244,13 +320,24 @@ export function LimitsFields({
           value={draft.monthly}
           disabled={disabled}
           onChange={(text) => set('monthly', text)}
-          problem={problemFor(problems, 'monthlyCap')}
+          problem={problemFor(problems, 'monthlyCap') ?? (total ? problemFor(problems, 'totalCap') : undefined)}
           hint={
             total
               ? 'The most the agent may spend over the life of the mandate. It never refills; you can raise it.'
               : 'A second rolling cap. Both bind at once, so the tighter one is what the agent feels.'
           }
         />
+        {separateTotal && (
+          <AmountInput
+            label="Total budget"
+            asset="USDG"
+            value={draft.total ?? ''}
+            disabled={disabled}
+            onChange={(text) => set('total', text)}
+            problem={problemFor(problems, 'totalCap')}
+            hint="The most the agent may spend over the life of the mandate. It never refills; you can raise it."
+          />
+        )}
       </FieldGrid>
 
       <FieldGrid columns={3}>
@@ -259,7 +346,7 @@ export function LimitsFields({
           value={String(draft.shortWindow)}
           disabled={disabled}
           onChange={(value) => set('shortWindow', Number(value))}
-          options={SHORT_WINDOWS.map((entry) => ({ value: String(entry.seconds), label: entry.label }))}
+          options={withCurrent(SHORT_WINDOWS, draft.shortWindow).map((entry) => ({ value: String(entry.seconds), label: entry.label }))}
           problem={problemFor(problems, 'dailyWindow')}
         />
         <Select
@@ -267,7 +354,7 @@ export function LimitsFields({
           value={String(draft.longWindow)}
           disabled={disabled}
           onChange={(value) => set('longWindow', Number(value))}
-          options={LONG_WINDOWS.map((entry) => ({ value: String(entry.seconds), label: entry.label }))}
+          options={longWindows.map((entry) => ({ value: String(entry.seconds), label: entry.label }))}
           problem={problemFor(problems, 'monthlyWindow')}
         />
         <DateField
@@ -369,6 +456,24 @@ function readAmount(text: string, whenEmpty: string): AmountReading {
 /** The same reading the amount field echoes back, so the form and the field never disagree. */
 function amountOf(text: string): Micro | undefined {
   return readAmount(text, '').value;
+}
+
+type WindowChoice = { readonly seconds: number; readonly label: string };
+
+/**
+ * The presets, plus the mandate's own window when it is not one of them. A select whose value is
+ * missing from its options shows the first option, and a reader who saves what they see would
+ * rewrite a window they never touched.
+ */
+function withCurrent(options: readonly WindowChoice[], seconds: number, prefix = ''): readonly WindowChoice[] {
+  if (options.some((entry) => entry.seconds === seconds)) return options;
+  return [...options, { seconds, label: `${prefix}${spanLabel(seconds)}` }];
+}
+
+function spanLabel(seconds: number): string {
+  if (seconds % DAY_SECONDS === 0) return seconds === DAY_SECONDS ? '1 day' : `${seconds / DAY_SECONDS} days`;
+  if (seconds % 3_600 === 0) return seconds === 3_600 ? '1 hour' : `${seconds / 3_600} hours`;
+  return `${seconds} seconds`;
 }
 
 function plain(value: Micro): string {

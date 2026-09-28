@@ -42,7 +42,12 @@ export function SpendPanel() {
   if (!account) return null;
 
   const reading = draft
-    ? readDraft(draft, Date.now(), { contractSet: account.contractSet, classMask: account.limits.classMask, lane: account.limits.lane })
+    ? readDraft(draft, Date.now(), {
+        contractSet: account.contractSet,
+        classMask: account.limits.classMask,
+        lane: account.limits.lane,
+        from: account.limits,
+      })
     : undefined;
   const total = totalBudgetOf(account);
   const secondCap = showsSecondCap(account);

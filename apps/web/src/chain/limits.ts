@@ -50,10 +50,11 @@ export function checkLimits(form: LimitsForm): readonly LimitsProblem[] {
 
   if (form.perCallCap <= 0n) problems.push({ field: 'perCallCap', problem: 'A mandate needs a ceiling on a single payment.' });
   const native = (form.totalCap ?? 0n) > 0n;
-  const total = native || isTotalBudgetWindow(form.monthlyWindow);
+  // On v2 the total has a field of its own, so the second window is a rolling cap however long.
+  const total = !native && isTotalBudgetWindow(form.monthlyWindow);
   if (form.dailyCap < form.perCallCap) problems.push({ field: 'dailyCap', problem: 'The period cap has to be at least the per-payment limit.' });
   if (native && (form.totalCap ?? 0n) < form.dailyCap) {
-    problems.push({ field: 'monthlyCap', problem: 'The total budget has to be at least the period cap.' });
+    problems.push({ field: 'totalCap', problem: 'The total budget has to be at least the period cap.' });
   }
   if (form.classMask !== undefined && form.classMask === 0) {
     problems.push({ field: 'classMask', problem: 'Allow at least one spend class, or the mandate refuses every payment.' });
