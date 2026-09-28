@@ -1,4 +1,4 @@
-import { micro } from '@bursar/core';
+import { isTotalBudgetWindow, micro } from '@bursar/core';
 import type { Micro } from '@bursar/core';
 import { getCode, readContract } from 'viem/actions';
 import { bytesToHex, hexToBytes, keccak256 } from 'viem';
@@ -21,6 +21,8 @@ export type MandateSummary = {
   readonly perCallCap: Micro;
   readonly dailyRemaining: Micro;
   readonly monthlyRemaining: Micro;
+  /** Whether the second window is the total budget, which never refills, rather than a rolling cap. */
+  readonly totalBudget: boolean;
   readonly version: bigint;
 };
 
@@ -95,6 +97,7 @@ export async function readMandateSummaries(
     version: batch.add<bigint>('version', { address, abi: mandateAccountAbi as never, functionName: 'version' }),
     perCallCap: batch.add<bigint>('perCallCap', { address, abi: mandateAccountAbi as never, functionName: 'perCallCap' }),
     remaining: batch.add<readonly [bigint, bigint, bigint]>('remaining', { address, abi: mandateAccountAbi as never, functionName: 'remaining' }),
+    second: batch.add<{ readonly duration: bigint }>('window', { address, abi: mandateAccountAbi as never, functionName: 'window', args: [1] }),
     balance: batch.add<bigint>('balance', { address: ADDRESSES.usdg, abi: settlementAssetAbi as never, functionName: 'balanceOf', args: [address] }),
   }));
 
@@ -111,6 +114,7 @@ export async function readMandateSummaries(
       perCallCap: micro(results.get(slot.perCallCap) ?? 0n),
       dailyRemaining: micro(remaining?.[1] ?? 0n),
       monthlyRemaining: micro(remaining?.[2] ?? 0n),
+      totalBudget: isTotalBudgetWindow(results.get(slot.second)?.duration ?? 0n),
       version: results.get(slot.version) ?? 0n,
     };
   });

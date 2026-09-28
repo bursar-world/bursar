@@ -15,6 +15,7 @@ import { fromUnix } from '@/lib/time';
 import { describeApproval, windowWord } from '../lib/format';
 import { callGates } from '../lib/write-gates';
 import { LimitsFields, draftFromLimits, readDraft } from '../limits-form';
+import { isTotalBudgetWindow } from '@bursar/core';
 import type { LimitsDraft } from '../limits-form';
 import { useMandateScope } from './mandate-scope';
 import { useWriteContract } from '@/wallet/write';
@@ -54,7 +55,11 @@ export function SpendPanel() {
   return (
     <Section
       title="What is left"
-      description="Both windows bind at once, so the tighter of the two is what the agent feels right now."
+      description={
+        isTotalBudgetWindow(account.monthly.duration)
+          ? 'The period cap refills each period. The total budget never refills, so it bounds the whole mandate.'
+          : 'Both windows bind at once, so the tighter of the two is what the agent feels right now.'
+      }
       actions={
         isOwner && !editing ? (
           <Button size="sm" onClick={startEditing}>
@@ -71,8 +76,12 @@ export function SpendPanel() {
               value={usd(account.limits.perCallCap)}
               hint={`A single payment above this is refused. ${usd(account.remaining.perCall)} is the ceiling in force now.`}
             />
-            <WindowStat window={account.daily} label="Shorter window" />
-            <WindowStat window={account.monthly} label="Longer window" />
+            <WindowStat window={account.daily} label="Period cap" />
+            {isTotalBudgetWindow(account.monthly.duration) ? (
+              <TotalStat window={account.monthly} />
+            ) : (
+              <WindowStat window={account.monthly} label="Second cap" />
+            )}
           </StatGrid>
 
           <FieldGrid columns={3}>
@@ -103,8 +112,8 @@ export function SpendPanel() {
               <div>
                 <h3 className="text-sm font-semibold">Change the limits</h3>
                 <p className="mt-0.5 text-detail text-[color:var(--color-muted)]">
-                  The whole set is written at once. Both windows are re-anchored to the moment this lands and what has
-                  already been spent stays counted, so a shorter window cannot hand back an allowance that was used.
+                  The whole set is written at once. The period and the total are re-anchored to the moment this lands
+                  and what has already been spent stays counted, so a change cannot hand back an allowance that was used.
                 </p>
               </div>
 
@@ -148,6 +157,26 @@ export function SpendPanel() {
         </div>
       </Card>
     </Section>
+  );
+}
+
+/** The second window when it is the total budget: it never resets, so it shows no countdown. */
+function TotalStat({ window: spendWindow }: { readonly window: SpendWindow }) {
+  const cap = Number(spendWindow.cap);
+  const spent = Number(spendWindow.spent);
+  const exhausted = spendWindow.remaining === 0n;
+  const level = exhausted ? 'blocked' : spent > cap * 0.8 ? 'attention' : 'ok';
+
+  return (
+    <div className="space-y-2">
+      <Stat
+        label="Total budget"
+        value={usd(spendWindow.remaining)}
+        level={level}
+        hint={`${usd(spendWindow.spent)} of ${usd(spendWindow.cap)} spent. It never refills; the owner can raise it.`}
+      />
+      <LimitBar used={spent} total={cap} level={level} />
+    </div>
   );
 }
 

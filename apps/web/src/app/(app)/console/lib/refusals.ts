@@ -64,14 +64,14 @@ const CAUSES: Readonly<Record<string, Omit<RefusalCause, 'errorName'>>> = {
   },
   DailyCapExceeded: {
     state: 'mandate',
-    headline: 'The daily allowance was exhausted',
-    detail: 'The amount was more than the daily window had left. The allowance returns when that window rolls.',
+    headline: 'The period cap was reached',
+    detail: 'The amount was more than the current period had left. The cap refills when the period rolls.',
     owner: 'principal',
   },
   MonthlyCapExceeded: {
     state: 'mandate',
-    headline: 'The monthly allowance was exhausted',
-    detail: 'The amount was more than the monthly window had left. The allowance returns when that window rolls.',
+    headline: 'The second cap was reached',
+    detail: 'The amount was more than the second window had left. That allowance returns when its window rolls.',
     owner: 'principal',
   },
   MerchantNotAllowed: {
@@ -292,6 +292,23 @@ const CAUSES: Readonly<Record<string, Omit<RefusalCause, 'errorName'>>> = {
   },
 };
 
+/**
+ * `MonthlyCapExceeded` from a mandate whose second window is the total budget. The contract names
+ * the window, not what it is used for, so the console reads the window's length to say which.
+ */
+const TOTAL_BUDGET_CAUSE: Omit<RefusalCause, 'errorName'> = {
+  state: 'mandate',
+  headline: 'The total budget is spent',
+  detail: 'The amount was more than the total budget had left. The total never refills; only the account owner can raise it.',
+  owner: 'principal',
+};
+
+/** What the console knows about the mandate a refusal came from. */
+export type RefusalContext = {
+  /** True when the second window is the total budget (see `isTotalBudgetWindow`). */
+  readonly totalBudget?: boolean;
+};
+
 /** Selector to error name, built from the ABIs at load so it cannot drift from them. */
 const SELECTORS: ReadonlyMap<string, string> = buildSelectors([mandateAccountAbi as Abi, escrowAbi as Abi]);
 
@@ -311,7 +328,8 @@ export function errorNameFor(selector: Hex | undefined): string | undefined {
   return selector === undefined ? undefined : SELECTORS.get(selector.toLowerCase());
 }
 
-export function refusalForErrorName(errorName: string): RefusalCause {
+export function refusalForErrorName(errorName: string, context: RefusalContext = {}): RefusalCause {
+  if (errorName === 'MonthlyCapExceeded' && context.totalBudget === true) return { errorName, ...TOTAL_BUDGET_CAUSE };
   const known = CAUSES[errorName];
   if (known) return { errorName, ...known };
 
@@ -332,9 +350,9 @@ export function refusalForErrorName(errorName: string): RefusalCause {
  * issuer's decisions, not this system's, and a treasurer who reads "declined" would look in the
  * wrong place.
  */
-export function refusalFor(reading: RevertReading | undefined): RefusalCause {
+export function refusalFor(reading: RevertReading | undefined, context: RefusalContext = {}): RefusalCause {
   const errorName = errorNameFor(reading?.selector);
-  if (errorName && errorName !== 'Error') return refusalForErrorName(errorName);
+  if (errorName && errorName !== 'Error') return refusalForErrorName(errorName, context);
 
   const message = reading?.message?.trim();
   if (message) {

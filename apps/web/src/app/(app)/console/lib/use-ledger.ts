@@ -15,6 +15,7 @@ import type { ApprovalState, GateEntry, LockRecord } from './reads';
 import { readingOf } from './reading';
 import type { Reading } from './reading';
 import { describeAttempt, refusalFor } from './refusals';
+import type { RefusalContext } from './refusals';
 import type { Attempt, RefusalCause } from './refusals';
 
 const INDEX_REFETCH_MS = 30_000;
@@ -246,9 +247,9 @@ export type RefusalFeed = {
  * record with its reason attached. Reading that reason costs one request per failure, which is why
  * only the failures in the recent window are read and the surface says when it stopped.
  */
-export function useRefusals(mandate: Address | undefined): RefusalFeed {
+export function useRefusals(mandate: Address | undefined, context: RefusalContext = {}): RefusalFeed {
   const query = useQuery({
-    queryKey: ['console', 'refusals', mandate ?? 'none'],
+    queryKey: ['console', 'refusals', mandate ?? 'none', context.totalBudget === true],
     queryFn: async () => {
       const transactions = await indexedTransactions(mandate as Address, REFUSAL_SCAN);
       const failed = transactions.filter((entry) => entry.failed);
@@ -261,7 +262,7 @@ export function useRefusals(mandate: Address | undefined): RefusalFeed {
         const reading = await indexedRevert(transaction.hash).catch(() => undefined);
         refusals.push({
           transaction,
-          cause: refusalFor(reading),
+          cause: refusalFor(reading, context),
           attempt: describeAttempt(transaction.input),
         });
       }

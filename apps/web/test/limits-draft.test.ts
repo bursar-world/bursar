@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { EMPTY_DRAFT, problemFor, readDraft } from '@/app/(app)/console/limits-form';
+import { TOTAL_BUDGET_MIN_SECONDS, micro } from '@bursar/core';
+
+import { EMPTY_DRAFT, NEVER_REFILLS, draftFromLimits, isTotalDraft, problemFor, readDraft } from '@/app/(app)/console/limits-form';
+import { DAY_SECONDS, MONTH_SECONDS } from '@/chain/limits';
 import type { LimitsDraft } from '@/app/(app)/console/limits-form';
 
 /**
@@ -24,14 +27,14 @@ describe('a ladder the contract would refuse', () => {
   it('disables Create on the case it warns about', () => {
     const reading = readDraft(draft({ perCall: '50', daily: '10' }));
 
-    expect(problemFor(reading.problems, 'dailyCap')).toBe('The daily limit has to be at least the per-payment limit.');
+    expect(problemFor(reading.problems, 'dailyCap')).toBe('The period cap has to be at least the per-payment limit.');
     expect(reading.limits).toBeUndefined();
   });
 
   it('disables it on the longer window too, which is the same rule one step up', () => {
     const reading = readDraft(draft({ perCall: '10', daily: '100', monthly: '50' }));
 
-    expect(problemFor(reading.problems, 'monthlyCap')).toBe('The monthly limit has to be at least the daily limit.');
+    expect(problemFor(reading.problems, 'monthlyCap')).toBe('The total budget has to be at least the period cap.');
     expect(reading.limits).toBeUndefined();
   });
 
@@ -88,5 +91,36 @@ describe('an amount that is not one says which mistake it is', () => {
       'Enter a positive amount.',
     );
     expect(problemFor(readDraft(draft({ approvalAmount: 'abc' })).problems, 'approvalThreshold')).toContain('Use digits');
+  });
+});
+
+describe('the total budget is the second window, set never to roll', () => {
+  it('writes the total as a window of at least one hundred years', () => {
+    const reading = readDraft({ ...EMPTY_DRAFT, perCall: '0.50', daily: '0.50', monthly: '1.00', shortWindow: DAY_SECONDS, approvalAmount: '1' });
+    expect(reading.problems).toEqual([]);
+    expect(reading.limits?.dailyWindow).toBe(DAY_SECONDS);
+    expect(reading.limits?.dailyCap).toBe(500_000n);
+    expect(reading.limits?.monthlyCap).toBe(1_000_000n);
+    expect(reading.limits?.monthlyWindow).toBe(TOTAL_BUDGET_MIN_SECONDS);
+  });
+
+  it('reads a deployed total back as a total, and a rolling second cap as rolling', () => {
+    const limits = {
+      perCallCap: micro(1n),
+      dailyCap: micro(2n),
+      monthlyCap: micro(3n),
+      dailyWindow: BigInt(DAY_SECONDS),
+      approvalThreshold: micro(1n),
+      validFrom: 0n,
+      validUntil: 0n,
+    };
+    expect(draftFromLimits({ ...limits, monthlyWindow: BigInt(TOTAL_BUDGET_MIN_SECONDS) }).longWindow).toBe(NEVER_REFILLS);
+    expect(isTotalDraft(draftFromLimits({ ...limits, monthlyWindow: BigInt(TOTAL_BUDGET_MIN_SECONDS) }))).toBe(true);
+    expect(draftFromLimits({ ...limits, monthlyWindow: BigInt(MONTH_SECONDS) }).longWindow).toBe(MONTH_SECONDS);
+  });
+
+  it('keeps a rolling second cap rolling when one is chosen', () => {
+    const reading = readDraft({ ...EMPTY_DRAFT, perCall: '1', daily: '2', monthly: '3', longWindow: MONTH_SECONDS, approvalAmount: '1' });
+    expect(reading.limits?.monthlyWindow).toBe(MONTH_SECONDS);
   });
 });

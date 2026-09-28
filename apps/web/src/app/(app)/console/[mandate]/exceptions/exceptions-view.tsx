@@ -1,6 +1,6 @@
 'use client';
 
-import { mulBps } from '@bursar/core';
+import { isTotalBudgetWindow, mulBps } from '@bursar/core';
 import type { Micro } from '@bursar/core';
 import { LockStatus } from '@bursar/sdk';
 
@@ -36,7 +36,7 @@ export function ExceptionsView() {
   const { address, account, system, ledger, isOwner, writeContext, refresh } = useMandateScope();
   const { labelFor } = useCapabilityLabels();
   const { writeContractAsync } = useWriteContract();
-  const feed = useRefusals(address);
+  const feed = useRefusals(address, { totalBudget: account !== undefined && isTotalBudgetWindow(account.monthly.duration) });
 
   const disputeWindow = system.snapshot?.escrow.disputeWindow;
   const bondBps = system.snapshot?.escrow.disputeBondBps;

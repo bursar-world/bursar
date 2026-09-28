@@ -141,7 +141,7 @@ describe('a daily cap the account refused on', () => {
   it('says what is left in the bucket and what the payment asked for', () => {
     const shown = surface(failure, 'Pay a provider');
 
-    expect(shown).toContain('today’s limit is spent');
+    expect(shown).toContain('this period’s cap is spent');
     expect(shown).toContain('$10.00');
     expect(shown).toContain('$50.00');
     expect(shown).toContain('$15.00');
@@ -149,7 +149,7 @@ describe('a daily cap the account refused on', () => {
 
   it('carries the moment the window rolls, so the reader is not left to guess', () => {
     expect((failure as { resetsAt?: Date }).resetsAt).toEqual(ROLLS_AT);
-    expect(surface(failure, 'Pay a provider')).toContain('Window rolls');
+    expect(surface(failure, 'Pay a provider')).toContain('Period rolls');
   });
 });
 
@@ -163,7 +163,7 @@ describe('the same failure with no context behind it', () => {
   it('quotes no limit and no clock, which is the regression this pair exists to catch', () => {
     const shown = surface(bare, 'Pay a provider');
 
-    expect(shown).not.toContain('Window rolls');
+    expect(shown).not.toContain('Period rolls');
     expect(shown).not.toContain('$50.00');
   });
 });

@@ -1,6 +1,6 @@
 'use client';
 
-import { MICRO_DECIMALS, formatMicro } from '@bursar/core';
+import { MICRO_DECIMALS, formatMicro, isTotalBudgetWindow, totalBudgetWindowSeconds } from '@bursar/core';
 import type { Micro } from '@bursar/core';
 import type { MandateLimits } from '@bursar/sdk';
 import { useId } from 'react';
@@ -25,9 +25,13 @@ import type { ApprovalMode } from './lib/format';
 
 export type LimitsDraft = {
   readonly perCall: string;
+  /** The period cap. Held in the account's first window. */
   readonly daily: string;
+  /** The total budget, or the second rolling cap when `longWindow` is a period. */
   readonly monthly: string;
+  /** The period the cap refills over, in seconds. */
   readonly shortWindow: number;
+  /** `NEVER_REFILLS` for a total budget; otherwise the second window's period in seconds. */
   readonly longWindow: number;
   readonly approvalMode: ApprovalMode;
   readonly approvalAmount: string;
@@ -37,12 +41,21 @@ export type LimitsDraft = {
   readonly validFrom: number;
 };
 
+/**
+ * The second window as a total budget: it never refills.
+ *
+ * The account has no lifetime field, so the total is its second window given a period it can never
+ * outlive (`totalBudgetWindowSeconds`). The draft holds this marker instead of that number, because
+ * the number depends on the expiry and the draft should not change when the expiry does.
+ */
+export const NEVER_REFILLS = 0;
+
 export const EMPTY_DRAFT: LimitsDraft = {
   perCall: '',
   daily: '',
   monthly: '',
   shortWindow: DAY_SECONDS,
-  longWindow: MONTH_SECONDS,
+  longWindow: NEVER_REFILLS,
   approvalMode: 'above',
   approvalAmount: '',
   validUntil: '',
@@ -50,18 +63,29 @@ export const EMPTY_DRAFT: LimitsDraft = {
 };
 
 const SHORT_WINDOWS: readonly { readonly seconds: number; readonly label: string }[] = [
-  { seconds: 3_600, label: 'Every hour' },
-  { seconds: 8 * 3_600, label: 'Every 8 hours' },
-  { seconds: DAY_SECONDS, label: 'Every day' },
-  { seconds: 7 * DAY_SECONDS, label: 'Every 7 days' },
+  { seconds: 3_600, label: '1 hour' },
+  { seconds: 8 * 3_600, label: '8 hours' },
+  { seconds: DAY_SECONDS, label: '1 day' },
+  { seconds: 7 * DAY_SECONDS, label: '7 days' },
+  { seconds: MONTH_SECONDS, label: '30 days' },
 ];
 
+/**
+ * A total budget first. The rolling choices stay for mandates created with a second rolling cap,
+ * so editing one of those does not quietly turn its cap into a lifetime total.
+ */
 const LONG_WINDOWS: readonly { readonly seconds: number; readonly label: string }[] = [
+  { seconds: NEVER_REFILLS, label: 'Never. It is a total budget' },
   { seconds: 7 * DAY_SECONDS, label: 'Every 7 days' },
   { seconds: MONTH_SECONDS, label: 'Every 30 days' },
   { seconds: 90 * DAY_SECONDS, label: 'Every 90 days' },
   { seconds: 365 * DAY_SECONDS, label: 'Every 365 days' },
 ];
+
+/** Whether this draft's second window is the total budget. */
+export function isTotalDraft(draft: LimitsDraft): boolean {
+  return draft.longWindow === NEVER_REFILLS;
+}
 
 /**
  * The draft as a limit set, or the reasons it is not one yet.
@@ -76,12 +100,16 @@ export type DraftReading = {
   readonly problems: readonly LimitsProblem[];
 };
 
-export function readDraft(draft: LimitsDraft): DraftReading {
+export function readDraft(draft: LimitsDraft, now: number = Date.now()): DraftReading {
   const problems: LimitsProblem[] = [];
+  const total = isTotalDraft(draft);
 
   const perCall = readAmount(draft.perCall, 'Set the most this agent may spend on one payment.');
-  const daily = readAmount(draft.daily, 'Set the most this agent may spend in the shorter window.');
-  const monthly = readAmount(draft.monthly, 'Set the most this agent may spend in the longer window.');
+  const daily = readAmount(draft.daily, 'Set the most this agent may spend in each period.');
+  const monthly = readAmount(
+    draft.monthly,
+    total ? 'Set the total budget: the most this agent may spend over the life of the mandate.' : 'Set the second cap.',
+  );
   const threshold = thresholdOf(draft);
 
   if (perCall.problem) problems.push({ field: 'perCallCap', problem: perCall.problem });
@@ -92,7 +120,7 @@ export function readDraft(draft: LimitsDraft): DraftReading {
   const validUntil = draft.validUntil === '' ? 0 : Math.floor(endOfDay(draft.validUntil) / 1000);
   if (draft.validUntil !== '' && !Number.isFinite(validUntil)) {
     problems.push({ field: 'validUntil', problem: 'That is not a date the mandate can expire on.' });
-  } else if (validUntil !== 0 && validUntil * 1000 < Date.now()) {
+  } else if (validUntil !== 0 && validUntil * 1000 < now) {
     // The contract only compares the expiry against the start date, so a date in the past is
     // accepted and produces a mandate that refuses its agent's first call.
     problems.push({ field: 'validUntil', problem: 'That date has passed, so the mandate would refuse every payment.' });
@@ -102,15 +130,16 @@ export function readDraft(draft: LimitsDraft): DraftReading {
     return { limits: undefined, problems };
   }
 
+  const expiry = Number.isFinite(validUntil) ? validUntil : 0;
   const limits: LimitsForm = {
     perCallCap: perCall.value,
     dailyCap: daily.value,
     monthlyCap: monthly.value,
     dailyWindow: draft.shortWindow,
-    monthlyWindow: draft.longWindow,
+    monthlyWindow: total ? Number(totalBudgetWindowSeconds(expiry, Math.floor(now / 1000))) : draft.longWindow,
     approvalThreshold: threshold.value,
     validFrom: draft.validFrom,
-    validUntil: Number.isFinite(validUntil) ? validUntil : 0,
+    validUntil: expiry,
   };
 
   const refused = [...problems, ...checkLimits(limits)];
@@ -125,7 +154,7 @@ export function draftFromLimits(limits: MandateLimits): LimitsDraft {
     daily: plain(limits.dailyCap),
     monthly: plain(limits.monthlyCap),
     shortWindow: Number(limits.dailyWindow),
-    longWindow: Number(limits.monthlyWindow),
+    longWindow: isTotalBudgetWindow(limits.monthlyWindow) ? NEVER_REFILLS : Number(limits.monthlyWindow),
     approvalMode: mode,
     approvalAmount: mode === 'above' ? plain(limits.approvalThreshold) : '',
     validUntil: limits.validUntil === 0n ? '' : isoDate(Number(limits.validUntil) * 1000),
@@ -152,6 +181,8 @@ export function LimitsFields({
   const perCallCap = amountOf(draft.perCall);
   const approvalAmount = amountOf(draft.approvalAmount);
 
+  const total = isTotalDraft(draft);
+
   return (
     <div className="space-y-5">
       <FieldGrid columns={3}>
@@ -165,35 +196,40 @@ export function LimitsFields({
           hint="A single payment above this is refused by the contract."
         />
         <AmountInput
-          label="Most per short window"
+          label="Period cap"
           asset="USDG"
           value={draft.daily}
           disabled={disabled}
           onChange={(text) => set('daily', text)}
           problem={problemFor(problems, 'dailyCap')}
-          hint="Spent amounts return to this budget when the window rolls."
+          hint="The most the agent may spend in each period. It refills when the period rolls."
         />
         <AmountInput
-          label="Most per long window"
+          label={total ? 'Total budget' : 'Second cap'}
           asset="USDG"
           value={draft.monthly}
           disabled={disabled}
           onChange={(text) => set('monthly', text)}
           problem={problemFor(problems, 'monthlyCap')}
-          hint="Both windows bind at once, so the tighter one is what the agent feels."
+          hint={
+            total
+              ? 'The most the agent may spend over the life of the mandate. It never refills; you can raise it.'
+              : 'A second rolling cap. Both bind at once, so the tighter one is what the agent feels.'
+          }
         />
       </FieldGrid>
 
       <FieldGrid columns={3}>
         <Select
-          label="Short window resets"
+          label="Period"
           value={String(draft.shortWindow)}
           disabled={disabled}
           onChange={(value) => set('shortWindow', Number(value))}
           options={SHORT_WINDOWS.map((entry) => ({ value: String(entry.seconds), label: entry.label }))}
+          problem={problemFor(problems, 'dailyWindow')}
         />
         <Select
-          label="Long window resets"
+          label={total ? 'Total budget refills' : 'Second cap refills'}
           value={String(draft.longWindow)}
           disabled={disabled}
           onChange={(value) => set('longWindow', Number(value))}

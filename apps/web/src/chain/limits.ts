@@ -1,4 +1,4 @@
-import { micro } from '@bursar/core';
+import { isTotalBudgetWindow, micro } from '@bursar/core';
 import type { Micro } from '@bursar/core';
 import type { MandateLimits } from '@bursar/sdk';
 
@@ -16,7 +16,11 @@ export type LimitsForm = {
   readonly perCallCap: Micro;
   readonly dailyCap: Micro;
   readonly monthlyCap: Micro;
-  /** Seconds. Named daily and monthly by convention; the contract holds two arbitrary windows. */
+  /**
+   * Seconds. Named daily and monthly by convention; the contract holds two arbitrary windows. The
+   * console uses the first as the period cap and the second as the total budget, which is a window
+   * long enough never to roll (see `totalBudgetWindowSeconds`).
+   */
   readonly dailyWindow: number;
   readonly monthlyWindow: number;
   /** At and above this, the account owner signs the payment personally. Never zero. */
@@ -36,11 +40,17 @@ export function checkLimits(form: LimitsForm): readonly LimitsProblem[] {
   const problems: LimitsProblem[] = [];
 
   if (form.perCallCap <= 0n) problems.push({ field: 'perCallCap', problem: 'A mandate needs a ceiling on a single payment.' });
-  if (form.dailyCap < form.perCallCap) problems.push({ field: 'dailyCap', problem: 'The daily limit has to be at least the per-payment limit.' });
-  if (form.monthlyCap < form.dailyCap) problems.push({ field: 'monthlyCap', problem: 'The monthly limit has to be at least the daily limit.' });
+  const total = isTotalBudgetWindow(form.monthlyWindow);
+  if (form.dailyCap < form.perCallCap) problems.push({ field: 'dailyCap', problem: 'The period cap has to be at least the per-payment limit.' });
+  if (form.monthlyCap < form.dailyCap) {
+    problems.push({
+      field: 'monthlyCap',
+      problem: total ? 'The total budget has to be at least the period cap.' : 'The second cap has to be at least the period cap.',
+    });
+  }
   if (form.approvalThreshold <= 0n) problems.push({ field: 'approvalThreshold', problem: 'Set the amount above which you want to sign personally.' });
-  if (form.dailyWindow <= 0) problems.push({ field: 'dailyWindow', problem: 'The daily window has to be longer than zero.' });
-  if (form.monthlyWindow < form.dailyWindow) problems.push({ field: 'monthlyWindow', problem: 'The longer window has to be at least the shorter one.' });
+  if (form.dailyWindow <= 0) problems.push({ field: 'dailyWindow', problem: 'The period has to be longer than zero.' });
+  if (form.monthlyWindow < form.dailyWindow) problems.push({ field: 'monthlyWindow', problem: 'The second cap has to refill no faster than the period cap.' });
   if (form.validUntil !== undefined && form.validUntil !== 0 && form.validFrom !== undefined && form.validUntil <= form.validFrom) {
     problems.push({ field: 'validUntil', problem: 'The mandate would expire before it opens.' });
   }

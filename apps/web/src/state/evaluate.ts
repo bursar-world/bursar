@@ -1,3 +1,4 @@
+import { isTotalBudgetWindow } from '@bursar/core';
 import type { Micro } from '@bursar/core';
 import type { Address } from 'viem';
 
@@ -187,6 +188,7 @@ export function evaluateMandate(snapshot: ChainSnapshot | undefined, checkedAt: 
   const now = snapshot?.chainTime ?? new Date();
   const validFrom = fromUnix(account.limits.validFrom);
   const validUntil = fromUnix(account.limits.validUntil);
+  const total = isTotalBudgetWindow(account.monthly.duration);
 
   const checks: Check[] = [
     {
@@ -215,11 +217,13 @@ export function evaluateMandate(snapshot: ChainSnapshot | undefined, checkedAt: 
       level: 'ok',
       detail: `Up to ${usd(account.limits.perCallCap)} in one payment. At or above ${usd(account.limits.approvalThreshold)} the principal signs it personally.`,
     },
-    windowCheck('daily', 'Today', account.remaining.daily, account.daily.cap, account.remaining.dailyResetsAt, now),
-    windowCheck('monthly', 'This month', account.remaining.monthly, account.monthly.cap, account.remaining.monthlyResetsAt, now),
+    windowCheck('daily', 'This period', account.remaining.daily, account.daily.cap, account.remaining.dailyResetsAt, now),
+    total
+      ? totalCheck(account.remaining.monthly, account.monthly.cap)
+      : windowCheck('monthly', 'Second cap', account.remaining.monthly, account.monthly.cap, account.remaining.monthlyResetsAt, now),
   ];
 
-  const headroom = `${usd(account.remaining.daily)} left today, ${usd(account.remaining.monthly)} left this month.`;
+  const headroom = `${usd(account.remaining.daily)} left this period, ${usd(account.remaining.monthly)} left ${total ? 'in the total budget' : 'under the second cap'}.`;
 
   if (account.revoked) {
     return report('mandate', 'Mandate', 'blocked', 'The agent is revoked.', 'The agent seated on this mandate was removed, so nothing can spend against it. Seat an agent to start again.', { label: 'Seat an agent', owner: 'principal', kind: 'transaction' }, checks, facts, checkedAt, stale);
@@ -238,11 +242,15 @@ export function evaluateMandate(snapshot: ChainSnapshot | undefined, checkedAt: 
   }
 
   if (account.remaining.daily === 0n) {
-    return report('mandate', 'Mandate', 'blocked', 'Today’s limit is spent.', `${usd(account.daily.cap)} of daily allowance is used. The window rolls ${formatRelative(account.remaining.dailyResetsAt, now)}, at ${formatInstant(account.remaining.dailyResetsAt)}. Raise the daily limit to spend sooner.`, { label: 'Wait for the window to roll', owner: 'principal', kind: 'wait', waitUntil: account.remaining.dailyResetsAt }, checks, facts, checkedAt, stale);
+    return report('mandate', 'Mandate', 'blocked', 'This period’s cap is spent.', `All ${usd(account.daily.cap)} of the period cap is used. The period rolls ${formatRelative(account.remaining.dailyResetsAt, now)}, at ${formatInstant(account.remaining.dailyResetsAt)}. Raise the period cap to spend sooner.`, { label: 'Wait for the period to roll', owner: 'principal', kind: 'wait', waitUntil: account.remaining.dailyResetsAt }, checks, facts, checkedAt, stale);
+  }
+
+  if (account.remaining.monthly === 0n && total) {
+    return report('mandate', 'Mandate', 'blocked', 'The total budget is spent.', `All ${usd(account.monthly.cap)} of the total budget is used. It never refills, so nothing more can be spent until the owner raises it.`, { label: 'Raise the total budget', owner: 'principal', kind: 'transaction' }, checks, facts, checkedAt, stale);
   }
 
   if (account.remaining.monthly === 0n) {
-    return report('mandate', 'Mandate', 'blocked', 'This month’s limit is spent.', `${usd(account.monthly.cap)} of monthly allowance is used. The window rolls ${formatRelative(account.remaining.monthlyResetsAt, now)}. Raise the monthly limit to spend sooner.`, { label: 'Wait for the window to roll', owner: 'principal', kind: 'wait', waitUntil: account.remaining.monthlyResetsAt }, checks, facts, checkedAt, stale);
+    return report('mandate', 'Mandate', 'blocked', 'The second cap is spent.', `All ${usd(account.monthly.cap)} of the second cap is used. Its window rolls ${formatRelative(account.remaining.monthlyResetsAt, now)}. Raise it to spend sooner.`, { label: 'Wait for the window to roll', owner: 'principal', kind: 'wait', waitUntil: account.remaining.monthlyResetsAt }, checks, facts, checkedAt, stale);
   }
 
   // A payment was named and the account answered about that payment. Its answer is more specific
@@ -261,7 +269,7 @@ export function evaluateMandate(snapshot: ChainSnapshot | undefined, checkedAt: 
   }
 
   if (thin) {
-    return report('mandate', 'Mandate', 'attention', `${usd(account.remaining.daily)} left today.`, `That is under a tenth of the ${usd(account.daily.cap)} daily limit. The window rolls ${formatRelative(account.remaining.dailyResetsAt, now)}.`, { label: 'Raise the daily limit', owner: 'principal', kind: 'transaction' }, checks, facts, checkedAt, stale);
+    return report('mandate', 'Mandate', 'attention', `${usd(account.remaining.daily)} left this period.`, `That is under a tenth of the ${usd(account.daily.cap)} period cap. The period rolls ${formatRelative(account.remaining.dailyResetsAt, now)}.`, { label: 'Raise the period cap', owner: 'principal', kind: 'transaction' }, checks, facts, checkedAt, stale);
   }
 
   return report('mandate', 'Mandate', 'ok', headroom, `Up to ${usd(account.limits.perCallCap)} in one payment, and the principal signs anything at or above ${usd(account.limits.approvalThreshold)} personally.`, null, checks, facts, checkedAt, stale);
@@ -482,6 +490,19 @@ export function evaluateConnectivity(
   return report('connectivity', 'Connectivity', 'ok', `${reachable.length} of ${list.length} endpoints answering.`, `Both are serving chain ${chainId}${blockNumber === undefined ? '' : ` at block ${blockNumber.toString()}`}.`, null, checks, facts, checkedAt, stale);
 }
 
+function totalCheck(remaining: Micro, cap: Micro): Check {
+  const level: StateLevel = remaining === 0n ? 'blocked' : cap > 0n && remaining * 10n < cap ? 'attention' : 'ok';
+  return {
+    id: 'monthly',
+    label: 'Total budget',
+    level,
+    detail:
+      remaining === 0n
+        ? `All ${usd(cap)} is spent. The total never refills.`
+        : `${usd(remaining)} left of ${usd(cap)}. The total never refills.`,
+  };
+}
+
 function windowCheck(id: string, label: string, remaining: Micro, cap: Micro, resetsAt: Date, now: Date): Check {
   const level: StateLevel = remaining === 0n ? 'blocked' : cap > 0n && remaining * 10n < cap ? 'attention' : 'ok';
   return {
@@ -532,15 +553,21 @@ function limitRefusal(
       };
     case 'daily-cap':
       return {
-        headline: `${asked} is more than today’s allowance has left.`,
-        detail: 'The account refuses it until the window rolls or the daily limit rises.',
-        action: { label: 'Raise the daily limit', owner: 'principal', kind: 'transaction' },
+        headline: `${asked} is more than this period’s cap has left.`,
+        detail: 'The account refuses it until the period rolls or the period cap rises.',
+        action: { label: 'Raise the period cap', owner: 'principal', kind: 'transaction' },
       };
     case 'monthly-cap':
       return {
-        headline: `${asked} is more than this month’s allowance has left.`,
-        detail: 'The account refuses it until the window rolls or the monthly limit rises.',
-        action: { label: 'Raise the monthly limit', owner: 'principal', kind: 'transaction' },
+        headline: `${asked} is more than the second cap has left.`,
+        detail: 'The account refuses it until that window rolls or the cap rises.',
+        action: { label: 'Raise the second cap', owner: 'principal', kind: 'transaction' },
+      };
+    case 'total-budget':
+      return {
+        headline: `${asked} is more than the total budget has left.`,
+        detail: 'The total budget never refills. The account refuses it until the owner raises the total.',
+        action: { label: 'Raise the total budget', owner: 'principal', kind: 'transaction' },
       };
     case 'approval-required':
       return {

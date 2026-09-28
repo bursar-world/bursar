@@ -192,9 +192,11 @@ function headingFor(
 function denialHeadline(reason: DenialReason | undefined): string {
   switch (reason) {
     case 'daily-cap':
-      return 'today’s limit is spent';
+      return 'this period’s cap is spent';
     case 'monthly-cap':
-      return 'this month’s limit is spent';
+      return 'the second cap is spent';
+    case 'total-budget':
+      return 'the total budget is spent';
     case 'per-call-cap':
       return 'it is over the per-payment limit';
     case 'approval-required':
@@ -254,12 +256,16 @@ function denialSentence(error: MandateShapedError): string | undefined {
   switch (denialReason(error)) {
     case 'daily-cap':
       return snapshot
-        ? `${usd(snapshot.remaining.daily)} of the ${usd(snapshot.daily.cap)} daily limit is left.${asked} The allowance returns when the window rolls, and until then only the account owner can raise it.`
-        : `The daily limit is spent.${asked} The allowance returns when the window rolls.`;
+        ? `${usd(snapshot.remaining.daily)} of the ${usd(snapshot.daily.cap)} period cap is left.${asked} The cap refills when the period rolls, and until then only the account owner can raise it.`
+        : `The period cap is spent.${asked} It refills when the period rolls.`;
     case 'monthly-cap':
       return snapshot
-        ? `${usd(snapshot.remaining.monthly)} of the ${usd(snapshot.monthly.cap)} monthly limit is left.${asked} The allowance returns when the window rolls, and until then only the account owner can raise it.`
-        : `The monthly limit is spent.${asked} The allowance returns when the window rolls.`;
+        ? `${usd(snapshot.remaining.monthly)} of the ${usd(snapshot.monthly.cap)} second cap is left.${asked} The allowance returns when its window rolls, and until then only the account owner can raise it.`
+        : `The second cap is spent.${asked} The allowance returns when its window rolls.`;
+    case 'total-budget':
+      return snapshot
+        ? `${usd(snapshot.remaining.monthly)} of the ${usd(snapshot.monthly.cap)} total budget is left.${asked} The total never refills; only the account owner can raise it.`
+        : `The total budget is spent.${asked} It never refills; only the account owner can raise it.`;
     case 'per-call-cap':
       return snapshot
         ? `One payment can be at most ${usd(snapshot.limits.perCallCap)} here.${asked} Split the work, or ask the account owner to raise the per-payment limit.`
@@ -354,17 +360,24 @@ function limitRows(error: MandateShapedError): Row[] {
 
   if (snapshot && reason === 'daily-cap') {
     return [
-      { label: 'Left today', value: usd(snapshot.remaining.daily) },
-      { label: 'Daily limit', value: usd(snapshot.daily.cap) },
-      { label: 'Window rolls', value: <Instant at={snapshot.daily.resetsAt} relative /> },
+      { label: 'Left this period', value: usd(snapshot.remaining.daily) },
+      { label: 'Period cap', value: usd(snapshot.daily.cap) },
+      { label: 'Period rolls', value: <Instant at={snapshot.daily.resetsAt} relative /> },
     ];
   }
 
   if (snapshot && reason === 'monthly-cap') {
     return [
-      { label: 'Left this month', value: usd(snapshot.remaining.monthly) },
-      { label: 'Monthly limit', value: usd(snapshot.monthly.cap) },
+      { label: 'Left under the second cap', value: usd(snapshot.remaining.monthly) },
+      { label: 'Second cap', value: usd(snapshot.monthly.cap) },
       { label: 'Window rolls', value: <Instant at={snapshot.monthly.resetsAt} relative /> },
+    ];
+  }
+
+  if (snapshot && reason === 'total-budget') {
+    return [
+      { label: 'Left in the total budget', value: usd(snapshot.remaining.monthly) },
+      { label: 'Total budget', value: usd(snapshot.monthly.cap) },
     ];
   }
 

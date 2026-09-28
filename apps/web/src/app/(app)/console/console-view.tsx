@@ -107,7 +107,7 @@ export function ConsoleView() {
               level={reading.state === 'read' ? undefined : 'unknown'}
             />
             <Stat
-              label="Left in the shorter window"
+              label="Left this period"
               value={<Figure reading={reading}>{usd(leftToday)}</Figure>}
               hint={hintFor(reading, 'Added up across every mandate. Each one still binds on its own.')}
               level={reading.state === 'read' ? undefined : 'unknown'}
@@ -175,16 +175,21 @@ export function ConsoleView() {
                 },
                 {
                   key: 'daily',
-                  header: 'Left, short window',
+                  header: 'Left this period',
                   align: 'right',
                   cell: (row) => <span className="tabular">{usd(row.dailyRemaining)}</span>,
                 },
                 {
                   key: 'monthly',
-                  header: 'Left, long window',
+                  header: 'Left in total',
                   align: 'right',
                   secondary: true,
-                  cell: (row) => <span className="tabular">{usd(row.monthlyRemaining)}</span>,
+                  cell: (row) => (
+                    <span className="tabular">
+                      {usd(row.monthlyRemaining)}
+                      {!row.totalBudget && <span className="text-[color:var(--color-muted)]"> · rolling</span>}
+                    </span>
+                  ),
                 },
               ]}
             />
