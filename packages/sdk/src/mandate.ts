@@ -54,6 +54,7 @@ import {
 import { random32 } from './random.js';
 import { logsFrom } from './receipt.js';
 import { decodeRevertData, returnedNoData, type RevertInfo } from './revert.js';
+import { rwa, type BuyReceipt } from './rwa.js';
 import { sendCall, type ExplainRevert, type Sent } from './send.js';
 import { payRequest, type FetchTarget, type PaidResponse } from './x402/fetch.js';
 import {
@@ -1036,6 +1037,14 @@ export class MandateAccountClient {
         args: [toCapabilityId(checkCapability('capability', capability)), allowed],
       }),
     );
+  }
+
+  /**
+   * Buys `usd` of an eligible stock (by symbol or address) for this mandate. Sent by the agent.
+   * See `RwaClient` for the treasury lane and the purchase policy.
+   */
+  async buy(asset: string, usd: Micro): Promise<BuyReceipt> {
+    return rwa(this).buy(asset, usd);
   }
 
   async setPaused(paused: boolean): Promise<Sent> {

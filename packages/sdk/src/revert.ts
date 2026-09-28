@@ -2,12 +2,17 @@ import { decodeErrorResult, isHex, size, slice, toFunctionSelector } from 'viem'
 import type { Abi, AbiParameter, Hex } from 'viem';
 import {
   agentRegistryAbi,
+  assetRegistryAbi,
   escrowAbi,
   mandateAccountAbi,
   mandateAccountFactoryAbi,
   oracleRegistryAbi,
+  parkAdapterAbi,
+  priceGuardAbi,
   reputationAbi,
   settlementAssetAbi,
+  stockSpendRouterAbi,
+  treasuryParkAbi,
 } from '@bursar/core';
 
 import type { GasFailureReason } from './errors.js';
@@ -62,6 +67,11 @@ const DEPLOYMENT_ABIS = [
   ...reputationAbi,
   ...oracleRegistryAbi,
   ...settlementAssetAbi,
+  ...assetRegistryAbi,
+  ...priceGuardAbi,
+  ...stockSpendRouterAbi,
+  ...treasuryParkAbi,
+  ...parkAdapterAbi,
 ] as unknown as Abi;
 
 const REVERT_ABI: Abi = DEPLOYMENT_ABIS.filter((item) => item.type === 'error');

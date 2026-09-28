@@ -25,6 +25,9 @@ export type {
   WithdrawArgs,
 } from './mandate.js';
 
+export { RwaClient, RwaUnavailableError, UnknownAssetError, rwa } from './rwa.js';
+export type { BuyReceipt, FeedPrice, Holding, ParkedPosition, RwaAsset } from './rwa.js';
+
 export { EscrowClient, escrow } from './escrow.js';
 export type { EscrowTerms, ReleaseArgs } from './escrow.js';
 
