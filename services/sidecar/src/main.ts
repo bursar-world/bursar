@@ -6,7 +6,7 @@ import { createRhcClient, settlementAssetAbi } from '@bursar/core';
 import type { RpcPoolEvent } from '@bursar/core';
 
 import { loadConfig } from './config.js';
-import type { SidecarConfig } from './config.js';
+import type { EscrowWatch, SidecarConfig } from './config.js';
 import { createEscrowPort, hasResolver } from './escrow.js';
 import { createEvidencePoster } from './evidence.js';
 import { createOutputReader, createOutputWriter, executeJob, readRoutes } from './executor.js';
@@ -41,36 +41,111 @@ async function start(config: SidecarConfig, payeeKey: `0x${string}`, logger: Log
     }, config.confirmTimeoutMs + SHUTDOWN_GRACE_MS).unref();
   };
 
-  // Before anything is read or signed. Two sidecars on one payee run every job twice, sign from
-  // one key at the same nonce and overwrite each other's cursor, and the cheapest moment to find
-  // that out is the one before either of them has done any of it.
-  const claim = await claimState(config.statePath, {
-    // Found later, the same answer applies: the other one keeps the payee and this one stops
-    // before it signs anything else.
-    onLost: (holder) => {
-      claimLost = true;
-      logger.error('claim_lost', {
-        holder,
-        statePath: config.statePath,
-        action: 'stopping; another sidecar now holds this payee, and this one exits non-zero',
+  // Before anything is read or signed, and for every escrow before any of them starts. Two
+  // sidecars on one payee run every job twice, sign from one key at the same nonce and overwrite
+  // each other's cursor, and the cheapest moment to find that out is the one before either of them
+  // has done any of it.
+  const claims: Claim[] = [];
+  try {
+    for (const watch of config.escrows) {
+      claims.push(
+        await claimState(watch.statePath, {
+          // Found later, the same answer applies: the other one keeps the payee and this one stops
+          // before it signs anything else, on every escrow it was answering.
+          onLost: (holder) => {
+            claimLost = true;
+            logger.error('claim_lost', {
+              holder,
+              escrow: watch.escrow,
+              statePath: watch.statePath,
+              action: 'stopping; another sidecar now holds this payee, and this one exits non-zero',
+            });
+            stop();
+          },
+        }),
+      );
+    }
+  } catch (error) {
+    await Promise.all(claims.map((claim) => claim.release()));
+    throw error;
+  }
+
+  try {
+    const { client, pool } = createRhcClient({
+      chain: config.chain,
+      providers: config.providers,
+      onEvent: (event) => reportRpc(logger, event),
+    });
+
+    // One signer, and so one nonce manager, for every escrow: they all sign from the payee key.
+    const signer = createSigner({ key: payeeKey, chain: config.chain, pool });
+    const gas = gasMonitor(config, client, signer.address, logger);
+
+    await reportUnscoped(config, logger);
+
+    const watchers = [];
+    for (const [index, watch] of config.escrows.entries()) {
+      watchers.push(
+        await startEscrow(config, watch, {
+          client,
+          signer,
+          routes,
+          logger,
+          lost: () => claimLost,
+          // The gas floor is one balance, so one watcher checks it.
+          gas: index === 0 ? gas : undefined,
+          holder: claims[index]?.holder ?? 'unknown',
+        }),
+      );
+    }
+
+    for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+      process.once(signal, () => {
+        logger.info('shutting_down', { signal });
+        stop();
       });
-      stop();
-    },
-  });
+    }
 
-  await reportUnscoped(config, logger);
+    // One escrow failing stops the rest, so the process exits the way a single-escrow one would.
+    await Promise.all(
+      watchers.map((watcher) =>
+        watcher.run(shutdown.signal).catch((error: unknown) => {
+          stop();
+          throw error;
+        }),
+      ),
+    );
 
-  const { client, pool } = createRhcClient({
-    chain: config.chain,
-    providers: config.providers,
-    onEvent: (event) => reportRpc(logger, event),
-  });
+    if (claimLost) {
+      process.exitCode = 1;
+      return;
+    }
+    logger.info('stopped', { payee: signer.address, escrows: config.escrows.length });
+  } finally {
+    await Promise.all(claims.map((claim) => claim.release()));
+  }
+}
 
-  const signer = createSigner({ key: payeeKey, chain: config.chain, pool });
+type Claim = Awaited<ReturnType<typeof claimState>>;
+
+type Shared = {
+  readonly client: ReturnType<typeof createRhcClient>['client'];
+  readonly signer: ReturnType<typeof createSigner>;
+  readonly routes: Awaited<ReturnType<typeof readRoutes>>;
+  readonly logger: Logger;
+  readonly lost: () => boolean;
+  readonly gas: GasMonitor | undefined;
+  readonly holder: string;
+};
+
+/** The watcher for one escrow: its own port, terms, outputs and cursor. */
+async function startEscrow(config: SidecarConfig, watch: EscrowWatch, shared: Shared) {
+  const { client, signer, routes, logger } = shared;
+
   const chain = createEscrowPort({
     client,
     wallet: signer.wallet,
-    address: config.escrow,
+    address: watch.escrow,
     confirmTimeoutMs: config.confirmTimeoutMs,
     minFeeCap: config.chain.minFeeCap,
   });
@@ -86,15 +161,15 @@ async function start(config: SidecarConfig, payeeKey: `0x${string}`, logger: Log
     functionName: 'decimals',
   });
   if (decimals !== 6) {
-    throw new Error(`Escrow ${config.escrow} settles in a ${decimals}-decimal asset; this sidecar handles six.`);
+    throw new Error(`Escrow ${watch.escrow} settles in a ${decimals}-decimal asset; this sidecar handles six.`);
   }
 
-  const outputDir = join(config.outputDir, config.outputScope);
+  const outputDir = join(config.outputDir, watch.outputScope);
   const writeOutput = createOutputWriter(outputDir);
   const outputPolicy = {
     maxInlineOutputBytes: config.maxInlineOutputBytes,
     // The directory is served as a whole, so the scope is part of the public path too.
-    outputBaseUrl: config.outputBaseUrl === undefined ? undefined : `${config.outputBaseUrl}/${config.outputScope}`,
+    outputBaseUrl: config.outputBaseUrl === undefined ? undefined : `${config.outputBaseUrl}/${watch.outputScope}`,
   };
 
   const watcher = await createWatcher({
@@ -102,7 +177,7 @@ async function start(config: SidecarConfig, payeeKey: `0x${string}`, logger: Log
     payee: signer.address,
     terms,
     logger,
-    state: guardedState(createFileStateStore(config.statePath), () => claimLost),
+    state: guardedState(createFileStateStore(watch.statePath), shared.lost),
     pollMs: config.pollMs,
     confirmTimeoutMs: config.confirmTimeoutMs,
     startBlock: config.startBlock,
@@ -116,12 +191,12 @@ async function start(config: SidecarConfig, payeeKey: `0x${string}`, logger: Log
         : createEvidencePoster({
             url: config.evidenceUrl,
             account: signer.wallet.account,
-            escrow: config.escrow,
+            escrow: watch.escrow,
             chainId: config.chain.chainId,
             fetch: globalThis.fetch,
             timeoutMs: config.fetchTimeoutMs,
           }),
-    gas: gasMonitor(config, client, signer.address, logger),
+    gas: shared.gas,
     execute: (job: LockJob, signal?: AbortSignal) =>
       executeJob(
         job,
@@ -139,20 +214,13 @@ async function start(config: SidecarConfig, payeeKey: `0x${string}`, logger: Log
       ),
   });
 
-  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-    process.once(signal, () => {
-      logger.info('shutting_down', { signal });
-      stop();
-    });
-  }
-
   const cursor = watcher.snapshot();
   logger.info('started', {
     payee: signer.address,
-    holder: claim.holder,
+    holder: shared.holder,
     chain: config.chain.name,
     chainId: config.chain.chainId,
-    escrow: config.escrow,
+    escrow: watch.escrow,
     outputDir,
     // Each bare label is routed under three ids, so count what the file configures, not the aliases.
     capabilities: new Set([...routes.values()].map((route) => route.capability)).size,
@@ -167,17 +235,7 @@ async function start(config: SidecarConfig, payeeKey: `0x${string}`, logger: Log
     pollMs: config.pollMs,
   });
 
-  try {
-    await watcher.run(shutdown.signal);
-  } finally {
-    await claim.release();
-  }
-
-  if (claimLost) {
-    process.exitCode = 1;
-    return;
-  }
-  logger.info('stopped', { payee: signer.address });
+  return watcher;
 }
 
 /**
@@ -207,16 +265,16 @@ async function reportUnscoped(config: SidecarConfig, logger: Logger): Promise<vo
     return;
   }
 
-  const inUse = resolve(config.statePath);
+  const inUse = new Set(config.escrows.map((entry) => resolve(entry.statePath)));
   const legacy = names.filter(
-    (name) => /^\d+\.json$/.test(name) || (name === 'cursor.json' && resolve(config.outputDir, name) !== inUse),
+    (name) => /^\d+\.json$/.test(name) || (name === 'cursor.json' && !inUse.has(resolve(config.outputDir, name))),
   );
   if (legacy.length === 0) return;
 
   logger.warn('unscoped_outputs_ignored', {
     outputDir: config.outputDir,
     files: legacy.length,
-    scope: config.outputScope,
+    scope: config.escrows.map((entry) => entry.outputScope).join(','),
     action: 'files directly under OUTPUT_DIR are not read; see the sidecar README on upgrading',
   });
 }

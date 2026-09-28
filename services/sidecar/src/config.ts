@@ -15,10 +15,27 @@ import type { Address, Hex } from 'viem';
 import { normalizeHost } from './executor.js';
 
 const HEX32 = /^0x[0-9a-fA-F]{64}$/;
+const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+
+/**
+ * One escrow this payee answers, with the directory its outputs and cursor live in. A lock id is
+ * unique only within one escrow, so every escrow keeps its own of both.
+ */
+export type EscrowWatch = {
+  readonly escrow: Address;
+  readonly outputScope: string;
+  readonly statePath: string;
+};
 
 export type SidecarConfig = {
   readonly chain: RhcChain;
   readonly providers: readonly RpcProvider[];
+  /**
+   * Every escrow this payee answers, in the order configured. One watcher runs per escrow, all
+   * signing from the one payee key through one nonce manager.
+   */
+  readonly escrows: readonly EscrowWatch[];
+  /** The first of `escrows`. Its scope and cursor are `outputScope` and `statePath` below. */
   readonly escrow: Address;
   readonly apiBase: string;
   readonly capabilitiesPath: string;
@@ -69,6 +86,13 @@ const SCHEMA = {
 
   /** The escrow this payee answers. Falls back to the deployment record for the chain. */
   ESCROW_ADDRESS: optional(envVar.address()),
+
+  /**
+   * Several escrows, comma separated, for a payee with locks on more than one deployment: the
+   * current escrow and a superseded one it still holds locks on. Joined with ESCROW_ADDRESS when
+   * both are set, duplicates dropped.
+   */
+  ESCROW_ADDRESSES: optional(envVar.list()),
 
   /** The provider's own key. Signs releases, nothing else, and never a payer's authorisation. */
   PAYEE_PRIVATE_KEY: envVar.string({ pattern: HEX32, secret: true }),
@@ -148,7 +172,18 @@ export function loadConfig(source: EnvSource = process.env): LoadedConfig {
   const providers = capture(() => rhcRpcProviders(source), problems);
   const chain = capture(() => rhcChain(env?.RHC_NETWORK ?? 'mainnet', source), problems);
 
-  const escrow = env?.ESCROW_ADDRESS ?? (chain && knownEscrow(chain, problems));
+  const named = namedEscrows(env?.ESCROW_ADDRESS, env?.ESCROW_ADDRESSES, problems);
+  const recorded = named.length === 0 && chain !== undefined ? knownEscrow(chain, problems) : undefined;
+  const escrowList: readonly Address[] = named.length > 0 ? named : recorded === undefined ? [] : [recorded];
+  const escrow = escrowList[0];
+
+  if (escrowList.length > 1 && env?.STATE_PATH !== undefined) {
+    problems.push({
+      name: 'STATE_PATH',
+      reason: `is set while ${escrowList.length} escrows are configured, and one cursor cannot serve them all`,
+      expected: 'unset, so each escrow keeps its own cursor under OUTPUT_DIR/<chainId>-<escrow>/',
+    });
+  }
 
   if (env?.ESCALATE_EXPIRED === true && env.ESCALATE_MAX_BOND === undefined) {
     problems.push({
@@ -163,7 +198,15 @@ export function loadConfig(source: EnvSource = process.env): LoadedConfig {
   }
 
   const outputDir = env.OUTPUT_DIR;
-  const outputScope = `${chain.chainId}-${escrow.toLowerCase()}`;
+  const escrows: EscrowWatch[] = escrowList.map((address) => {
+    const scope = `${chain.chainId}-${address.toLowerCase()}`;
+    return {
+      escrow: address,
+      outputScope: scope,
+      statePath: escrowList.length === 1 && env.STATE_PATH !== undefined ? env.STATE_PATH : `${trimSlashes(outputDir)}/${scope}/cursor.json`,
+    };
+  });
+  const [first] = escrows as [EscrowWatch, ...EscrowWatch[]];
 
   return {
     // Checked against the 32-byte hex pattern by the schema above, which is what makes `Hex` true.
@@ -171,14 +214,15 @@ export function loadConfig(source: EnvSource = process.env): LoadedConfig {
     config: {
       chain,
       providers,
-      escrow,
+      escrows,
+      escrow: first.escrow,
       apiBase: trimSlashes(env.API_BASE),
       capabilitiesPath: env.CAPABILITIES_PATH,
       allowedHosts: allowedHosts(env.ALLOWED_HOSTS),
       outputDir,
-      outputScope,
+      outputScope: first.outputScope,
       outputBaseUrl: env.OUTPUT_BASE_URL === undefined ? undefined : trimSlashes(env.OUTPUT_BASE_URL),
-      statePath: env.STATE_PATH ?? `${trimSlashes(outputDir)}/${outputScope}/cursor.json`,
+      statePath: first.statePath,
       pollMs: env.POLL_MS,
       fetchTimeoutMs: env.FETCH_TIMEOUT_MS,
       confirmTimeoutMs: env.CONFIRM_TIMEOUT_MS,
@@ -235,8 +279,8 @@ function capture<T>(resolve: () => T, problems: EnvProblem[]): T | undefined {
  * the escrow by name, because a bare chain-id miss says nothing useful about what to fix.
  *
  * The record that answers for the chain is the current one. A payee still holding locks on a
- * superseded escrow runs a second sidecar with ESCROW_ADDRESS set to it: the calls a payee makes
- * (release, finalizeRelease, dispute) are the same on both.
+ * superseded escrow lists both in ESCROW_ADDRESSES: the calls a payee makes (release,
+ * finalizeRelease, dispute) are the same on both.
  */
 function knownEscrow(chain: RhcChain, problems: EnvProblem[]): Address | undefined {
   try {
@@ -250,6 +294,26 @@ function knownEscrow(chain: RhcChain, problems: EnvProblem[]): Address | undefin
     });
     return undefined;
   }
+}
+
+/** ESCROW_ADDRESS then ESCROW_ADDRESSES, each checked, duplicates dropped whatever their case. */
+function namedEscrows(
+  single: Address | undefined,
+  list: readonly string[] | undefined,
+  problems: EnvProblem[],
+): readonly Address[] {
+  const out: Address[] = [];
+  const seen = new Set<string>();
+  for (const entry of [...(single === undefined ? [] : [single]), ...(list ?? [])]) {
+    if (!ADDRESS.test(entry)) {
+      problems.push({ name: 'ESCROW_ADDRESSES', reason: `has an entry that is not a 20-byte hex address (${entry})`, expected: 'comma-separated 20-byte hex addresses' });
+      continue;
+    }
+    if (seen.has(entry.toLowerCase())) continue;
+    seen.add(entry.toLowerCase());
+    out.push(entry as Address);
+  }
+  return out;
 }
 
 function trimSlashes(value: string): string {

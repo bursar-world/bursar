@@ -131,6 +131,43 @@ describe('loadConfig', () => {
     expect(loadConfig({ ...REQUIRED, STATE_PATH: '/var/lib/cursor.json' }).config.statePath).toBe('/var/lib/cursor.json');
   });
 
+  describe('more than one escrow', () => {
+    const V2 = '0x4315F8be7C9661345710910577Ec31cb867f3c20';
+    const V1 = '0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4';
+
+    it('watches every escrow in ESCROW_ADDRESSES, each with its own scope and cursor', () => {
+      const { config } = loadConfig({ ...REQUIRED, ESCROW_ADDRESS: undefined, ESCROW_ADDRESSES: `${V2}, ${V1}` });
+
+      expect(config.escrows).toEqual([
+        { escrow: V2, outputScope: `4663-${V2.toLowerCase()}`, statePath: `./out/4663-${V2.toLowerCase()}/cursor.json` },
+        { escrow: V1, outputScope: `4663-${V1.toLowerCase()}`, statePath: `./out/4663-${V1.toLowerCase()}/cursor.json` },
+      ]);
+      expect(config.escrow).toBe(V2);
+      expect(config.statePath).toBe(`./out/4663-${V2.toLowerCase()}/cursor.json`);
+    });
+
+    it('joins ESCROW_ADDRESS with the list, first, and drops a repeat in any case', () => {
+      const { config } = loadConfig({ ...REQUIRED, ESCROW_ADDRESS: V1, ESCROW_ADDRESSES: `${V2},${V1.toLowerCase()}` });
+
+      expect(config.escrows.map((watch) => watch.escrow)).toEqual([V1, V2]);
+    });
+
+    it('keeps ESCROW_ADDRESS alone as one escrow', () => {
+      expect(loadConfig(REQUIRED).config.escrows).toEqual([
+        { escrow: REQUIRED.ESCROW_ADDRESS, outputScope: SCOPE, statePath: `./out/${SCOPE}/cursor.json` },
+      ]);
+    });
+
+    it('refuses an entry that is not an address, and one STATE_PATH for several cursors', () => {
+      expect(problems({ ...REQUIRED, ESCROW_ADDRESSES: `${V2},escrow` })).toContain(
+        'ESCROW_ADDRESSES: has an entry that is not a 20-byte hex address (escrow)',
+      );
+      expect(problems({ ...REQUIRED, ESCROW_ADDRESSES: V2, STATE_PATH: '/var/lib/cursor.json' })).toContain(
+        'STATE_PATH: is set while 2 escrows are configured, and one cursor cannot serve them all',
+      );
+    });
+  });
+
   it('reads the overridable numbers and the replay block', () => {
     const { config } = loadConfig({
       ...REQUIRED,

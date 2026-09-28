@@ -102,11 +102,12 @@ with no capabilities file and it names the path it looked in and the example to 
 | `RHC_RPC_TERTIARY` | unset | Optional third endpoint. |
 | `RHC_NETWORK` | `mainnet` | Chain 4663, and the only value that works. `testnet` is refused: 46630 has no USDG contract, so nothing there settles. Chain values are overridden through `RHC_MAINNET_*`, which is also how a local fork of 4663 is configured. |
 | `ESCROW_ADDRESS` | deployment record | The escrow to answer. |
+| `ESCROW_ADDRESSES` | unset | Several escrows to answer, comma-separated, for a payee with open locks on an earlier deployment as well as the current one: list both. Joined with `ESCROW_ADDRESS` when both are set. One process watches all of them, signing from the one payee key; each keeps its own outputs and cursor under `<OUTPUT_DIR>/<chainId>-<escrow>/`, so `STATE_PATH` must be unset. |
 | `CAPABILITIES_PATH` | `capabilities.json` | Route table. The file is required; only its path has a default. |
 | `ALLOWED_HOSTS` | none | Hosts an input URI may be fetched from, comma-separated. Loopback is not allowed unless it is listed. Base64 `data:` inputs need no entry. |
 | `OUTPUT_DIR` | `./out` | Where delivered outputs are written, as `<chainId>-<escrow>/<id>.json`. |
 | `OUTPUT_BASE_URL` | unset | Public base for outputs too large to carry in calldata. |
-| `STATE_PATH` | `<OUTPUT_DIR>/<chainId>-<escrow>/cursor.json` | Scan cursor and in-flight locks. |
+| `STATE_PATH` | `<OUTPUT_DIR>/<chainId>-<escrow>/cursor.json` | Scan cursor and in-flight locks. Only with a single escrow. |
 | `START_BLOCK` | stored cursor, else head | Set to replay. Overrides the cursor. |
 | `POLL_MS` | `2000` | Pause between passes. |
 | `FETCH_TIMEOUT_MS` | `10000` | Per HTTP request. |
