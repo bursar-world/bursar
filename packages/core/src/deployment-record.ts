@@ -66,6 +66,30 @@ export type Deployment = {
   /** The same figure from a retired deployment on a chain where gas was paid in USDC. */
   readonly deployCostUsdc?: string;
   readonly note?: string;
+  /** The RWA lane (asset registry, price guard, stock router, treasury park), where deployed. */
+  readonly rwa?: RwaDeployment;
+};
+
+export type RwaAssetKind = 'stock' | 'treasury';
+
+export type RwaAssetRecord = {
+  readonly symbol: string;
+  readonly address: Address;
+  readonly feed: Address;
+  readonly kind: RwaAssetKind;
+};
+
+export type RwaDeployment = {
+  readonly AssetRegistry: Address;
+  readonly PriceGuard: Address;
+  readonly StockSpendRouter: Address;
+  readonly TreasuryPark: Address;
+  /** Park adapter per parked asset symbol. `USDG` parks as USDG. */
+  readonly adapters: Readonly<Record<string, Address>>;
+  /** Factory for accounts that unpark inside a spend. */
+  readonly MandateAccountFactoryV21?: Address;
+  /** What the registry held at deploy. The registry itself is the authority. */
+  readonly assets: readonly RwaAssetRecord[];
 };
 
 class DeploymentError extends BursarError {
@@ -148,6 +172,8 @@ export function parseDeployment(json: unknown, label = 'record'): Deployment {
     verifiedOnChain[key] = value;
   }
 
+  const rwa = record['rwa'] === undefined ? undefined : parseRwa(record['rwa'], name);
+
   const optionalString = (key: string): string | undefined => {
     const value = record[key];
     return typeof value === 'string' ? value : undefined;
@@ -180,7 +206,36 @@ export function parseDeployment(json: unknown, label = 'record'): Deployment {
       ? {}
       : { deployCostUsdc: optionalString('deployCostUsdc') }),
     ...(optionalString('note') === undefined ? {} : { note: optionalString('note') }),
+    ...(rwa === undefined ? {} : { rwa }),
   }) as Deployment;
+}
+
+function parseRwa(json: unknown, name: string): RwaDeployment {
+  const r = object(json, name, 'rwa');
+  const label = `${name}.rwa`;
+  const adaptersRecord = object(field(r, label, 'adapters'), label, 'adapters');
+  const adapters: Record<string, Address> = {};
+  for (const symbol of Object.keys(adaptersRecord)) adapters[symbol] = address(adaptersRecord, label, symbol);
+
+  const assetsRecord = object(field(r, label, 'assets'), label, 'assets');
+  const assets = Object.entries(assetsRecord).map(([symbol, value]) => {
+    const a = object(value, label, symbol);
+    const kind = a['kind'];
+    if (kind !== 'stock' && kind !== 'treasury') throw new DeploymentError(label, `${symbol}.kind is ${String(kind)}.`);
+    return Object.freeze({ symbol, address: address(a, label, 'address'), feed: address(a, label, 'feed'), kind });
+  });
+
+  return Object.freeze({
+    AssetRegistry: address(r, label, 'AssetRegistry'),
+    PriceGuard: address(r, label, 'PriceGuard'),
+    StockSpendRouter: address(r, label, 'StockSpendRouter'),
+    TreasuryPark: address(r, label, 'TreasuryPark'),
+    adapters: Object.freeze(adapters),
+    ...(r['MandateAccountFactoryV21'] === undefined
+      ? {}
+      : { MandateAccountFactoryV21: address(r, label, 'MandateAccountFactoryV21') }),
+    assets: Object.freeze(assets),
+  });
 }
 
 /**

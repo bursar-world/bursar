@@ -17,6 +17,9 @@ export type {
   DeploymentRecordFile,
   DeploymentRoles,
   MandateContractName,
+  RwaAssetKind,
+  RwaAssetRecord,
+  RwaDeployment,
 } from './deployment-record.js';
 
 export type DeploymentName = RawDeploymentName;

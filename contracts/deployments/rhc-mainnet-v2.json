@@ -188,7 +188,13 @@
     "Replace the three EOA timelock signers with a multisig, and move Escrow.treasury off the EOA with transferTreasury and acceptTreasury.",
     "Add the console's 250 USDG per-mandate funding limit (F7), and keep it and the 250 USDG payee ceiling until an external review of the v2 contracts exists.",
     "Retire the rhc-mainnet (v1) record once its escrow has no open locks and its disputes are settled.",
-    "Re-register the one v1 agent (0x5210D8df060A9D5ce4c1305045ED5c9548fca374) on the v2 AgentRegistry, or no v2 lock can name it as payee."
+    "Re-register the one v1 agent (0x5210D8df060A9D5ce4c1305045ED5c9548fca374) on the v2 AgentRegistry, or no v2 lock can name it as payee.",
+    "F18: add the eligibility attestation and jurisdiction gate before the rwa class, the treasury lane or any stock purchase can be enabled on a mandate (the console, the router policy and the park all accept any principal today).",
+    "Review the RWA caps before launch: 25 USDG per stock purchase, 100 USDG parked per mandate and 1,000 USDG in total, and the 100 bps (stocks) and 50 bps (SGOV) bands, against fresh depth measurements.",
+    "Get written confirmation from Chainlink or Robinhood that the Robinhood feeds price one raw token with the multiplier included, before the treasury lane is presented as live.",
+    "Add a market-session check (MarketStatusOracle) so stock purchases refuse outside the 24/5 session; today the 26 h staleness bound and the pool-versus-feed band carry that case.",
+    "Make the v2.1 factory (unpark inside a spend) the default for new mandates in the console, and run a park-manager service that parks above the buffer and unparks in market hours.",
+    "External review of AssetRegistry, PriceGuard, StockSpendRouter, TreasuryPark and both adapters."
   ],
   "pending": "Development deployment. See productionChecklist for the settings that change before public launch.",
   "exampleMandate": {
@@ -207,7 +213,7 @@
       "approvalThreshold": 100000,
       "validFrom": 0,
       "validUntil": 0,
-      "classMask": 3,
+      "classMask": 7,
       "totalCap": 1000000,
       "lane": 0
     },
@@ -216,7 +222,7 @@
     "fundedTx": "0x3df0ce24fccb5b4e216651cee571972ccaf6a66fdfdc9346a258dc06250e86bd",
     "funded": "0.20 USDG from the deployer",
     "console": "https://app.bursar.world/console/0x420BeB507F72173E7d78e0f956968f64fb508356",
-    "note": "A live v2 mandate created by the payer key through this deployment's factory, kept as the public example to read. Services and agent hires are allowed, stock purchases are not, and the lifetime total is 1 USDG. It holds 0.20 USDG. Only its principal and agent can move its funds."
+    "note": "A live v2 mandate created by the payer key through this deployment's factory, kept as the public example to read. Services, agent hires and eligible stock purchases are allowed, and the lifetime total is 1 USDG. It bought 0.05 USDG of SPY and holds 0.04 USDG parked in SGOV. Only its principal and agent can move its funds."
   },
   "resolvers": {
     "bonded": [
@@ -243,5 +249,170 @@
       }
     },
     "resolverCount": 3
+  },
+  "rwa": {
+    "milestone": "M3a",
+    "deployedAt": "2026-09-28T15:05:00Z",
+    "deployCostEth": "0.000301333931396",
+    "sourceCommit": "cf44e5a",
+    "note": "Asset registry and price guard (F8), eligible stock purchases (F9) and the treasury lane (F10). The registry and the park take the v2 AdminTimelock as admin from construction. Value is raw token amount times the Chainlink feed price; the token's multiplier is read for display only. The v2.1 factory makes accounts that unpark parked value inside a spend; v2 accounts (the example mandate included) park and unpark through the principal.",
+    "AssetRegistry": "0xe77600c2E4597CEC78A3653Fb1f393A0C68c9cD1",
+    "PriceGuard": "0x341Df9BC51f6329F3B6acC2CF7280eB644eE1120",
+    "StockSpendRouter": "0xE76Dd47F7aEF681D9451825A18b94B1D0538e40A",
+    "TreasuryPark": "0xB0aa8Dc8850d9b38727D3cFcd7a7F86DFdA34f53",
+    "adapters": {
+      "SGOV": "0xd737F4ce928cAE53097B276442E887BBab74C4d0",
+      "USDG": "0x203F89bC3AC7959359f92031fdDc0B7cb7843520"
+    },
+    "MandateAccountFactoryV21": "0x669366d0Ae3C6b51fEDcf451A01bF741Fd2ed08D",
+    "external": {
+      "PoolManager": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+      "StateView": "0xF3334192D15450CdD385c8B70e03f9A6bD9E673b",
+      "AccessRegistry": "0xe10b6f6B275de231345c20D14Ab812db62151b00"
+    },
+    "assets": {
+      "SGOV": {
+        "address": "0x92FD66527192E3e61d4DDd13322Aa222DE86F9B5",
+        "feed": "0xa0DF4ee0fFf975306345875E3548Fcc519577A11",
+        "poolId": "0x2a72510d7d92cc121f9733ab6d14227ef8963cfadf9d40ac574f02e20e6299a8",
+        "fee": 375,
+        "kind": "treasury",
+        "tradeStalenessSec": 93600,
+        "valuationStalenessSec": 360000,
+        "bandBps": 50,
+        "haircutBps": 50,
+        "perMandateCapUsdg": "100",
+        "totalCapUsdg": "1000"
+      },
+      "SPY": {
+        "address": "0x117cc2133c37B721F49dE2A7a74833232B3B4C0C",
+        "feed": "0x319724394D3A0e3669269846abE664Cd621f9f6A",
+        "poolId": "0xe5923c8a8be481ec89a2ca784a2bbfa4235de6d88f92260fd66b660c4babf907",
+        "fee": 500,
+        "kind": "stock",
+        "tradeStalenessSec": 93600,
+        "bandBps": 100,
+        "perTradeCapUsdg": "25"
+      },
+      "NVDA": {
+        "address": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+        "feed": "0x379EC4f7C378F34a1B47E4F3cbeBCbAC3E8E9F15",
+        "poolId": "0x6444a8e0b267406a15db74ca00c4a24bdfa81ed3180f5b6d0851f8ed6f4f29c5",
+        "fee": 100,
+        "kind": "stock",
+        "tradeStalenessSec": 93600,
+        "bandBps": 100,
+        "perTradeCapUsdg": "25"
+      },
+      "AAPL": {
+        "address": "0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9",
+        "feed": "0x6B22A786bAa607d76728168703a39Ea9C99f2cD0",
+        "poolId": "0xc748f4671a867db48b552f6b7650bf3255e05f80f00e3f7aad1b17ccb7898fdb",
+        "fee": 3000,
+        "kind": "stock",
+        "tradeStalenessSec": 93600,
+        "bandBps": 100,
+        "perTradeCapUsdg": "25"
+      }
+    },
+    "transactions": {
+      "AssetRegistry": {
+        "hash": "0x5eb7b2aacd389fd20afd8df0e0806fa85d002fc40fbf310cfa54d5c589f6a55f",
+        "block": 74847153,
+        "gas": 1825336
+      },
+      "PriceGuard": {
+        "hash": "0xd6b618f18206029cbeed1673c094a3b435fd58a15f9dd778d69119248cd6907e",
+        "block": 74847179,
+        "gas": 1202394
+      },
+      "StockSpendRouter": {
+        "hash": "0x23f6106a4d48200db34c01143a198d63b36571fee72d7b7e97779ff6fe99feb7",
+        "block": 74847217,
+        "gas": 1656656
+      },
+      "TreasuryPark": {
+        "hash": "0x958bb92b44b04396d899bc7589736efc1db0f0191d60f04ffb7ddb015a810f2b",
+        "block": 74847243,
+        "gas": 1993907
+      },
+      "RobinhoodStockAdapter.SGOV": {
+        "hash": "0xb9b6fc9e843166271807d5e959bedb86020f42cca4e417da4add283e35815a84",
+        "block": 74847269,
+        "gas": 1739344
+      },
+      "UsdgAdapter": {
+        "hash": "0xadb903f5187ce5755ac950ae6fded966fa29bebd877871fc96644ba8108d83a6",
+        "block": 74847295,
+        "gas": 346193
+      },
+      "TreasuryPark.initAdapters": {
+        "hash": "0x43beccd7483ecbc44609c3a9a8084212729ce0281d9397c4697fb88c5ce32b5c",
+        "block": 74847320,
+        "gas": 138676
+      },
+      "MandateAccountFactoryV21": {
+        "hash": "0x7b6c9d46da0c3cd12b82a337b873d65b39d35c5f63d8e35b0311a092ecabf3ad",
+        "block": 74847359,
+        "gas": 5822569
+      }
+    },
+    "liveProof": {
+      "mandate": "0x420BeB507F72173E7d78e0f956968f64fb508356",
+      "summary": "Allowed the rwa class, bought 0.05 USDG of SPY through the pinned pool, parked 0.05 USDG in SGOV and unparked it (0.049952 back), then parked 0.04 USDG and left it parked so the console shows a position. Total spent: 0.05 USDG on SPY plus 0.000048 USDG in pool fees.",
+      "setLimits": {
+        "hash": "0x0c2d7d2de64f325561e65a72707ba3c38d261560a8924d76cbfe4ce82396b0c8",
+        "block": 74847789,
+        "gas": 85861
+      },
+      "setRouter": {
+        "hash": "0xc5e2cc3bfde8e95090423b530f383ba23b9318a4830276dc02eb52fc7461153d",
+        "block": 74847818,
+        "gas": 47284
+      },
+      "setPolicy": {
+        "hash": "0x18e947c3ab117276e3c86eb24888a3af9525af96566ffae7bd0b278638671321",
+        "block": 74847846,
+        "gas": 128799
+      },
+      "buySpy": {
+        "hash": "0xcb09d263b38487973718db9a0aaf5d4555877baa555ee9d6ffc11d24abcb15f5",
+        "block": 74847890,
+        "gas": 367209
+      },
+      "setBuffer": {
+        "hash": "0xf81b406bcab691b7be43db6211d91968959dd183c03f3a6023f477bd05f9b5ac",
+        "block": 74847954,
+        "gas": 51120
+      },
+      "withdrawToVault": {
+        "hash": "0x1a0ebac254f6178efa78d83f4d558d2c9c10933bce02c3bc37868e5df809bb65",
+        "block": 74847983,
+        "gas": 75756
+      },
+      "parkSgov": {
+        "hash": "0x4e6772790d8d10c45abeaf96b3081106baaac46975f818555fd0319001ff5bae",
+        "block": 74848012,
+        "gas": 474012
+      },
+      "unparkSgov": {
+        "hash": "0xfed92c96570eff77d38b700cc93dbbba15ffd9aca3d3ab029adc5d2c9c4b7ed9",
+        "block": 74848056,
+        "gas": 237476
+      },
+      "withdrawToVault2": {
+        "hash": "0x0e6428ff589d032364d9c8430caefddeff9a33f87c2cb9e12dc2630442652ea9",
+        "block": 74848147,
+        "gas": 75756
+      },
+      "parkSgov2": {
+        "hash": "0xb54e22bb116aba1f8ff90cb81eafb89d8b55503984ef86a7d106d2172d9f3ba0",
+        "block": 74848176,
+        "gas": 326012
+      },
+      "spyReceivedRaw": "64961527959563",
+      "sgovParkedRaw": "395374858707165",
+      "vault": "0x0E502c7b9e3EF964e51A5A4b752238B5A9Aa3A25"
+    }
   }
 }

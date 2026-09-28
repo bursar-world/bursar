@@ -16,14 +16,14 @@ import {
 } from '../src/index.js';
 
 describe('spend-class namespaces', () => {
-  it('publishes service, hire and rwa, with rwa not yet available', () => {
+  it('publishes service, hire and rwa, all available', () => {
     expect(SPEND_CLASSES).toEqual(['service', 'hire', 'rwa']);
     expect(SPEND_CLASS_INFO.service.prefix).toBe('service:');
     expect(SPEND_CLASS_INFO.hire.prefix).toBe('hire:');
     expect(SPEND_CLASS_INFO.rwa.prefix).toBe('rwa:');
     expect(SPEND_CLASS_INFO.service.available).toBe(true);
     expect(SPEND_CLASS_INFO.hire.available).toBe(true);
-    expect(SPEND_CLASS_INFO.rwa.available).toBe(false);
+    expect(SPEND_CLASS_INFO.rwa.available).toBe(true);
   });
 
   it('places a bare label in the class it is spent under', () => {

@@ -10,11 +10,16 @@ describe('generated ABIs', () => {
     expect(Object.keys(BURSAR_ABIS).sort()).toEqual([
       'AdminTimelock',
       'AgentRegistry',
+      'AssetRegistry',
       'Escrow',
       'MandateAccount',
       'MandateAccountFactory',
       'OracleRegistry',
+      'PriceGuard',
       'Reputation',
+      'RobinhoodStockAdapter',
+      'StockSpendRouter',
+      'TreasuryPark',
     ]);
   });
 

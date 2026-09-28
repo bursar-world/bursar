@@ -29,6 +29,11 @@ const CONTRACTS = {
   OracleRegistry: 'oracleRegistryAbi',
   AgentRegistry: 'agentRegistryAbi',
   AdminTimelock: 'adminTimelockAbi',
+  AssetRegistry: 'assetRegistryAbi',
+  PriceGuard: 'priceGuardAbi',
+  StockSpendRouter: 'stockSpendRouterAbi',
+  TreasuryPark: 'treasuryParkAbi',
+  RobinhoodStockAdapter: 'parkAdapterAbi',
 } as const;
 
 /**

@@ -88,19 +88,29 @@ export type {
   DeploymentRecordFile,
   DeploymentRoles,
   MandateContractName,
+  RwaAssetKind,
+  RwaAssetRecord,
+  RwaDeployment,
 } from './deployments.js';
 
 export {
   BURSAR_ABIS,
   adminTimelockAbi,
   agentRegistryAbi,
+  assetRegistryAbi,
   escrowAbi,
   mandateAccountAbi,
   mandateAccountFactoryAbi,
   oracleRegistryAbi,
+  parkAdapterAbi,
+  priceGuardAbi,
   reputationAbi,
   settlementAssetAbi,
+  stockSpendRouterAbi,
+  treasuryParkAbi,
 } from './generated/abi.js';
+
+export { RWA_CLASS_BIT, rwaDeployment, rawToUsdgMicros, usdgMicrosToRaw } from './rwa.js';
 
 export {
   adminTimelockAbiV1,

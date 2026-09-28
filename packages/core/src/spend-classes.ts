@@ -15,8 +15,9 @@ import { BursarError } from './errors.js';
  * That holds only as long as everybody hashes the same prefix, which is why this is the one module
  * that defines them. The SDK, the MCP server, the sidecar and the console all read it.
  *
- * `rwa` is published so the namespace is reserved, and marked unavailable: eligible stock purchases
- * need the asset registry and price guard, which are not deployed. Nothing may present it as live.
+ * `rwa` covers eligible stock purchases. They settle through the mandate's `buy`, which checks the
+ * asset registry and price guard, never through an escrow lock, so no capability id is hashed under
+ * the `rwa:` prefix.
  */
 export const SPEND_CLASSES = ['service', 'hire', 'rwa'] as const;
 
@@ -52,7 +53,7 @@ export const SPEND_CLASS_INFO: Readonly<Record<SpendClass, SpendClassInfo>> = {
     prefix: 'rwa:',
     name: 'Eligible stocks',
     summary: 'Eligible tokenized-stock purchases, checked against a reference price.',
-    available: false,
+    available: true,
   },
 };
 
