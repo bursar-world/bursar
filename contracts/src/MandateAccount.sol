@@ -11,6 +11,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {IEscrow} from "./interfaces/IEscrow.sol";
 import {IMandateAccount} from "./interfaces/IMandateAccount.sol";
 import {IStockRouter} from "./interfaces/IStockRouter.sol";
+import {ITreasuryPark} from "./rwa/interfaces/ITreasuryPark.sol";
 
 contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -89,6 +90,11 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
     address public override router;
     bytes32 public override termsCommitment;
     address public override verifier;
+
+    /// Where the idle part of this budget is parked. A spend or purchase the USDG balance cannot
+    /// cover asks it for the difference and settles in the same transaction. Zero switches that
+    /// off. Added after the first v2 accounts, which do not have it.
+    address public override treasuryPark;
 
     /// Moves when the principal changes hands, which strands every approval the previous
     /// principal registered. Approvals are keyed under it.
@@ -416,6 +422,7 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
 
         // Counted like any spend and never credited back: a fill is final.
         _commit(usdgIn);
+        _ensureLiquid(usdgIn);
 
         IERC20 usdg = IERC20(settlementAsset);
         IERC20 bought = IERC20(asset);
@@ -435,6 +442,11 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
     function setRouter(address router_) external override onlyPrincipal {
         router = router_;
         emit RouterUpdated(router_);
+    }
+
+    function setTreasuryPark(address treasuryPark_) external override onlyPrincipal {
+        treasuryPark = treasuryPark_;
+        emit TreasuryParkUpdated(treasuryPark_);
     }
 
     function setTermsCommitment(bytes32 termsCommitment_, address verifier_) external override onlyPrincipal {
@@ -525,6 +537,7 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
         if (reason != bytes4(0)) _raise(reason);
 
         (Window memory daily, Window memory monthly) = _commit(request.amount);
+        _ensureLiquid(request.amount);
 
         // The escrow pulls the exact amount inside lock, so no agent-usable allowance
         // survives this call.
@@ -721,6 +734,15 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
                 )
             )
         );
+    }
+
+    /// Unparks the shortfall when the USDG balance cannot cover `amount`. With no park set, or
+    /// nothing fresh parked, the transfer that follows fails as it always did.
+    function _ensureLiquid(uint128 amount) private {
+        address park = treasuryPark;
+        if (park == address(0)) return;
+        uint256 held = IERC20(settlementAsset).balanceOf(address(this));
+        if (held < amount) ITreasuryPark(park).unparkFor(amount - held);
     }
 
     function _raise(bytes4 reason) private pure {

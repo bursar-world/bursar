@@ -100,8 +100,8 @@ interface IMandateAccount {
         uint32 classMask;
         /// Lifetime ceiling on committed spend, net of refunds. Zero means no lifetime ceiling.
         uint128 totalCap;
-        /// Where the funds settle: 0 escrow, 1 treasury, 2 collateral. Only 0 has contracts
-        /// behind it today; the other two are reserved so a mandate can name them later.
+        /// Where the funds settle: 0 escrow, 1 treasury, 2 collateral. The treasury lane is
+        /// `TreasuryPark`; the collateral lane is reserved so a mandate can name it later.
         uint8 lane;
     }
 
@@ -154,6 +154,7 @@ interface IMandateAccount {
     event SpendCredited(uint256 indexed escrowId, uint128 amount, uint128 dailySpent, uint128 monthlySpent);
     event Bought(address indexed asset, uint128 usdgIn, uint256 amountOut, uint256 quotedPriceE8);
     event RouterUpdated(address indexed router);
+    event TreasuryParkUpdated(address indexed treasuryPark);
     event TermsCommitted(bytes32 indexed termsCommitment, address indexed verifier);
 
     /// Locks `request.amount` in the escrow against the mandate. Reverts with
@@ -260,6 +261,11 @@ interface IMandateAccount {
     /// Records a commitment to off-chain terms and the verifier that will check proofs
     /// against it. Nothing reads either yet.
     function setTermsCommitment(bytes32 termsCommitment, address verifier) external;
+
+    /// The treasury lane that covers a USDG shortfall inside `spend` and `buy`. Not on the
+    /// first v2 accounts.
+    function setTreasuryPark(address treasuryPark) external;
+    function treasuryPark() external view returns (address);
 
     /// Passes a disclosure for one resolver through to the escrow, as the payer of the lock.
     function grantDisclosure(uint256 escrowId, address resolver, bytes32 sliceCommit, bytes calldata ciphertext)
