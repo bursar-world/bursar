@@ -13,7 +13,8 @@ import { ADDRESSES, FAKE_HASH, fakeConnection, type ReadCall } from './helpers/f
 const ACCOUNT: Address = '0x1234567890123456789012345678901234567890';
 const PROVIDER: Address = '0x2222222222222222222222222222222222222222';
 const CAPABILITY = 'research.summarize:1';
-const CAPABILITY_ID = capabilityId(CAPABILITY);
+// `hire` spends in the hire class, so the lock carries the namespaced id.
+const CAPABILITY_ID = capabilityId(`hire:${CAPABILITY}`);
 const CHAIN_NOW = 1_800_000_000n;
 
 const SPEC = {
@@ -147,6 +148,15 @@ function hireArgs(overrides: Record<string, unknown> = {}) {
 }
 
 describe('hiring an agent', () => {
+  it('refuses a service label, so a hire can never ride a service allowance', async () => {
+    const { mandate, sent } = await client();
+
+    await expect(mandate.hire(hireArgs({ capability: 'service:gpu.render:1' }))).rejects.toBeInstanceOf(
+      InvalidArgumentError,
+    );
+    expect(sent).toHaveLength(0);
+  });
+
   it('locks the budget through the mandate, against the brief', async () => {
     const { mandate, sent } = await client();
     const receipt = await mandate.hire(hireArgs());
@@ -155,6 +165,7 @@ describe('hiring an agent', () => {
     expect(receipt.escrowId).toBe(42n);
     expect(receipt.task).toBe(SPEC.task);
     expect(receipt.specCommit).toBe(jobCommit(SPEC));
+    expect(receipt.capability).toBe(`hire:${CAPABILITY}`);
 
     const call = decodeFunctionData({ abi: mandateAccountAbi, data: sent[0]?.data ?? '0x' });
 

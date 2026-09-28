@@ -184,3 +184,22 @@ export type {
   PaymentRecord,
   Settlement,
 } from './x402/fetch.js';
+
+/**
+ * The spend-class namespaces. `pay` spends under `service:` and `hire` under `hire:`; a mandate
+ * allows a class by allowing capability ids in its namespace. Compute those ids with
+ * `classCapabilityId('service', 'gpu.render:1')`.
+ */
+export {
+  SPEND_CLASSES,
+  SPEND_CLASS_INFO,
+  SpendClassError,
+  TOTAL_BUDGET_MIN_SECONDS,
+  bareLabel,
+  classCapabilityId,
+  classLabel,
+  classOfLabel,
+  isTotalBudgetWindow,
+  totalBudgetWindowSeconds,
+} from '@bursar/core';
+export type { SpendClass, SpendClassInfo } from '@bursar/core';

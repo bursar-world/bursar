@@ -1,4 +1,4 @@
-import { BursarError } from '@bursar/core';
+import { BursarError, isTotalBudgetWindow } from '@bursar/core';
 import type { Micro } from '@bursar/core';
 import { formatGwei } from 'viem';
 import type { Address, Hex } from 'viem';
@@ -21,6 +21,7 @@ export type DenialReason =
   | 'per-call-cap'
   | 'daily-cap'
   | 'monthly-cap'
+  | 'total-budget'
   | 'capability-not-allowed'
   | 'merchant-not-allowed'
   | 'merchant-proof-required'
@@ -58,7 +59,13 @@ const DENIAL_REASONS: Readonly<Record<string, DenialReason>> = {
   ZeroAddress: 'zero-address',
 };
 
-/** The reason a Solidity error name stands for, or undefined when the account did not raise it. */
+/**
+ * The reason a Solidity error name stands for, or undefined when the account did not raise it.
+ *
+ * `MonthlyCapExceeded` comes back as `monthly-cap` here, because the name alone cannot say whether
+ * the second window rolls. A `MandateDeniedError` that carries a snapshot settles it: a second
+ * window long enough to be the total budget turns the reason into `total-budget`.
+ */
 export function denialReasonFor(errorName: string): DenialReason | undefined {
   return DENIAL_REASONS[errorName];
 }
@@ -137,6 +144,14 @@ function clauseFor(denial: MandateDenial, now: Date): string {
       return snapshot
         ? windowClause('monthly', snapshot.monthly, snapshot.remaining.monthly, denial, now)
         : 'the monthly limit is exhausted.';
+    case 'total-budget': {
+      if (!snapshot) return 'the total budget is spent. It does not refill; the principal raises it with setLimits.';
+      const asked = denial.amount === undefined ? '' : ` and this call asks for ${usd(denial.amount)}`;
+      return (
+        `the total budget has ${usd(snapshot.remaining.monthly)} left of ${usd(snapshot.monthly.cap)}${asked}. ` +
+        'The total budget does not refill; the principal raises it with setLimits.'
+      );
+    }
     case 'capability-not-allowed':
       return `${capabilityLabel(denial)} is not on its capability allowlist.`;
     case 'merchant-not-allowed':
@@ -187,7 +202,8 @@ export class MandateDeniedError extends BursarError {
   /** When the limit that stopped this spend next frees allowance. Undefined when nothing resets. */
   readonly resetsAt: Date | undefined;
 
-  constructor(denial: MandateDenial) {
+  constructor(given: MandateDenial) {
+    const denial = withTotalBudget(given);
     const now = denial.now ?? new Date();
     super('mandate_denied', `${subject(denial)}: ${clauseFor(denial, now)}`, {
       reason: denial.reason,
@@ -207,6 +223,16 @@ export class MandateDeniedError extends BursarError {
     this.snapshot = denial.snapshot;
     this.resetsAt = resetOf(denial);
   }
+}
+
+/**
+ * A `MonthlyCapExceeded` from a second window that never rolls is the total budget running out,
+ * and it is named that way. Calling it a monthly cap would send the reader to wait for a reset that
+ * never comes.
+ */
+function withTotalBudget(denial: MandateDenial): MandateDenial {
+  if (denial.reason !== 'monthly-cap' || !denial.snapshot) return denial;
+  return isTotalBudgetWindow(denial.snapshot.limits.monthlyWindow) ? { ...denial, reason: 'total-budget' } : denial;
 }
 
 function resetOf(denial: MandateDenial): Date | undefined {

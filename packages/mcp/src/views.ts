@@ -4,6 +4,7 @@
  * sites.
  */
 
+import { isTotalBudgetWindow } from '@bursar/core';
 import type { Micro } from '@bursar/core';
 
 import { duration, instant, money, moneyFromUint, secondsUntil } from './format.js';
@@ -85,7 +86,8 @@ export function summarize(status: MandateStatus, daily: WindowView, monthly: Win
       return 'This mandate has passed its end time. Nothing further settles against it.';
     default:
       return (
-        `${daily.remaining.usdg} USDG left today and ${monthly.remaining.usdg} USDG left this month, ` +
+        `${daily.remaining.usdg} USDG left today and ${monthly.remaining.usdg} USDG ` +
+        `${isTotalBudgetWindow(monthly.windowSeconds) ? 'left in the total budget' : 'left this month'}, ` +
         `against ${balance} USDG held in the mandate. The daily budget resets in ${duration(daily.resetsInSeconds)}.`
       );
   }
@@ -104,6 +106,18 @@ export function refusalView(
   monthly: WindowView,
 ): RefusalView | null {
   if (refusal === null) return null;
+
+  // The second window on a mandate with a total budget never rolls, so running it out is the total
+  // being spent. It is named that way and carries no reset, because none is coming.
+  if (refusal.code === 'MonthlyCapExceeded' && isTotalBudgetWindow(monthly.windowSeconds)) {
+    return {
+      code: refusal.code,
+      subject: 'total_budget',
+      message:
+        `The total budget does not have room for this spend: ${monthly.remaining.usdg} USDG is left of ` +
+        `${monthly.cap.usdg} USDG. It does not refill. The principal can raise it.`,
+    };
+  }
 
   const view: RefusalView = { code: refusal.code, subject: refusal.subject, message: refusal.message };
   const window = refusal.subject === 'daily' ? daily : refusal.subject === 'monthly' ? monthly : null;

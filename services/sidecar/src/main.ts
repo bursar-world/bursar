@@ -154,7 +154,8 @@ async function start(config: SidecarConfig, payeeKey: `0x${string}`, logger: Log
     chainId: config.chain.chainId,
     escrow: config.escrow,
     outputDir,
-    capabilities: routes.size,
+    // Each bare label is routed under three ids, so count what the file configures, not the aliases.
+    capabilities: new Set([...routes.values()].map((route) => route.capability)).size,
     nextBlock: cursor.nextBlock,
     resuming: cursor.tracked.length,
     feeBps: terms.feeBps,

@@ -1,6 +1,16 @@
 import { encodeFunctionData, getContract, parseEventLogs } from 'viem';
 import type { Address, GetContractReturnType, Hex, PublicClient, Transport, Chain, TypedDataDomain } from 'viem';
-import { escrowAbi, mandateAccountAbi, micro, reputationAbi, settlementAssetAbi } from '@bursar/core';
+import {
+  SpendClassError,
+  classLabel,
+  classOfLabel,
+  escrowAbi,
+  mandateAccountAbi,
+  micro,
+  reputationAbi,
+  settlementAssetAbi,
+} from '@bursar/core';
+import type { SpendClass } from '@bursar/core';
 import type { Micro } from '@bursar/core';
 
 import { assertMandateDomain, signLimitsAuthorization, signSpendApproval } from './authorization.js';
@@ -178,6 +188,12 @@ export type PreviewRequest = {
   readonly capability: string;
   /** Set when the spend will carry the principal's approval, which lifts the threshold check. */
   readonly approved?: boolean;
+  /**
+   * The class a bare label is read under. Defaults to `service`, which is what `pay` and an x402
+   * payment spend under; pass `hire` to preview a `hire`. A label already namespaced, such as
+   * `hire:research.summarize:1`, is previewed as written.
+   */
+  readonly spendClass?: 'service' | 'hire';
 };
 
 /**
@@ -493,7 +509,9 @@ export class MandateAccountClient {
    */
   async preview(request: PreviewRequest): Promise<Decision> {
     const to = checkAddress('to', request.to);
-    const capability = checkCapability('capability', request.capability);
+    const written = checkCapability('capability', request.capability).trim();
+    const capability =
+      classOfLabel(written) === undefined ? spendLabel(request.spendClass ?? 'service', written) : written;
     const capabilityId = toCapabilityId(capability);
     const amount = checkAmount('amount', request.amount);
 
@@ -541,7 +559,7 @@ export class MandateAccountClient {
 
     return {
       allowed: false,
-      reason,
+      reason: denial?.reason ?? reason,
       errorName: decoded?.errorName,
       message,
       denial,
@@ -604,9 +622,14 @@ export class MandateAccountClient {
     return this.#pay(request, 'pay');
   }
 
+  /**
+   * `pay` spends in the `service` class and `hire` in the `hire` class. The class is the namespace
+   * of the capability id the lock carries, so a mandate that allows only services refuses a hire on
+   * chain, whatever label the caller wrote.
+   */
   async #pay(request: PayRequest, action: 'pay' | 'hire'): Promise<PaymentReceipt> {
     const to = checkAddress('to', request.to);
-    const capability = checkCapability('capability', request.capability);
+    const capability = spendLabel(action === 'hire' ? 'hire' : 'service', checkCapability('capability', request.capability));
     const capabilityId = toCapabilityId(capability);
     const amount = checkPositiveAmount('amount', request.amount);
     // Before the deadline read, so a read-only client is told it cannot pay under the name of the
@@ -1472,4 +1495,19 @@ export async function mandateAccount(
     settlementAsset,
     terms: { minTtl, maxTtl, reputation, registry },
   });
+}
+
+/**
+ * The namespaced capability label a spend in `spendClass` carries, or an argument error naming the
+ * field. See `classLabel` in `@bursar/core` for the rules.
+ */
+function spendLabel(spendClass: SpendClass, label: string): string {
+  try {
+    return classLabel(spendClass, label);
+  } catch (error) {
+    if (error instanceof SpendClassError) {
+      throw new InvalidArgumentError('capability', error.message, { ...error.details });
+    }
+    throw error;
+  }
 }

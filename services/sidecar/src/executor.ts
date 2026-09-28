@@ -1,6 +1,8 @@
 import { link, mkdir, open, readFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { classCapabilityId, classOfLabel } from '@bursar/core';
+import type { SpendClass } from '@bursar/core';
 import type { Hex } from 'viem';
 
 import { canonicalStringify, capabilityId, commitCanonical } from './commit.js';
@@ -498,9 +500,17 @@ export async function readRoutes(path: string): Promise<RouteTable> {
   }
 }
 
+/** The classes a provider is paid under. Eligible stock purchases settle elsewhere, not here. */
+const ROUTED_CLASSES: readonly SpendClass[] = ['service', 'hire'];
+
 /**
  * Turns the `"name:version"` keys of the capabilities file into the ids the escrow emits. A
  * capability absent here is never executed, so the map is the payee's whole surface.
+ *
+ * Payers spend under a class namespace: `pay` locks `service:gpu.render:1`, `hire` locks
+ * `hire:gpu.render:1`. A bare label in this file is served under both of those and under its own
+ * bare id, so a provider's file keeps working whichever way it is paid. A label written with a
+ * namespace is served under that one id only, and it wins over a bare label's alias for the same id.
  */
 export function parseRoutes(source: unknown): RouteTable {
   if (typeof source !== 'object' || source === null || Array.isArray(source)) {
@@ -508,6 +518,7 @@ export function parseRoutes(source: unknown): RouteTable {
   }
 
   const routes = new Map<Hex, CapabilityRoute>();
+  const explicit = new Set<Hex>();
 
   for (const [capability, value] of Object.entries(source)) {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -531,7 +542,18 @@ export function parseRoutes(source: unknown): RouteTable {
       throw new Error(`Capability ${capability} cannot be routed over ${normalized}: it carries no request body`);
     }
 
-    routes.set(capabilityId(capability), { capability, method: normalized, path });
+    const route = { capability, method: normalized, path };
+
+    if (classOfLabel(capability) !== undefined) {
+      const id = capabilityId(capability);
+      routes.set(id, route);
+      explicit.add(id);
+      continue;
+    }
+
+    for (const id of [capabilityId(capability), ...ROUTED_CLASSES.map((spendClass) => classCapabilityId(spendClass, capability))]) {
+      if (!explicit.has(id)) routes.set(id, route);
+    }
   }
 
   return routes;

@@ -88,6 +88,16 @@ describe('inspect', () => {
       feeBps: 50,
     });
     expect(view.summary).toContain('70.00 USDG left today');
+    expect(view.summary).toContain('left this month');
+  });
+
+  it('calls a lifetime second window the total budget in the summary', async () => {
+    state.monthly = { ...state.monthly, duration: 3_153_600_000n };
+
+    const view = await gatewayFor(createFakeNode(state)).inspect();
+
+    expect(view.summary).toContain('600.00 USDG left in the total budget');
+    expect(view.summary).not.toContain('this month');
   });
 
   /** The largest uint64 is how a principal writes "no end", and a Date cannot hold it. */
@@ -240,6 +250,50 @@ describe('quote', () => {
     expect(view.refusal?.resetsInSeconds).toBe(592_000);
   });
 
+  it('names a lifetime second window as the total budget, with no reset', async () => {
+    const state = defaultState();
+    state.previewReason = selector('MonthlyCapExceeded()');
+    state.monthly = { ...state.monthly, duration: 3_153_600_000n };
+
+    const view = await gatewayFor(createFakeNode(state)).quote({
+      provider: PROVIDER,
+      capability: CAPABILITY,
+      amount: toMicro('900000000'),
+    });
+
+    expect(view.refusal).toEqual({
+      code: 'MonthlyCapExceeded',
+      subject: 'total_budget',
+      message:
+        'The total budget does not have room for this spend: 600.00 USDG is left of 1000.00 USDG. ' +
+        'It does not refill. The principal can raise it.',
+    });
+  });
+
+  it('quotes a bare label under the service class unless told otherwise', async () => {
+    const service = await gatewayFor(createFakeNode()).quote({
+      provider: PROVIDER,
+      capability: CAPABILITY,
+      amount: toMicro('1000000'),
+    });
+    const hire = await gatewayFor(createFakeNode()).quote({
+      provider: PROVIDER,
+      capability: CAPABILITY,
+      amount: toMicro('1000000'),
+      spendClass: 'hire',
+    });
+    const written = await gatewayFor(createFakeNode()).quote({
+      provider: PROVIDER,
+      capability: 'hire:search.web:1',
+      amount: toMicro('1000000'),
+    });
+
+    expect(service.capability).toBe('service:search.web:1');
+    expect(service.capabilityId).toBe('0xfbe934c6639d0ff1d9ceb95d16e741178155449b2affe8f8c2200fd23618c893');
+    expect(hire.capability).toBe('hire:search.web:1');
+    expect(written.capabilityId).toBe(hire.capabilityId);
+  });
+
   it('leaves the clock off a refusal that is not on one', async () => {
     const state = defaultState();
     state.previewReason = selector('CapabilityNotAllowed()');
@@ -304,7 +358,8 @@ describe('pay', () => {
     expect(relay.spends[0]).toEqual({
       mandateAccount: ACCOUNT,
       merchant: PROVIDER,
-      capabilityId: '0x36227f76d2acde0880b004483c81e72635b3eb8176f6e4d463e942cf28445a8f',
+      // keccak256('service:search.web:1'): a payment is made in the service class.
+      capabilityId: '0xfbe934c6639d0ff1d9ceb95d16e741178155449b2affe8f8c2200fd23618c893',
       inputCommit: '0xab2f7d7e1fc3b681a0a9f436aab28bf04a4734375ae32a4fd42a4b9201d0a3f8',
       inputURI: 'data:application/json;base64,eyJjaXR5IjoiUGFyaXMifQ==',
       amount: '1000000',
@@ -315,6 +370,16 @@ describe('pay', () => {
     expect(view.settlementId).toBe('42');
     expect(view.deliverBy).toBe('2027-01-15T08:05:00Z');
     expect(view.status).toBe('held');
+  });
+
+  it('refuses a capability from another class, before anything reaches the relay', async () => {
+    const relay = relayDouble();
+
+    const failure = gatewayFor(createFakeNode(), relay).pay({ ...order, capability: 'hire:search.web:1' });
+
+    await expect(failure).rejects.toMatchObject({ code: 'invalid_arguments' });
+    await expect(failure).rejects.toThrow(/hire class/u);
+    expect(relay.spends).toHaveLength(0);
   });
 
   it('refuses an input no provider will read, before the money is locked against it', async () => {

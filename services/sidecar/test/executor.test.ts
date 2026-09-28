@@ -479,6 +479,30 @@ describe('parseRoutes', () => {
     });
   });
 
+  it('serves a bare label under its own id and under the service and hire namespaces', () => {
+    const route = { capability: 'quote.get:1', method: 'POST', path: '/v1/quotes/spot' };
+
+    expect(ROUTES.get(capabilityId('quote.get:1'))).toEqual(route);
+    expect(ROUTES.get(capabilityId('service:quote.get:1'))).toEqual(route);
+    expect(ROUTES.get(capabilityId('hire:quote.get:1'))).toEqual(route);
+    expect(ROUTES.get(capabilityId('rwa:quote.get:1'))).toBeUndefined();
+  });
+
+  it('serves a namespaced label under that id only, ahead of a bare alias', () => {
+    const routes = parseRoutes({
+      'service:render:1': { path: '/v1/render/service' },
+      'render:1': { path: '/v1/render' },
+      'hire:review:1': { path: '/v1/review' },
+    });
+
+    expect(routes.get(capabilityId('service:render:1'))?.path).toBe('/v1/render/service');
+    expect(routes.get(capabilityId('hire:render:1'))?.path).toBe('/v1/render');
+    expect(routes.get(capabilityId('render:1'))?.path).toBe('/v1/render');
+    expect(routes.get(capabilityId('hire:review:1'))?.capability).toBe('hire:review:1');
+    expect(routes.get(capabilityId('review:1'))).toBeUndefined();
+    expect(routes.get(capabilityId('service:review:1'))).toBeUndefined();
+  });
+
   it.each([
     ['a list', []],
     ['a path without a leading slash', { 'weather.get:1': { path: 'v1/weather' } }],

@@ -1,4 +1,4 @@
-import { RHC_MAINNET, commitCanonical, createRhcClient } from '@bursar/core';
+import { RHC_MAINNET, capabilityId, commitCanonical, createRhcClient } from '@bursar/core';
 import { toFunctionSelector } from 'viem';
 import { beforeEach, describe, expect, it } from 'vitest';
 
@@ -18,7 +18,7 @@ const SPEC = {
   acceptance: ['Ten bullets or fewer', 'Each bullet cites a page'],
 };
 
-type Spend = { inputCommit: string; inputURI: string; amount: string; merchant: string };
+type Spend = { inputCommit: string; inputURI: string; amount: string; merchant: string; capabilityId: string };
 
 function relayDouble(): SpendRelay & { spends: Spend[] } {
   const spends: Spend[] = [];
@@ -126,6 +126,9 @@ describe('hiring an agent', () => {
     expect(relay.spends[0]?.inputCommit).toBe(view.specCommit);
     expect(relay.spends[0]?.merchant).toBe(PROVIDER);
     expect(relay.spends[0]?.amount).toBe('1000000');
+    // A hire is made in the hire class, so a mandate that allows only services refuses it on chain.
+    expect(relay.spends[0]?.capabilityId).toBe(capabilityId('hire:research.summarize:1'));
+    expect(view.capability).toBe('hire:research.summarize:1');
   });
 
   /**

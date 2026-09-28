@@ -29,7 +29,8 @@ const ACCOUNT: Address = '0x1234567890123456789012345678901234567890';
 const PROVIDER: Address = '0x2222222222222222222222222222222222222222';
 const PRINCIPAL: Address = '0x3333333333333333333333333333333333333333';
 const CAPABILITY = 'gpu.render:1';
-const CAPABILITY_ID = capabilityId(CAPABILITY);
+// `pay` spends in the service class, so the lock carries the namespaced id.
+const CAPABILITY_ID = capabilityId(`service:${CAPABILITY}`);
 const CHAIN_NOW = 1_800_000_000n;
 
 const LIMITS = {
@@ -792,5 +793,104 @@ describe('arguments this package refuses itself', () => {
         expiry: 1_900_000_000n,
       }),
     ).rejects.toThrow(/^approval.merchant is not a 0x address/u);
+  });
+});
+
+describe('spend classes', () => {
+  it('pays under the service namespace and reports the namespaced label', async () => {
+    const { mandate, sent } = await client({ logs: [spentLog(7n)] });
+
+    const receipt = await mandate.pay({ to: PROVIDER, amount: usdg('1.00'), capability: CAPABILITY });
+    const call = decodeFunctionData({ abi: mandateAccountAbi, data: sent[0]?.data ?? '0x' });
+
+    expect(receipt.capability).toBe('service:gpu.render:1');
+    expect(receipt.capabilityId).toBe(capabilityId('service:gpu.render:1'));
+    expect(call.args?.[0]).toMatchObject({ capabilityId: capabilityId('service:gpu.render:1') });
+  });
+
+  it('takes a label already in the service class as written', async () => {
+    const { mandate } = await client({ logs: [spentLog(7n)] });
+
+    const receipt = await mandate.pay({ to: PROVIDER, amount: usdg('1.00'), capability: 'service:gpu.render:1' });
+
+    expect(receipt.capabilityId).toBe(capabilityId('service:gpu.render:1'));
+  });
+
+  it('refuses to pay under another class, and sends nothing', async () => {
+    const { mandate, sent } = await client({ logs: [spentLog(7n)] });
+
+    const failure = await failureOf(
+      mandate.pay({ to: PROVIDER, amount: usdg('1.00'), capability: 'hire:research.summarize:1' }),
+    );
+
+    expect(failure).toBeInstanceOf(InvalidArgumentError);
+    expect((failure as InvalidArgumentError).field).toBe('capability');
+    expect(failure.message).toContain('hire class');
+    expect(sent).toHaveLength(0);
+  });
+
+  it('refuses a raw 32-byte id, whose class cannot be read back', async () => {
+    const { mandate, sent } = await client({ logs: [spentLog(7n)] });
+
+    await expect(
+      mandate.pay({ to: PROVIDER, amount: usdg('1.00'), capability: capabilityId('service:gpu.render:1') }),
+    ).rejects.toBeInstanceOf(InvalidArgumentError);
+    expect(sent).toHaveLength(0);
+  });
+
+  it('previews under the service class by default, a hire when asked, and a namespaced label as written', async () => {
+    const asked: Hex[] = [];
+    const read = answers();
+    const { mandate } = await client({
+      read: (call) => {
+        if (call.functionName === 'previewSpend') asked.push(call.args[1] as Hex);
+        return read(call);
+      },
+    });
+
+    await mandate.preview({ to: PROVIDER, amount: usdg('1.00'), capability: CAPABILITY });
+    await mandate.preview({ to: PROVIDER, amount: usdg('1.00'), capability: CAPABILITY, spendClass: 'hire' });
+    await mandate.preview({ to: PROVIDER, amount: usdg('1.00'), capability: 'rwa:aapl:1' });
+
+    expect(asked).toEqual([
+      capabilityId('service:gpu.render:1'),
+      capabilityId('hire:gpu.render:1'),
+      capabilityId('rwa:aapl:1'),
+    ]);
+  });
+});
+
+describe('total budget', () => {
+  const TOTAL = { ...MONTHLY, duration: 3_153_600_000n };
+
+  it('names a MonthlyCapExceeded from a lifetime second window as the total budget', async () => {
+    const { mandate } = await client({
+      read: answers({
+        previewSpend: [false, toFunctionSelector('MonthlyCapExceeded()')],
+        limits: { ...LIMITS, monthlyWindow: 3_153_600_000n },
+        window: TOTAL,
+      }),
+    });
+
+    const decision = await mandate.preview({ to: PROVIDER, amount: usdg('450.00'), capability: CAPABILITY });
+
+    expect(decision.reason).toBe('total-budget');
+    expect(decision.denial?.reason).toBe('total-budget');
+    expect(decision.errorName).toBe('MonthlyCapExceeded');
+    expect(decision.message).toContain('the total budget has 400.00 USDG left of 500.00 USDG');
+    expect(decision.message).toContain('does not refill');
+    expect(decision.message).not.toMatch(/monthly/iu);
+    expect(decision.denial?.resetsAt).toBeUndefined();
+  });
+
+  it('keeps the monthly cap for a second window that rolls', async () => {
+    const { mandate } = await client({
+      read: answers({ previewSpend: [false, toFunctionSelector('MonthlyCapExceeded()')] }),
+    });
+
+    const decision = await mandate.preview({ to: PROVIDER, amount: usdg('450.00'), capability: CAPABILITY });
+
+    expect(decision.reason).toBe('monthly-cap');
+    expect(decision.denial?.resetsAt).toEqual(new Date(Number(MONTHLY.start + MONTHLY.duration) * 1000));
   });
 });

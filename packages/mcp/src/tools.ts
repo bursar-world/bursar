@@ -52,7 +52,7 @@ const UINT256_MAX = 2n ** 256n - 1n;
 
 const ADDRESS_PATTERN = '^0x[0-9a-fA-F]{40}$';
 const BYTES32_PATTERN = '^0x[0-9a-fA-F]{64}$';
-const CAPABILITY_PATTERN = '^[^\\s:]+:[^\\s:]+$';
+const CAPABILITY_PATTERN = '^(?:(?:service|hire|rwa):)?[^\\s:]+:[^\\s:]+$';
 const DIGITS_PATTERN = '^(?:0|[1-9][0-9]*)$';
 const ID_PATTERN = '^[1-9][0-9]*$';
 const SIGNATURE_PATTERN = '^0x[0-9a-fA-F]+$';
@@ -71,7 +71,10 @@ const providerProperty = {
 
 const capabilityProperty = {
   type: 'string',
-  description: 'What is being bought, named and versioned: "search.web:1". The mandate allows each one by name.',
+  description:
+    'What is being bought, named and versioned: "search.web:1". The mandate allows each one by name, under ' +
+    'its spend class: a payment is made under service:search.web:1 and a hire under hire:search.web:1, so ' +
+    'pass the bare name and the tool adds the class.',
   pattern: CAPABILITY_PATTERN,
   patternMessage: 'capability must be named and versioned, like "search.web:1"',
 } as const;
@@ -226,7 +229,7 @@ export const TOOLS: readonly ToolDefinition[] = [
     description:
       'Ask the mandate what it would decide about one spend, before making it. The answer says whether the ' +
       'spend would settle and, when it would not, which limit stopped it: the per-call cap, the daily budget, ' +
-      'the monthly budget, the capability, the provider, or the state of the mandate itself. A spend at or ' +
+      'the monthly budget or the total budget, the capability, the provider, or the state of the mandate itself. A spend at or ' +
       'above the approval threshold needs the principal to sign for it, and the quote says so rather than ' +
       'calling it a refusal. Nothing moves and nothing is charged.',
     inputSchema: {
@@ -236,6 +239,14 @@ export const TOOLS: readonly ToolDefinition[] = [
         provider: providerProperty,
         capability: capabilityProperty,
         amount: amountProperty('amount', AMOUNT_HELP),
+        spendClass: {
+          type: 'string',
+          description:
+            'The class to quote a bare capability under: "service" for mandate_pay_provider, "hire" for ' +
+            'mandate_hire_agent. Defaults to "service".',
+          pattern: '^(?:service|hire)$',
+          patternMessage: 'spendClass must be "service" or "hire"',
+        },
       },
     },
   },
@@ -811,6 +822,9 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
       provider: readAddress(args, 'provider'),
       capability: readString(args, 'capability'),
       amount: readAmount(args, 'amount'),
+      ...(args['spendClass'] === undefined
+        ? {}
+        : { spendClass: readString(args, 'spendClass') === 'hire' ? ('hire' as const) : ('service' as const) }),
     }),
 
   mandate_pay_provider: (context, args) =>

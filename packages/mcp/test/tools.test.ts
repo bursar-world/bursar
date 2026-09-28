@@ -246,6 +246,42 @@ describe('mandate_quote_spend', () => {
     expect(String(parse(result)['message'])).toContain('Write 1.50 USDG as "1500000"');
   });
 
+  it('takes a class-namespaced capability and the class to quote a bare one under', async () => {
+    const fake = createFakeGateway();
+
+    await callTool(contextFor(fake), 'mandate_quote_spend', {
+      provider: PROVIDER,
+      capability: 'hire:research.summarize:1',
+      amount: '1000000',
+    });
+    await callTool(contextFor(fake), 'mandate_quote_spend', {
+      provider: PROVIDER,
+      capability: 'research.summarize:1',
+      amount: '1000000',
+      spendClass: 'hire',
+    });
+
+    expect(fake.quotes).toEqual([
+      { provider: PROVIDER, capability: 'hire:research.summarize:1', amount: 1_000_000n },
+      { provider: PROVIDER, capability: 'research.summarize:1', amount: 1_000_000n, spendClass: 'hire' },
+    ]);
+  });
+
+  it('rejects a spend class it does not know', async () => {
+    const fake = createFakeGateway();
+
+    const result = await callTool(contextFor(fake), 'mandate_quote_spend', {
+      provider: PROVIDER,
+      capability: 'search.web:1',
+      amount: '1000000',
+      spendClass: 'loan',
+    });
+
+    expect(result.isError).toBe(true);
+    expect(String(parse(result)['message'])).toContain('spendClass must be "service" or "hire"');
+    expect(fake.quotes).toHaveLength(0);
+  });
+
   it('rejects a capability without a version', async () => {
     const fake = createFakeGateway();
 

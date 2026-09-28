@@ -85,6 +85,8 @@ export type QuoteRequest = {
   readonly provider: Address;
   readonly capability: string;
   readonly amount: Micro;
+  /** The class a bare label is quoted under: `service` for a payment, `hire` for a hire. */
+  readonly spendClass?: 'service' | 'hire';
 };
 
 export type QuoteView = {

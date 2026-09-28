@@ -1,5 +1,13 @@
-import { escrowAbi, mandateAccountAbi, oracleRegistryAbi, settlementAssetAbi } from '@bursar/core';
-import type { RhcPublicClient } from '@bursar/core';
+import {
+  SpendClassError,
+  classLabel,
+  classOfLabel,
+  escrowAbi,
+  mandateAccountAbi,
+  oracleRegistryAbi,
+  settlementAssetAbi,
+} from '@bursar/core';
+import type { RhcPublicClient, SpendClass } from '@bursar/core';
 import { decodeEventLog, encodeEventTopics } from 'viem';
 import type { Address, Hex } from 'viem';
 
@@ -233,7 +241,12 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
   async function quote(request: QuoteRequest): Promise<QuoteView> {
     await assertWired();
 
-    const capabilityId = toCapabilityId(request.capability);
+    // A label already namespaced is quoted as written; a bare one under the class being quoted.
+    const capability =
+      classOfLabel(request.capability.trim()) === undefined
+        ? spendLabel(request.spendClass ?? 'service', request.capability)
+        : request.capability.trim();
+    const capabilityId = toCapabilityId(capability);
     const [block, reads] = await Promise.all([
       client.getBlock({ blockTag: 'latest' }),
       client.multicall({
@@ -261,7 +274,7 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
 
     return {
       provider: request.provider,
-      capability: request.capability,
+      capability,
       capabilityId,
       amount: money(request.amount),
       allowed,
@@ -279,10 +292,20 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
     };
   }
 
+  /** A payment is a spend in the service class. */
   async function pay(order: PayOrder): Promise<PayView> {
+    return spend(order, 'service');
+  }
+
+  /**
+   * The one spending path. The class decides the namespace of the capability id the lock carries,
+   * so a mandate that allows only services refuses a hire on chain.
+   */
+  async function spend(order: PayOrder, spendClass: SpendClass): Promise<PayView> {
     const submitter = requireRelay();
     await assertWired();
-    const capabilityId = toCapabilityId(order.capability);
+    const capability = spendLabel(spendClass, order.capability);
+    const capabilityId = toCapabilityId(capability);
     const canonical = canonicalStringify(order.input);
     const inputBytes = Buffer.byteLength(canonical, 'utf8');
 
@@ -391,7 +414,7 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
       settlementId: receipt.escrowId.toString(),
       txHash: receipt.txHash,
       provider: order.provider,
-      capability: order.capability,
+      capability,
       capabilityId,
       amount,
       inputCommit,
@@ -414,7 +437,7 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
    */
   async function hire(order: HireOrder): Promise<HireView> {
     const document = jobDocument(order.spec);
-    const view = await pay({
+    const view = await spend({
       provider: order.provider,
       capability: order.capability,
       input: document as unknown as Record<string, unknown>,
@@ -422,7 +445,7 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
       ttlSeconds: order.ttlSeconds,
       providerProof: order.providerProof,
       approval: order.approval,
-    });
+    }, 'hire');
 
     return {
       ...view,
@@ -933,4 +956,16 @@ function isZeroHash(value: Hex): boolean {
 
 function minBigint(a: bigint, b: bigint): bigint {
   return a < b ? a : b;
+}
+
+/** The namespaced label a spend in `spendClass` carries, or an argument error the agent can act on. */
+function spendLabel(spendClass: SpendClass, label: string): string {
+  try {
+    return classLabel(spendClass, label);
+  } catch (error) {
+    if (error instanceof SpendClassError) {
+      throw new ToolError('invalid_arguments', error.message, { ...error.details });
+    }
+    throw error;
+  }
 }

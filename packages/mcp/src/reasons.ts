@@ -22,6 +22,7 @@ export type RefusalSubject =
   | 'registry'
   | 'reward'
   | 'stake'
+  | 'total_budget'
   | 'validity'
   | 'vote'
   | 'window'
