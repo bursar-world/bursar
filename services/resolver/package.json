@@ -1,0 +1,59 @@
+{
+  "name": "@bursar/resolver",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bursar-world/bursar.git",
+    "directory": "services/resolver"
+  },
+  "homepage": "https://github.com/bursar-world/bursar/tree/main/services/resolver#readme",
+  "bugs": {
+    "url": "https://github.com/bursar-world/bursar/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "bursar-resolver": "./bin/bursar-resolver.mjs",
+    "bursar-resolver-backup": "./bin/bursar-resolver-backup.mjs"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "start": "node dist/main.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "drill": "vitest run test/drill.fork.test.ts",
+    "render": "tsx scripts/render.ts"
+  },
+  "dependencies": {
+    "@bursar/core": "workspace:*",
+    "@bursar/sdk": "workspace:*",
+    "pg": "^8.16.0",
+    "viem": "^2.56.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/pg": "^8.15.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

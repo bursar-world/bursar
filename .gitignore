@@ -18,3 +18,6 @@ services/*/dist/
 
 # forge script preprocesses into this directory; it is build output like out/ and cache/.
 contracts/foundry-pp/
+
+# The resolver service's journal, written to RESOLVER_JOURNAL_PATH when no database is set.
+resolver-journal.json
