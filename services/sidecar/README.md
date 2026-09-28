@@ -119,6 +119,7 @@ with no capabilities file and it names the path it looked in and the example to 
 | `ESCALATE_MAX_BOND` | required when escalating | Largest bond this payee will post, in micro-USD. |
 | `MIN_GAS_WEI` | unset | Warn below this fee budget, in wei of ETH. |
 | `GAS_CHECK_MS` | `300000` | How often the fee budget is read. |
+| `SIDECAR_EVIDENCE_URL` | unset | Where signed delivery evidence goes when a delivered lock is disputed. For Bursar's resolvers, `https://app.bursar.world/api/evidence`. |
 
 Amounts are six-decimal micro-USD atomic units: `250000` is 0.25 USDG.
 
@@ -139,6 +140,23 @@ That costs a bond of `disputeBondBps` of the locked amount, kept if the ruling g
 the payee, and a resolver fee off the top of whatever is awarded. It is off by default, it
 requires a ceiling on the bond, and the sidecar checks the settlement allowance before
 spending gas on a call the escrow would revert.
+
+## Evidence when a payer disputes
+
+A payer can dispute a lock before the payee releases it. The release then reverts, and no output
+ever reaches the chain, so to the resolvers the lock looks exactly like a job nobody did. Their
+published policy rules that a full refund.
+
+With `SIDECAR_EVIDENCE_URL` set, the sidecar answers that. When a lock it has already executed
+turns `Disputed` before release, it signs a `DeliveryEvidence` statement with the payee key
+(the escrow, the lock id, the input and output commitments, and where the output can be
+fetched) and posts it to the resolvers' evidence inbox. It does the same after contesting an
+expired deadline itself. A transient failure is retried on a backoff; a refusal is logged as
+`evidence_abandoned` and the lock is let go.
+
+The output has to be fetchable. Outputs up to `MAX_INLINE_OUTPUT_BYTES` travel inline as a
+data URI; anything larger needs `OUTPUT_BASE_URL`, or there is nothing to send. Evidence has to
+arrive within three hours of the dispute opening to count.
 
 ## What the log says
 

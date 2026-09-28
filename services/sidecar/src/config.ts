@@ -48,6 +48,8 @@ export type SidecarConfig = {
   /** Wei of ETH. Gas and settlement are different assets here, so this is not a `Micro`. */
   readonly minGasWei: bigint | undefined;
   readonly gasCheckMs: number;
+  /** Where signed delivery evidence goes when a delivered lock is disputed. Unset sends none. */
+  readonly evidenceUrl: string | undefined;
 };
 
 /**
@@ -123,6 +125,12 @@ const SCHEMA = {
    */
   MIN_GAS_WEI: optional(envVar.bigint({ min: 0n })),
   GAS_CHECK_MS: withDefault(envVar.int({ min: 1_000, max: 86_400_000 }), 300_000),
+
+  /**
+   * The resolver service's evidence inbox. A payer who disputes before this payee releases leaves
+   * no output on chain, and without evidence the resolvers read the job as undelivered.
+   */
+  SIDECAR_EVIDENCE_URL: optional(envVar.url({ protocols: ['https:', 'http:'], secret: false })),
 } as const;
 
 /**
@@ -183,6 +191,7 @@ export function loadConfig(source: EnvSource = process.env): LoadedConfig {
       escalateMaxBond: env.ESCALATE_MAX_BOND,
       minGasWei: env.MIN_GAS_WEI,
       gasCheckMs: env.GAS_CHECK_MS,
+      evidenceUrl: env.SIDECAR_EVIDENCE_URL,
     },
   };
 }

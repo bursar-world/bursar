@@ -4,6 +4,8 @@ import type { Address } from 'viem';
 
 import { LockStatus, hasResolver, inFlightHash, lockStatusName } from './escrow.js';
 import type { BlockRef, EscrowPort, EscrowTerms, LockRecord, TxOutcome } from './escrow.js';
+import { EvidenceRejected } from './evidence.js';
+import type { EvidencePoster } from './evidence.js';
 import type { CommittedOutput, ExecutionOutcome, LockJob, OutputReader, StoredOutput } from './executor.js';
 import type { GasMonitor } from './gas.js';
 import { describeError } from './log.js';
@@ -114,6 +116,8 @@ export type WatcherOptions = {
   readonly confirmations?: bigint | undefined;
   readonly finalizeReleases: boolean;
   readonly escalate?: Escalation | undefined;
+  /** Sends signed delivery evidence to the resolvers when a lock this payee delivered is disputed. */
+  readonly evidence?: EvidencePoster | undefined;
   readonly gas?: GasMonitor | undefined;
   /** How long the chain layer waits for a receipt, so a retry never lands inside that window. */
   readonly confirmTimeoutMs?: number | undefined;
@@ -135,7 +139,7 @@ export type Watcher = {
  * once the dispute window closes, so a release on its own leaves the lock tracked.
  */
 export async function createWatcher(options: WatcherOptions): Promise<Watcher> {
-  const { chain, execute, logger, state, terms, finalizeReleases, escalate, gas } = options;
+  const { chain, execute, logger, state, terms, finalizeReleases, escalate, evidence, gas } = options;
   const payeeAddress = options.payee;
   /** Compared against, never sent. Every address the chain hands back is compared case-blind. */
   const payee = payeeAddress.toLowerCase();
@@ -174,8 +178,9 @@ export async function createWatcher(options: WatcherOptions): Promise<Watcher> {
    * a capability that failed four times before it delivered should not leave the release that
    * follows it waiting a minute on its first attempt.
    */
-  const retry: Record<Action | 'capability', Schedule> = {
+  const retry: Record<Action | 'capability' | 'evidence', Schedule> = {
     capability: new Map(),
+    evidence: new Map(),
     unseen: new Map(),
     release: new Map(),
     finalize: new Map(),
@@ -325,9 +330,7 @@ export async function createWatcher(options: WatcherOptions): Promise<Watcher> {
         return;
 
       case LockStatus.Disputed:
-        // Contested either before the release or inside the dispute window. Either way the ruling
-        // belongs to the resolver, and the payee has nothing left to send.
-        giveUp(id, 'lock_disputed', { id, disputer: lock.disputer, amount: usd(lock.amount) });
+        await handleDisputed(id, lock);
         return;
 
       default:
@@ -675,7 +678,9 @@ export async function createWatcher(options: WatcherOptions): Promise<Watcher> {
       return;
     }
 
-    forget(id);
+    // Kept tracked when there is evidence to send: the next pass reads the lock as disputed and
+    // hands the resolvers what this payee delivered, which is the whole point of contesting it.
+    if (evidence === undefined) forget(id);
     logger.warn('dispute_opened', {
       id,
       hash: receipt.hash,
@@ -683,6 +688,49 @@ export async function createWatcher(options: WatcherOptions): Promise<Watcher> {
       resolverFee: usd(mulBps(lock.amount, terms.resolverFeeBps)),
       outputCommit: delivered.outputCommit,
     });
+  }
+
+  /**
+   * The ruling belongs to the resolvers now. What this payee can still do is show them the work.
+   *
+   * A lock contested after release was paid in the release and no resolver votes on it, and a
+   * lock this sidecar never delivered has nothing to show. Everything else gets signed evidence,
+   * retried on a backoff, because without it the resolvers read the lock as undelivered.
+   */
+  async function handleDisputed(id: bigint, lock: LockRecord): Promise<void> {
+    const contested = { id, disputer: lock.disputer, amount: usd(lock.amount) };
+
+    if (evidence === undefined || lock.releasedAt !== 0n) {
+      giveUp(id, 'lock_disputed', contested);
+      return;
+    }
+
+    let delivered = executed.get(id);
+    if (delivered === undefined) {
+      const recovered = await committed(id, lock);
+      if (recovered === 'unusable') return;
+      delivered = recovered ?? undefined;
+    }
+    if (delivered === undefined) {
+      giveUp(id, 'lock_disputed', { ...contested, evidence: 'none; this sidecar never delivered the job' });
+      return;
+    }
+
+    if (waiting(retry.evidence, id)) return;
+
+    try {
+      await evidence({ id, inputCommit: lock.inputCommit, outputCommit: delivered.outputCommit, outputURI: delivered.outputURI });
+    } catch (error) {
+      if (error instanceof EvidenceRejected || failures(retry.evidence, id) + 1 >= MAX_FAILURES) {
+        giveUp(id, 'evidence_abandoned', { ...contested, reason: describeError(error) });
+        return;
+      }
+      logger.error('evidence_failed', { id, reason: describeError(error), retryInMs: backOff(retry.evidence, id) });
+      return;
+    }
+
+    forget(id);
+    logger.info('evidence_sent', { ...contested, outputCommit: delivered.outputCommit });
   }
 
   async function persist(): Promise<void> {

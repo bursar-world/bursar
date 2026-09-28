@@ -28,6 +28,9 @@ export type {
   RouteTable,
 } from './executor.js';
 
+export { EvidenceRejected, createEvidencePoster } from './evidence.js';
+export type { Delivered, EvidencePoster, EvidencePosterOptions } from './evidence.js';
+
 export { createGasMonitor, readGasBalance } from './gas.js';
 export type { BalanceReader, GasMonitor, GasMonitorOptions } from './gas.js';
 

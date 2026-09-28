@@ -8,6 +8,7 @@ import type { RpcPoolEvent } from '@bursar/core';
 import { loadConfig } from './config.js';
 import type { SidecarConfig } from './config.js';
 import { createEscrowPort, hasResolver } from './escrow.js';
+import { createEvidencePoster } from './evidence.js';
 import { createOutputReader, createOutputWriter, executeJob, readRoutes } from './executor.js';
 import type { LockJob } from './executor.js';
 import { createGasMonitor, readGasBalance } from './gas.js';
@@ -109,6 +110,17 @@ async function start(config: SidecarConfig, payeeKey: `0x${string}`, logger: Log
     finalizeReleases: config.finalizeReleases,
     readExecuted: createOutputReader(outputDir, outputPolicy),
     escalate: config.escalateExpired && config.escalateMaxBond !== undefined ? { maxBond: config.escalateMaxBond } : undefined,
+    evidence:
+      config.evidenceUrl === undefined || !hasResolver(terms)
+        ? undefined
+        : createEvidencePoster({
+            url: config.evidenceUrl,
+            account: signer.wallet.account,
+            escrow: config.escrow,
+            chainId: config.chain.chainId,
+            fetch: globalThis.fetch,
+            timeoutMs: config.fetchTimeoutMs,
+          }),
     gas: gasMonitor(config, client, signer.address, logger),
     execute: (job: LockJob, signal?: AbortSignal) =>
       executeJob(
@@ -150,6 +162,7 @@ async function start(config: SidecarConfig, payeeKey: `0x${string}`, logger: Log
     disputeBondBps: terms.disputeBondBps,
     resolver: hasResolver(terms) ? terms.resolver : 'none',
     finalizeReleases: config.finalizeReleases,
+    evidence: config.evidenceUrl === undefined ? 'off' : 'on',
     pollMs: config.pollMs,
   });
 
