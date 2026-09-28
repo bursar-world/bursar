@@ -56,3 +56,16 @@ describe('CapabilityName', () => {
     }
   });
 });
+
+describe('spend-class namespaces', () => {
+  it('names a published capability under each class it can be spent in', () => {
+    expect(publishedCapability(toCapabilityId('service:doc.summarize:1'))).toBe('service:doc.summarize:1');
+    expect(publishedCapability(toCapabilityId('hire:gpu.render:1'))).toBe('hire:gpu.render:1');
+  });
+
+  it('shows the class beside the name, and the full label on hover', () => {
+    const markup = renderToStaticMarkup(<CapabilityName id={toCapabilityId('service:doc.summarize:1')} />);
+    expect(markup).toContain('Services');
+    expect(markup).toContain('title="service:doc.summarize:1"');
+  });
+});

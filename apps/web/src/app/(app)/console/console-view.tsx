@@ -85,11 +85,16 @@ export function ConsoleView() {
         title="Console"
         description="Mandates owned by the connected wallet."
         actions={
-          <Link href="/console/new">
-            <Button tone="primary" size="sm">
-              Create a mandate
-            </Button>
-          </Link>
+          <>
+            <Link href="/workspace">
+              <Button size="sm">Drafts in your workspace</Button>
+            </Link>
+            <Link href="/console/new">
+              <Button tone="primary" size="sm">
+                Create a mandate
+              </Button>
+            </Link>
+          </>
         }
       >
         <Card>

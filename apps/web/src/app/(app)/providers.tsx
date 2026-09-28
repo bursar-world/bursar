@@ -8,6 +8,7 @@ import type { State } from 'wagmi';
 
 import { ServerAccountProvider } from '../../wallet/account';
 import { wagmiConfig } from '../../wallet/config';
+import { WorkspaceProvider } from '../../workspace/context';
 
 /**
  * `initialState` comes from the request's own cookie, so a reader who was already connected does
@@ -40,7 +41,9 @@ export function Providers({ children, initialState }: { readonly children: React
           reconnects itself mid-hydration would otherwise leave a page hydrating against a store
           that had already moved.
         */}
-        <ServerAccountProvider state={initialState}>{children}</ServerAccountProvider>
+        <ServerAccountProvider state={initialState}>
+          <WorkspaceProvider>{children}</WorkspaceProvider>
+        </ServerAccountProvider>
       </QueryClientProvider>
     </WagmiProvider>
   );

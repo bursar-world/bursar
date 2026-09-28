@@ -2,6 +2,7 @@
 
 import type { Hex } from 'viem';
 
+import { bareLabel, classNameOf } from '@/chain/capabilities';
 import { shortAddress } from '@/chain/rhc';
 import { useCapabilityLabels } from './capability-labels';
 
@@ -27,9 +28,16 @@ export function CapabilityName({ id }: { readonly id: Hex }) {
     );
   }
 
+  const spendClass = classNameOf(name);
+
   return (
     <span>
-      <span className="font-medium">{name}</span>
+      {spendClass !== undefined && (
+        <span className="mr-2 font-mono text-label uppercase tracking-wide text-[color:var(--color-muted)]">{spendClass}</span>
+      )}
+      <span className="font-medium" title={name}>
+        {spendClass === undefined ? name : bareLabel(name)}
+      </span>
       <span className="tabular ml-2 text-note text-[color:var(--color-muted)]" title={id}>
         {shortAddress(id, 10, 6)}
       </span>

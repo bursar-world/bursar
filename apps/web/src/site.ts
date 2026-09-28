@@ -34,14 +34,16 @@ export const SITE: SiteChrome = {
   home: 'https://bursar.world',
   navLabel: 'Surfaces',
   /**
-   * The eight surfaces. Each has one job, and this is the only place their order is decided.
+   * The nine surfaces. Each has one job, and this is the only place their order is decided.
    *
-   * The first three are the parties to a payment, in the order the money moves: the account that
-   * spends, the address that is paid, and the bonded resolver who rules when those two disagree.
-   * Then the token, then the two surfaces that change parameters, then reference.
+   * The console comes first and the workspace, where its mandates are drafted, beside it. Then the
+   * other parties to a payment, in the order the money moves: the address that is paid and the
+   * bonded resolver who rules when payer and payee disagree. Then the token, then the two surfaces
+   * that change parameters, then reference.
    */
   nav: [
     { href: '/console', label: 'Console' },
+    { href: '/workspace', label: 'Workspace' },
     { href: '/providers', label: 'Providers' },
     { href: '/resolvers', label: 'Resolvers' },
     { href: '/token', label: 'Token' },

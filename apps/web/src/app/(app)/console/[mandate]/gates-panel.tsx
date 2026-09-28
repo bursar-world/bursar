@@ -7,6 +7,8 @@ import { MerchantGate } from '@bursar/sdk';
 
 import { mandateAccountAbi } from '@/chain/abi';
 import { shortAddress } from '@/chain/rhc';
+import { SPEND_CLASSES, SPEND_CLASS_INFO, classLabel } from '@/chain/capabilities';
+import type { SpendClass } from '@/chain/capabilities';
 import { Address as AddressView } from '@/components/address';
 import { Badge, LevelDot } from '@/components/badge';
 import { Card, Field, Section } from '@/components/layout';
@@ -38,6 +40,7 @@ export function GatesPanel() {
 
   const [payeeText, setPayeeText] = useState('');
   const [capabilityText, setCapabilityText] = useState('');
+  const [capabilityClass, setCapabilityClass] = useState<SpendClass>('service');
 
   if (!account) return null;
 
@@ -52,7 +55,11 @@ export function GatesPanel() {
   const refused = refusalOf(source.error);
   const payees = [...ledger.merchants].sort(allowedFirst);
   const capabilities = [...ledger.capabilities].sort(allowedFirst);
-  const typed = capabilityText.trim() === '' ? undefined : toCapabilityId(capabilityText.trim());
+  // A capability is allowed under a spend class: the label is hashed with the class namespace in
+  // front, which is what the SDK's pay and hire spend under. A label naming another class is an
+  // error the form shows rather than a hash it quietly writes.
+  const classed = readClassLabel(capabilityClass, capabilityText);
+  const typed = classed.label === undefined ? undefined : toCapabilityId(classed.label);
   // Writing a gate moves no USDG, so a paused token does not stand in its way. Connectivity does.
   const blockedBy = callGates(system);
 
@@ -161,7 +168,7 @@ export function GatesPanel() {
 
       <Section
         title="What may be bought"
-        description="A capability names the kind of work. The chain holds only its hash, so a name appears here when this console can match one back to it."
+        description="A capability names the kind of work, under a spend class: services or agent hires. The chain holds only its hash, so a name appears here when this console can match one back to it."
       >
         <Card>
           <div className="space-y-4">
@@ -214,6 +221,19 @@ export function GatesPanel() {
                   Allow another capability
                 </label>
                 <div className="flex flex-wrap items-stretch gap-2">
+                  <select
+                    aria-label="Spend class"
+                    value={capabilityClass}
+                    onChange={(event) => setCapabilityClass(event.target.value as SpendClass)}
+                    className="h-11 border border-[color:var(--color-line)] bg-surface px-3 text-sm outline-none focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-[color:var(--color-ring)]"
+                  >
+                    {SPEND_CLASSES.map((id) => (
+                      <option key={id} value={id} disabled={!SPEND_CLASS_INFO[id].available}>
+                        {SPEND_CLASS_INFO[id].name}
+                        {SPEND_CLASS_INFO[id].available ? '' : ' (not yet available)'}
+                      </option>
+                    ))}
+                  </select>
                   <div className="min-w-0 flex-1 basis-60">
                     <input
                       id="allow-capability"
@@ -230,12 +250,12 @@ export function GatesPanel() {
                     label="Allow"
                     disabled={typed === undefined || capabilityAlready}
                     blockedBy={blockedBy}
-                    context={{ ...writeContext, ...(typed === undefined ? {} : { capabilityId: typed, capability: capabilityText.trim() }) }}
+                    context={{ ...writeContext, ...(typed === undefined || classed.label === undefined ? {} : { capabilityId: typed, capability: classed.label }) }}
                     // The name is kept at submit, not at confirmation. The table under this form
                     // reads names, and a reader who leaves during the confirmation would come back to
                     // the hash of a capability they had just named.
                     send={() => {
-                      remember(capabilityText.trim());
+                      remember(classed.label as string);
                       return setCapability(typed as Hex, true);
                     }}
                     onConfirmed={() => {
@@ -246,13 +266,15 @@ export function GatesPanel() {
                 </div>
                 <p
                   className="tabular break-all text-note"
-                  style={{ color: capabilityAlready ? 'var(--color-state-blocked)' : 'var(--color-muted)' }}
+                  style={{ color: capabilityAlready || classed.problem ? 'var(--color-state-blocked)' : 'var(--color-muted)' }}
                 >
-                  {capabilityAlready
-                    ? 'This mandate already pays for work of this kind.'
-                    : typed === undefined
-                      ? 'The chain holds the hash of this label.'
-                      : `Reads as ${typed}`}
+                  {classed.problem !== undefined
+                    ? classed.problem
+                    : capabilityAlready
+                      ? 'This mandate already pays for work of this kind.'
+                      : typed === undefined
+                        ? `Written on chain as the hash of ${SPEND_CLASS_INFO[capabilityClass].prefix}<name>. The contract checks that exact id, so the class is part of the name.`
+                        : `${classed.label} reads as ${typed}`}
                 </p>
               </form>
             )}
@@ -261,6 +283,16 @@ export function GatesPanel() {
       </Section>
     </div>
   );
+}
+
+/** The label a capability is allowed under in `spendClass`, or why the typed text cannot be one. */
+export function readClassLabel(spendClass: SpendClass, text: string): { readonly label?: string; readonly problem?: string } {
+  if (text.trim() === '') return {};
+  try {
+    return { label: classLabel(spendClass, text) };
+  } catch (error) {
+    return { problem: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 function GateState({ allowed }: { readonly allowed: boolean | undefined }) {

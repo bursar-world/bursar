@@ -2,7 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { parseEventLogs } from 'viem';
 import type { Address, Hex, TransactionReceipt } from 'viem';
 
@@ -31,7 +31,15 @@ import type { GateEntry } from '../lib/reads';
 import { callGates } from '../lib/write-gates';
 import { EMPTY_DRAFT, LimitsFields, readDraft } from '../limits-form';
 import type { LimitsDraft } from '../limits-form';
+import { ChipList } from '../chip-list';
+import { SpendClassFields, chainLabel, classCapabilities } from '../spend-class-fields';
+import type { ClassSelection, ClassedCapability } from '../spend-class-fields';
 import { useWriteContract } from '@/wallet/write';
+import { toCapabilityId } from '@bursar/core';
+import { useWorkspace } from '@/workspace/context';
+import { draftTitle } from '@/workspace/model';
+import type { MandateDraft } from '@/workspace/model';
+import { UnlockForm } from '../../workspace/passphrase';
 
 type Created = { readonly address: Address; readonly hash: Hex };
 type Capability = { readonly label: string; readonly id: Hex };
@@ -69,23 +77,48 @@ const GATE_REFETCH_MS = 15_000;
  * limits alone. Nothing is unsafe in between: a mandate refuses every payee and every capability it
  * has not been told to allow, so a setup abandoned halfway spends nothing.
  */
-export function CreateMandateView() {
+export function CreateMandateView({ draftId }: { readonly draftId?: string } = {}) {
   const { address: owner, isConnected } = useWalletAccount();
   const { writeContractAsync } = useWriteContract();
   const { remember } = useCapabilityLabels();
+  const workspace = useWorkspace();
 
   const [draft, setDraft] = useState<LimitsDraft>(EMPTY_DRAFT);
   const [agentText, setAgentText] = useState('');
   const [seatLater, setSeatLater] = useState(false);
   const [payeeText, setPayeeText] = useState('');
   const [payees, setPayees] = useState<readonly Address[]>([]);
-  const [capabilityText, setCapabilityText] = useState('');
-  const [capabilities, setCapabilities] = useState<readonly Capability[]>([]);
+  const [classes, setClasses] = useState<ClassSelection>({ service: true, hire: false, rwa: false });
+  const [classed, setClassed] = useState<readonly ClassedCapability[]>([]);
   const [salt, setSalt] = useState<Hex | undefined>(undefined);
   const [created, setCreated] = useState<Created | undefined>(undefined);
   const [phase, setPhase] = useState<TxPhase>('idle');
   const [submitted, setSubmitted] = useState<Submitted | undefined>(undefined);
   const frozen = holdsCreateForm(phase, created !== undefined);
+
+  // The capabilities the class toggles write: each one allowed under its class namespace, which is
+  // the id the SDK's pay and hire spend under.
+  const capabilities: readonly Capability[] = classCapabilities(classes, classed).map((entry) => ({
+    label: chainLabel(entry),
+    id: toCapabilityId(chainLabel(entry)),
+  }));
+
+  // A draft from the workspace fills the form once, the first time it can be read. Everything after
+  // that is this screen's own state, so an edit here never writes back into the draft.
+  const source: MandateDraft | undefined =
+    draftId !== undefined && workspace.view.status === 'unlocked'
+      ? workspace.view.workspace.drafts.find((entry) => entry.id === draftId)
+      : undefined;
+  const seeded = useRef(false);
+  useEffect(() => {
+    if (seeded.current || source === undefined) return;
+    seeded.current = true;
+    setDraft(source.limits);
+    setAgentText(source.agent);
+    setPayees(source.payees.map((entry) => readAddress(entry).value).filter((entry): entry is Address => entry !== undefined));
+    setClasses(source.classes);
+    setClassed(source.capabilities);
+  }, [source]);
 
   // The receipt and the reader are two different events. The account exists the moment the receipt
   // lands, and this screen stays on it until the reader presses on, because a form that swaps
@@ -140,6 +173,8 @@ export function CreateMandateView() {
     if (slot === undefined || !ready) return Promise.reject(new Error('The mandate address has not been read yet.'));
     const sent: Submitted = { slot, args: [owner, agent, salt, toLimitsTuple(reading.limits!)] };
     setSubmitted(sent);
+    // Kept now so the gate rows after the deploy read names, not hashes.
+    for (const capability of capabilities) remember(capability.label);
     return writeContractAsync({
       address: ADDRESSES.mandateAccountFactory,
       abi: mandateAccountFactoryAbi,
@@ -155,14 +190,6 @@ export function CreateMandateView() {
     setPayeeText('');
   };
 
-  const addCapability = () => {
-    const label = capabilityText.trim();
-    if (label === '') return;
-    const id = remember(label);
-    if (capabilities.some((entry) => entry.id.toLowerCase() === id.toLowerCase())) return;
-    setCapabilities([...capabilities, { label, id }]);
-    setCapabilityText('');
-  };
 
   // A create already out keeps its screen even if the wallet drops, so the receipt it is waiting
   // on still lands somewhere the reader can see it.
@@ -174,6 +201,18 @@ export function CreateMandateView() {
           The owner sets the limits, funds the account, approves the payments above the threshold, and can take the
           funds back at any time.
         </EmptyState>
+      </Section>
+    );
+  }
+
+  if (draftId !== undefined && (workspace.view.status === 'locked' || workspace.view.status === 'loading')) {
+    return (
+      <Section title="Create a mandate" description="This screen was opened from a draft in your workspace.">
+        {workspace.view.status === 'locked' ? (
+          <UnlockForm title="Unlock your workspace to load the draft" description="The draft is encrypted in this browser. Enter the passphrase and the form fills in." />
+        ) : (
+          <Skeleton width="16rem" height={20} />
+        )}
       </Section>
     );
   }
@@ -219,7 +258,20 @@ export function CreateMandateView() {
           </Card>
         </Section>
 
-        <Section title="What it may spend" description="Both windows bind at once, so the tighter of the two is what the agent feels.">
+        {draftId !== undefined && (
+          <p className="border border-[color:var(--color-line)] bg-[color:var(--color-raised)] px-5 py-3 text-detail">
+            {source === undefined ? (
+              <>That draft is not in the workspace open in this browser, so the form starts empty.</>
+            ) : (
+              <>
+                Filled in from your draft <span className="font-medium">{draftTitle(source)}</span>. Review it here: creating
+                the mandate below is a wallet transaction that deploys it. Edits on this screen do not change the draft.
+              </>
+            )}
+          </p>
+        )}
+
+        <Section title="What it may spend" description="The period cap refills each period. The total budget never refills, so it bounds the whole mandate.">
           <Card>
             <LimitsFields draft={draft} onChange={setDraft} problems={reading.problems} />
           </Card>
@@ -254,44 +306,23 @@ export function CreateMandateView() {
           </Card>
         </Section>
 
-        <Section title="What it may buy" description="A capability names the kind of work being paid for, such as doc.summarize:1.">
+        <Section
+          title="What it may buy"
+          description="Choose the spend classes this mandate allows. Each capability is allowed under its class, and each is its own transaction after the account exists."
+        >
           <Card>
-            <div className="space-y-3">
-              <form
-                className="flex flex-wrap items-end gap-2"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  addCapability();
-                }}
-              >
-                <div className="min-w-[18rem] flex-1">
-                  <label htmlFor="new-capability" className="block text-label uppercase tracking-wide text-[color:var(--color-muted)]">
-                    Capability
-                  </label>
-                  <input
-                    id="new-capability"
-                    value={capabilityText}
-                    onChange={(event) => setCapabilityText(event.target.value)}
-                    placeholder="doc.summarize:1"
-                    autoComplete="off"
-                    spellCheck={false}
-                    className="mt-1 h-11 w-full border border-[color:var(--color-line)] bg-surface px-3.5 text-sm outline-none focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-[color:var(--color-ring)]"
-                  />
-                </div>
-                <Button type="submit" disabled={capabilityText.trim() === ''}>
-                  Add
-                </Button>
-              </form>
-              <ChipList
-                items={capabilities.map((capability) => ({ key: capability.id, label: capability.label }))}
-                onRemove={(key) => setCapabilities(capabilities.filter((entry) => entry.id !== key))}
-                empty="No capability yet. A payment for work the mandate does not cover is refused."
-              />
-              <p className="text-note text-[color:var(--color-muted)]">
-                The chain holds the hash of this label, never the words themselves. The label is kept in this browser so
-                later screens can show it back to you.
-              </p>
-            </div>
+            <SpendClassFields
+              classes={classes}
+              capabilities={classed}
+              onChange={(nextClasses, nextCapabilities) => {
+                setClasses(nextClasses);
+                setClassed(nextCapabilities);
+              }}
+            />
+            <p className="mt-3 text-note text-[color:var(--color-muted)]">
+              The chain holds the hash of each label, never the words themselves. The label is kept in this browser so later
+              screens can show it back to you.
+            </p>
           </Card>
         </Section>
       </fieldset>
@@ -382,7 +413,17 @@ export function CreateMandateView() {
                 context={{ mandate: slot.address, funding: system.funding.facts }}
                 send={submit}
                 onPhaseChange={setPhase}
-                onConfirmed={(receipt) => setCreated({ address: addressFrom(receipt, slot.address), hash: receipt.transactionHash })}
+                onConfirmed={(receipt) => {
+                  const address = addressFrom(receipt, slot.address);
+                  setCreated({ address, hash: receipt.transactionHash });
+                  if (source !== undefined && workspace.view.status === 'unlocked') {
+                    const activated = { address, hash: receipt.transactionHash, at: new Date().toISOString() };
+                    void workspace.actions.update((current) => ({
+                      ...current,
+                      drafts: current.drafts.map((entry) => (entry.id === source.id ? { ...entry, activated } : entry)),
+                    }));
+                  }
+                }}
                 continueLabel="Open the gates"
                 onContinue={() => setOpened(true)}
               />
@@ -580,36 +621,6 @@ function GateRow({
         </div>
       )}
     </div>
-  );
-}
-
-function ChipList({
-  items,
-  onRemove,
-  empty,
-}: {
-  readonly items: readonly { readonly key: string; readonly label: string }[];
-  readonly onRemove: (key: string) => void;
-  readonly empty: string;
-}) {
-  if (items.length === 0) return <p className="text-detail text-[color:var(--color-muted)]">{empty}</p>;
-
-  return (
-    <ul className="flex flex-wrap gap-2">
-      {items.map((item) => (
-        <li key={item.key} className="inline-flex items-center gap-2 border border-[color:var(--color-line)] bg-surface px-3 py-1 text-detail">
-          <span className="tabular">{item.label}</span>
-          <button
-            type="button"
-            onClick={() => onRemove(item.key)}
-            aria-label={`Remove ${item.label}`}
-            className="text-[color:var(--color-muted)] hover:text-[color:var(--color-ink)]"
-          >
-            &times;
-          </button>
-        </li>
-      ))}
-    </ul>
   );
 }
 
