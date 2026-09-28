@@ -11,8 +11,10 @@ import { ActivityList } from './activity-list';
 import { ControlPanel } from './control-panel';
 import { FundingPanel } from './funding-panel';
 import { GatesPanel } from './gates-panel';
+import { ParkPanel } from './park-panel';
 import { ProposedPayment } from './proposed-payment';
 import { SpendPanel } from './spend-panel';
+import { StockPanel } from './stock-panel';
 import { useMandateScope } from './mandate-scope';
 
 /** The mandate at a glance: what stands in the way, what is left, what it holds, and who it pays. */
@@ -40,6 +42,8 @@ export function OverviewView() {
       <SpendPanel />
       <ProposedPayment />
       <FundingPanel />
+      <StockPanel />
+      <ParkPanel />
       <GatesPanel />
       <ControlPanel />
 

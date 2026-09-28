@@ -52,10 +52,10 @@ describe('pre-activation rule check', () => {
     expect(checkDraftSpend(draft(), spend({ spendClass: 'hire' }), NOW)).toMatchObject({ outcome: 'refused', rule: 'Spend class' });
   });
 
-  it('refuses eligible stocks as not yet available, even when ticked', () => {
-    const result = checkDraftSpend(draft({ classes: { service: true, hire: false, rwa: true } }), spend({ spendClass: 'rwa' }), NOW);
+  it('names the spend class for eligible stocks the draft does not allow', () => {
+    const result = checkDraftSpend(draft(), spend({ spendClass: 'rwa' }), NOW);
     expect(result).toMatchObject({ outcome: 'refused', rule: 'Spend class' });
-    if (result.outcome === 'refused') expect(result.message).toContain('not available yet');
+    if (result.outcome === 'refused') expect(result.message).toContain('Eligible stocks are not allowed');
   });
 
   it('names the capability when the class is allowed but the capability is not listed', () => {

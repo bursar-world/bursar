@@ -279,7 +279,7 @@ function RuleCheck({ draft }: { readonly draft: MandateDraft }) {
               onChange={(value) => set('spendClass', value as SpendClass)}
               options={SPEND_CLASSES.map((id) => ({
                 value: id,
-                label: SPEND_CLASS_INFO[id].available ? SPEND_CLASS_INFO[id].name : `${SPEND_CLASS_INFO[id].name} (not yet available)`,
+                label: SPEND_CLASS_INFO[id].name,
               }))}
             />
             <TextField label="Capability" value={spend.capability} onChange={(value) => set('capability', value)} placeholder="gpu.render:1" mono />

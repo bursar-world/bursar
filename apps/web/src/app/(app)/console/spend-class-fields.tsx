@@ -4,7 +4,6 @@ import { useId, useState } from 'react';
 
 import { SPEND_CLASSES, SPEND_CLASS_INFO, bareLabel, classLabel } from '@/chain/capabilities';
 import type { SpendClass } from '@/chain/capabilities';
-import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
 import { ChipList } from './chip-list';
 
@@ -21,21 +20,14 @@ export function chainLabel(capability: ClassedCapability): string {
 /**
  * The capabilities a set of class toggles writes to the account.
  *
- * A class that is off writes nothing, and a class that is not yet available writes nothing whatever
- * its toggle says. The contract holds capabilities one id at a time, so this list is the whole of
- * what the classes mean on chain.
+ * A class that is off writes nothing. The contract holds capabilities one id at a time, so this
+ * list is the whole of what the classes mean on chain.
  */
 export function classCapabilities(classes: ClassSelection, capabilities: readonly ClassedCapability[]): readonly ClassedCapability[] {
-  return capabilities.filter((entry) => classes[entry.spendClass] && SPEND_CLASS_INFO[entry.spendClass].available);
+  return capabilities.filter((entry) => classes[entry.spendClass]);
 }
 
-/**
- * The three spend classes, as toggles, each with the capabilities allowed under it.
- *
- * Services and agent hires can be switched on. Eligible stocks are shown and cannot be: nothing
- * settles them until the asset registry and price guard are live, and a toggle that looked live
- * would be a promise the contract cannot keep.
- */
+/** The three spend classes, as toggles, each with the capabilities allowed under it. */
 export function SpendClassFields({
   classes,
   capabilities,
@@ -53,7 +45,7 @@ export function SpendClassFields({
         <ClassRow
           key={id}
           spendClass={id}
-          on={classes[id] && SPEND_CLASS_INFO[id].available}
+          on={classes[id]}
           capabilities={capabilities.filter((entry) => entry.spendClass === id)}
           disabled={disabled}
           onToggle={(on) => onChange({ ...classes, [id]: on }, capabilities)}
@@ -119,7 +111,7 @@ function ClassRow({
             id={toggleId}
             type="checkbox"
             checked={on}
-            disabled={disabled || !info.available}
+            disabled={disabled}
             onChange={(event) => onToggle(event.target.checked)}
             aria-describedby={`${toggleId}-about`}
             className="mt-1 h-4 w-4"
@@ -128,12 +120,10 @@ function ClassRow({
             <span className="font-medium">{info.name}</span>
             <span id={`${toggleId}-about`} className="block text-detail text-[color:var(--color-muted)]">
               {info.summary}
-              {info.available ? '' : ' Not yet available: no mandate can allow these until guarded stock purchases are live.'}
             </span>
           </label>
         </div>
         <div className="flex items-center gap-2">
-          {!info.available && <Badge tone="quiet">Not yet available</Badge>}
           <code className="font-mono text-note text-[color:var(--color-muted)]">{info.prefix}*</code>
         </div>
       </div>

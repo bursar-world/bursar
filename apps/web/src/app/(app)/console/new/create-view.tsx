@@ -35,7 +35,7 @@ import { ChipList } from '../chip-list';
 import { SpendClassFields, chainLabel, classCapabilities } from '../spend-class-fields';
 import type { ClassSelection, ClassedCapability } from '../spend-class-fields';
 import { useWriteContract } from '@/wallet/write';
-import { SPEND_CLASSES, SPEND_CLASS_INFO, classMaskOf, toCapabilityId } from '@bursar/core';
+import { SPEND_CLASSES, classMaskOf, toCapabilityId } from '@bursar/core';
 import { useWorkspace } from '@/workspace/context';
 import { draftTitle } from '@/workspace/model';
 import type { MandateDraft } from '@/workspace/model';
@@ -134,9 +134,8 @@ export function CreateMandateView({ draftId }: { readonly draftId?: string } = {
   // server one value and the reader another, and the address on screen would change on hydration.
   useEffect(() => setSalt(randomSalt()), []);
 
-  // The classes go into the account itself as a bit mask, which the contract checks on every
-  // spend. A class that is not yet available is never written, whatever its toggle says.
-  const classMask = classMaskOf(SPEND_CLASSES.filter((id) => classes[id] && SPEND_CLASS_INFO[id].available));
+  // The classes go into the account itself as a bit mask, which the contract checks on every spend.
+  const classMask = classMaskOf(SPEND_CLASSES.filter((id) => classes[id]));
   const reading = readDraft(draft, Date.now(), { contractSet: 'v2', classMask });
   const agentReading = readAddress(agentText);
   const agent: Address | undefined = seatLater ? ZERO_ADDRESS : agentReading.value;

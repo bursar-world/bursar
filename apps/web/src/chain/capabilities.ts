@@ -11,8 +11,7 @@ import type { Hex } from 'viem';
  * `hire:` for agent hires, `rwa:` for eligible stock purchases. The SDK's `pay` only ever spends
  * `service:` ids and `hire` only `hire:` ids, so a mandate whose capabilities are all `service:`
  * refuses every hire on chain. The namespaces are defined once, in `@bursar/core`, and published
- * here for the console; this is the module the console reads them from. `rwa:` is reserved and
- * shown as not yet available: nothing settles it until the asset registry and price guard exist.
+ * here for the console; this is the module the console reads them from.
  *
  * Names. A capability reaches the chain as the hash of its label and a hash does not come back. It
  * can still be answered: hashing a candidate name and comparing the id is the same equality the

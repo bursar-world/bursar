@@ -228,9 +228,8 @@ export function GatesPanel() {
                     className="h-11 border border-[color:var(--color-line)] bg-surface px-3 text-sm outline-none focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-[color:var(--color-ring)]"
                   >
                     {SPEND_CLASSES.map((id) => (
-                      <option key={id} value={id} disabled={!SPEND_CLASS_INFO[id].available}>
+                      <option key={id} value={id}>
                         {SPEND_CLASS_INFO[id].name}
-                        {SPEND_CLASS_INFO[id].available ? '' : ' (not yet available)'}
                       </option>
                     ))}
                   </select>

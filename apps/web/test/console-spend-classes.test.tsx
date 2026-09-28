@@ -26,19 +26,20 @@ describe('class toggles write the capability sets', () => {
     ]);
   });
 
-  it('never writes eligible stocks, whatever the toggle says', () => {
-    expect(SPEND_CLASS_INFO.rwa.available).toBe(false);
-    expect(classCapabilities({ service: false, hire: false, rwa: true }, LISTED)).toEqual([]);
+  it('writes eligible stocks when that class is on', () => {
+    expect(SPEND_CLASS_INFO.rwa.available).toBe(true);
+    expect(classCapabilities({ service: false, hire: false, rwa: true }, [{ spendClass: 'rwa', label: 'spy.buy:1' }]).map(chainLabel)).toEqual([
+      'rwa:spy.buy:1',
+    ]);
   });
 
-  it('shows eligible stocks as not yet available, disabled, and not hidden', () => {
+  it('offers eligible stocks as a class that can be switched on', () => {
     const markup = renderToStaticMarkup(
       <SpendClassFields classes={{ service: true, hire: false, rwa: false }} capabilities={[]} onChange={() => undefined} />,
     );
     expect(markup).toContain('Eligible stocks');
-    expect(markup).toContain('Not yet available');
-    expect(markup).toMatch(/data-spend-class="rwa"[\s\S]*?type="checkbox"[^>]*disabled/);
-    expect(markup).toContain('service:gpu.render:1');
+    expect(markup).not.toContain('Not yet available');
+    expect(markup).not.toMatch(/data-spend-class="rwa"[\s\S]*?type="checkbox"[^>]*disabled/);
   });
 });
 

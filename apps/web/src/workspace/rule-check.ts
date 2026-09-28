@@ -108,7 +108,7 @@ export function checkDraftSpend(draft: MandateDraft, spend: PlannedSpend, now: n
   const limits = reading.limits;
   const total = isTotalDraft(draft.limits);
   const at = new Date(atMs).toISOString();
-  const allowedClasses = SPEND_CLASSES.filter((id) => draft.classes[id] && SPEND_CLASS_INFO[id].available);
+  const allowedClasses = SPEND_CLASSES.filter((id) => draft.classes[id]);
   const payees = draft.payees.filter((entry) => isAddress(entry, { strict: false })).map((entry) => getAddress(entry));
 
   const document: MandateDocument = {
@@ -180,9 +180,7 @@ function explain(decision: Decision, c: Context): RuleCheckResult {
     case RefuseReason.Expired:
       return refused('Expiry', 'The spend falls after the draft expires, so it would be refused.');
     case RefuseReason.OutsideMandate:
-      return info.available
-        ? refused('Spend class', `${info.name} are not allowed by this draft.`)
-        : refused('Spend class', `${info.name} are not available yet, so no mandate can allow them.`);
+      return refused('Spend class', `${info.name} are not allowed by this draft.`);
     case RefuseReason.MerchantNotAllowed:
       return refused(
         'Counterparty',

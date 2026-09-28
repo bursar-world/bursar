@@ -81,7 +81,7 @@ function pickDraft(draft: MandateDraft, fields: readonly DraftField[]): Record<s
         break;
       }
       case 'classes':
-        out['spendClasses'] = SPEND_CLASSES.filter((id) => draft.classes[id] && SPEND_CLASS_INFO[id].available).map((id) => ({
+        out['spendClasses'] = SPEND_CLASSES.filter((id) => draft.classes[id]).map((id) => ({
           class: SPEND_CLASS_INFO[id].name,
           capabilities: draft.capabilities
             .filter((entry) => entry.spendClass === id)
