@@ -114,6 +114,9 @@ contract Deploy is Script {
     uint64 private timelockPeriod;
     /// Live governance this run joins, or zero when it brings its own. See `_loadEnv`.
     address private existingTimelock;
+    /// Live staking pool whose bond policy this run's registry reads, or zero when the token
+    /// deployment that follows will name it.
+    address private existingStaking;
 
     uint16 private feeBps;
     uint16 private resolverFeeBps;
@@ -189,6 +192,10 @@ contract Deploy is Script {
         // Unset deploys a fresh timelock, which is the case every new chain starts from.
         existingTimelock = vm.envOr(_key("BURSAR_ADMIN_TIMELOCK"), address(0));
 
+        // A redeploy of the money path next to a live token set bonds its resolvers in the same
+        // BRSR and under the same floor. Unset leaves the link to the token deployment.
+        existingStaking = vm.envOr(_key("BURSAR_STAKING"), address(0));
+
         feeBps = _envUint16("BURSAR_FEE_BPS");
         resolverFeeBps = _envUint16("BURSAR_RESOLVER_FEE_BPS");
         disputeBondBps = _envUint16("BURSAR_DISPUTE_BOND_BPS");
@@ -259,6 +266,10 @@ contract Deploy is Script {
         if (disputeTimeoutPeriod <= votingWindow) revert DisputeTimeoutTooShort(disputeTimeoutPeriod, votingWindow);
 
         if (timelockPeriod == 0) revert TimelockPeriodZero();
+
+        if (existingStaking != address(0) && existingStaking.code.length == 0) {
+            revert WiringFailed("staking.code", existingStaking, address(0));
+        }
 
         // Joining live governance means this run never sets its terms, so the terms are read
         // off the contract and held against the parameter file instead. A wrong address is
@@ -382,11 +393,10 @@ contract Deploy is Script {
 
         oracleRegistry = new OracleRegistry(asset, address(timelock), slashSink, oracleConfig);
 
-        // The registry is optional. Deployed here, it takes the deploy key as admin only long
-        // enough to name the resolver it could not know before the resolver existed, and the
-        // handover to the timelock is started in the same run.
+        // The registry is optional. Deployed here, it answers to the timelock from its first
+        // block: the script sets nothing on it, so the deploy key has no reason to hold it.
         if (withAgentRegistry) {
-            agentRegistry = new AgentRegistry(IERC20(asset), deployer, slashSink, agentMinStake, agentSlashBps);
+            agentRegistry = new AgentRegistry(IERC20(asset), address(timelock), slashSink, agentMinStake, agentSlashBps);
         } else {
             // Cleared, not left alone. One script instance can be run more than once in a
             // process, and a readback against the previous run's registry would hold this
@@ -397,6 +407,10 @@ contract Deploy is Script {
         reputation.setEscrow(address(escrow));
         escrow.setResolver(address(oracleRegistry));
         oracleRegistry.setEscrow(address(escrow));
+        // The guardian's brake reaches the escrow through the timelock, like every other
+        // administered contract.
+        escrow.setPauser(address(timelock));
+        if (existingStaking != address(0)) oracleRegistry.setStaking(existingStaking);
 
         // `setSlasher` is never called. The resolver rules on a job, not on an
         // agent's balance sheet: it produces a quality score, the escrow turns that into a
@@ -405,10 +419,7 @@ contract Deploy is Script {
         // would publish a capability it does not have, and the deployment would read as though
         // agent collateral were at risk from a vote. It is not. Collateral moves on a timelock
         // proposal, with a person naming the amount.
-        if (withAgentRegistry) {
-            escrow.setRegistry(IAgentRegistry(address(agentRegistry)));
-            agentRegistry.transferAdmin(address(timelock));
-        }
+        if (withAgentRegistry) escrow.setRegistry(IAgentRegistry(address(agentRegistry)));
 
         // Last, because it bakes both addresses into every account it creates and there is
         // nothing to correct afterwards.
@@ -427,6 +438,7 @@ contract Deploy is Script {
         _expect("escrow.resolver", address(oracleRegistry), escrow.resolver());
         _expect("oracleRegistry.escrow", address(escrow), oracleRegistry.escrow());
         _expect("escrow.registry", address(agentRegistry), address(escrow.registry()));
+        _expect("escrow.pauser", address(timelock), escrow.pauser());
 
         _expect("escrow.settlementAsset", asset, escrow.settlementAsset());
         _expect("oracleRegistry.settlementAsset", asset, oracleRegistry.settlementAsset());
@@ -434,12 +446,14 @@ contract Deploy is Script {
         _expect("factory.escrow", address(escrow), factory.escrow());
         _expect("escrow.reputation", address(reputation), escrow.reputation());
 
-        // Bonds are posted in BRSR and the pool that prices them is deployed with the token
-        // set, which runs after this one. Asserted as absent so the state is stated and not
-        // assumed: until the token deployment calls `setStaking`, no resolver can bond and no
-        // dispute can be voted on.
-        _expect("oracleRegistry.staking", address(0), address(oracleRegistry.staking()));
-        _expect("oracleRegistry.bondAsset", address(0), address(oracleRegistry.bondAsset()));
+        // Bonds are posted in BRSR. Joining a live token set names its pool here; otherwise the
+        // pool is deployed with the token set, which runs after this one, and it is asserted
+        // as absent so the state is stated and not assumed: until the token deployment calls
+        // `setStaking`, no resolver can bond and no dispute can be voted on.
+        _expect("oracleRegistry.staking", existingStaking, address(oracleRegistry.staking()));
+        if (existingStaking == address(0)) {
+            _expect("oracleRegistry.bondAsset", address(0), address(oracleRegistry.bondAsset()));
+        }
 
         _expect("reputation.admin", address(timelock), reputation.admin());
         _expect("oracleRegistry.admin", address(timelock), oracleRegistry.admin());
@@ -452,9 +466,8 @@ contract Deploy is Script {
             // collateral and the only path to it is an admin call from the timelock.
             _expect("agentRegistry.slasher", address(0), agentRegistry.slasher());
             _expect("agentRegistry.slashSink", slashSink, agentRegistry.slashSink());
-            // Still the deploy key until the timelock executes `acceptAdmin`.
-            _expect("agentRegistry.pendingAdmin", address(timelock), agentRegistry.pendingAdmin());
-            _expect("agentRegistry.admin", deployer, agentRegistry.admin());
+            _expect("agentRegistry.pendingAdmin", address(0), agentRegistry.pendingAdmin());
+            _expect("agentRegistry.admin", address(timelock), agentRegistry.admin());
             _expectUint("agentRegistry.minStake", agentMinStake, agentRegistry.minStake());
             _expectUint("agentRegistry.slashBps", agentSlashBps, agentRegistry.slashBps());
         }
@@ -498,11 +511,16 @@ contract Deploy is Script {
         console2.log("AgentRegistry", address(agentRegistry));
         console2.log("MandateAccountFactory", address(factory));
 
-        // The one wiring call this run cannot make. The pool that prices a resolver bond is
-        // part of the token set, and the same deploy key closes the link from there.
-        console2.log("Pending: OracleRegistry.setStaking, from the token deployment");
-        console2.log("  oracleRegistry", address(oracleRegistry));
-        console2.log("  until it runs, register and increaseBond revert with StakingNotSet");
+        if (existingStaking != address(0)) {
+            console2.log("Staking", existingStaking);
+            console2.log("  live, joined by this run");
+        } else {
+            // The one wiring call this run cannot make. The pool that prices a resolver bond
+            // is part of the token set, and the same deploy key closes the link from there.
+            console2.log("Pending: OracleRegistry.setStaking, from the token deployment");
+            console2.log("  oracleRegistry", address(oracleRegistry));
+            console2.log("  until it runs, register and increaseBond revert with StakingNotSet");
+        }
 
         if (!withAgentRegistry) return;
 
@@ -510,12 +528,6 @@ contract Deploy is Script {
         // and produces a score, not a figure to take off a balance sheet, so nothing in this
         // deployment can reach agent collateral except a proposal from the timelock.
         console2.log("AgentRegistry.slasher is unset: collateral moves on a timelock proposal");
-
-        // One step is left over and it needs two signers. The operator gets the exact call,
-        // not a sentence describing it.
-        console2.log("Pending: AdminTimelock.propose on the registry, then a second approval");
-        console2.log("  target", address(agentRegistry));
-        console2.logBytes(abi.encodeCall(AgentRegistry.acceptAdmin, ()));
     }
 
     function _expect(string memory what, address expected, address actual) private pure {

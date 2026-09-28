@@ -27,7 +27,7 @@ contract CreditRulingStub {
         ESCROW = escrow_;
     }
 
-    function openDispute(uint256 escrowId) external returns (uint256 disputeId) {
+    function openDispute(uint256 escrowId, address, address) external returns (uint256 disputeId) {
         disputeId = nextDisputeId++;
         disputeIdOf[escrowId] = disputeId;
     }
@@ -37,7 +37,7 @@ contract CreditRulingStub {
     }
 
     function rule(uint256 escrowId, uint16 refundBps) external {
-        ESCROW.resolve(escrowId, refundBps);
+        ESCROW.resolve(escrowId, refundBps, 1);
     }
 }
 
@@ -144,6 +144,7 @@ contract MandateCreditTest is Test {
         escrow.setResolver(address(resolver));
 
         factory = new MandateAccountFactory(address(escrow), address(asset));
+        vm.prank(principal);
         account = MandateAccount(
             factory.create(
                 principal,
@@ -157,7 +158,10 @@ contract MandateCreditTest is Test {
                     monthlyWindow: 90 days,
                     approvalThreshold: type(uint128).max,
                     validFrom: 0,
-                    validUntil: 0
+                    validUntil: 0,
+                    classMask: 3,
+                    totalCap: 0,
+                    lane: 0
                 })
             )
         );
@@ -372,7 +376,8 @@ contract MandateCreditTest is Test {
                 inputCommit: keccak256("input"),
                 inputURI: "ipfs://job",
                 amount: LOCK,
-                deadline: uint64(block.timestamp) + 2 hours
+                deadline: uint64(block.timestamp) + 2 hours,
+                spendClass: 0
             }),
             new bytes32[](0)
         );

@@ -48,12 +48,14 @@ contract MandateFactoryTest is Test {
 
         vm.expectEmit(true, true, true, true, address(factory));
         emit IMandateAccountFactory.Created(predicted, principal, agent, bytes32(uint256(1)));
+        vm.prank(principal);
         address account = factory.create(principal, agent, bytes32(uint256(1)), limits);
 
         assertEq(account, predicted);
     }
 
     function test_theAccountCarriesTheDeploymentsEscrowAndAsset() public {
+        vm.prank(principal);
         MandateAccount account = MandateAccount(factory.create(principal, agent, bytes32(uint256(1)), _limits()));
 
         assertEq(account.escrow(), address(escrow));
@@ -65,9 +67,11 @@ contract MandateFactoryTest is Test {
 
     function test_aSecondCreationOnTheSameSaltIsRefusedWithAReasonRatherThanACreateFailure() public {
         IMandateAccount.Limits memory limits = _limits();
+        vm.prank(principal);
         factory.create(principal, agent, bytes32(uint256(1)), limits);
 
         vm.expectRevert(IMandateAccountFactory.AlreadyDeployed.selector);
+        vm.prank(principal);
         factory.create(principal, agent, bytes32(uint256(1)), limits);
     }
 
@@ -77,14 +81,18 @@ contract MandateFactoryTest is Test {
         IMandateAccount.Limits memory tighter = _limits();
         tighter.perCallCap = 50e6;
 
+        vm.prank(principal);
         address first = factory.create(principal, agent, bytes32(uint256(1)), _limits());
+        vm.prank(principal);
         address second = factory.create(principal, agent, bytes32(uint256(1)), tighter);
 
         assertTrue(first != second);
     }
 
     function test_theSameSaltUnderADifferentAgentLandsElsewhere() public {
+        vm.prank(principal);
         address first = factory.create(principal, agent, bytes32(uint256(1)), _limits());
+        vm.prank(principal);
         address second = factory.create(principal, makeAddr("otherAgent"), bytes32(uint256(1)), _limits());
 
         assertTrue(first != second);
@@ -98,6 +106,7 @@ contract MandateFactoryTest is Test {
     /// An account may be created without an agent and have one named later, so the agent is
     /// the one address the factory does not insist on.
     function test_creationWithoutAnAgentIsAllowed() public {
+        vm.prank(principal);
         address account = factory.create(principal, address(0), bytes32(uint256(1)), _limits());
 
         assertEq(MandateAccount(account).agent(), address(0));
@@ -119,8 +128,11 @@ contract MandateFactoryTest is Test {
         assertEq(factory.accountCount(principal), 0);
         assertEq(factory.accountsOf(principal).length, 0);
 
+        vm.prank(principal);
         address first = factory.create(principal, agent, bytes32(uint256(1)), _limits());
+        vm.prank(principal);
         address second = factory.create(principal, agent, bytes32(uint256(2)), _limits());
+        vm.prank(other);
         address theirs = factory.create(other, agent, bytes32(uint256(1)), _limits());
 
         assertEq(factory.accountCount(principal), 2);
@@ -131,20 +143,21 @@ contract MandateFactoryTest is Test {
         assertEq(factory.accountsOf(other)[0], theirs);
     }
 
-    /// Anyone may pay the gas to create an account for a principal, since the creation grants
-    /// the caller nothing: the principal named in the call is the one that owns it.
-    function test_aStrangerCanPayForAPrincipalsAccount() public {
+    /// A stranger creating accounts in a principal's name would fill `accountsOf` with limits
+    /// the principal never chose. Only the principal creates its own accounts.
+    function test_aStrangerCannotCreateAnAccountInAPrincipalsName() public {
         vm.prank(makeAddr("stranger"));
-        address account = factory.create(principal, agent, bytes32(uint256(1)), _limits());
+        vm.expectRevert(IMandateAccountFactory.NotPrincipal.selector);
+        factory.create(principal, agent, bytes32(uint256(1)), _limits());
 
-        assertEq(MandateAccount(account).principal(), principal);
-        assertEq(factory.accountCount(principal), 1);
+        assertEq(factory.accountCount(principal), 0);
     }
 
     function testFuzz_predictionHoldsForAnySalt(bytes32 salt) public {
         IMandateAccount.Limits memory limits = _limits();
         address predicted = factory.predict(principal, agent, salt, limits);
 
+        vm.prank(principal);
         assertEq(factory.create(principal, agent, salt, limits), predicted);
     }
 
@@ -157,7 +170,10 @@ contract MandateFactoryTest is Test {
             monthlyWindow: 30 days,
             approvalThreshold: type(uint128).max,
             validFrom: 0,
-            validUntil: 0
+            validUntil: 0,
+            classMask: 3,
+            totalCap: 0,
+            lane: 0
         });
     }
 }

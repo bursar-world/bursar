@@ -142,7 +142,8 @@ contract MandateSystemHandler is CommonBase, StdUtils {
             inputCommit: keccak256(abi.encode(payee, amount, deadline)),
             inputURI: "ipfs://job",
             amount: amount,
-            deadline: deadline
+            deadline: deadline,
+            spendClass: 0
         });
 
         uint256 escrowId;
@@ -805,10 +806,10 @@ contract MandateInvariants is Test {
         _assertNoBalanceOpcode("AgentRegistry", address(registry));
         _assertNoBalanceOpcode("Reputation", address(reputation));
         _assertNoBalanceOpcode("AdminTimelock", address(timelock));
-        // The factory carries the whole creation code of `MandateAccount` inside its runtime.
-        // It is read as two contracts: its own instructions here, and the child's through
-        // every account it has produced, below.
-        _assertNoBalanceOpcode("MandateAccountFactory", address(factory), type(MandateAccount).creationCode);
+        // The account's creation code lives in the blueprint, behind a STOP, and is never run
+        // there. The factory is read as its own instructions here, and the child through every
+        // account it has produced, below.
+        _assertNoBalanceOpcode("MandateAccountFactory", address(factory));
 
         for (uint256 i; i < accounts.length; ++i) {
             _assertNoBalanceOpcode("MandateAccount", accounts[i]);
@@ -957,7 +958,8 @@ contract MandateInvariants is Test {
                 inputCommit: bytes32(0),
                 inputURI: "ipfs://job",
                 amount: 1,
-                deadline: uint64(block.timestamp + 2 days)
+                deadline: uint64(block.timestamp + 2 days),
+                spendClass: 0
             }),
             new bytes32[](0)
         );
@@ -1026,10 +1028,14 @@ contract MandateInvariants is Test {
             monthlyWindow: 30 days,
             approvalThreshold: APPROVAL_THRESHOLD,
             validFrom: 0,
-            validUntil: 0
+            validUntil: 0,
+            classMask: 3,
+            totalCap: 0,
+            lane: 0
         });
 
         for (uint256 i; i < 2; ++i) {
+            vm.prank(principal);
             address account = factory.create(principal, agent, bytes32(i), limits);
             accounts.push(account);
 
@@ -1084,7 +1090,8 @@ contract MandateInvariants is Test {
             inputCommit: bytes32(0),
             inputURI: "ipfs://job",
             amount: amount,
-            deadline: uint64(block.timestamp + 2 days)
+            deadline: uint64(block.timestamp + 2 days),
+            spendClass: 0
         });
 
         if (amount < account.approvalThreshold()) {

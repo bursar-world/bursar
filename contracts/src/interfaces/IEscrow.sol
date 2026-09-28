@@ -29,6 +29,9 @@ interface IEscrow {
     error NotTreasury();
     error NotPendingTreasury();
     error BadFee();
+    error NotPauser();
+    error DisputeRulable();
+    error InsufficientGas();
 
     enum LockStatus {
         None,
@@ -87,6 +90,11 @@ interface IEscrow {
     event TreasuryTransferStarted(address indexed from, address indexed to);
     event TreasuryTransferred(address indexed from, address indexed to);
     event FeesSwept(address indexed to, uint128 amount);
+    event DisputeReopened(uint256 indexed id, uint64 deadline);
+    event PauserSet(address indexed pauser);
+    event DisclosureGranted(
+        uint256 indexed id, address indexed grantor, address indexed resolver, bytes32 sliceCommit, bytes ciphertext
+    );
 
     /// Pulls `amount` from the caller and opens a lock the payee can settle until `deadline`.
     /// The deadline has to sit strictly inside `[minTtl, maxTtl]` so neither side can create
@@ -130,12 +138,31 @@ interface IEscrow {
 
     /// Splits a disputed lock. `refundBps` is the payer's share of what is left after the
     /// resolver fee; the remainder goes to the payee. Only the resolver calls this.
-    function resolve(uint256 id, uint16 refundBps) external;
+    ///
+    /// `shares` is how many resolvers the fee splits between. At zero nobody earned it, so the
+    /// fee is not taken and the disputer's bond comes back whatever the ruling.
+    function resolve(uint256 id, uint16 refundBps, uint8 shares) external;
+
+    /// Returns a disputed lock the resolvers could not hear to `Locked`, with the deadline
+    /// moved out by `minTtl` so the payee can still deliver. The bond comes back. Only the
+    /// resolver calls this, when the vote missed quorum.
+    function reopen(uint256 id) external;
 
     /// Permissionless refund of a dispute the resolver never ruled on. Without it, a
     /// resolver that stops answering would hold the payer's funds forever. The bond comes
-    /// back whole: silence upstream is not the disputer's fault.
+    /// back whole: silence upstream is not the disputer's fault. Refused while the resolver
+    /// still reports the dispute as open, because it can still be ruled on or reopened.
     function disputeTimeout(uint256 id) external;
+
+    /// Emits a disclosure for one resolver on a disputed lock. Either party may call it. The
+    /// escrow stores nothing: the ciphertext is for the named resolver to read off the log.
+    function grantDisclosure(uint256 id, address resolver, bytes32 sliceCommit, bytes calldata ciphertext) external;
+
+    /// Stops new locks and new disputes. Every exit stays open. The pauser is the timelock,
+    /// so the guardian's brake reaches the escrow.
+    function pause() external;
+    function unpause() external;
+    function setPauser(address pauser) external;
 
     /// Neither contract can name the other at construction, so the pairing is closed afterwards
     /// from both sides: this call and the resolver's own `setEscrow`. One shot, deployer only,
@@ -170,6 +197,8 @@ interface IEscrow {
     function settlementAsset() external view returns (address);
     function reputation() external view returns (address);
     function resolver() external view returns (address);
+    function pauser() external view returns (address);
+    function paused() external view returns (bool);
     function registry() external view returns (IAgentRegistry);
     function feeBps() external view returns (uint16);
     function resolverFeeBps() external view returns (uint16);

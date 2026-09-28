@@ -81,7 +81,10 @@ abstract contract MandateAccountAuthFixture is Test {
             monthlyWindow: 30 days,
             approvalThreshold: THRESHOLD,
             validFrom: 0,
-            validUntil: 0
+            validUntil: 0,
+            classMask: 3,
+            totalCap: 0,
+            lane: 0
         });
     }
 
@@ -94,7 +97,8 @@ abstract contract MandateAccountAuthFixture is Test {
             inputCommit: keccak256("input"),
             inputURI: "ipfs://input",
             amount: amount,
-            deadline: uint64(block.timestamp + 1 days)
+            deadline: uint64(block.timestamp + 1 days),
+            spendClass: 0
         });
     }
 
@@ -129,7 +133,10 @@ abstract contract MandateAccountAuthFixture is Test {
                 limits_.monthlyWindow,
                 limits_.approvalThreshold,
                 limits_.validFrom,
-                limits_.validUntil
+                limits_.validUntil,
+                limits_.classMask,
+                limits_.totalCap,
+                limits_.lane
             )
         );
     }
@@ -202,7 +209,8 @@ contract MandateAccountAuthTest is MandateAccountAuthFixture {
 
     function test_typehashesMatchTheEncodedTypeStringsTheyClaim() public view {
         string memory limitsType = "Limits(uint128 perCallCap,uint128 dailyCap,uint128 monthlyCap,uint64 dailyWindow,"
-            "uint64 monthlyWindow,uint128 approvalThreshold,uint64 validFrom,uint64 validUntil)";
+            "uint64 monthlyWindow,uint128 approvalThreshold,uint64 validFrom,uint64 validUntil,uint32 classMask,"
+            "uint128 totalCap,uint8 lane)";
 
         assertEq(account.LIMITS_TYPEHASH(), keccak256(bytes(limitsType)));
         assertEq(
@@ -422,8 +430,14 @@ contract MandateAccountAuthTest is MandateAccountAuthFixture {
         vm.prank(successor);
         account.acceptPrincipal();
 
-        vm.expectRevert(IMandateAccount.BadSignature.selector);
+        // The handover moves the nonce, so the held-back authorization is stale twice over:
+        // on its nonce, and on its signer once re-signed at the live nonce.
+        vm.expectRevert(IMandateAccount.BadNonce.selector);
         account.setLimitsWithAuthorization(next, 0, deadline, signature);
+
+        bytes memory resigned = _sign(principalKey, _setLimitsDigest(account.DOMAIN_SEPARATOR(), next, 1, deadline));
+        vm.expectRevert(IMandateAccount.BadSignature.selector);
+        account.setLimitsWithAuthorization(next, 1, deadline, resigned);
     }
 
     function testFuzz_authorizationIsRejectedOnEveryNonceButTheLiveOne(uint256 nonce_) public {
@@ -1118,7 +1132,8 @@ contract AuthActor is Test {
                 inputCommit: bytes32(0),
                 inputURI: "",
                 amount: APPROVAL_AMOUNT,
-                deadline: uint64(block.timestamp + 1 days)
+                deadline: uint64(block.timestamp + 1 days),
+                spendClass: 0
             }),
             _noProof,
             _approval(approvalId),
@@ -1144,7 +1159,10 @@ contract AuthActor is Test {
             monthlyWindow: 30 days,
             approvalThreshold: 100e6,
             validFrom: 0,
-            validUntil: 0
+            validUntil: 0,
+            classMask: 3,
+            totalCap: 0,
+            lane: 0
         });
     }
 
@@ -1179,7 +1197,10 @@ contract AuthActor is Test {
                 limits_.monthlyWindow,
                 limits_.approvalThreshold,
                 limits_.validFrom,
-                limits_.validUntil
+                limits_.validUntil,
+                limits_.classMask,
+                limits_.totalCap,
+                limits_.lane
             )
         );
         bytes32 structHash = keccak256(abi.encode(account.SET_LIMITS_TYPEHASH(), limitsHash, nonce_, deadline));

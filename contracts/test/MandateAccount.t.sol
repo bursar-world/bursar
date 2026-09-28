@@ -48,7 +48,8 @@ contract MandateAccountSpendHandler is Test {
             inputCommit: keccak256(abi.encodePacked(amount)),
             inputURI: "ipfs://input",
             amount: amount,
-            deadline: uint64(block.timestamp + 1 hours)
+            deadline: uint64(block.timestamp + 1 hours),
+            spendClass: 0
         });
 
         bool wasPaused = account.paused();
@@ -363,7 +364,7 @@ contract MandateAccountCoreTest is Test {
         vm.prank(principal);
         account.setMerchantGate(IMandateAccount.MerchantGate.MerkleRoot, keccak256("roster"));
 
-        (bool allowed, bytes4 reason) = account.previewSpend(merchant, CAPABILITY, 10e6);
+        (bool allowed, bytes4 reason) = account.previewSpend(merchant, CAPABILITY, 10e6, 0);
         assertFalse(allowed);
         _assertReason(
             reason, IMandateAccount.MerkleGateActive.selector, "a preview without a proof cannot clear a root"
@@ -436,7 +437,7 @@ contract MandateAccountCoreTest is Test {
         vm.expectRevert(IMandateAccount.IsPaused.selector);
         account.spend(_request(merchant, CAPABILITY, 10e6), _noProof());
 
-        (bool allowed, bytes4 reason) = account.previewSpend(merchant, CAPABILITY, 10e6);
+        (bool allowed, bytes4 reason) = account.previewSpend(merchant, CAPABILITY, 10e6, 0);
         assertFalse(allowed);
         _assertReason(reason, IMandateAccount.IsPaused.selector, "a paused mandate must quote the pause");
 
@@ -492,7 +493,7 @@ contract MandateAccountCoreTest is Test {
         vm.expectRevert(IMandateAccount.NotAgent.selector);
         account.spend(_request(merchant, CAPABILITY, 10e6), _noProof());
 
-        (bool allowed, bytes4 reason) = account.previewSpend(merchant, CAPABILITY, 10e6);
+        (bool allowed, bytes4 reason) = account.previewSpend(merchant, CAPABILITY, 10e6, 0);
         assertFalse(allowed);
         _assertReason(reason, IMandateAccount.IsRevoked.selector, "a quote must name revocation over a missing agent");
     }
@@ -979,7 +980,7 @@ contract MandateAccountCoreTest is Test {
         vm.expectRevert(IMandateAccount.Expired.selector);
         expiring.spend(_request(merchant, CAPABILITY, 10e6), _noProof());
 
-        (bool allowed, bytes4 reason) = expiring.previewSpend(merchant, CAPABILITY, 10e6);
+        (bool allowed, bytes4 reason) = expiring.previewSpend(merchant, CAPABILITY, 10e6, 0);
         assertFalse(allowed);
         _assertReason(reason, IMandateAccount.Expired.selector, "an expired mandate must quote the expiry");
     }
@@ -1021,7 +1022,7 @@ contract MandateAccountCoreTest is Test {
         uint64 at = uint64(bound(offset, start, limits.validUntil + 365 days));
         vm.warp(at);
 
-        (bool allowed, bytes4 reason) = bounded.previewSpend(merchant, CAPABILITY, 10e6);
+        (bool allowed, bytes4 reason) = bounded.previewSpend(merchant, CAPABILITY, 10e6, 0);
 
         if (at < limits.validFrom) {
             assertFalse(allowed);
@@ -1048,7 +1049,7 @@ contract MandateAccountCoreTest is Test {
         account.setPaused(pausedNow);
         vm.stopPrank();
 
-        (bool allowed, bytes4 reason) = account.previewSpend(merchant, CAPABILITY, amount);
+        (bool allowed, bytes4 reason) = account.previewSpend(merchant, CAPABILITY, amount, 0);
 
         vm.prank(agent);
         (bool ok, bytes memory ret) = address(account)
@@ -1114,7 +1115,10 @@ contract MandateAccountCoreTest is Test {
             monthlyWindow: MONTHLY_WINDOW,
             approvalThreshold: type(uint128).max,
             validFrom: 0,
-            validUntil: 0
+            validUntil: 0,
+            classMask: 3,
+            totalCap: 0,
+            lane: 0
         });
     }
 
@@ -1129,7 +1133,8 @@ contract MandateAccountCoreTest is Test {
             inputCommit: keccak256("input"),
             inputURI: "ipfs://input",
             amount: amount,
-            deadline: uint64(block.timestamp + 1 hours)
+            deadline: uint64(block.timestamp + 1 hours),
+            spendClass: 0
         });
     }
 
@@ -1158,7 +1163,10 @@ contract MandateAccountCoreTest is Test {
                 limits.monthlyWindow,
                 limits.approvalThreshold,
                 limits.validFrom,
-                limits.validUntil
+                limits.validUntil,
+                limits.classMask,
+                limits.totalCap,
+                limits.lane
             )
         );
         bytes32 structHash = keccak256(abi.encode(account.SET_LIMITS_TYPEHASH(), limitsHash, nonce, deadline));

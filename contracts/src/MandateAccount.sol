@@ -10,19 +10,22 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 
 import {IEscrow} from "./interfaces/IEscrow.sol";
 import {IMandateAccount} from "./interfaces/IMandateAccount.sol";
+import {IStockRouter} from "./interfaces/IStockRouter.sol";
 
 contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     bytes32 private constant _LIMITS_TYPEHASH = keccak256(
         "Limits(uint128 perCallCap,uint128 dailyCap,uint128 monthlyCap,uint64 dailyWindow,"
-        "uint64 monthlyWindow,uint128 approvalThreshold,uint64 validFrom,uint64 validUntil)"
+        "uint64 monthlyWindow,uint128 approvalThreshold,uint64 validFrom,uint64 validUntil,uint32 classMask,"
+        "uint128 totalCap,uint8 lane)"
     );
 
     bytes32 private constant _SET_LIMITS_TYPEHASH = keccak256(
         "SetLimits(Limits limits,uint256 nonce,uint64 deadline)"
         "Limits(uint128 perCallCap,uint128 dailyCap,uint128 monthlyCap,uint64 dailyWindow,"
-        "uint64 monthlyWindow,uint128 approvalThreshold,uint64 validFrom,uint64 validUntil)"
+        "uint64 monthlyWindow,uint128 approvalThreshold,uint64 validFrom,uint64 validUntil,uint32 classMask,"
+        "uint128 totalCap,uint8 lane)"
     );
 
     bytes32 private constant _SPEND_APPROVAL_TYPEHASH = keccak256(
@@ -31,6 +34,10 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
 
     /// `digest` doubles as the registration flag: an approval the principal never wrote on
     /// chain has none, so the empty-signature path cannot match it.
+    uint8 private constant CLASS_HIRE = 1;
+    uint8 private constant CLASS_RWA = 2;
+    uint8 private constant MAX_LANE = 2;
+
     struct Approval {
         bytes32 digest;
         bool spent;
@@ -74,9 +81,22 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
     mapping(address => bool) public override merchants;
     mapping(bytes32 => bool) public override capabilities;
 
+    uint32 public override classMask;
+    uint8 public override lane;
+    uint128 public override totalCap;
+    uint128 public override totalSpent;
+
+    address public override router;
+    bytes32 public override termsCommitment;
+    address public override verifier;
+
+    /// Moves when the principal changes hands, which strands every approval the previous
+    /// principal registered. Approvals are keyed under it.
+    uint64 public override approvalEpoch;
+
     Window private _daily;
     Window private _monthly;
-    mapping(bytes32 => Approval) private _approvals;
+    mapping(uint64 epoch => mapping(bytes32 => Approval)) private _approvals;
     mapping(uint256 escrowId => SpendRecord) private _spends;
 
     modifier onlyPrincipal() {
@@ -121,7 +141,7 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
         if (request.amount > approval.amount) revert ApprovalMismatch();
         if (block.timestamp > approval.expiry) revert ApprovalExpired();
 
-        Approval storage stored = _approvals[approval.approvalId];
+        Approval storage stored = _approvals[approvalEpoch][approval.approvalId];
         if (stored.spent) revert ApprovalSpent();
 
         bytes32 digest = _approvalDigest(approval);
@@ -179,6 +199,9 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
         // allowance went with it. The floor at zero cannot bind while that holds, since
         // credits inside an epoch never exceed the spends recorded in it, but it keeps a
         // future caller from turning an arithmetic surprise into a stuck refund.
+        uint128 total = totalSpent;
+        totalSpent = total > amount ? total - amount : 0;
+
         if (daily.epoch == record.dailyEpoch) {
             daily.spent = daily.spent > amount ? daily.spent - amount : 0;
         }
@@ -309,7 +332,7 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
         // An approval that never expires is a second mandate with no limits attached to it.
         if (block.timestamp > approval.expiry) revert ApprovalExpired();
 
-        Approval storage stored = _approvals[approval.approvalId];
+        Approval storage stored = _approvals[approvalEpoch][approval.approvalId];
         if (stored.spent) revert ApprovalSpent();
 
         stored.digest = _approvalDigest(approval);
@@ -318,7 +341,7 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
     }
 
     function revokeApproval(bytes32 approvalId) external override onlyPrincipal {
-        Approval storage stored = _approvals[approvalId];
+        Approval storage stored = _approvals[approvalEpoch][approvalId];
         if (stored.spent) revert ApprovalSpent();
 
         // Burning the id is what reaches an approval that only ever existed as a signature.
@@ -342,16 +365,21 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
         principal = msg.sender;
         pendingPrincipal = address(0);
 
+        // Consent does not transfer. Approvals the previous principal registered, and limit
+        // changes it signed and held back, would otherwise stay spendable under the new one.
+        ++approvalEpoch;
+        ++nonce;
+
         emit PrincipalTransferred(from, msg.sender);
     }
 
-    function previewSpend(address merchant, bytes32 capabilityId, uint128 amount)
+    function previewSpend(address merchant, bytes32 capabilityId, uint128 amount, uint8 spendClass)
         external
         view
         override
         returns (bool allowed, bytes4 reason)
     {
-        reason = _reason(capabilityId, amount, false, _merchantReason(merchant));
+        reason = _reason(spendClass, capabilityId, amount, false, _merchantReason(merchant));
         allowed = reason == bytes4(0);
     }
 
@@ -364,6 +392,65 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
         monthly = m.cap > m.spent ? m.cap - m.spent : 0;
     }
 
+    function remainingTotal() public view override returns (uint128) {
+        uint128 cap = totalCap;
+        if (cap == 0) return type(uint128).max;
+        uint128 spent = totalSpent;
+        return cap > spent ? cap - spent : 0;
+    }
+
+    function buy(address asset, uint128 usdgIn, uint128 minOut, uint256 quotedPriceE8)
+        external
+        override
+        nonReentrant
+        returns (uint256 amountOut)
+    {
+        if (msg.sender != agent) revert NotAgent();
+        if (asset == address(0)) revert ZeroAddress();
+
+        bytes4 reason = _reason(CLASS_RWA, bytes32(0), usdgIn, false, bytes4(0));
+        if (reason != bytes4(0)) _raise(reason);
+
+        address router_ = router;
+        if (router_ == address(0)) revert RouterNotSet();
+
+        // Counted like any spend and never credited back: a fill is final.
+        _commit(usdgIn);
+
+        IERC20 usdg = IERC20(settlementAsset);
+        IERC20 bought = IERC20(asset);
+        uint256 heldBefore = bought.balanceOf(address(this));
+
+        usdg.forceApprove(router_, usdgIn);
+        IStockRouter(router_).buy(asset, usdgIn, minOut, quotedPriceE8, address(this));
+        usdg.forceApprove(router_, 0);
+
+        // Measured, not taken from the router's return, which is the router's own claim.
+        amountOut = bought.balanceOf(address(this)) - heldBefore;
+        if (amountOut < minOut) revert InsufficientOutput();
+
+        emit Bought(asset, usdgIn, amountOut, quotedPriceE8);
+    }
+
+    function setRouter(address router_) external override onlyPrincipal {
+        router = router_;
+        emit RouterUpdated(router_);
+    }
+
+    function setTermsCommitment(bytes32 termsCommitment_, address verifier_) external override onlyPrincipal {
+        termsCommitment = termsCommitment_;
+        verifier = verifier_;
+        emit TermsCommitted(termsCommitment_, verifier_);
+    }
+
+    function grantDisclosure(uint256 escrowId, address resolver, bytes32 sliceCommit, bytes calldata ciphertext)
+        external
+        override
+        onlyPrincipal
+    {
+        IEscrow(escrow).grantDisclosure(escrowId, resolver, sliceCommit, ciphertext);
+    }
+
     function limits() external view override returns (Limits memory) {
         return Limits({
             perCallCap: perCallCap,
@@ -373,7 +460,10 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
             monthlyWindow: _monthly.duration,
             approvalThreshold: approvalThreshold,
             validFrom: validFrom,
-            validUntil: validUntil
+            validUntil: validUntil,
+            classMask: classMask,
+            totalCap: totalCap,
+            lane: lane
         });
     }
 
@@ -384,7 +474,7 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
     }
 
     function approvals(bytes32 approvalId) external view override returns (bool registered, bool spent) {
-        Approval storage stored = _approvals[approvalId];
+        Approval storage stored = _approvals[approvalEpoch][approvalId];
         return (stored.digest != bytes32(0), stored.spent);
     }
 
@@ -422,20 +512,19 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
     {
         if (msg.sender != agent) revert NotAgent();
 
-        bytes4 reason =
-            _reason(request.capabilityId, request.amount, approved, _merchantReason(request.merchant, merchantProof));
+        // Stocks settle through `buy`, never through an escrow lock.
+        if (request.spendClass > CLASS_HIRE) revert ClassNotAllowed();
+
+        bytes4 reason = _reason(
+            request.spendClass,
+            request.capabilityId,
+            request.amount,
+            approved,
+            _merchantReason(request.merchant, merchantProof)
+        );
         if (reason != bytes4(0)) _raise(reason);
 
-        Window memory daily = _rolled(_daily);
-        Window memory monthly = _rolled(_monthly);
-
-        // The caps count committed spend from the moment it is committed. It comes back only
-        // through `creditSpend`, which the escrow calls on an exit that did not pay the
-        // merchant. A mandate cannot be recycled by churning locks that settle.
-        daily.spent += request.amount;
-        monthly.spent += request.amount;
-        _daily = daily;
-        _monthly = monthly;
+        (Window memory daily, Window memory monthly) = _commit(request.amount);
 
         // The escrow pulls the exact amount inside lock, so no agent-usable allowance
         // survives this call.
@@ -466,9 +555,24 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
         return uint128((amount * escrow_.disputeBondBps()) / 10_000);
     }
 
-    /// One decision function behind both `spend` and `previewSpend`. It returns the selector
+    /// The caps count committed spend from the moment it is committed. It comes back only
+    /// through `creditSpend`, which the escrow calls on an exit that did not pay the merchant.
+    /// A mandate cannot be recycled by churning locks that settle.
+    function _commit(uint128 amount) private returns (Window memory daily, Window memory monthly) {
+        daily = _rolled(_daily);
+        monthly = _rolled(_monthly);
+
+        daily.spent += amount;
+        monthly.spent += amount;
+        _daily = daily;
+        _monthly = monthly;
+        totalSpent += amount;
+    }
+
+    /// One decision function behind `spend`, `buy` and `previewSpend`. It returns the selector
     /// instead of reverting, so a quote can never disagree with the settlement that follows.
-    function _reason(bytes32 capabilityId, uint128 amount, bool approved, bytes4 merchantReason)
+    /// A stock purchase has no capability or merchant, so it skips the capability check.
+    function _reason(uint8 spendClass, bytes32 capabilityId, uint128 amount, bool approved, bytes4 merchantReason)
         private
         view
         returns (bytes4)
@@ -478,12 +582,14 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
         if (amount == 0) return ZeroAmount.selector;
         if (block.timestamp < validFrom) return NotYetValid.selector;
         if (validUntil != 0 && block.timestamp > validUntil) return Expired.selector;
-        if (!capabilities[capabilityId]) return CapabilityNotAllowed.selector;
+        if (spendClass > CLASS_RWA || classMask & (uint32(1) << spendClass) == 0) return ClassNotAllowed.selector;
+        if (spendClass != CLASS_RWA && !capabilities[capabilityId]) return CapabilityNotAllowed.selector;
         if (amount > perCallCap) return PerCallCapExceeded.selector;
 
         (, uint128 daily, uint128 monthly) = remaining();
         if (amount > daily) return DailyCapExceeded.selector;
         if (amount > monthly) return MonthlyCapExceeded.selector;
+        if (amount > remainingTotal()) return TotalCapExceeded.selector;
 
         if (merchantReason != bytes4(0)) return merchantReason;
         // Last, so a spend that needs consent and also breaks a cap reports the cap. Consent
@@ -525,8 +631,13 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
         // agent's first call and read as an outage. Zero is refused here, and `1` is the value
         // that puts every spend behind the signature.
         if (limits_.approvalThreshold == 0) revert BadApprovalThreshold();
+        if (limits_.classMask == 0 || limits_.classMask >> (CLASS_RWA + 1) != 0) revert BadClassMask();
+        if (limits_.lane > MAX_LANE) revert BadLane();
 
         perCallCap = limits_.perCallCap;
+        classMask = limits_.classMask;
+        totalCap = limits_.totalCap;
+        lane = limits_.lane;
         approvalThreshold = limits_.approvalThreshold;
         validFrom = limits_.validFrom;
         validUntil = limits_.validUntil;
@@ -587,7 +698,10 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
                 limits_.monthlyWindow,
                 limits_.approvalThreshold,
                 limits_.validFrom,
-                limits_.validUntil
+                limits_.validUntil,
+                limits_.classMask,
+                limits_.totalCap,
+                limits_.lane
             )
         );
     }

@@ -18,8 +18,14 @@ import {MockReputation} from "./mocks/MockReputation.sol";
 /// Drives the registry from the escrow seat without a live lock behind it, which is what lets
 /// a test post a reward the tokens never backed or refuse a ruling on demand.
 contract StubEscrow {
+    address internal constant PAYER = address(0xA11CE);
+    address internal constant PAYEE = address(0xB0B);
+
     OracleRegistry private immutable REGISTRY;
     IERC20 private immutable ASSET;
+
+    uint256 public reopenCount;
+    uint256 public lastReopenedId;
 
     uint256 public resolveCount;
     uint256 public lastEscrowId;
@@ -32,7 +38,7 @@ contract StubEscrow {
     }
 
     function open(uint256 escrowId) external returns (uint256) {
-        return REGISTRY.openDispute(escrowId);
+        return REGISTRY.openDispute(escrowId, PAYER, PAYEE);
     }
 
     /// The honest sequence: move the tokens, then name the figure.
@@ -52,11 +58,21 @@ contract StubEscrow {
         refuseRulings = refuse;
     }
 
-    function resolve(uint256 id, uint16 refundBps) external {
+    function resolve(uint256 id, uint16 refundBps, uint8) external {
         if (refuseRulings) revert IEscrow.BadStatus();
         resolveCount += 1;
         lastEscrowId = id;
         lastRefundBps = refundBps;
+    }
+
+    function reopen(uint256 id) external {
+        if (refuseRulings) revert IEscrow.BadStatus();
+        reopenCount += 1;
+        lastReopenedId = id;
+    }
+
+    function disputeTimeoutPeriod() external pure returns (uint64) {
+        return 30 days;
     }
 }
 
@@ -275,8 +291,8 @@ contract OracleRegistryTest is Test {
         IOracleRegistry.Dispute memory before = registry.getDispute(disputeId);
 
         IOracleRegistry.Config memory cfg = _defaultConfig();
-        cfg.commitWindow = 30 days;
-        cfg.revealWindow = 30 days;
+        cfg.commitWindow = 10 days;
+        cfg.revealWindow = 10 days;
         cfg.unbondingPeriod = 120 days;
         vm.prank(admin);
         registry.setConfig(cfg);
@@ -731,7 +747,7 @@ contract OracleRegistryTest is Test {
     function test_onlyTheEscrowCanOpenADispute() public {
         vm.prank(r1);
         vm.expectRevert(IOracleRegistry.NotEscrow.selector);
-        registry.openDispute(1);
+        registry.openDispute(1, address(0xA11CE), address(0xB0B));
     }
 
     function test_openDispute_numbersFromOneAndSetsBothWindows() public {
@@ -1269,7 +1285,9 @@ contract OracleRegistryTest is Test {
         assertEq(registry.getDispute(disputeId).rewardShares, 3);
     }
 
-    function test_finalize_closesTheVoteWhenTheEscrowNoLongerHasALockToRuleOn() public {
+    /// A ruling the escrow refuses is not a ruling. Closing the dispute anyway would hand the
+    /// lock to the escrow's timeout, so the whole finalize reverts and the vote stays open.
+    function test_finalize_revertsWholeWhenTheEscrowRefusesTheRuling() public {
         uint256 disputeId = _openDispute();
         _commit(r1, disputeId, 40, SALT);
         _commit(r2, disputeId, 42, SALT);
@@ -1282,14 +1300,17 @@ contract OracleRegistryTest is Test {
 
         stub.setRefuseRulings(true);
 
-        vm.expectEmit(true, false, false, true, address(registry));
-        emit IOracleRegistry.DisputeFailed(disputeId, IEscrow.BadStatus.selector);
+        vm.expectRevert(IEscrow.BadStatus.selector);
         registry.finalize(disputeId);
 
-        assertEq(uint8(registry.getDispute(disputeId).status), uint8(IOracleRegistry.DisputeStatus.Failed));
-        assertEq(registry.openVotes(r1), 0, "a refused ruling must not strand the bonds");
-        assertEq(registry.openVotes(r2), 0);
-        assertEq(registry.openVotes(r3), 0);
+        assertEq(uint8(registry.getDispute(disputeId).status), uint8(IOracleRegistry.DisputeStatus.Revealing));
+        assertEq(registry.openVotes(r1), 1);
+        assertTrue(registry.rulable(registry.getDispute(disputeId).escrowId));
+
+        stub.setRefuseRulings(false);
+        registry.finalize(disputeId);
+        assertEq(uint8(registry.getDispute(disputeId).status), uint8(IOracleRegistry.DisputeStatus.Finalized));
+        assertEq(registry.openVotes(r1), 0);
     }
 
     function test_failDispute_doesNotSlashCommittersWhileTheRevealWindowIsStillOpen() public {
@@ -1319,8 +1340,9 @@ contract OracleRegistryTest is Test {
         assertEq(registry.openVotes(r1), 0);
         assertEq(registry.openVotes(r2), 0);
 
-        assertEq(registry.getDispute(disputeId).refundBps, 10_000);
-        assertEq(stub.lastRefundBps(), 10_000);
+        // No vote is no ruling: the lock is reopened, never refunded.
+        assertEq(stub.reopenCount(), 1);
+        assertEq(stub.resolveCount(), 0);
     }
 
     function test_failDispute_stillDoesNotSlashOneSecondBeforeTheRevealWindowCloses() public {
@@ -1410,7 +1432,7 @@ contract OracleRegistryTest is Test {
         registry.failDispute(disputeId);
     }
 
-    function test_failDispute_refundsTheFullAmountWhenNobodyCommittedAtAll() public {
+    function test_failDispute_reopensTheLockWhenNobodyCommittedAtAll() public {
         uint256 disputeId = _openDispute();
 
         vm.warp(registry.getDispute(disputeId).commitEndsAt);
@@ -1419,8 +1441,9 @@ contract OracleRegistryTest is Test {
         registry.failDispute(disputeId);
 
         assertEq(uint8(registry.getDispute(disputeId).status), uint8(IOracleRegistry.DisputeStatus.Failed));
-        assertEq(stub.resolveCount(), 1);
-        assertEq(stub.lastRefundBps(), 10_000);
+        assertEq(stub.resolveCount(), 0);
+        assertEq(stub.reopenCount(), 1);
+        assertEq(stub.lastReopenedId(), registry.getDispute(disputeId).escrowId);
     }
 
     function test_failDispute_rejectsASecondCall() public {
@@ -2106,20 +2129,19 @@ contract OracleRegistryEscrowIntegrationTest is Test {
         registry.finalize(disputeId);
 
         assertEq(uint8(registry.getDispute(disputeId).status), uint8(IOracleRegistry.DisputeStatus.Failed));
-        assertEq(token.balanceOf(payer), AMOUNT - RESOLVER_FEE + DISPUTE_BOND);
         assertEq(registry.rewardsOf(r1), 0);
         assertEq(registry.rewardsOf(r2), 0);
         assertEq(registry.rewardsOf(r3), 0);
 
-        // The fee still left the escrow, so it has to be accounted for somewhere. The sink is
-        // where a fee nobody earned belongs.
-        assertEq(registry.unallocatedRewards(), RESOLVER_FEE);
-        registry.sweepUnallocated();
-        assertEq(token.balanceOf(sink), RESOLVER_FEE);
+        // Nobody earned the resolver fee, so it is never taken: the payer gets the lock and its
+        // bond back whole, and nothing is left for the sink.
+        assertEq(token.balanceOf(payer), AMOUNT + DISPUTE_BOND);
+        assertEq(registry.unallocatedRewards(), 0);
+        assertEq(registry.rewardFloat(), 0);
         assertEq(token.balanceOf(address(escrow)), 0);
     }
 
-    function test_integration_escrowDisputeTimeoutLeavesTheVoteAbleToClose() public {
+    function test_integration_escrowDisputeTimeoutWaitsForAVoteThatCanStillClose() public {
         uint256 lockId = _lock();
 
         token.mint(payer, DISPUTE_BOND);
@@ -2132,12 +2154,13 @@ contract OracleRegistryEscrowIntegrationTest is Test {
         _vote(disputeId, 40, 42, 45);
 
         vm.warp(block.timestamp + escrow.disputeTimeoutPeriod() + 1);
+        vm.expectRevert(IEscrow.DisputeRulable.selector);
         escrow.disputeTimeout(lockId);
-        assertEq(token.balanceOf(payer), AMOUNT + DISPUTE_BOND, "an unheard dispute must cost nothing");
 
         registry.finalize(disputeId);
 
-        assertEq(uint8(registry.getDispute(disputeId).status), uint8(IOracleRegistry.DisputeStatus.Failed));
+        assertEq(uint8(registry.getDispute(disputeId).status), uint8(IOracleRegistry.DisputeStatus.Finalized));
+        assertEq(uint8(escrow.getLock(lockId).status), uint8(IEscrow.LockStatus.Resolved));
         assertEq(registry.openVotes(r1), 0);
         assertEq(registry.openVotes(r2), 0);
         assertEq(registry.openVotes(r3), 0);
@@ -2269,7 +2292,7 @@ contract RegistryHandler is Test {
     }
 
     function openDispute() external {
-        _disputeIds.push(REGISTRY.openDispute(_nextEscrowId++));
+        _disputeIds.push(REGISTRY.openDispute(_nextEscrowId++, address(0xA11CE), address(0xB0B)));
     }
 
     function commitVote(uint256 actorSeed, uint256 disputeSeed, uint8 score) external {
@@ -2345,9 +2368,14 @@ contract RegistryHandler is Test {
         vm.warp(dispute.commitEndsAt);
     }
 
-    /// The registry rules through this seat. The success branch of its escrow call is
-    /// exercised, not always the catch.
-    function resolve(uint256, uint16) external {}
+    /// The registry rules and reopens through this seat.
+    function resolve(uint256, uint16, uint8) external {}
+
+    function reopen(uint256) external {}
+
+    function disputeTimeoutPeriod() external pure returns (uint64) {
+        return 30 days;
+    }
 
     function _actor(uint256 seed) private view returns (address) {
         return _actors[seed % _actors.length];

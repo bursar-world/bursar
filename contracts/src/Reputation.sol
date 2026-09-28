@@ -125,6 +125,9 @@ contract Reputation is IReputation {
     /// curve to a constant. That reads as a misconfiguration, not a policy.
     function _writeCurve(CapCurve memory curve_) private {
         if (curve_.maxCap < curve_.baseCap) revert BadCurve();
+        // A zero ceiling caps every payee at nothing, so every lock reverts and the escrow
+        // reads as broken rather than closed.
+        if (curve_.maxCap == 0) revert BadCurve();
 
         _curve = CapCurve({baseCap: curve_.baseCap, capPerScore: curve_.capPerScore, maxCap: curve_.maxCap});
 

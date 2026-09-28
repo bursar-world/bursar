@@ -11,6 +11,8 @@ import {IMandateAccount} from "./IMandateAccount.sol";
 interface IMandateAccountFactory {
     error ZeroAddress();
     error AlreadyDeployed();
+    error NotPrincipal();
+    error CreateFailed();
 
     event Created(address indexed account, address indexed principal, address indexed agent, bytes32 salt);
 
@@ -31,5 +33,6 @@ interface IMandateAccountFactory {
     function accountCount(address principal) external view returns (uint256);
 
     function escrow() external view returns (address);
+    function blueprint() external view returns (address);
     function settlementAsset() external view returns (address);
 }

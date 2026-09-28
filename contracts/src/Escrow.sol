@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import {IAgentRegistry} from "./interfaces/IAgentRegistry.sol";
@@ -25,7 +26,10 @@ import {IReputation} from "./interfaces/IReputation.sol";
 /// A lock pays out the moment the payee releases it, so a dispute raised after that has no
 /// funds left to split and records only against the payee's history. A dispute freezes money
 /// still held; it does not claw back money already paid.
-contract Escrow is IEscrow, ReentrancyGuard {
+///
+/// A dispute the resolvers cannot hear is not a refund either. It goes back to `Locked` with
+/// the deadline moved out, and the job finishes the way it would have without the dispute.
+contract Escrow is IEscrow, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     uint16 private constant BPS = 10_000;
@@ -85,6 +89,9 @@ contract Escrow is IEscrow, ReentrancyGuard {
 
     address public resolver;
     address public treasury;
+
+    /// The timelock. It can stop new locks and disputes and nothing else.
+    address public pauser;
     address public pendingTreasury;
 
     /// Optional. While unset the escrow admits any payee, which is what a deployment without
@@ -149,7 +156,7 @@ contract Escrow is IEscrow, ReentrancyGuard {
         string calldata inputURI,
         uint128 amount,
         uint64 deadline
-    ) external nonReentrant returns (uint256 id) {
+    ) external nonReentrant whenNotPaused returns (uint256 id) {
         // Paying the escrow itself would leave the funds held but attributed to no lock.
         if (payee == address(0) || payee == address(this)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
@@ -251,7 +258,7 @@ contract Escrow is IEscrow, ReentrancyGuard {
         _creditPayer(id, payer, amount);
     }
 
-    function dispute(uint256 id) external nonReentrant {
+    function dispute(uint256 id) external nonReentrant whenNotPaused {
         Lock storage entry = _locks[id];
         LockStatus previous = entry.status;
         if (previous != LockStatus.Locked && previous != LockStatus.Released) revert BadStatus();
@@ -296,7 +303,7 @@ contract Escrow is IEscrow, ReentrancyGuard {
                 emit DisputeBonded(id, msg.sender, bond);
             }
 
-            IOracleRegistry(resolver_).openDispute(id);
+            IOracleRegistry(resolver_).openDispute(id, payer, payee);
         }
 
         emit Disputed(id, msg.sender);
@@ -330,7 +337,10 @@ contract Escrow is IEscrow, ReentrancyGuard {
     /// and otherwise zero, because a forfeited bond is already inside the resolver reward.
     /// The resolver fee comes off the principal first and the split divides what is left, so
     /// every truncated remainder falls through to `paid` and none of it can be counted twice.
-    function resolve(uint256 id, uint16 refundBps) external nonReentrant {
+    ///
+    /// With no shares nobody earned the resolver fee, so it is not taken, and a bond with no
+    /// resolver to pay goes back to the disputer whichever way the ruling went.
+    function resolve(uint256 id, uint16 refundBps, uint8 shares) external nonReentrant {
         if (msg.sender != resolver) revert NotResolver();
         if (refundBps > BPS) revert BadRefund();
 
@@ -345,13 +355,13 @@ contract Escrow is IEscrow, ReentrancyGuard {
         uint128 bond = entry.bond;
         entry.bond = 0;
 
-        Split memory split = _split(entry.amount, refundBps);
+        Split memory split = _split(entry.amount, refundBps, shares != 0);
         if (split.protocolFee != 0) feesAccrued += split.protocolFee;
 
         // A disputer who asked for the money to move and got it moved was not griefing. An
         // even split counts for whichever side opened the dispute, because half a contested
         // payment is a real result rather than a complaint the resolvers had to sit through.
-        bool vindicated = entry.disputer == entry.payer ? refundBps >= HALF_BPS : refundBps <= HALF_BPS;
+        bool vindicated = shares == 0 || (entry.disputer == entry.payer ? refundBps >= HALF_BPS : refundBps <= HALF_BPS);
 
         IERC20 asset = IERC20(settlementAsset);
         if (split.refunded != 0) asset.safeTransfer(entry.payer, split.refunded);
@@ -383,10 +393,45 @@ contract Escrow is IEscrow, ReentrancyGuard {
         if (reward != 0) _rewardResolvers(id, reward);
     }
 
+    function reopen(uint256 id) external nonReentrant {
+        if (msg.sender != resolver) revert NotResolver();
+
+        Lock storage entry = _locks[id];
+        if (entry.status != LockStatus.Disputed || entry.releasedAt != 0) revert BadStatus();
+
+        // From whichever is later, so a dispute that outlived the deadline still leaves the
+        // payee a full `minTtl` to deliver or decline.
+        uint256 from = block.timestamp > entry.deadline ? block.timestamp : entry.deadline;
+        // forge-lint: disable-next-line(unsafe-typecast)
+        uint64 deadline = uint64(from + minTtl);
+
+        entry.status = LockStatus.Locked;
+        entry.deadline = deadline;
+
+        uint128 bond = entry.bond;
+        entry.bond = 0;
+        address disputer = entry.disputer;
+
+        if (bond != 0) {
+            IERC20(settlementAsset).safeTransfer(disputer, bond);
+            emit BondReturned(id, disputer, bond);
+        }
+
+        emit DisputeReopened(id, deadline);
+    }
+
     function disputeTimeout(uint256 id) external nonReentrant {
         Lock storage entry = _locks[id];
         if (entry.status != LockStatus.Disputed || entry.releasedAt != 0) revert BadStatus();
         if (block.timestamp <= uint256(entry.disputedAt) + disputeTimeoutPeriod) revert TooEarly();
+
+        // While the resolver can still settle the dispute, it is the one that does. A timeout
+        // here would race a ruling or a reopen and hand the payer the lock outright. A resolver
+        // that cannot answer at all is the case this exit exists for, so a failed read lets it
+        // through.
+        try IOracleRegistry(resolver).rulable(id) returns (bool open) {
+            if (open) revert DisputeRulable();
+        } catch {}
 
         entry.status = LockStatus.Resolved;
         entry.counted = true;
@@ -423,6 +468,41 @@ contract Escrow is IEscrow, ReentrancyGuard {
         resolver = resolver_;
 
         emit ResolverSet(resolver_);
+    }
+
+    function setPauser(address pauser_) external {
+        if (msg.sender != deployer) revert NotDeployer();
+        if (pauser != address(0)) revert AlreadySet();
+        if (pauser_ == address(0)) revert ZeroAddress();
+
+        pauser = pauser_;
+
+        emit PauserSet(pauser_);
+    }
+
+    function pause() external {
+        if (msg.sender != pauser) revert NotPauser();
+        _pause();
+    }
+
+    function unpause() external {
+        if (msg.sender != pauser) revert NotPauser();
+        _unpause();
+    }
+
+    function paused() public view override(IEscrow, Pausable) returns (bool) {
+        return super.paused();
+    }
+
+    /// Event only. The slice is encrypted to the resolver it names, and the escrow is just the
+    /// place both parties of a lock can write to.
+    function grantDisclosure(uint256 id, address resolver_, bytes32 sliceCommit, bytes calldata ciphertext) external {
+        Lock storage entry = _locks[id];
+        if (entry.status != LockStatus.Disputed) revert BadStatus();
+        if (msg.sender != entry.payer && msg.sender != entry.payee) revert NotParty();
+        if (resolver_ == address(0)) revert ZeroAddress();
+
+        emit DisclosureGranted(id, msg.sender, resolver_, sliceCommit, ciphertext);
     }
 
     function setRegistry(IAgentRegistry registry_) external {
@@ -498,9 +578,11 @@ contract Escrow is IEscrow, ReentrancyGuard {
 
         IERC20(settlementAsset).safeTransfer(resolver_, amount);
 
+        uint256 before = gasleft();
         try IOracleRegistry(resolver_).notifyReward(disputeId, amount) {
             emit ResolverRewarded(id, disputeId, amount);
         } catch {
+            _requireNotStarved(before);
             emit ResolverRewardUncredited(id, disputeId, amount);
         }
     }
@@ -508,8 +590,8 @@ contract Escrow is IEscrow, ReentrancyGuard {
     /// The resolver fee comes off the top, the refund splits what is left, and the protocol
     /// fee is charged only on the payee's share. Both divisions truncate toward the payee, so
     /// the four legs sum to `amount` with nothing left over in the contract.
-    function _split(uint128 amount, uint16 refundBps) private view returns (Split memory split) {
-        split.resolverFee = _bps(amount, resolverFeeBps);
+    function _split(uint128 amount, uint16 refundBps, bool feeEarned) private view returns (Split memory split) {
+        if (feeEarned) split.resolverFee = _bps(amount, resolverFeeBps);
 
         uint128 divisible = amount - split.resolverFee;
         split.refunded = _bps(divisible, refundBps);
@@ -540,8 +622,11 @@ contract Escrow is IEscrow, ReentrancyGuard {
     function _creditPayer(uint256 id, address payer, uint128 amount) private {
         if (amount == 0 || payer.code.length == 0) return;
 
+        uint256 before = gasleft();
         (bool credited,) = payer.call{gas: CREDIT_GAS}(abi.encodeCall(IMandateAccount.creditSpend, (id, amount)));
-        if (!credited) emit PayerCreditFailed(id);
+        if (credited) return;
+        _requireNotStarved(before);
+        emit PayerCreditFailed(id);
     }
 
     /// Reputation is advisory, so a registry that reverts or has been self-destructed out from
@@ -550,8 +635,18 @@ contract Escrow is IEscrow, ReentrancyGuard {
     function _notifyReputation(uint256 id, bytes memory payload) private {
         bool delivered;
         if (reputation.code.length != 0) {
+            uint256 before = gasleft();
             (delivered,) = reputation.call(payload);
+            if (!delivered) _requireNotStarved(before);
         }
         if (!delivered) emit ReputationCallbackFailed(id);
+    }
+
+    /// A best-effort call that failed is only a failure of the callee if the callee had the gas
+    /// it was meant to have. Under the 63/64 rule a caller can pick a gas limit that starves the
+    /// callee and still leaves this frame enough to finish, turning a ruling into a silent skip.
+    /// A frame left with no more than a sixty-fourth of what it had is that case, so it reverts.
+    function _requireNotStarved(uint256 before) private view {
+        if (gasleft() <= before / 63) revert InsufficientGas();
     }
 }

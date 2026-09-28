@@ -27,7 +27,7 @@ contract RepRegResolverStub {
 
     uint256 public nextDisputeId = 1;
 
-    function openDispute(uint256 escrowId) external returns (uint256 disputeId) {
+    function openDispute(uint256 escrowId, address, address) external returns (uint256 disputeId) {
         disputeId = nextDisputeId++;
         disputeIdOf[escrowId] = disputeId;
     }
@@ -333,7 +333,7 @@ contract ReputationTest is Test {
         uint8 failures
     ) public {
         uint128 floorCap = uint128(bound(baseCap, 0, type(uint128).max / 2));
-        uint128 ceilingCap = uint128(bound(maxCap, floorCap, type(uint128).max));
+        uint128 ceilingCap = uint128(bound(maxCap, floorCap == 0 ? 1 : floorCap, type(uint128).max));
         uint128 slope = uint128(bound(capPerScore, 0, type(uint128).max));
 
         vm.prank(admin);
@@ -546,7 +546,7 @@ contract ReputationEscrowCountingTest is Test {
         assertEq(_total(), 0, "an open dispute is not yet an outcome");
 
         vm.prank(address(resolverStub));
-        escrow.resolve(id, 0);
+        escrow.resolve(id, 0, 1);
 
         (uint64 released,, uint64 disputed) = reputation.payeeStats(payee);
         assertEq(released, 1);
@@ -560,7 +560,7 @@ contract ReputationEscrowCountingTest is Test {
         escrow.dispute(id);
 
         vm.prank(address(resolverStub));
-        escrow.resolve(id, 1);
+        escrow.resolve(id, 1, 1);
 
         (uint64 released,, uint64 disputed) = reputation.payeeStats(payee);
         assertEq(released, 0);
@@ -647,12 +647,12 @@ contract ReputationEscrowCountingTest is Test {
             vm.prank(payer);
             escrow.dispute(id);
             vm.prank(address(resolverStub));
-            escrow.resolve(id, 0);
+            escrow.resolve(id, 0, 1);
         } else if (path == 5) {
             vm.prank(payer);
             escrow.dispute(id);
             vm.prank(address(resolverStub));
-            escrow.resolve(id, 10_000);
+            escrow.resolve(id, 10_000, 1);
         } else {
             vm.prank(payer);
             escrow.dispute(id);

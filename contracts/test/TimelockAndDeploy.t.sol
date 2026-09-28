@@ -100,8 +100,8 @@ contract MandateTimelockTest is Test {
     }
 
     function test_constructor_acceptsExactlyTheFloorAndExactlyTheCeiling() public {
-        AdminTimelock atFloor = new AdminTimelock([signerA, signerB, signerC], guardian, 48 hours);
-        assertEq(atFloor.timelockPeriod(), 48 hours);
+        AdminTimelock atFloor = new AdminTimelock([signerA, signerB, signerC], guardian, 1 hours);
+        assertEq(atFloor.timelockPeriod(), 1 hours);
 
         AdminTimelock atCeiling = new AdminTimelock([signerA, signerB, signerC], guardian, 30 days);
         assertEq(atCeiling.timelockPeriod(), 30 days);
@@ -109,7 +109,7 @@ contract MandateTimelockTest is Test {
 
     function test_constructor_revertsOneSecondBelowTheFloor() public {
         vm.expectRevert(AdminTimelock.BadPeriod.selector);
-        new AdminTimelock([signerA, signerB, signerC], guardian, 48 hours - 1);
+        new AdminTimelock([signerA, signerB, signerC], guardian, 1 hours - 1);
     }
 
     function test_constructor_revertsOneSecondAboveTheCeiling() public {
@@ -123,7 +123,7 @@ contract MandateTimelockTest is Test {
     }
 
     function testFuzz_constructor_admitsOnlyPeriodsInsideTheBounds(uint64 period) public {
-        if (period < 48 hours || period > 30 days) {
+        if (period < 1 hours || period > 30 days) {
             vm.expectRevert(AdminTimelock.BadPeriod.selector);
             new AdminTimelock([signerA, signerB, signerC], guardian, period);
             return;
@@ -216,7 +216,7 @@ contract MandateTimelockTest is Test {
     function test_approve_revertsOnACancelledProposal() public {
         uint256 id = _proposeCurve(signerA, 200e6);
 
-        vm.prank(signerC);
+        vm.prank(signerA);
         timelock.cancel(id);
 
         vm.prank(signerB);
@@ -305,7 +305,7 @@ contract MandateTimelockTest is Test {
     function test_execute_revertsOnACancelledProposal() public {
         uint256 id = _queued(200e6);
 
-        vm.prank(signerC);
+        vm.prank(signerA);
         timelock.cancel(id);
 
         vm.prank(signerA);
@@ -351,10 +351,10 @@ contract MandateTimelockTest is Test {
         timelock.execute(id);
     }
 
-    function test_cancel_takesOneSignerAndIsFinal() public {
+    function test_cancel_takesTheProposerAloneAndIsFinal() public {
         uint256 id = _proposeCurve(signerA, 200e6);
 
-        vm.prank(signerC);
+        vm.prank(signerA);
         timelock.cancel(id);
         assertTrue(timelock.getProposal(id).cancelled);
 
@@ -421,7 +421,7 @@ contract MandateTimelockTest is Test {
         (bool ready,) = timelock.canExecute(id);
         assertTrue(ready, "the proposal has to be ready before cancelling proves anything");
 
-        vm.prank(signerC);
+        vm.prank(signerA);
         timelock.cancel(id);
 
         bytes4 reason;
@@ -1408,7 +1408,7 @@ contract MandateDeployScriptTest is Test {
     /// timelock, and a period under it stops the run there instead.
     function _casePeriodBelowTheTimelocksOwnFloor() private {
         _setBaseEnv();
-        _set("BURSAR_TIMELOCK_PERIOD", vm.toString(uint256(48 hours - 1)));
+        _set("BURSAR_TIMELOCK_PERIOD", vm.toString(uint256(1 hours - 1)));
 
         vm.expectRevert(AdminTimelock.BadPeriod.selector);
         script.run();
@@ -1530,12 +1530,13 @@ contract MandateDeployScriptTest is Test {
         assertEq(Reputation(out.reputation).escrow(), out.escrow);
         assertEq(MandateAccountFactory(out.factory).escrow(), out.escrow);
 
-        // Governance is the timelock everywhere except the agent registry, which keeps the
-        // deploy key only until the timelock accepts the handover this run started.
+        // Governance is the timelock everywhere from the first block, the agent registry and
+        // the escrow's brake included. The deploy key keeps nothing.
         assertEq(Reputation(out.reputation).admin(), out.timelock);
         assertEq(OracleRegistry(out.oracleRegistry).admin(), out.timelock);
-        assertEq(AgentRegistry(out.agentRegistry).admin(), DEFAULT_SENDER);
-        assertEq(AgentRegistry(out.agentRegistry).pendingAdmin(), out.timelock);
+        assertEq(AgentRegistry(out.agentRegistry).admin(), out.timelock);
+        assertEq(AgentRegistry(out.agentRegistry).pendingAdmin(), address(0));
+        assertEq(Escrow(out.escrow).pauser(), out.timelock);
         assertEq(address(Escrow(out.escrow).registry()), out.agentRegistry);
 
         // Two capabilities the run leaves absent. No contract can take agent collateral, and
@@ -1559,7 +1560,7 @@ contract MandateDeployScriptTest is Test {
         assertEq(out.timelock, address(live));
         assertEq(Reputation(out.reputation).admin(), address(live));
         assertEq(OracleRegistry(out.oracleRegistry).admin(), address(live));
-        assertEq(AgentRegistry(out.agentRegistry).pendingAdmin(), address(live));
+        assertEq(AgentRegistry(out.agentRegistry).admin(), address(live));
     }
 
     /// An address with nothing behind it would deploy a set whose every admin call reverts.

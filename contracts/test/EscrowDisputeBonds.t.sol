@@ -42,7 +42,7 @@ contract BondResolverStub {
         _escrow = escrow_;
     }
 
-    function openDispute(uint256 escrowId) external returns (uint256 id) {
+    function openDispute(uint256 escrowId, address, address) external returns (uint256 id) {
         if (msg.sender != address(_escrow)) revert NotEscrow();
 
         id = nextDisputeId++;
@@ -58,7 +58,7 @@ contract BondResolverStub {
     }
 
     function rule(uint256 id, uint16 refundBps) external {
-        _escrow.resolve(id, refundBps);
+        _escrow.resolve(id, refundBps, 1);
     }
 
     function setRejectRewards(bool reject) external {

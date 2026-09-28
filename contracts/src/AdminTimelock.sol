@@ -35,6 +35,7 @@ contract AdminTimelock {
     error AlreadyExecuted();
     error AlreadyCancelled();
     error ExecutionFailed();
+    error AlreadyVetoed();
 
     struct Proposal {
         address target;
@@ -49,6 +50,7 @@ contract AdminTimelock {
     event ProposalApproved(uint256 indexed id, address indexed signer, uint256 approvals);
     event ProposalExecuted(uint256 indexed id);
     event ProposalCancelled(uint256 indexed id, address indexed signer);
+    event ProposalVetoed(uint256 indexed id, address indexed signer, uint256 vetoes);
     event SignerUpdated(uint256 indexed index, address indexed from, address indexed to);
     event GuardianUpdated(address indexed from, address indexed to);
     event GuardianPaused(address indexed target, address indexed guardian);
@@ -56,8 +58,9 @@ contract AdminTimelock {
     uint256 public constant REQUIRED_APPROVALS = 2;
     uint256 public constant SIGNER_COUNT = 3;
 
-    /// Long enough for anyone watching a mandate to act on a pending change before it lands.
-    uint64 public constant MIN_TIMELOCK_PERIOD = 48 hours;
+    /// The floor for a development deployment. Public launch raises it to forty-eight hours,
+    /// long enough for anyone watching a mandate to act on a pending change before it lands.
+    uint64 public constant MIN_TIMELOCK_PERIOD = 1 hours;
 
     /// A delay past this stops being governance and starts being an outage.
     uint64 public constant MAX_TIMELOCK_PERIOD = 30 days;
@@ -82,6 +85,8 @@ contract AdminTimelock {
 
     mapping(uint256 => Proposal) private _proposals;
     mapping(uint256 => mapping(address => bool)) public hasApproved;
+    mapping(uint256 => mapping(address => bool)) public hasVetoed;
+    mapping(uint256 => address) public proposerOf;
 
     modifier onlySigner() {
         if (!isSigner(msg.sender)) revert NotSigner();
@@ -137,6 +142,7 @@ contract AdminTimelock {
             cancelled: false
         });
         hasApproved[id][msg.sender] = true;
+        proposerOf[id] = msg.sender;
 
         emit ProposalCreated(id, target, data, executeAfter);
         emit ProposalApproved(id, msg.sender, 1);
@@ -169,12 +175,22 @@ contract AdminTimelock {
         emit ProposalExecuted(id);
     }
 
-    /// Any single signer can cancel. Blocking a change is cheaper than making one: the cost of
-    /// a wrongly cancelled proposal is that it has to be proposed again.
+    /// The proposer withdraws its own proposal alone. Anyone else's takes two vetoes, the same
+    /// two signers a change needs, so one key cannot block its own removal or hold a pause in
+    /// place by cancelling every unpause.
     function cancel(uint256 id) external onlySigner exists(id) {
         Proposal storage p = _proposals[id];
         if (p.executed) revert AlreadyExecuted();
         if (p.cancelled) revert AlreadyCancelled();
+
+        if (proposerOf[id] != msg.sender) {
+            if (hasVetoed[id][msg.sender]) revert AlreadyVetoed();
+            hasVetoed[id][msg.sender] = true;
+
+            uint256 count = vetoes(id);
+            emit ProposalVetoed(id, msg.sender, count);
+            if (count < REQUIRED_APPROVALS) return;
+        }
 
         p.cancelled = true;
 
@@ -234,6 +250,13 @@ contract AdminTimelock {
     function approvals(uint256 id) public view returns (uint256 count) {
         for (uint256 i = 0; i < SIGNER_COUNT; ++i) {
             if (hasApproved[id][signers[i]]) ++count;
+        }
+    }
+
+    /// Counted over the current signer set, like approvals.
+    function vetoes(uint256 id) public view returns (uint256 count) {
+        for (uint256 i = 0; i < SIGNER_COUNT; ++i) {
+            if (hasVetoed[id][signers[i]]) ++count;
         }
     }
 

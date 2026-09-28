@@ -57,6 +57,8 @@ interface IOracleRegistry {
     error ZeroAddress();
     error ZeroAmount();
     error NothingToClaim();
+    error PartyCannotVote();
+    error NotPauser();
 
     enum ResolverStatus {
         None,
@@ -154,8 +156,23 @@ interface IOracleRegistry {
     function cancelUnbond() external;
 
     /// Opened by the escrow when a payer disputes. The commit window starts immediately, never
-    /// on the first vote, so a resolver cannot stall the clock by waiting.
-    function openDispute(uint256 escrowId) external returns (uint256 disputeId);
+    /// on the first vote, so a resolver cannot stall the clock by waiting. The two parties are
+    /// recorded so neither can vote on its own dispute.
+    function openDispute(uint256 escrowId, address payer, address payee) external returns (uint256 disputeId);
+
+    /// True while the dispute on `escrowId` is still open here, so `finalize` or `failDispute`
+    /// can settle it. The escrow reads this before letting its own timeout refund the payer.
+    function rulable(uint256 escrowId) external view returns (bool);
+
+    /// The payer and payee of the lock under dispute, barred from voting on it.
+    function partiesOf(uint256 disputeId) external view returns (address payer, address payee);
+
+    /// Stops new bonds, new votes and new disputes. Reveals and both settlement paths stay
+    /// open, so a dispute already running still finishes. Callable by the admin, which is the
+    /// timelock, so the guardian's brake reaches the registry.
+    function pause() external;
+    function unpause() external;
+    function paused() external view returns (bool);
 
     /// `commitment` is `commitmentHash(disputeId, msg.sender, score, salt)`. The resolver
     /// address is inside the hash so one resolver's commitment cannot be replayed by

@@ -223,7 +223,10 @@ contract MandateWindowsHandler is Test {
             // refusal here attributable to a cap.
             approvalThreshold: type(uint128).max,
             validFrom: 0,
-            validUntil: 0
+            validUntil: 0,
+            classMask: 3,
+            totalCap: 0,
+            lane: 0
         });
 
         vm.prank(principal);
@@ -239,7 +242,8 @@ contract MandateWindowsHandler is Test {
             inputCommit: keccak256(abi.encode(merchant, amount, block.timestamp)),
             inputURI: "ipfs://mandate-windows",
             amount: amount,
-            deadline: uint64(block.timestamp + 1 hours)
+            deadline: uint64(block.timestamp + 1 hours),
+            spendClass: 0
         });
     }
 }
@@ -374,7 +378,7 @@ contract MandateAccountWindowsTest is Test {
         (, uint128 daily,) = account.remaining();
         assertEq(daily, 0);
 
-        (bool allowed, bytes4 reason) = account.previewSpend(merchantA, CAPABILITY, 1);
+        (bool allowed, bytes4 reason) = account.previewSpend(merchantA, CAPABILITY, 1, 0);
         assertFalse(allowed);
         _assertReason(reason, IMandateAccount.DailyCapExceeded.selector);
 
@@ -495,7 +499,7 @@ contract MandateAccountWindowsTest is Test {
         assertEq(daily, 1_000e6, "the daily bucket did not roll");
         assertEq(monthly, 500e6, "the monthly bucket rolled with it");
 
-        (bool allowed, bytes4 reason) = tight.previewSpend(merchantA, CAPABILITY, 600e6);
+        (bool allowed, bytes4 reason) = tight.previewSpend(merchantA, CAPABILITY, 600e6, 0);
         assertFalse(allowed);
         _assertReason(reason, IMandateAccount.MonthlyCapExceeded.selector);
 
@@ -917,7 +921,10 @@ contract MandateAccountWindowsTest is Test {
             // The caps are the subject here, so consent never routes a spend away from them.
             approvalThreshold: type(uint128).max,
             validFrom: 0,
-            validUntil: 0
+            validUntil: 0,
+            classMask: 3,
+            totalCap: 0,
+            lane: 0
         });
     }
 
@@ -963,7 +970,8 @@ contract MandateAccountWindowsTest is Test {
             inputCommit: keccak256(abi.encode(merchant, amount, block.timestamp)),
             inputURI: "ipfs://mandate-windows",
             amount: amount,
-            deadline: uint64(block.timestamp + 1 hours)
+            deadline: uint64(block.timestamp + 1 hours),
+            spendClass: 0
         });
     }
 

@@ -43,6 +43,12 @@ interface IMandateAccount {
     error TransferMismatch();
     error ZeroAddress();
     error ZeroAmount();
+    error ClassNotAllowed();
+    error TotalCapExceeded();
+    error BadClassMask();
+    error BadLane();
+    error RouterNotSet();
+    error InsufficientOutput();
 
     /// Both windows bind at once. A spend has to clear the per-call cap and leave room in
     /// the daily and the monthly bucket, so the tighter of the two is what an agent feels.
@@ -89,6 +95,14 @@ interface IMandateAccount {
         uint128 approvalThreshold;
         uint64 validFrom;
         uint64 validUntil;
+        /// Bit `c` set allows spend class `c`: 0 services, 1 agent hires, 2 eligible stocks.
+        /// Zero is refused, because a mandate that allows no class refuses every spend.
+        uint32 classMask;
+        /// Lifetime ceiling on committed spend, net of refunds. Zero means no lifetime ceiling.
+        uint128 totalCap;
+        /// Where the funds settle: 0 escrow, 1 treasury, 2 collateral. Only 0 has contracts
+        /// behind it today; the other two are reserved so a mandate can name them later.
+        uint8 lane;
     }
 
     struct SpendRequest {
@@ -98,6 +112,8 @@ interface IMandateAccount {
         string inputURI;
         uint128 amount;
         uint64 deadline;
+        /// 0 services or 1 agent hires. Must be allowed by `classMask`.
+        uint8 spendClass;
     }
 
     /// A principal's consent to one spend above `approvalThreshold`. `approvalId` is chosen
@@ -136,6 +152,9 @@ interface IMandateAccount {
     event ApprovalRevoked(bytes32 indexed approvalId);
     event ApprovalConsumed(bytes32 indexed approvalId, uint256 indexed escrowId);
     event SpendCredited(uint256 indexed escrowId, uint128 amount, uint128 dailySpent, uint128 monthlySpent);
+    event Bought(address indexed asset, uint128 usdgIn, uint256 amountOut, uint256 quotedPriceE8);
+    event RouterUpdated(address indexed router);
+    event TermsCommitted(bytes32 indexed termsCommitment, address indexed verifier);
 
     /// Locks `request.amount` in the escrow against the mandate. Reverts with
     /// `ApprovalRequired` at or above `approvalThreshold`; those spends go through
@@ -225,10 +244,38 @@ interface IMandateAccount {
     /// What the mandate would decide right now, without spending. `reason` is the selector
     /// of the error `spend` would revert with, or zero when `allowed` is true. The
     /// underwriter quotes this before signing an x402 payment so a refusal costs no gas.
-    function previewSpend(address merchant, bytes32 capabilityId, uint128 amount)
+    function previewSpend(address merchant, bytes32 capabilityId, uint128 amount, uint8 spendClass)
         external
         view
         returns (bool allowed, bytes4 reason);
+
+    /// Buys an eligible stock token through the principal's chosen router, under class 2 and
+    /// every cap. Unusable until the principal names a router.
+    function buy(address asset, uint128 usdgIn, uint128 minOut, uint256 quotedPriceE8)
+        external
+        returns (uint256 amountOut);
+
+    function setRouter(address router) external;
+
+    /// Records a commitment to off-chain terms and the verifier that will check proofs
+    /// against it. Nothing reads either yet.
+    function setTermsCommitment(bytes32 termsCommitment, address verifier) external;
+
+    /// Passes a disclosure for one resolver through to the escrow, as the payer of the lock.
+    function grantDisclosure(uint256 escrowId, address resolver, bytes32 sliceCommit, bytes calldata ciphertext)
+        external;
+
+    function classMask() external view returns (uint32);
+    function totalCap() external view returns (uint128);
+    function totalSpent() external view returns (uint128);
+    function lane() external view returns (uint8);
+    function router() external view returns (address);
+    function termsCommitment() external view returns (bytes32);
+    function verifier() external view returns (address);
+    function approvalEpoch() external view returns (uint64);
+
+    /// What is left under the lifetime ceiling, or the uint128 maximum when there is none.
+    function remainingTotal() external view returns (uint128);
 
     /// Headroom after lazy window rollover: what an agent can actually spend now, not what the
     /// caps nominally say.

@@ -82,6 +82,10 @@ contract AgentRegistry is IAgentRegistry, Pausable, ReentrancyGuard {
     /// slashing without cause is visible for several rounds before the collateral is gone.
     uint16 public constant MAX_SLASH_BPS = 5000;
 
+    /// Ten thousand USDG. A floor above this is a closed registry, and closing it is a pause,
+    /// which exits still get through, not a stake nobody can post.
+    uint128 public constant MAX_MIN_STAKE = 10_000e6;
+
     uint256 private constant MIN_NAME_LENGTH = 3;
     uint256 private constant MAX_NAME_LENGTH = 32;
 
@@ -143,7 +147,8 @@ contract AgentRegistry is IAgentRegistry, Pausable, ReentrancyGuard {
         if (address(asset) == address(0) || initialAdmin == address(0) || initialSlashSink == address(0)) {
             revert ZeroAddress();
         }
-        if (initialMinStake == 0 || initialSlashBps == 0 || initialSlashBps > MAX_SLASH_BPS) revert BadConfig();
+        if (initialMinStake == 0 || initialMinStake > MAX_MIN_STAKE) revert BadConfig();
+        if (initialSlashBps == 0 || initialSlashBps > MAX_SLASH_BPS) revert BadConfig();
 
         settlementAsset = asset;
         admin = initialAdmin;
@@ -346,7 +351,7 @@ contract AgentRegistry is IAgentRegistry, Pausable, ReentrancyGuard {
     /// on partial withdrawals; an agent under the new floor can still deactivate and exit
     /// in full.
     function setMinStake(uint128 newMinStake) external onlyAdmin {
-        if (newMinStake == 0) revert BadConfig();
+        if (newMinStake == 0 || newMinStake > MAX_MIN_STAKE) revert BadConfig();
         minStake = newMinStake;
         emit MinStakeUpdated(newMinStake);
     }

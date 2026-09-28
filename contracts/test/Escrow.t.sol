@@ -38,7 +38,7 @@ contract EscrowResolverStub {
     uint256 public lastRewardDisputeId;
     bool public refuseNotify;
 
-    function openDispute(uint256 escrowId) external returns (uint256 disputeId) {
+    function openDispute(uint256 escrowId, address, address) external returns (uint256 disputeId) {
         disputeId = nextDisputeId++;
         disputeIdOf[escrowId] = disputeId;
         ++opened;
@@ -56,7 +56,7 @@ contract EscrowResolverStub {
     }
 
     function rule(IEscrow escrow, uint256 id, uint16 refundBps) external {
-        escrow.resolve(id, refundBps);
+        escrow.resolve(id, refundBps, 1);
     }
 }
 
@@ -1127,11 +1127,11 @@ contract EscrowTest is Test {
 
         vm.prank(payer);
         vm.expectRevert(IEscrow.NotResolver.selector);
-        escrow.resolve(id, 0);
+        escrow.resolve(id, 0, 1);
 
         vm.prank(stranger);
         vm.expectRevert(IEscrow.NotResolver.selector);
-        escrow.resolve(id, 10_000);
+        escrow.resolve(id, 10_000, 1);
     }
 
     function test_resolve_rejects_a_refund_share_above_one_hundred_percent() public {
