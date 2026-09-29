@@ -1,0 +1,359 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.28;
+
+import {Test} from "forge-std/Test.sol";
+import {stdJson} from "forge-std/StdJson.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+import {Entrypoint} from "../../vendor/privacy-pools-core/src/contracts/Entrypoint.sol";
+import {ProofLib} from "../../vendor/privacy-pools-core/src/contracts/lib/ProofLib.sol";
+import {CommitmentVerifier} from "../../vendor/privacy-pools-core/src/contracts/verifiers/CommitmentVerifier.sol";
+import {WithdrawalVerifier} from "../../vendor/privacy-pools-core/src/contracts/verifiers/WithdrawalVerifier.sol";
+import {IEntrypoint} from "../../vendor/privacy-pools-core/src/interfaces/IEntrypoint.sol";
+import {IPrivacyPool} from "../../vendor/privacy-pools-core/src/interfaces/IPrivacyPool.sol";
+import {IState} from "../../vendor/privacy-pools-core/src/interfaces/IState.sol";
+
+import {IAccessRegistry} from "../../src/shielded/IAccessRegistry.sol";
+import {ShieldedPool} from "../../src/shielded/ShieldedPool.sol";
+import {ShieldedRelay} from "../../src/shielded/ShieldedRelay.sol";
+
+import {MockERC20} from "../mocks/MockERC20.sol";
+
+contract MockAccessRegistry is IAccessRegistry {
+    mapping(address => bool) public blocked;
+
+    function setBlocked(address account, bool value) external {
+        blocked[account] = value;
+    }
+
+    function isBlocked(address account) external view returns (bool) {
+        return blocked[account];
+    }
+}
+
+/// The proofs in test/fixtures/shielded.json are real Groth16 proofs made with the official
+/// Privacy Pools v1.3.0 proving keys by packages/sdk/scripts/shielded-fixture.ts. They are bound to
+/// the chain id, the asset and the addresses setUp produces: each contract below is created by its
+/// own pranked deployer at nonce 0, so the addresses do not depend on anything else in the test.
+contract ShieldedTest is Test {
+    using stdJson for string;
+
+    uint256 internal constant CHAIN_ID = 4663;
+    address internal constant USDG = 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168;
+    address internal constant ENTRYPOINT_DEPLOYER = address(0xe0001);
+    address internal constant POOL_DEPLOYER = address(0xe0002);
+    address internal constant RELAY_DEPLOYER = address(0xe0003);
+    address internal constant RECIPIENT = address(0xe0010);
+    address internal constant FEE_RECIPIENT = address(0xe0011);
+
+    address internal owner = address(0x0A11);
+    address internal postman = address(0x9057);
+    address internal alice = address(0xA11CE);
+    address internal bob = address(0xB0B);
+    address internal relayer = address(0x7E1A);
+
+    MockERC20 internal usdg;
+    MockAccessRegistry internal registry;
+    Entrypoint internal entrypoint;
+    ShieldedPool internal pool;
+    ShieldedRelay internal relay;
+    string internal fixture;
+
+    function setUp() public {
+        vm.chainId(CHAIN_ID);
+        // The pool scope hashes the asset address, so the mock sits at the real USDG address.
+        vm.etch(USDG, address(new MockERC20()).code);
+        usdg = MockERC20(USDG);
+        registry = new MockAccessRegistry();
+        fixture = vm.readFile(string.concat(vm.projectRoot(), "/test/fixtures/shielded.json"));
+
+        address withdrawalVerifier = address(new WithdrawalVerifier());
+        address ragequitVerifier = address(new CommitmentVerifier());
+        address impl = address(new Entrypoint());
+
+        vm.prank(ENTRYPOINT_DEPLOYER);
+        entrypoint = Entrypoint(
+            payable(address(new ERC1967Proxy(impl, abi.encodeCall(Entrypoint.initialize, (owner, postman)))))
+        );
+        vm.prank(POOL_DEPLOYER);
+        pool =
+            new ShieldedPool(address(entrypoint), withdrawalVerifier, ragequitVerifier, USDG, registry, 100e6, 1_000e6);
+        vm.prank(RELAY_DEPLOYER);
+        relay = new ShieldedRelay(pool, registry, 500);
+
+        assertEq(address(entrypoint), vm.computeCreateAddress(ENTRYPOINT_DEPLOYER, 0));
+        assertEq(address(pool), vm.computeCreateAddress(POOL_DEPLOYER, 0));
+        assertEq(address(relay), vm.computeCreateAddress(RELAY_DEPLOYER, 0));
+        assertEq(pool.SCOPE(), fixture.readUint(".scope"), "scope differs from the fixture");
+
+        vm.prank(owner);
+        entrypoint.registerPool(IERC20(USDG), pool, 10_000, 0, 500);
+
+        usdg.mint(alice, 2_000e6);
+        usdg.mint(bob, 2_000e6);
+        vm.prank(alice);
+        usdg.approve(address(entrypoint), type(uint256).max);
+        vm.prank(bob);
+        usdg.approve(address(entrypoint), type(uint256).max);
+        vm.deal(relayer, 1 ether);
+    }
+
+    // ----------------------------------------------------------------------------------------
+    // helpers
+    // ----------------------------------------------------------------------------------------
+
+    function _depositBoth() internal {
+        vm.prank(alice);
+        uint256 c1 = entrypoint.deposit(
+            IERC20(USDG), fixture.readUint(".deposit1.value"), fixture.readUint(".deposit1.precommitment")
+        );
+        assertEq(c1, fixture.readUint(".deposit1.commitment"));
+        vm.prank(bob);
+        uint256 c2 = entrypoint.deposit(
+            IERC20(USDG), fixture.readUint(".deposit2.value"), fixture.readUint(".deposit2.precommitment")
+        );
+        assertEq(c2, fixture.readUint(".deposit2.commitment"));
+    }
+
+    /// The ASP root for {label1, label2}: a two-leaf lean tree is Poseidon(label1, label2), which
+    /// the relayed proof carries as its public ASPRoot.
+    function _postRoot(string memory key) internal {
+        uint256 root = fixture.readUintArray(string.concat(key, ".pubSignals"))[5];
+        vm.prank(postman);
+        entrypoint.updateRoot(root, "bafkreigh2akiscaildcqabsyg3dfr6chu3fgpregiymsck7e7aqa4s52zy");
+    }
+
+    function _withdrawProof(string memory key) internal view returns (ProofLib.WithdrawProof memory p) {
+        uint256[] memory a = fixture.readUintArray(string.concat(key, ".pA"));
+        uint256[] memory b0 = fixture.readUintArray(string.concat(key, ".pB[0]"));
+        uint256[] memory b1 = fixture.readUintArray(string.concat(key, ".pB[1]"));
+        uint256[] memory c = fixture.readUintArray(string.concat(key, ".pC"));
+        uint256[] memory s = fixture.readUintArray(string.concat(key, ".pubSignals"));
+        p.pA = [a[0], a[1]];
+        p.pB = [[b0[0], b0[1]], [b1[0], b1[1]]];
+        p.pC = [c[0], c[1]];
+        for (uint256 i; i < 8; ++i) {
+            p.pubSignals[i] = s[i];
+        }
+    }
+
+    function _ragequitProof() internal view returns (ProofLib.RagequitProof memory p) {
+        uint256[] memory a = fixture.readUintArray(".ragequit.pA");
+        uint256[] memory b0 = fixture.readUintArray(".ragequit.pB[0]");
+        uint256[] memory b1 = fixture.readUintArray(".ragequit.pB[1]");
+        uint256[] memory c = fixture.readUintArray(".ragequit.pC");
+        uint256[] memory s = fixture.readUintArray(".ragequit.pubSignals");
+        p.pA = [a[0], a[1]];
+        p.pB = [[b0[0], b0[1]], [b1[0], b1[1]]];
+        p.pC = [c[0], c[1]];
+        for (uint256 i; i < 4; ++i) {
+            p.pubSignals[i] = s[i];
+        }
+    }
+
+    function _relayWithdrawal() internal view returns (IPrivacyPool.Withdrawal memory) {
+        return IPrivacyPool.Withdrawal({processooor: address(relay), data: fixture.readBytes(".relayData")});
+    }
+
+    // ----------------------------------------------------------------------------------------
+    // deposits and caps
+    // ----------------------------------------------------------------------------------------
+
+    function test_depositRecordsLabelAndDepositor() public {
+        _depositBoth();
+        assertEq(pool.depositors(fixture.readUint(".deposit1.label")), alice);
+        assertEq(pool.depositors(fixture.readUint(".deposit2.label")), bob);
+        assertEq(usdg.balanceOf(address(pool)), 1_300_000);
+        assertEq(pool.currentTreeSize(), 2);
+    }
+
+    function test_depositAbovePerDepositCapReverts() public {
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(ShieldedPool.DepositAboveCap.selector, 100e6 + 1, 100e6));
+        entrypoint.deposit(IERC20(USDG), 100e6 + 1, 123);
+    }
+
+    function test_depositPastPoolCapReverts() public {
+        for (uint256 i; i < 10; ++i) {
+            vm.prank(alice);
+            entrypoint.deposit(IERC20(USDG), 100e6, 1_000 + i);
+        }
+        assertEq(usdg.balanceOf(address(pool)), 1_000e6);
+        vm.prank(bob);
+        vm.expectRevert(abi.encodeWithSelector(ShieldedPool.PoolCapReached.selector, 1_000e6 + 10_000, 1_000e6));
+        entrypoint.deposit(IERC20(USDG), 10_000, 9_999);
+    }
+
+    function test_blockedDepositorCannotDeposit() public {
+        registry.setBlocked(alice, true);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(ShieldedPool.DepositorBlocked.selector, alice));
+        entrypoint.deposit(IERC20(USDG), 1e6, 77);
+    }
+
+    function test_depositBelowMinimumReverts() public {
+        vm.prank(alice);
+        vm.expectRevert(IEntrypoint.MinimumDepositAmount.selector);
+        entrypoint.deposit(IERC20(USDG), 9_999, 5);
+    }
+
+    function test_capsAreConstructorChecked() public {
+        vm.expectRevert(IPrivacyPool.InvalidDepositValue.selector);
+        new ShieldedPool(address(entrypoint), address(1), address(1), USDG, registry, 10, 9);
+    }
+
+    // ----------------------------------------------------------------------------------------
+    // relayed withdrawal
+    // ----------------------------------------------------------------------------------------
+
+    function test_relayPaysRecipientFeeAndGas() public {
+        _depositBoth();
+        _postRoot(".relayed");
+        ProofLib.WithdrawProof memory p = _withdrawProof(".relayed");
+
+        vm.prank(relayer);
+        relay.relay{value: 0.0002 ether}(_relayWithdrawal(), p);
+
+        // 0.4 USDG at 100 bps: 0.396 to the recipient, 0.004 to the relayer's fee address.
+        assertEq(usdg.balanceOf(RECIPIENT), 396_000);
+        assertEq(usdg.balanceOf(FEE_RECIPIENT), 4_000);
+        assertEq(RECIPIENT.balance, 0.0002 ether);
+        assertEq(usdg.balanceOf(address(pool)), 900_000);
+        assertEq(usdg.balanceOf(address(relay)), 0);
+        assertTrue(pool.nullifierHashes(p.pubSignals[1]));
+        assertEq(pool.currentTreeSize(), 3);
+    }
+
+    function test_relayedProofCannotBeReplayed() public {
+        _depositBoth();
+        _postRoot(".relayed");
+        ProofLib.WithdrawProof memory p = _withdrawProof(".relayed");
+        relay.relay(_relayWithdrawal(), p);
+        vm.expectRevert(IState.NullifierAlreadySpent.selector);
+        relay.relay(_relayWithdrawal(), p);
+    }
+
+    function test_blockedRecipientRefusedWithoutBurningNullifier() public {
+        _depositBoth();
+        _postRoot(".relayed");
+        ProofLib.WithdrawProof memory p = _withdrawProof(".relayed");
+        registry.setBlocked(RECIPIENT, true);
+
+        vm.expectRevert(abi.encodeWithSelector(ShieldedRelay.RecipientBlocked.selector, RECIPIENT));
+        relay.relay(_relayWithdrawal(), p);
+        assertFalse(pool.nullifierHashes(p.pubSignals[1]), "a refusal must not spend the note");
+
+        // Unblocked, the same proof still works: the note was never touched.
+        registry.setBlocked(RECIPIENT, false);
+        relay.relay(_relayWithdrawal(), p);
+        assertEq(usdg.balanceOf(RECIPIENT), 396_000);
+    }
+
+    function test_blockedFeeRecipientRefused() public {
+        _depositBoth();
+        _postRoot(".relayed");
+        ProofLib.WithdrawProof memory p = _withdrawProof(".relayed");
+        registry.setBlocked(FEE_RECIPIENT, true);
+        vm.expectRevert(abi.encodeWithSelector(ShieldedRelay.RecipientBlocked.selector, FEE_RECIPIENT));
+        relay.relay(_relayWithdrawal(), p);
+        assertFalse(pool.nullifierHashes(p.pubSignals[1]));
+    }
+
+    function test_relayRejectsAlteredRecipient() public {
+        _depositBoth();
+        _postRoot(".relayed");
+        ProofLib.WithdrawProof memory p = _withdrawProof(".relayed");
+        IPrivacyPool.Withdrawal memory w = _relayWithdrawal();
+        w.data = abi.encode(IEntrypoint.RelayData({recipient: relayer, feeRecipient: FEE_RECIPIENT, relayFeeBPS: 100}));
+        vm.expectRevert(IPrivacyPool.ContextMismatch.selector);
+        relay.relay(w, p);
+    }
+
+    function test_relayRejectsStaleAspRoot() public {
+        _depositBoth();
+        _postRoot(".relayed");
+        vm.prank(postman);
+        entrypoint.updateRoot(42, "bafkreigh2akiscaildcqabsyg3dfr6chu3fgpregiymsck7e7aqa4s52zy");
+        vm.expectRevert(IPrivacyPool.IncorrectASPRoot.selector);
+        relay.relay(_relayWithdrawal(), _withdrawProof(".relayed"));
+    }
+
+    function test_relayRejectsForgedProof() public {
+        _depositBoth();
+        _postRoot(".relayed");
+        ProofLib.WithdrawProof memory p = _withdrawProof(".relayed");
+        p.pA[0] = p.pA[0] ^ 1;
+        vm.expectRevert(IPrivacyPool.InvalidProof.selector);
+        relay.relay(_relayWithdrawal(), p);
+    }
+
+    function test_relayRejectsFeeAboveMax() public {
+        vm.prank(RELAY_DEPLOYER);
+        ShieldedRelay strict = new ShieldedRelay(pool, registry, 50);
+        IPrivacyPool.Withdrawal memory w =
+            IPrivacyPool.Withdrawal({processooor: address(strict), data: fixture.readBytes(".relayData")});
+        vm.expectRevert(abi.encodeWithSelector(ShieldedRelay.FeeAboveMax.selector, 100, 50));
+        strict.relay(w, _withdrawProof(".relayed"));
+    }
+
+    function test_upstreamEntrypointRelayIsRefused() public {
+        _depositBoth();
+        _postRoot(".viaEntrypoint");
+        ProofLib.WithdrawProof memory p = _withdrawProof(".viaEntrypoint");
+        IPrivacyPool.Withdrawal memory w =
+            IPrivacyPool.Withdrawal({processooor: address(entrypoint), data: fixture.readBytes(".relayData")});
+        // A valid proof for the Entrypoint path: the pool refuses to pay the Entrypoint, because the
+        // Entrypoint would then pay a recipient the pool never screened.
+        uint256 scope = pool.SCOPE();
+        vm.expectRevert(ShieldedPool.RelayThroughShieldedRelay.selector);
+        entrypoint.relay(w, p, scope);
+        assertFalse(pool.nullifierHashes(p.pubSignals[1]));
+    }
+
+    // ----------------------------------------------------------------------------------------
+    // ragequit
+    // ----------------------------------------------------------------------------------------
+
+    function test_ragequitReturnsDepositToDepositor() public {
+        _depositBoth();
+        uint256 before = usdg.balanceOf(bob);
+        vm.prank(bob);
+        pool.ragequit(_ragequitProof());
+        assertEq(usdg.balanceOf(bob), before + 300_000);
+        assertEq(usdg.balanceOf(address(pool)), 1_000_000);
+    }
+
+    function test_ragequitWorksWithoutAnyAspRoot() public {
+        _depositBoth();
+        vm.expectRevert(IEntrypoint.NoRootsAvailable.selector);
+        entrypoint.latestRoot();
+        vm.prank(bob);
+        pool.ragequit(_ragequitProof());
+    }
+
+    function test_ragequitOnlyByDepositor() public {
+        _depositBoth();
+        vm.prank(alice);
+        vm.expectRevert(IPrivacyPool.OnlyOriginalDepositor.selector);
+        pool.ragequit(_ragequitProof());
+    }
+
+    function test_blockedDepositorRagequitRefusedWithoutBurning() public {
+        _depositBoth();
+        registry.setBlocked(bob, true);
+        ProofLib.RagequitProof memory p = _ragequitProof();
+        vm.prank(bob);
+        vm.expectRevert(abi.encodeWithSelector(ShieldedPool.RecipientBlocked.selector, bob));
+        pool.ragequit(p);
+        assertFalse(pool.nullifierHashes(p.pubSignals[1]));
+    }
+
+    function test_directWithdrawToBlockedProcessooorRefused() public {
+        // A withdrawal that names the relay as processooor can only be executed by the relay.
+        _depositBoth();
+        _postRoot(".relayed");
+        vm.expectRevert(IPrivacyPool.InvalidProcessooor.selector);
+        pool.withdraw(_relayWithdrawal(), _withdrawProof(".relayed"));
+    }
+}

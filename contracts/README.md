@@ -28,17 +28,24 @@ and [SECURITY.md](../SECURITY.md) before reporting a problem.
 
 ## Build and test
 
-Requires [Foundry](https://getfoundry.sh) 1.8 or newer. Foundry downloads solc 0.8.24 on the
-first build.
+Requires [Foundry](https://getfoundry.sh) 1.8 or newer. Foundry downloads solc 0.8.24 and 0.8.28
+on the first build: Bursar's own contracts use 0.8.24, and the vendored Privacy Pools code and the
+shielded contracts that import it use 0.8.28, the compiler upstream was audited with
+(`compilation_restrictions` in `foundry.toml`).
 
-`lib/` is not committed and there are no git submodules. Install the two dependencies once, from
-this directory:
+`lib/` is not committed and there are no git submodules. Install the dependencies once, from this
+directory:
 
 ```sh
-forge install --no-git foundry-rs/forge-std@v1.9.4 OpenZeppelin/openzeppelin-contracts@v5.1.0
+forge install --no-git foundry-rs/forge-std@v1.9.4 OpenZeppelin/openzeppelin-contracts@v5.1.0 \
+  OpenZeppelin/openzeppelin-contracts-upgradeable@v5.0.2
 ```
 
-These are the exact versions the deployed bytecode was built from. Then:
+These are the exact versions the deployed bytecode was built from.
+
+`vendor/` is committed and unmodified: Privacy Pools core v1.3.0 (0xbow, Apache-2.0,
+commit `c312dcd`), zk-kit `lean-imt.sol` 2.0.0 (MIT) and `poseidon-solidity` 0.0.5 (MIT). The
+shielded pool (`src/shielded/`) builds on it; see [NOTICE](../NOTICE). Then:
 
 ```sh
 forge build
@@ -72,4 +79,5 @@ command line.
 ## License
 
 MIT. See [LICENSE](../LICENSE). `script/lib/V4Math.sol` includes MIT-licensed arithmetic adapted
-from Uniswap v4; see [NOTICE](../NOTICE).
+from Uniswap v4. `vendor/privacy-pools-core` and `src/shielded/ShieldedPool.sol` are Apache-2.0;
+`vendor/zk-kit-lean-imt` and `vendor/poseidon-solidity` are MIT. See [NOTICE](../NOTICE).

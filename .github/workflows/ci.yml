@@ -52,9 +52,10 @@ jobs:
         with:
           version: v1.8.1
 
-      # contracts/lib is not committed. These are the exact tags Release 1 was built from.
+      # contracts/lib is not committed. These are the exact tags Release 1 was built from, plus the
+      # upgradeable contracts the vendored Privacy Pools Entrypoint was built against.
       - name: Install Solidity dependencies
-        run: forge install --no-git --shallow foundry-rs/forge-std@v1.9.4 OpenZeppelin/openzeppelin-contracts@v5.1.0
+        run: forge install --no-git --shallow foundry-rs/forge-std@v1.9.4 OpenZeppelin/openzeppelin-contracts@v5.1.0 OpenZeppelin/openzeppelin-contracts-upgradeable@v5.0.2
 
       - run: forge fmt --check
       - run: forge build

@@ -82,6 +82,29 @@ export type PrivacyDeployment = {
   readonly SolvencyLog: Address;
   /** First block to scan for privacy events. */
   readonly fromBlock: number;
+  readonly shielded?: ShieldedDeployment;
+};
+
+/** The F17 shielded USDG pool: Privacy Pools v1.3.0 with Bursar's caps, relay and ASP. */
+export type ShieldedDeployment = {
+  readonly Entrypoint: Address;
+  readonly ShieldedPool: Address;
+  readonly ShieldedRelay: Address;
+  readonly WithdrawalVerifier: Address;
+  readonly CommitmentVerifier: Address;
+  readonly AccessRegistry: Address;
+  readonly asset: Address;
+  /** The pool's SCOPE, as a decimal string. */
+  readonly scope: string;
+  /** Atomic USDG, as decimal strings. */
+  readonly maxDeposit: string;
+  readonly maxTotal: string;
+  readonly minimumDeposit: string;
+  readonly maxRelayFeeBps: number;
+  readonly aspPostman: Address;
+  readonly relayer: Address;
+  /** First block to scan for pool events. */
+  readonly fromBlock: number;
 };
 
 export type RwaAssetKind = 'stock' | 'treasury';
@@ -242,6 +265,45 @@ function parsePrivacy(json: unknown, name: string): PrivacyDeployment {
     DisclosureRegistry: address(r, label, 'DisclosureRegistry'),
     SolvencyLog: address(r, label, 'SolvencyLog'),
     fromBlock,
+    ...(r['shielded'] === undefined ? {} : { shielded: parseShielded(r['shielded'], label) }),
+  });
+}
+
+function parseShielded(json: unknown, parent: string): ShieldedDeployment {
+  const label = `${parent}.shielded`;
+  const r = object(json, parent, 'shielded');
+  const block = (key: string): number => {
+    const value = r[key];
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+      throw new DeploymentError(label, `${key} is not a block number.`);
+    }
+    return value;
+  };
+  const decimal = (key: string): string => {
+    const value = str(r, label, key);
+    if (!/^\d+$/.test(value)) throw new DeploymentError(label, `"${key}" is not a decimal integer: ${value}`);
+    return value;
+  };
+  const bps = r['maxRelayFeeBps'];
+  if (typeof bps !== 'number' || !Number.isInteger(bps) || bps < 0 || bps >= 10_000) {
+    throw new DeploymentError(label, 'maxRelayFeeBps is not a basis-point figure.');
+  }
+  return Object.freeze({
+    Entrypoint: address(r, label, 'Entrypoint'),
+    ShieldedPool: address(r, label, 'ShieldedPool'),
+    ShieldedRelay: address(r, label, 'ShieldedRelay'),
+    WithdrawalVerifier: address(r, label, 'WithdrawalVerifier'),
+    CommitmentVerifier: address(r, label, 'CommitmentVerifier'),
+    AccessRegistry: address(r, label, 'AccessRegistry'),
+    asset: address(r, label, 'asset'),
+    scope: decimal('scope'),
+    maxDeposit: decimal('maxDeposit'),
+    maxTotal: decimal('maxTotal'),
+    minimumDeposit: decimal('minimumDeposit'),
+    maxRelayFeeBps: bps,
+    aspPostman: address(r, label, 'aspPostman'),
+    relayer: address(r, label, 'relayer'),
+    fromBlock: block('fromBlock'),
   });
 }
 

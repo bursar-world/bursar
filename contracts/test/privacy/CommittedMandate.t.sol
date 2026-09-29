@@ -45,20 +45,19 @@ contract CommittedMandateTest is Test {
         fixture = vm.readFile("test/fixtures/within_mandate.json");
         vm.warp(vm.parseJsonUint(fixture, ".now"));
 
+        // Every contract whose address reaches the account's init code is created by its own
+        // pranked deployer at nonce 0, so the account address stays put when the test runner's own
+        // nonce moves (it deploys linked libraries, such as the shielded pool's Poseidon, first).
+        vm.prank(address(0xC0DE01));
         asset = new MockUsdg();
-        escrow = new Escrow(
-            address(asset),
-            address(new MockReputation()),
-            address(0x7EA5),
-            100,
-            50,
-            500,
-            5 minutes,
-            7 days,
-            1 hours,
-            2 days
-        );
+        vm.prank(address(0xC0DE02));
+        address reputation = address(new MockReputation());
+        vm.prank(address(0xC0DE03));
+        escrow =
+            new Escrow(address(asset), reputation, address(0x7EA5), 100, 50, 500, 5 minutes, 7 days, 1 hours, 2 days);
+        vm.prank(address(0xC0DE04));
         verifier = new WithinMandateVerifier();
+        vm.prank(address(0xC0DE05));
         factory = new CommittedMandateFactory(address(escrow), address(asset), address(verifier));
         disclosures = new DisclosureRegistry();
 
@@ -74,7 +73,9 @@ contract CommittedMandateTest is Test {
             )
         );
         asset.mint(address(account), 1_000_000);
-        escrow.setResolver(address(new DisputeStub()));
+        address stub = address(new DisputeStub());
+        vm.prank(address(0xC0DE03));
+        escrow.setResolver(stub);
     }
 
     function _spend(string memory key)

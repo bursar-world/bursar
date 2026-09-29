@@ -19,5 +19,18 @@ for (const [name, path] of Object.entries(paths)) {
     bad++;
   }
 }
+
+// The vendored Privacy Pools artifacts: official ceremony outputs, pinned in their manifest.
+const manifest = JSON.parse(readFileSync('privacy-pools/manifest.json', 'utf8'));
+for (const [name, expected] of Object.entries(manifest.sha256)) {
+  const actual = createHash('sha256').update(readFileSync(`privacy-pools/build/${name}`)).digest('hex');
+  if (actual !== expected) {
+    console.error(`privacy-pools/${name}: ${actual} does not match manifest.json ${expected}`);
+    bad++;
+  }
+}
 if (bad) process.exit(1);
-console.log(`circuits: ${Object.keys(paths).length} artifacts match build/setup.json`);
+console.log(
+  `circuits: ${Object.keys(paths).length} artifacts match build/setup.json, ` +
+    `${Object.keys(manifest.sha256).length} match privacy-pools/manifest.json (${manifest.version})`,
+);

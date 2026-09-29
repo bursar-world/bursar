@@ -26,6 +26,10 @@
       "types": "./dist/prove.d.ts",
       "import": "./dist/prove.js"
     },
+    "./shielded-prove": {
+      "types": "./dist/shielded-prove.d.ts",
+      "import": "./dist/shielded-prove.js"
+    },
     "./agent": {
       "types": "./dist/private-agent.d.ts",
       "import": "./dist/private-agent.js"
@@ -42,12 +46,14 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@bursar/core": "workspace:*",
-    "viem": "^2.56.0",
     "@bursar/circuits": "workspace:*",
+    "@bursar/core": "workspace:*",
     "@noble/curves": "1.9.1",
     "@noble/hashes": "1.8.0",
-    "snarkjs": "0.7.6"
+    "@zk-kit/lean-imt": "2.2.4",
+    "poseidon-lite": "0.3.0",
+    "snarkjs": "0.7.6",
+    "viem": "^2.56.0"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

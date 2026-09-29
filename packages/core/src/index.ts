@@ -91,6 +91,7 @@ export type {
   RwaAssetKind,
   RwaAssetRecord,
   PrivacyDeployment,
+  ShieldedDeployment,
   RwaDeployment,
 } from './deployments.js';
 

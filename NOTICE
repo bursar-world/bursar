@@ -48,3 +48,42 @@ Copyright 2025 The Zalando Sans Project Authors, with Reserved Font Name
 "Zalando"
 Licensed under the SIL Open Font License, Version 1.1. The full license text is
 in apps/web/public/fonts/OFL.txt.
+
+------------------------------------------------------------------------------
+contracts/vendor/privacy-pools-core/
+circuits/privacy-pools/
+contracts/src/shielded/ShieldedPool.sol (derived from PrivacyPoolComplex.sol)
+
+Privacy Pools core, version v1.3.0, commit
+c312dcd58f6ad085204be61923c49f8065e4e9ae:
+https://github.com/0xbow-io/privacy-pools-core
+
+Made for 0xBow by Wonderland. Licensed under the Apache License, Version 2.0.
+The full license text is in contracts/vendor/privacy-pools-core/LICENSE and
+circuits/privacy-pools/LICENSE. You may not use these files except in
+compliance with the License. Unless required by applicable law or agreed to in
+writing, software distributed under the License is distributed on an "AS IS"
+BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+
+The Solidity sources under contracts/vendor/privacy-pools-core/src are
+unmodified. circuits/privacy-pools/src holds the unmodified circom sources;
+circuits/privacy-pools/build holds the unmodified official trusted-setup keys
+(trusted-setup/final-keys) and witness generators (build/*_js), pinned by
+sha256 in circuits/privacy-pools/manifest.json. ShieldedPool.sol replaces the
+ERC20 transfer hooks of PrivacyPoolComplex.sol with capped, access-screened
+versions; the change is described at the top of that file.
+
+------------------------------------------------------------------------------
+contracts/vendor/zk-kit-lean-imt/
+
+@zk-kit/lean-imt.sol 2.0.0, https://github.com/privacy-scaling-explorations/zk-kit.solidity
+Copyright (c) 2024 Ethereum Foundation
+Licensed under the MIT License. The full license text is in
+contracts/vendor/zk-kit-lean-imt/LICENSE.
+
+------------------------------------------------------------------------------
+contracts/vendor/poseidon-solidity/
+
+poseidon-solidity 0.0.5, https://github.com/chancehudson/poseidon-solidity
+Licensed under the MIT License, as declared by the SPDX identifier in each file
+and by the package manifest. The MIT License text is reproduced above.

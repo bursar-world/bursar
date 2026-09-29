@@ -504,7 +504,86 @@ export const RAW_DEPLOYMENTS: Readonly<Record<RawDeploymentName, unknown>> = {
         "postTx": "0x4d41ee45c58d738036bde773dd344019b9989f9cf5fcdcc4191a8420560ad14c",
         "verify": "MATCH (services/solvency/scripts/solvency-verify.ts)"
       }
-    ]
+    ],
+    "shielded": {
+      "feature": "F17 shielded settlement",
+      "deployedAt": "2026-09-29T12:55:00Z",
+      "deployCostEth": "0.000272673",
+      "upstream": {
+        "repository": "https://github.com/0xbow-io/privacy-pools-core",
+        "version": "v1.3.0",
+        "commit": "c312dcd58f6ad085204be61923c49f8065e4e9ae",
+        "license": "Apache-2.0",
+        "solc": "0.8.28"
+      },
+      "setup": "Official Privacy Pools ceremony keys (trusted-setup/final-keys at v1.3.0); circuits/privacy-pools/manifest.json pins the sha256 of every artifact and equals the upstream SDK manifest. No new circuit, so no Bursar ceremony.",
+      "Entrypoint": "0xADc02737378a86c0fB8231964C658A7AB81eeaa2",
+      "EntrypointImplementation": "0x0F7Bf77cb9c494DE72188118388275DB84CFe698",
+      "ShieldedPool": "0x9F9914dd397a9e9462Dd7cB6891Ab835119297C7",
+      "ShieldedRelay": "0xEb4978Cab69FF3B958f6Fd1B852C1Ae3d4Ba84f2",
+      "WithdrawalVerifier": "0xCD41E3024a2b95FC1Be5b2B292C64294Cb5b01BB",
+      "CommitmentVerifier": "0xE99e1a6de0db4fd76644D18F08ae00D3F70F01b8",
+      "PoseidonT3": "0xf967B532757ae8DfE2F9a82F956fE04730A666bA",
+      "PoseidonT4": "0xD483B2384ed0DC1395dEb401b673f8d36362757b",
+      "AccessRegistry": "0xe10b6f6B275de231345c20D14Ab812db62151b00",
+      "scope": "869543705072628544128504902837391379516070938188476514926978342993992889566",
+      "asset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+      "maxDeposit": "100000000",
+      "maxTotal": "1000000000",
+      "minimumDeposit": "10000",
+      "maxRelayFeeBps": 500,
+      "owner": "0x6B6fC40Ed9652728A9B620C4e1B05fBF4F9712a4",
+      "aspPostman": "0x731F3BbbD40ae5387646A62D5F08C2517aA84bbe",
+      "relayer": "0xc8FB46218bA6750EBF8cE7Cc8f7a56D7C7F99630",
+      "fromBlock": 75667242,
+      "transactions": {
+        "PoseidonT3": {
+          "hash": "0xdc236512294215a5df88522af44cf5d5bd94948b7a48b942b3d04b9e1fb0dbec",
+          "block": 75667242,
+          "gas": 3816375
+        },
+        "PoseidonT4": {
+          "hash": "0xedad399d9dc35cef0cf79049f0f44332ab34f911c0b939acf04858ee5df9cd5a",
+          "block": 75667267,
+          "gas": 3017524
+        },
+        "WithdrawalVerifier": {
+          "hash": "0x93dfef177f61628f7690e722fc7ee7a32153d30ec59c7519f75aa33cfbba31ea",
+          "block": 75667292,
+          "gas": 535873
+        },
+        "CommitmentVerifier": {
+          "hash": "0xd1147c2ba244c7b451b8eecd6154b51cce0990323ba0aa5a594e2c024d3e0552",
+          "block": 75667317,
+          "gas": 448786
+        },
+        "EntrypointImplementation": {
+          "hash": "0x86ddb51c4b25d6662f3b674cad00ee8e4a35b9c31c714761c8739a64578d6437",
+          "block": 75667342,
+          "gas": 2629776
+        },
+        "Entrypoint": {
+          "hash": "0x9579cc85fd7aa91093d1707260d616625bb9d03e9bd71795835cf995f3566fec",
+          "block": 75667367,
+          "gas": 325852
+        },
+        "ShieldedPool": {
+          "hash": "0x6fec12f8e891c41903665686f610f1a7d4fff09c203a41a9d45979b54521a8b3",
+          "block": 75667392,
+          "gas": 1815680
+        },
+        "registerPool": {
+          "hash": "0xbff764cb36be120cc5f3b35cf0ace638e21940731c76d912439fc5acd3fd39b7",
+          "block": 75667417,
+          "gas": 176840
+        },
+        "ShieldedRelay": {
+          "hash": "0xc51dbb136161e0801df5b61f51a9570174eadbfdcf1cc7ddc9d9347ec832f03b",
+          "block": 75667442,
+          "gas": 783848
+        }
+      }
+    }
   }
 },
   "rhc-mainnet": {

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
-  "description": "Circom circuits and Groth16 artifacts for committed BURSAR mandates.",
+  "description": "Circom circuits and Groth16 artifacts for committed BURSAR mandates, and the vendored Privacy Pools artifacts for the shielded pool.",
   "type": "module",
   "main": "./index.js",
   "types": "./index.d.ts",
@@ -17,7 +17,12 @@
       "import": "./artifacts.js"
     },
     "./build/*": "./build/*",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./privacy-pools": {
+      "types": "./privacy-pools.d.ts",
+      "import": "./privacy-pools.js"
+    },
+    "./privacy-pools/*": "./privacy-pools/*"
   },
   "files": [
     "index.js",
@@ -25,7 +30,10 @@
     "artifacts.js",
     "artifacts.d.ts",
     "src",
-    "build"
+    "build",
+    "privacy-pools.js",
+    "privacy-pools.d.ts",
+    "privacy-pools"
   ],
   "scripts": {
     "build": "node scripts/check-artifacts.mjs",
