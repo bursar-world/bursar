@@ -1,0 +1,54 @@
+{
+  "name": "@bursar/solvency",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bursar-world/bursar.git",
+    "directory": "services/solvency"
+  },
+  "homepage": "https://github.com/bursar-world/bursar/tree/main/services/solvency#readme",
+  "bugs": {
+    "url": "https://github.com/bursar-world/bursar/issues"
+  },
+  "description": "Posts a daily Merkle-sum root of Bursar's public obligations and the balances behind them, and checks posted roots.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "bursar-solvency": "./bin/bursar-solvency.mjs"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "start": "node dist/main.js run",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@bursar/core": "workspace:*",
+    "viem": "^2.56.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
