@@ -48,7 +48,7 @@
   },
   "devDependencies": {
     "@bursar/sdk": "workspace:*",
-    "@types/node": "^22.15.0",
+    "@types/node": "^26.6.3",
     "@types/pg": "^8.15.0",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0",
