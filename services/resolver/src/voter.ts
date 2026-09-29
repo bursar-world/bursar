@@ -7,7 +7,7 @@ import type { ChainPort, DisputeState, Head, LockState, Pricing, RegistryTerms, 
 import type { Served } from './config.js';
 import { checkDelivery, isOperatorParty, takeSnapshot } from './evidence.js';
 import type { Fetcher, Validators } from './evidence.js';
-import { NO_DISCLOSURES, readDisclosures } from './disclosure.js';
+import { NO_DISCLOSURES, readDisclosures, scanGrants } from './disclosure.js';
 import type { DisclosureReading, DisclosureSource, ViewingKeyring } from './disclosure.js';
 import type { DisputeRecord, Journal, Stage, StoredVote } from './journal.js';
 import type { ResolverKey } from './keys.js';
@@ -33,8 +33,15 @@ export type VoterOptions = {
   readonly disclosures?: {
     readonly source: DisclosureSource;
     readonly keyring: ViewingKeyring;
-    /** How far before the snapshot block to look for grants. */
+    /**
+     * The first block that can hold a grant: the DisclosureRegistry's deploy block. Unset means
+     * `lookback` blocks before the snapshot, for a chain with no registry on record.
+     */
+    readonly fromBlock?: bigint;
+    /** How far before the snapshot block to look for grants when `fromBlock` is unset. */
     readonly lookback: bigint;
+    /** Blocks per scan step. The checkpoint is saved after each. */
+    readonly chunk?: bigint;
   };
 };
 
@@ -188,13 +195,31 @@ export function createVoter(options: VoterOptions): Voter {
     const reader = options.disclosures;
     if (reader === undefined) return NO_DISCLOSURES;
     try {
+      const resolvers = [...reader.keyring.keys()];
+      if (resolvers.length === 0) return NO_DISCLOSURES;
+      const current = await journal.get(record.registry, record.disputeId);
+      const grants = await scanGrants({
+        source: reader.source,
+        escrow: record.escrow,
+        escrowId: record.escrowId,
+        resolvers,
+        fromBlock: reader.fromBlock ?? (snapshotBlock > reader.lookback ? snapshotBlock - reader.lookback : 0n),
+        toBlock: headBlock,
+        checkpoint: current?.disclosureScan ?? record.disclosureScan ?? null,
+        save: async (checkpoint) => {
+          await journal.update(record.registry, record.disputeId, (stored) =>
+            stored === undefined ? undefined : { ...stored, disclosureScan: checkpoint },
+          );
+        },
+        ...(reader.chunk === undefined ? {} : { chunk: reader.chunk }),
+      });
       const reading = await readDisclosures({
         source: reader.source,
         keyring: reader.keyring,
         escrow: record.escrow,
         escrowId: record.escrowId,
         lock,
-        fromBlock: snapshotBlock > reader.lookback ? snapshotBlock - reader.lookback : 0n,
+        grants,
         toBlock: headBlock,
       });
       if (reading.opened > 0 || reading.notes.length > 0) {

@@ -66,20 +66,74 @@ export async function viewingKeyring(keys: readonly ResolverKey[], override?: He
   return ring;
 }
 
+/**
+ * How far a grant scan has got for one lock, kept with the dispute so a restart or the next read
+ * picks up after the last block already read rather than starting again from the deploy block.
+ */
+export type GrantCheckpoint = {
+  /** The first block the scan covers. */
+  readonly from: bigint;
+  /** The last block read. Every grant up to and including it is in `grants`. */
+  readonly scannedTo: bigint;
+  /** The resolver addresses the scan filtered on. A different set starts the scan again. */
+  readonly resolvers: readonly Address[];
+  readonly grants: readonly DisclosureGrant[];
+};
+
+/** Blocks per step of a grant scan. The checkpoint is saved after every step. */
+export const GRANT_SCAN_CHUNK = 50_000n;
+
+const sameResolvers = (a: readonly Address[], b: readonly Address[]): boolean => {
+  const norm = (list: readonly Address[]) => [...new Set(list.map((item) => item.toLowerCase()))].sort().join(',');
+  return norm(a) === norm(b);
+};
+
+/**
+ * Every grant to `resolvers` for one lock between `fromBlock` and `toBlock`, read in steps of
+ * `chunk` blocks. A checkpoint that covers the same start and resolvers is resumed from the block
+ * after it; anything else is ignored and the scan starts at `fromBlock`. `save` is called after
+ * each step with the progress so far, so a failure midway loses at most one step.
+ */
+export async function scanGrants(args: {
+  readonly source: DisclosureSource;
+  readonly escrow: Address;
+  readonly escrowId: bigint;
+  readonly resolvers: readonly Address[];
+  readonly fromBlock: bigint;
+  readonly toBlock: bigint;
+  readonly checkpoint?: GrantCheckpoint | null;
+  readonly save?: (checkpoint: GrantCheckpoint) => Promise<void>;
+  readonly chunk?: bigint;
+}): Promise<readonly DisclosureGrant[]> {
+  const chunk = args.chunk ?? GRANT_SCAN_CHUNK;
+  if (chunk <= 0n) throw new Error('A grant scan needs a positive chunk size.');
+  const prior = args.checkpoint ?? null;
+  const resumable = prior !== null && prior.from <= args.fromBlock && sameResolvers(prior.resolvers, args.resolvers);
+
+  const grants: DisclosureGrant[] = resumable ? [...prior.grants] : [];
+  const from = resumable ? prior.from : args.fromBlock;
+  for (let start = resumable ? prior.scannedTo + 1n : args.fromBlock; start <= args.toBlock; start += chunk) {
+    const end = start + chunk - 1n < args.toBlock ? start + chunk - 1n : args.toBlock;
+    grants.push(...(await args.source.grants(args.escrow, args.escrowId, args.resolvers, start, end)));
+    await args.save?.({ from, scannedTo: end, resolvers: [...args.resolvers], grants: [...grants] });
+  }
+  return grants;
+}
+
 export async function readDisclosures(args: {
   readonly source: DisclosureSource;
   readonly keyring: ViewingKeyring;
   readonly escrow: Address;
   readonly escrowId: bigint;
   readonly lock: LockState;
-  readonly fromBlock: bigint;
+  /** The grants read for this lock, usually by `scanGrants`. */
+  readonly grants: readonly DisclosureGrant[];
+  /** The block the payer's terms commitment is read at. */
   readonly toBlock: bigint;
 }): Promise<DisclosureReading> {
-  const { source, keyring, lock } = args;
+  const { source, keyring, lock, grants } = args;
   const resolvers = [...keyring.keys()];
   if (resolvers.length === 0) return NO_DISCLOSURES;
-
-  const grants = await source.grants(args.escrow, args.escrowId, resolvers, args.fromBlock, args.toBlock);
   if (grants.length === 0) return NO_DISCLOSURES;
 
   const termsCommitment = await source.termsCommitment(lock.payer, args.toBlock).catch(() => null);

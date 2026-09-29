@@ -7,6 +7,7 @@ import { getAddress } from 'viem';
 import type { Address, Hex } from 'viem';
 
 import type { LockState, MandateFacts, PayeeFacts } from './chain.js';
+import type { GrantCheckpoint } from './disclosure.js';
 import type { InputCheck, Ruling, RulingScore } from './policy.js';
 
 /**
@@ -98,6 +99,8 @@ export type DisputeRecord = {
   readonly alerted: readonly string[];
   /** Set once this service's reveals have landed. Until then the ruling stays sealed. */
   readonly published: boolean;
+  /** How far the disclosure-grant scan for this lock has read, and what it found. */
+  readonly disclosureScan?: GrantCheckpoint;
 };
 
 export type Journal = {

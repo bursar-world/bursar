@@ -24,8 +24,9 @@ import { createVoter } from './voter.js';
 import { createWatcher } from './watcher.js';
 
 /**
- * Grants can only be written once the lock is disputed, and the snapshot is taken when this
- * service first sees the dispute. This covers a watcher that came up late after the dispute opened.
+ * Only used on a chain with no DisclosureRegistry on record, where the scan cannot start at the
+ * registry's deploy block. Grants can only be written once the lock is disputed, and the snapshot
+ * is taken when this service first sees the dispute, so this covers a watcher that came up late.
  */
 const DISCLOSURE_LOOKBACK_BLOCKS = 200_000n;
 
@@ -51,6 +52,7 @@ async function start(config: ResolverConfig, source: KeySource, viewingKey: Hex 
   await reportStanding(chain, config, keys, logger);
 
   const journal = await openJournal(config, logger);
+  const privacy = privacyDeployment(config.chain.chainId);
   const voter = createVoter({
     chain,
     journal,
@@ -62,8 +64,9 @@ async function start(config: ResolverConfig, source: KeySource, viewingKey: Hex 
     validators: NO_VALIDATORS,
     operatorAddresses: config.operatorAddresses,
     disclosures: {
-      source: createDisclosureSource(client as unknown as LogReader, privacyDeployment(config.chain.chainId)?.DisclosureRegistry),
+      source: createDisclosureSource(client as unknown as LogReader, privacy?.DisclosureRegistry),
       keyring: await viewingKeyring(keys, viewingKey),
+      ...(privacy === undefined ? {} : { fromBlock: BigInt(privacy.fromBlock) }),
       lookback: DISCLOSURE_LOOKBACK_BLOCKS,
     },
   });

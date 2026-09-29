@@ -6,8 +6,8 @@ import { describe, expect, it } from 'vitest';
 
 import { LockStatus } from '../src/chain.js';
 import type { LockState } from '../src/chain.js';
-import { readDisclosures, viewingKeyring } from '../src/disclosure.js';
-import type { DisclosureGrant, DisclosureSource } from '../src/disclosure.js';
+import { readDisclosures, scanGrants, viewingKeyring } from '../src/disclosure.js';
+import type { DisclosureGrant, DisclosureSource, GrantCheckpoint } from '../src/disclosure.js';
 import { checkDelivery, createFetcher } from '../src/evidence.js';
 import { rule } from '../src/policy.js';
 import { ESCROW } from './support/fake-chain.js';
@@ -65,7 +65,7 @@ async function read(grants: DisclosureGrant[]) {
     escrow: ESCROW,
     escrowId: 1n,
     lock: LOCK,
-    fromBlock: 0n,
+    grants,
     toBlock: 10n,
   });
 }
@@ -115,5 +115,99 @@ describe('disclosure grants', () => {
 
     const withGrant = await checkDelivery({ submission, lock: LOCK, inputDocument: INPUT, fetcher, validators: new Map(), disclosedOutputs: reading.outputs });
     expect(withGrant.output).toEqual({ kind: 'verified', wellFormed: true });
+  });
+});
+
+describe('grant scan', () => {
+  const resolvers = [resolverAccount.address];
+  const stub = (at: bigint): DisclosureGrant => ({
+    source: 'registry',
+    resolver: resolverAccount.address,
+    grantor,
+    sliceCommit: `0x${at.toString(16).padStart(64, '0')}`,
+    ciphertext: '0x01',
+  });
+
+  /** A source with one grant at each of `blocks`, recording every range it was asked for. */
+  function recording(blocks: bigint[]) {
+    const ranges: [bigint, bigint][] = [];
+    const src: DisclosureSource = {
+      grants: async (_escrow, _lockId, _resolvers, from, to) => {
+        ranges.push([from, to]);
+        return blocks.filter((block) => block >= from && block <= to).map(stub);
+      },
+      termsCommitment: async () => null,
+    };
+    return { src, ranges };
+  }
+
+  const base = { escrow: ESCROW, escrowId: 1n, resolvers } as const;
+
+  it('starts at the deploy block with no checkpoint and steps in chunks that meet exactly', async () => {
+    const { src, ranges } = recording([1_000n, 1_099n, 1_100n, 1_250n]);
+    const saved: GrantCheckpoint[] = [];
+    const grants = await scanGrants({ ...base, source: src, fromBlock: 1_000n, toBlock: 1_250n, chunk: 100n, save: async (c) => void saved.push(c) });
+    expect(ranges).toEqual([
+      [1_000n, 1_099n],
+      [1_100n, 1_199n],
+      [1_200n, 1_250n],
+    ]);
+    expect(grants).toHaveLength(4);
+    expect(saved.map((c) => c.scannedTo)).toEqual([1_099n, 1_199n, 1_250n]);
+    expect(saved.at(-1)).toMatchObject({ from: 1_000n, grants });
+  });
+
+  it('resumes after the checkpoint and keeps the grants it already found', async () => {
+    const { src, ranges } = recording([1_050n, 1_300n]);
+    const checkpoint: GrantCheckpoint = { from: 1_000n, scannedTo: 1_250n, resolvers, grants: [stub(1_050n)] };
+    const grants = await scanGrants({ ...base, source: src, fromBlock: 1_000n, toBlock: 1_400n, chunk: 100n, checkpoint });
+    expect(ranges).toEqual([
+      [1_251n, 1_350n],
+      [1_351n, 1_400n],
+    ]);
+    expect(grants.map((g) => g.sliceCommit)).toEqual([stub(1_050n).sliceCommit, stub(1_300n).sliceCommit]);
+  });
+
+  it('reads nothing when the checkpoint is already at the head', async () => {
+    const { src, ranges } = recording([]);
+    const checkpoint: GrantCheckpoint = { from: 1_000n, scannedTo: 1_400n, resolvers, grants: [stub(1_050n)] };
+    const grants = await scanGrants({ ...base, source: src, fromBlock: 1_000n, toBlock: 1_400n, checkpoint });
+    expect(ranges).toEqual([]);
+    expect(grants).toHaveLength(1);
+  });
+
+  it('starts again when the checkpoint began later or filtered on other resolvers', async () => {
+    for (const checkpoint of [
+      { from: 1_100n, scannedTo: 1_300n, resolvers, grants: [] },
+      { from: 1_000n, scannedTo: 1_300n, resolvers: [otherResolver.address], grants: [stub(1_200n)] },
+    ] satisfies GrantCheckpoint[]) {
+      const { src, ranges } = recording([1_200n]);
+      const grants = await scanGrants({ ...base, source: src, fromBlock: 1_000n, toBlock: 1_300n, chunk: 1_000n, checkpoint });
+      expect(ranges).toEqual([[1_000n, 1_300n]]);
+      expect(grants).toHaveLength(1);
+    }
+  });
+
+  it('keeps the progress saved before a failed step', async () => {
+    let calls = 0;
+    const src: DisclosureSource = {
+      grants: async (_e, _l, _r, from) => {
+        calls += 1;
+        if (calls === 2) throw new Error('provider refused the range');
+        return [stub(from)];
+      },
+      termsCommitment: async () => null,
+    };
+    let last: GrantCheckpoint | null = null;
+    await expect(scanGrants({ ...base, source: src, fromBlock: 0n, toBlock: 299n, chunk: 100n, save: async (c) => void (last = c) })).rejects.toThrow('refused');
+    expect(last).toMatchObject({ scannedTo: 99n });
+
+    const { src: retry, ranges } = recording([]);
+    const grants = await scanGrants({ ...base, source: retry, fromBlock: 0n, toBlock: 299n, chunk: 100n, checkpoint: last });
+    expect(ranges).toEqual([
+      [100n, 199n],
+      [200n, 299n],
+    ]);
+    expect(grants).toHaveLength(1);
   });
 });
