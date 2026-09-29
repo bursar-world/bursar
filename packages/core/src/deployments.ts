@@ -19,6 +19,7 @@ export type {
   MandateContractName,
   RwaAssetKind,
   RwaAssetRecord,
+  CollateralDeployment,
   PrivacyDeployment,
   ShieldedDeployment,
   RwaDeployment,

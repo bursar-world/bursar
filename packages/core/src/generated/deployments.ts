@@ -206,7 +206,19 @@ export const RAW_DEPLOYMENTS: Readonly<Record<RawDeploymentName, unknown>> = {
     "M4: move the SolvencyLog poster from the deployer to a dedicated key run by services/solvency, by timelock proposal setPoster.",
     "M4: the three resolvers publish ERC-6538 viewing keys so disclosure grants can be sealed to them.",
     "M4: external review of within_mandate.circom, CommittedMandateAccount, its factory and DisclosureRegistry before any committed mandate holds more than 25 USDG.",
-    "M4: a refund to a committed mandate returns the money but not the confidential allowance; the console must offer amend with a recomputed counter."
+    "M4: a refund to a committed mandate returns the money but not the confidential allowance; the console must offer amend with a recomputed counter.",
+    "F11: external review of CollateralVault and CreditPool, the liquidation path first; keep the lane at 100 USDG total and 10 USDG per mandate until it exists.",
+    "F11: review the haircut tiers (5/10%, 20/35%, 30/50%), the 1.25 borrow floor, the 1.05 liquidation target and the 5% bounty against fresh depth and a week of after-hours pool prices.",
+    "F11: replace the clock-based 24/5 session with a market-status source that knows exchange holidays, if a reliable one appears on 4663.",
+    "F11: move the CreditPool lender role off the deploy key (setLender, by proposal) and fund the remaining 70 USDG with ops/credit-topup.sh.",
+    "F11: execute v1 proposal #10 (Staking.setCreditManager) after 2026-10-01T13:02:05Z, then run CreditPool.sweepSpread on the keeper's schedule.",
+    "F17: legal review of Bursar operating an association-set provider (screening input: the Robinhood access registry isBlocked) and a withdrawal relayer, before the pool is promoted.",
+    "F17: move the Entrypoint OWNER_ROLE (it can upgrade the Entrypoint, register pools and wind the pool down) from the deployer EOA to the AdminTimelock, and the ASP_POSTMAN role to the dedicated postman key only.",
+    "F17: run services/asp and services/relayer on Render with their own keys and set NEXT_PUBLIC_BURSAR_ASP_URL and NEXT_PUBLIC_BURSAR_RELAYER_URL on the console; the live proof ran both from the operator machine.",
+    "F17: external review of ShieldedPool, ShieldedRelay, the deploy configuration and services/asp and services/relayer. The upstream Privacy Pools audits cover the upstream code, not this deployment. Caps stay at 100 USDG per deposit and 1,000 USDG in the pool until then.",
+    "F17: pin every posted association-set document to IPFS under its CID (the CIDs are computed and served by services/asp, not pinned).",
+    "F17: unlinkability needs independent deposits; at launch the pool's anonymity set is Bursar's own test deposits. Do not describe a payout as untraceable until the pool has meaningful independent liquidity.",
+    "F17: the relayer's gas drop (0.00015 ETH per fresh recipient, 20 an hour) is subsidised by the relayer key; set a fee that covers it before volume grows."
   ],
   "pending": "Development deployment. See productionChecklist for the settings that change before public launch.",
   "exampleMandate": {
@@ -425,6 +437,195 @@ export const RAW_DEPLOYMENTS: Readonly<Record<RawDeploymentName, unknown>> = {
       "spyReceivedRaw": "64961527959563",
       "sgovParkedRaw": "395374858707165",
       "vault": "0x0E502c7b9e3EF964e51A5A4b752238B5A9Aa3A25"
+    },
+    "collateral": {
+      "milestone": "M3b (F11)",
+      "deployedAt": "2026-09-29T12:58:00Z",
+      "deployCostEth": "0.000124",
+      "sourceCommit": "15e92ac",
+      "note": "The collateral lane. A lane-1 mandate from the v2.1 factory names CollateralVault as its treasuryPark; a spend the mandate's USDG cannot cover borrows the shortfall from CreditPool inside the same transaction, after the vault checks health. Prefund mandates (lane 0) cannot open a line or draw. Admin of both is the v2 AdminTimelock from construction.",
+      "CreditPool": "0xC217af334e6eaC06b774B5059b16257695937B0a",
+      "CollateralVault": "0x4AB6d4859D56452736f8b70749880CaFfC5c62C4",
+      "Staking": "0x3f2a0E7822B30aD928488F053348b137866Cf962",
+      "fromBlock": 75674414,
+      "lender": "0x6B6fC40Ed9652728A9B620C4e1B05fBF4F9712a4",
+      "parameters": {
+        "totalDebtCapUsdg": "100",
+        "perMandateCapUsdg": "10",
+        "spread": "2% a year plus 18% times utilisation, all of it swept to Staking as USDG rewards",
+        "minBorrowHealth": "1.25",
+        "liquidationBelow": "1.0",
+        "liquidationTarget": "1.05",
+        "liquidationBountyBps": 500,
+        "session": "US equities 24/5 by the clock, Monday 01:00 UTC to Saturday 00:00 UTC; a feed silent past 26 h also counts as after hours",
+        "value": "raw x feed price; a position counts zero past 100 h or with the token's oracle paused"
+      },
+      "tiers": [
+        {
+          "tier": 1,
+          "name": "Treasury fund",
+          "sessionHaircutBps": 500,
+          "afterHoursHaircutBps": 1000,
+          "assets": [
+            "SGOV"
+          ]
+        },
+        {
+          "tier": 2,
+          "name": "Index fund",
+          "sessionHaircutBps": 2000,
+          "afterHoursHaircutBps": 3500,
+          "assets": [
+            "SPY"
+          ]
+        },
+        {
+          "tier": 3,
+          "name": "Single stock",
+          "sessionHaircutBps": 3000,
+          "afterHoursHaircutBps": 5000,
+          "assets": [
+            "NVDA",
+            "AAPL"
+          ]
+        }
+      ],
+      "funding": {
+        "fundedUsdg": "30",
+        "targetUsdg": "100",
+        "owedUsdg": "70",
+        "note": "The operator asked for 100 USDG. The deployer swapped 0.0112 ETH for 30.609277 USDG on the native ETH/USDG 0.05% v4 pool and funded 30. The remaining 70 is owed; bursar-ops ops/credit-topup.sh funds the pool in one command once it arrives.",
+        "swap": {
+          "hash": "0x8e791cc031c9237005c9bc9e86e59e91c8ece80f12ab44814740f410bd02c40f",
+          "block": 75673963,
+          "gas": 126889
+        },
+        "approve": {
+          "hash": "0x9b40cebb9b51d640abd1680eea2b6d14034daa65b2496e30bdf6d395f92039bc",
+          "block": 75674597,
+          "gas": 57988
+        },
+        "fund": {
+          "hash": "0x6624524ffd649b51b9f083b5c05f69c58d74c661dddb921a288741cbe1895089",
+          "block": 75674638,
+          "gas": 73386
+        }
+      },
+      "transactions": {
+        "CreditPool": {
+          "hash": "0x1854963929321d57bff93ff335b77aa64976cebc519a371328f94294957ebc65",
+          "block": 75674414,
+          "gas": 1752661
+        },
+        "CollateralVault": {
+          "hash": "0x81b13995b5ab74a19f2926307df528adfc04ff2a9f75dd86a9bda569ec842d7d",
+          "block": 75674439,
+          "gas": 4349147
+        },
+        "CreditPool.bindVault": {
+          "hash": "0xd1f3ba8799a46af5941a0fee5bcbbc03f16d7e82bf05612883adb4568d333706",
+          "block": 75674464,
+          "gas": 45399
+        }
+      },
+      "governance": {
+        "setCreditManager": "v1 AdminTimelock proposal #10, Staking.setCreditManager(CreditPool), approved 2 of 2, executable 2026-10-01T13:02:05Z, expires 2026-10-15T13:02:05Z. Staking's admin is the v1 timelock (48 h), not the v2 one. Until it executes, sweepSpread reverts and the spread stays in CreditPool.reserves. CreditPool never calls Staking.slash.",
+        "propose": "0xded053eaa007d135d0046cd59d5fbf9b2418c24b789616daef0f8c4448fe812f",
+        "approve": "0xbfd079a3bed375164b92b20d4945291c4045a47c1337ed9709a7ad2fde9c75b1"
+      },
+      "liveProof": {
+        "mandate": "0x4686C3566E1C50b4cC14c37A1088b7892d7D7407",
+        "principal": "0x877c349EFb5926082C413833E8055F0991185c61",
+        "salt": "keccak256(\"bursar.collateral-mandate.v1\")",
+        "summary": "A new lane-1 mandate from the payer key posted the example mandate's SPY (64,961,527,959,563 raw, 0.049808 USDG at the 766.74 feed) and spent 0.02 USDG to the registered payee on credit with no USDG of its own. Health went from no debt to 1.9922 and back to no debt after a 0.020001 USDG repayment. The payee released escrow lock 4.",
+        "create": {
+          "hash": "0x3bda4a6dfbe598ea26c91170658e6cb2bc495578f5bd0dd91a61400feb27caa5",
+          "block": 75674956,
+          "gas": 4555742
+        },
+        "setTreasuryPark": {
+          "hash": "0x7c2be51d8d4cbd9f189bb646b83e455dfc819046790ecbc3b6554e83a0e4af67",
+          "block": 75675086,
+          "gas": 47305
+        },
+        "setCapability": {
+          "hash": "0xc0244d7c8ff8ebf6b9496fb78134cfec02e933625a1f8e9561e3b0d8bc16ca3a",
+          "block": 75675124,
+          "gas": 47960
+        },
+        "setMerchant": {
+          "hash": "0x4e6a370e2e1a0cb993c5a455fa519f8c2357bbd12280f0f6a1a34a0d597a249f",
+          "block": 75675161,
+          "gas": 50096
+        },
+        "withdrawSpyFromExample": {
+          "hash": "0x09d99ffaece8191ec380c71997bedf72b50697da4debdc8c8cf0d0c855dd4177",
+          "block": 75675198,
+          "gas": 81256
+        },
+        "approveSpy": {
+          "hash": "0xc11eaf9e70575ec5750d11019c6833edf3c308c99c52dc691fa262d693aee06f",
+          "block": 75675234,
+          "gas": 63625
+        },
+        "openLine": {
+          "hash": "0xf71f988306c19ac875d34bd768ece7af878cd2c6f340a1b4a236f7a08626d99e",
+          "block": 75675271,
+          "gas": 62694
+        },
+        "deposit": {
+          "hash": "0xe80d3a69813ce3671f90767fbad3beba6592507cf19126d9c64ba55901f00fce",
+          "block": 75675308,
+          "gas": 133217
+        },
+        "spendOnCredit": {
+          "hash": "0x254507472d3c49e8a7e4d6229d3a56055caade475a76aaecf6cb8e3e5b87d32b",
+          "block": 75675560,
+          "gas": 725683
+        },
+        "approveUsdg": {
+          "hash": "0x0caae1954afc56f6441d6acd30eea088481a00610b4cfe2a2c9b8da36933ba2c",
+          "block": 75675848,
+          "gas": null
+        },
+        "repay": {
+          "hash": "0xdd6224fdf19b65c51238a57fcdbc15a932a459a92aba66ea32a14c5e7b17d8ed",
+          "block": 75675953,
+          "gas": 83054
+        },
+        "release": {
+          "hash": "0xf19ab5e22b44d95a3534f4f53997f30e485481a1e9d2fbda8912d6a6b9f2dbf5",
+          "block": 75676142,
+          "gas": 101591
+        },
+        "escrowId": 4,
+        "readings": {
+          "afterDeposit": {
+            "block": 75675338,
+            "valueMicros": 49808,
+            "afterHaircutMicros": 39846,
+            "debtMicros": 0,
+            "headroomMicros": 31876,
+            "health": "no debt",
+            "haircutBps": 2000,
+            "afterHours": false
+          },
+          "afterDraw": {
+            "block": 75675603,
+            "valueMicros": 49808,
+            "afterHaircutMicros": 39846,
+            "debtMicros": 20001,
+            "headroomMicros": 11875,
+            "health": "1.992200389980500974"
+          },
+          "afterRepay": {
+            "block": 75675999,
+            "debtMicros": 0,
+            "health": "no debt",
+            "poolBalanceMicros": 30000001
+          }
+        }
+      }
     }
   },
   "privacy": {
@@ -582,6 +783,43 @@ export const RAW_DEPLOYMENTS: Readonly<Record<RawDeploymentName, unknown>> = {
           "block": 75667442,
           "gas": 783848
         }
+      },
+      "liveProof": {
+        "script": "bursar-ops ops/e2e/src/f17-shielded.ts",
+        "payer": "0x877c349EFb5926082C413833E8055F0991185c61",
+        "approve": "0x914a624243271893861cc1e56c9f0baaef7d0899b7a83242f4a7fc33ded6d519",
+        "deposit": {
+          "hash": "0x6d8df568c96ac823e429c301fd177a01daab7287e35bed9b15cafc785f1617d7",
+          "value": "100000"
+        },
+        "aspRoot": {
+          "hash": "0x38dd0d127c188b61a3052a121b9243a3baad1520f5436d7d67c4c96d9335d2d2",
+          "root": "13753365491424726068065257811206747536148723419453474842302393742827213370443",
+          "cid": "bafkreia5wyfg3deremn2yrsqhck6vtom7dneu4yauiekhu2iwenzq5zjse"
+        },
+        "relayedWithdrawal": {
+          "hash": "0x2e4246c80949784bda755f2e985ec2176eba5077bdcecae16c1363b52801fe05",
+          "value": "50000",
+          "fee": "250",
+          "gasDropWei": "150000000000000",
+          "recipient": "0xD106a2731844C3c0dC1c9a40b59AD63288dEc0b9"
+        },
+        "stealthOwner": "0xD106a2731844C3c0dC1c9a40b59AD63288dEc0b9",
+        "stealthAgent": "0x4aF47694Ccb2428DdFb8FcB5600c5F82a4B36706",
+        "announceOwner": "0x077fd2ac8d1db807a296fdeb404804c79ec389ce6d409c096ab362422a997ce2",
+        "announceAgent": "0x6785855d9902aa511c26b80da4ac8a409baf685406a69b27482f113bfb9d5ea8",
+        "mandate": "0x2336c62CB62FbE23CB2c11E6289897AebF28FEd3",
+        "createMandate": "0x1f8aaa8bea94360db9b0dc876f4d5f50bdd9195974d84753400ebc32494bae0c",
+        "fundMandate": {
+          "hash": "0xaf49e35b18d324a278e1ddb833d4610b886929d9a612423db608f7cb14d631b4",
+          "value": "49750"
+        },
+        "ragequit": {
+          "deposit": "0x52c5f1370932b05a7bda194a07306d9e2d62713dd155dce4cc4196469d57d5cc",
+          "ragequit": "0xc625f716bdf9103d4d978161265b762d01980ecea4bab553c62fbc3d918224d6",
+          "value": "20000"
+        },
+        "linkCheck": "Starting from the mandate: the payer's address and its ERC-6538 meta-address appear in 0 of the 5 transactions on the mandate, its principal and its agent. The payer's only pool touches are its two deposits and the ragequit. At the time of the run the pool had one depositor, so the payout is attributable by elimination and timing; unlinkability grows with independent deposits."
       }
     }
   }

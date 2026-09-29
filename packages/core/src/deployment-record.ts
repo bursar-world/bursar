@@ -127,6 +127,18 @@ export type RwaDeployment = {
   readonly MandateAccountFactoryV21?: Address;
   /** What the registry held at deploy. The registry itself is the authority. */
   readonly assets: readonly RwaAssetRecord[];
+  /** The collateral lane (F11), where deployed. */
+  readonly collateral?: CollateralDeployment;
+};
+
+/** The collateral lane: posted stock and treasury tokens, and the USDG lent against them. */
+export type CollateralDeployment = {
+  readonly CreditPool: Address;
+  readonly CollateralVault: Address;
+  /** Where the spread is paid, once governance names the pool as its credit manager. */
+  readonly Staking: Address;
+  /** First block to scan for lane events. */
+  readonly fromBlock: number;
 };
 
 class DeploymentError extends BursarError {
@@ -332,6 +344,22 @@ function parseRwa(json: unknown, name: string): RwaDeployment {
       ? {}
       : { MandateAccountFactoryV21: address(r, label, 'MandateAccountFactoryV21') }),
     assets: Object.freeze(assets),
+    ...(r['collateral'] === undefined ? {} : { collateral: parseCollateral(r['collateral'], label) }),
+  });
+}
+
+function parseCollateral(json: unknown, parent: string): CollateralDeployment {
+  const r = object(json, parent, 'collateral');
+  const label = `${parent}.collateral`;
+  const fromBlock = r['fromBlock'];
+  if (typeof fromBlock !== 'number' || !Number.isSafeInteger(fromBlock) || fromBlock < 0) {
+    throw new DeploymentError(label, `fromBlock is ${String(fromBlock)}.`);
+  }
+  return Object.freeze({
+    CreditPool: address(r, label, 'CreditPool'),
+    CollateralVault: address(r, label, 'CollateralVault'),
+    Staking: address(r, label, 'Staking'),
+    fromBlock,
   });
 }
 

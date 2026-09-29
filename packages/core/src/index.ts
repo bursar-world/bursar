@@ -90,6 +90,7 @@ export type {
   MandateContractName,
   RwaAssetKind,
   RwaAssetRecord,
+  CollateralDeployment,
   PrivacyDeployment,
   ShieldedDeployment,
   RwaDeployment,
@@ -100,8 +101,10 @@ export {
   adminTimelockAbi,
   agentRegistryAbi,
   assetRegistryAbi,
+  collateralVaultAbi,
   committedMandateAccountAbi,
   committedMandateFactoryAbi,
+  creditPoolAbi,
   disclosureRegistryAbi,
   escrowAbi,
   mandateAccountAbi,
@@ -117,7 +120,16 @@ export {
   withinMandateVerifierAbi,
 } from './generated/abi.js';
 
-export { RWA_CLASS_BIT, rwaDeployment, rawToUsdgMicros, usdgMicrosToRaw } from './rwa.js';
+export {
+  COLLATERAL_LANE,
+  NO_DEBT_HEALTH,
+  RWA_CLASS_BIT,
+  collateralDeployment,
+  healthRatio,
+  rwaDeployment,
+  rawToUsdgMicros,
+  usdgMicrosToRaw,
+} from './rwa.js';
 export { privacyDeployment } from './privacy.js';
 
 export {

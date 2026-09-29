@@ -34,6 +34,8 @@ const CONTRACTS = {
   StockSpendRouter: 'stockSpendRouterAbi',
   TreasuryPark: 'treasuryParkAbi',
   RobinhoodStockAdapter: 'parkAdapterAbi',
+  CollateralVault: 'collateralVaultAbi',
+  CreditPool: 'creditPoolAbi',
   CommittedMandateAccount: 'committedMandateAccountAbi',
   CommittedMandateFactory: 'committedMandateFactoryAbi',
   DisclosureRegistry: 'disclosureRegistryAbi',
