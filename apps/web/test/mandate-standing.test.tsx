@@ -52,6 +52,7 @@ function chrome(standing: MandateStanding): string {
     standing,
     standingError: null,
     isOwner: false,
+    ownerOffChain: false,
     connected: undefined,
     refresh: () => {},
   } as unknown as MandateScope;

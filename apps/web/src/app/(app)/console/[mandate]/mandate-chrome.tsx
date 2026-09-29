@@ -11,12 +11,13 @@ import { EmptyState, Skeleton } from '@/components/layout';
 import { ErrorSurface } from '@/components/error-surface';
 import { StatusStrip } from '@/components/status';
 import { usd } from '@/money';
+import { SwitchNetworkButton } from '@/wallet/switch-network';
 import { useMandateScope } from './mandate-scope';
 import type { MandateStanding } from './mandate-scope';
 
 /** The header and the sub-navigation every mandate screen sits under. */
 export function MandateChrome({ children }: { readonly children: ReactNode }) {
-  const { address, account, system, isOwner, connected, refresh, ledger, standing, standingError } = useMandateScope();
+  const { address, account, system, isOwner, ownerOffChain, connected, refresh, ledger, standing, standingError } = useMandateScope();
   const pathname = usePathname();
   const base = `/console/${address}`;
 
@@ -71,7 +72,11 @@ export function MandateChrome({ children }: { readonly children: ReactNode }) {
           <StatusStrip system={system} />
         </div>
 
-        {connected !== undefined && !isOwner && (
+        {ownerOffChain && (
+          <SwitchNetworkButton reason="Your wallet owns this mandate and is on another network. Switch to Robinhood Chain to change it; until then the controls are hidden." />
+        )}
+
+        {connected !== undefined && !isOwner && !ownerOffChain && (
           <p className="text-detail text-[color:var(--color-muted)]">
             This mandate belongs to another address, so the controls on these screens will be refused by the contract.
             Connect the owner to use them.

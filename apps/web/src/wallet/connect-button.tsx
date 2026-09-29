@@ -1,14 +1,15 @@
 'use client';
 
 import { useState } from 'react';
-import { useDisconnect, useSwitchChain } from 'wagmi';
+import { useDisconnect } from 'wagmi';
 
-import { RHC, CHAIN_ID, explorerAddress, shortAddress } from '../chain/rhc';
+import { CHAIN_ID, explorerAddress, shortAddress } from '../chain/rhc';
 import { Button } from '../components/button';
 import { CopyControl } from '../components/address';
 import { Modal } from '../components/modal';
 import { useWalletAccount } from './account';
 import { ConnectModal } from './connect-modal';
+import { SwitchNetworkButton } from './switch-network';
 
 /**
  * Connect, or the connected account.
@@ -18,7 +19,6 @@ import { ConnectModal } from './connect-modal';
  */
 export function ConnectButton() {
   const { address, isConnected, connector, chainId } = useWalletAccount();
-  const { switchChain, isPending: switching } = useSwitchChain();
   const { disconnect } = useDisconnect();
   const [picking, setPicking] = useState(false);
   const [open, setOpen] = useState(false);
@@ -35,11 +35,7 @@ export function ConnectButton() {
   }
 
   if (chainId !== CHAIN_ID) {
-    return (
-      <Button tone="primary" size="sm" disabled={switching} onClick={() => switchChain({ chainId: CHAIN_ID })}>
-        {switching ? `Switching to ${RHC.name}` : `Switch to ${RHC.name}`}
-      </Button>
-    );
+    return <SwitchNetworkButton size="sm" />;
   }
 
   // Nothing on mainnet: that explorer is permissioned, so the row is dropped. A link most readers

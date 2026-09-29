@@ -13,6 +13,8 @@ import type { TxContext } from '@/components/tx-button';
 import { useSystemState } from '@/state';
 import type { SystemState } from '@/state';
 import { useWalletAccount } from '@/wallet/account';
+import { onWrongChain } from '@/wallet/write';
+import { readDrawable } from '../lib/rwa';
 import { useMandateLedger } from '../lib/use-ledger';
 import type { MandateLedger } from '../lib/use-ledger';
 
@@ -60,8 +62,13 @@ export type MandateScope = {
   readonly ledger: MandateLedger;
   /** The connected wallet, which pays the fee on anything sent from these screens. */
   readonly connected: Address | undefined;
-  /** The connected wallet owns this mandate, so the controls on these screens will be accepted. */
+  /**
+   * The connected wallet owns this mandate and is on this network, so the controls on these screens
+   * will be accepted. An owner on another network sees no controls until it switches.
+   */
   readonly isOwner: boolean;
+  /** The owner is connected, on another network. */
+  readonly ownerOffChain: boolean;
   /** The payment the permission and mandate readings above are currently answering about. */
   readonly proposed: Proposed;
   readonly propose: (next: Proposed) => void;
@@ -86,9 +93,20 @@ export const MandateScopeContext = Scope;
  * number of screens open, against a network that meters arrivals.
  */
 export function MandateScopeProvider({ address, children }: { readonly address: Address; readonly children: ReactNode }) {
-  const { address: connected } = useWalletAccount();
+  const wallet = useWalletAccount();
+  const connected = wallet.address;
+  const offChain = onWrongChain(wallet);
   const [proposed, propose] = useState<Proposed>(EMPTY);
-  const system = useSystemState({ mandate: address, ...proposed });
+  const drawable = useQuery({
+    queryKey: ['console', 'drawable', address],
+    queryFn: () => readDrawable(address),
+    refetchInterval: 60_000,
+  });
+  const system = useSystemState({
+    mandate: address,
+    ...proposed,
+    ...(drawable.data === undefined ? {} : { drawable: drawable.data as Micro }),
+  });
   const read = system.mandate.facts.account;
   const ledger = useMandateLedger(address, connected, read !== undefined && sameAddress(read.address, address) ? read.escrow : undefined);
   const principal = read !== undefined && sameAddress(read.address, address) ? read.principal : undefined;
@@ -125,7 +143,8 @@ export function MandateScopeProvider({ address, children }: { readonly address: 
       standingError,
       ledger,
       connected,
-      isOwner: sameAddress(connected, account?.principal),
+      isOwner: !offChain && sameAddress(connected, account?.principal),
+      ownerOffChain: offChain && sameAddress(connected, account?.principal),
       proposed,
       propose,
       writeContext: { mandate: address, facts: system.mandate.facts, funding: system.funding.facts },
@@ -135,7 +154,7 @@ export function MandateScopeProvider({ address, children }: { readonly address: 
         if (standing === 'unread') void refetchProvenance();
       },
     }),
-    [address, system, account, standing, standingError, refetchProvenance, ledger, connected, proposed],
+    [address, system, account, standing, standingError, refetchProvenance, ledger, connected, offChain, proposed],
   );
 
   return <Scope.Provider value={value}>{children}</Scope.Provider>;

@@ -5,13 +5,14 @@ import type { FormEvent, ReactNode } from 'react';
 import { isBursarError } from '@bursar/core';
 import { SubmittedButUnconfirmedError, TransactionRevertedError, revertFrom } from '@bursar/sdk';
 import type { Hex, ReplacementReason, TransactionReceipt } from 'viem';
-import { useSwitchChain, useWaitForTransactionReceipt } from 'wagmi';
+import { useWaitForTransactionReceipt } from 'wagmi';
 
 import { CHAIN_ID, RHC, explorerTx } from '../chain/rhc';
 import { failureFrom } from '../lib/revert';
 import type { WriteContext } from '../lib/revert';
 import type { AnyState } from '../state';
 import { useWalletAccount } from '../wallet/account';
+import { SwitchNetworkButton } from '../wallet/switch-network';
 import { onWrongChain } from '../wallet/write';
 import { Button } from './button';
 import type { ButtonTone } from './button';
@@ -144,7 +145,6 @@ export function TxButton({
   const [typed, setTyped] = useState('');
   const [replacedBy, setReplacedBy] = useState<ReplacementReason | undefined>(undefined);
   const account = useWalletAccount();
-  const { switchChain, isPending: switching } = useSwitchChain();
 
   // viem names the replacement when it sees one, which is the only reliable way to tell a speed-up
   // from a cancel or from a different call on the same nonce. It is held in a ref as well as in
@@ -281,18 +281,11 @@ export function TxButton({
 
   if (wrongChain) {
     return (
-      <div className="space-y-2">
-        {/* The switch is not the action it stands in for, so it never wears that action's warning colour. */}
-        <Button tone={tone === 'destructive' ? 'primary' : tone} disabled={switching} onClick={() => switchChain({ chainId: CHAIN_ID })}>
-          {switching ? `Switching to ${RHC.name}` : `Switch to ${RHC.name}`}
-        </Button>
-        <p className="text-detail" style={{ color: 'var(--color-state-blocked)' }}>
-          Your wallet is on another network.{' '}
-          <span className="text-[color:var(--color-muted)]">
-            This is sent on {RHC.name}. Switch networks, then press it again.
-          </span>
-        </p>
-      </div>
+      // The switch is not the action it stands in for, so it never wears that action's warning colour.
+      <SwitchNetworkButton
+        tone={tone === 'destructive' ? 'primary' : tone}
+        reason={`Your wallet is on another network. "${label}" is sent on ${RHC.name}: switch networks, then press it again.`}
+      />
     );
   }
 
