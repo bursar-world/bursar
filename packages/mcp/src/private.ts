@@ -59,8 +59,8 @@ export type PrivatePaymentView = {
 type Agent = { readonly address: Address; pay(payment: PrivatePayment): Promise<PrivatePaymentReceipt> };
 export type AgentFactory = (handoff: AgentHandoff, client: RhcPublicClient) => Agent | Promise<Agent>;
 
-/** Below this the stealth agent cannot pay for one proven spend at today's gas prices. */
-const MIN_GAS_WEI = 10_000_000_000_000n;
+/** One proven spend with a sealed brief used about 0.9M gas, 150k of it L1 data, at 0.02 gwei on 4663. */
+const MIN_GAS_WEI = 30_000_000_000_000n;
 
 const NOTE =
   'The terms come from the key file and are known only to the owner and this agent. On chain the ' +
