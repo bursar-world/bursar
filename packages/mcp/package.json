@@ -39,6 +39,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@bursar/circuits": "workspace:*",
     "@bursar/core": "workspace:*",
     "@bursar/sdk": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.30.0",

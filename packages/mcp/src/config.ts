@@ -1,5 +1,6 @@
 import {
   BursarError,
+  privacyDeployment,
   rhcChain,
   rhcRpcProviders,
   deploymentForChain,
@@ -10,9 +11,9 @@ import {
   optional,
   withDefault,
 } from '@bursar/core';
-import type { RhcChain, EnvSource, RpcProvider } from '@bursar/core';
+import type { RhcChain, EnvSource, RpcProvider, ShieldedDeployment } from '@bursar/core';
 import { readAgentHandoff } from '@bursar/sdk';
-import type { AgentHandoff } from '@bursar/sdk';
+import type { AgentHandoff, ShieldedKeys } from '@bursar/sdk';
 import { readFileSync } from 'node:fs';
 import type { Address, Hex } from 'viem';
 
@@ -64,6 +65,22 @@ export type PrivateMandateConfig = {
   readonly handoff: AgentHandoff;
 };
 
+/**
+ * The shielded USDG pool on this chain. `keys` is the float a principal handed this agent: the note
+ * master keys of a shielded balance, read from BURSAR_SHIELDED_KEY_FILE. Without it the server can
+ * only read the pool.
+ */
+export type ShieldedConfig = {
+  readonly deployment: ShieldedDeployment;
+  readonly keys: ShieldedKeys | null;
+  /** services/relayer. Every shielded payment goes through it; none is sent from this process. */
+  readonly relayerUrl: string | null;
+  /** services/asp. Optional: the set is rebuilt from chain data when it is absent or disagrees. */
+  readonly aspUrl: string | null;
+};
+
+export const SHIELDED_KEYS_KIND = 'bursar-shielded-keys';
+
 export type ProviderConfig = {
   readonly account: Address;
   readonly registry: Address;
@@ -94,6 +111,8 @@ export type McpConfig = {
   readonly signer: LocalSignerConfig | null;
   /** Null unless BURSAR_AGENT_KEY_FILE names a private mandate's key file. */
   readonly privateMandate: PrivateMandateConfig | null;
+  /** Null on a chain with no shielded pool recorded. */
+  readonly shielded: ShieldedConfig | null;
   readonly index: IndexConfig;
 };
 
@@ -120,6 +139,12 @@ const SCHEMA = {
   // is read only under BURSAR_SIGNER=local, like the key above.
   BURSAR_AGENT_KEY_FILE: optional(envVar.string({ minLength: 1 })),
   BURSAR_RELAY_URL: optional(envVar.url({ protocols: ['http:', 'https:'] })),
+  // A shielded balance the principal handed this agent, and the services it spends through. The
+  // relayer (services/relayer) is a different thing from the signer relay above: it submits pool
+  // withdrawals from its own wallet and never holds a key of this server's.
+  BURSAR_SHIELDED_KEY_FILE: optional(envVar.string({ minLength: 1 })),
+  BURSAR_RELAYER_URL: optional(envVar.url({ protocols: ['http:', 'https:'] })),
+  BURSAR_ASP_URL: optional(envVar.url({ protocols: ['http:', 'https:'] })),
   BURSAR_RELAY_TOKEN: optional(envVar.string({ minLength: 8, secret: true })),
   BURSAR_RELAY_TIMEOUT_MS: withDefault(envVar.int({ min: 1_000, max: 120_000 }), 30_000),
   // The names `@bursar/core` reads the index under, declared here so one missing variable is
@@ -176,15 +201,16 @@ export function loadConfig(source: EnvSource = process.env): McpConfig {
   const signer = privateMandate === null ? localSigner(env, account) : { key: privateMandate.handoff.privateKey };
   const resolver = resolverConfig(env, deployed, chain.chainId);
   const provider = providerConfig(env, deployed, chain.chainId);
+  const shielded = shieldedConfig(env, chain.chainId);
 
   // A server bound to no role serves nothing. Saying so at startup is better than advertising an
   // empty tool list to a client that will sit there waiting to be told why.
-  if (account === undefined && resolver === null && provider === null) {
+  if (account === undefined && resolver === null && provider === null && shielded?.keys == null) {
     throw new BursarError(
       'env_invalid',
       'This server is not bound to anything. Set MANDATE_ACCOUNT to work inside a spending mandate, ' +
-        'BURSAR_RESOLVER_ACCOUNT to rule on disputes, or BURSAR_PROVIDER_ACCOUNT to sell capability. ' +
-        'One server can carry more than one of them.',
+        'BURSAR_RESOLVER_ACCOUNT to rule on disputes, BURSAR_PROVIDER_ACCOUNT to sell capability, or ' +
+        'BURSAR_SHIELDED_KEY_FILE to spend a shielded balance. One server can carry more than one of them.',
     );
   }
 
@@ -203,6 +229,7 @@ export function loadConfig(source: EnvSource = process.env): McpConfig {
         : { url: relayUrl, token: env.BURSAR_RELAY_TOKEN, timeoutMs: env.BURSAR_RELAY_TIMEOUT_MS },
     signer,
     privateMandate,
+    shielded,
     index: { apiKey: env.BLOCKSCOUT_API_KEY, baseUrl: env.BLOCKSCOUT_API_BASE },
   };
 }
@@ -330,6 +357,74 @@ function privateMandateConfig(env: Env, chainId: number): PrivateMandateConfig |
   return { handoff };
 }
 
+/**
+ * The pool on this chain and, when BURSAR_SHIELDED_KEY_FILE is set, the float's keys. The file is
+ * the money: whoever reads it can withdraw the balance, so it is kept out of every reply like a key.
+ */
+function shieldedConfig(env: Env, chainId: number): ShieldedConfig | null {
+  const deployment = privacyDeployment(chainId)?.shielded;
+  const path = env.BURSAR_SHIELDED_KEY_FILE;
+
+  if (deployment === undefined) {
+    if (path === undefined) return null;
+    throw new BursarError('env_invalid', `BURSAR_SHIELDED_KEY_FILE is set, and chain ${chainId} has no shielded pool.`, { chainId });
+  }
+
+  const relayerUrl = env.BURSAR_RELAYER_URL ?? null;
+  const aspUrl = env.BURSAR_ASP_URL ?? null;
+  if (path === undefined) return { deployment, keys: null, relayerUrl, aspUrl };
+
+  let text: string;
+  try {
+    text = readFileSync(path, 'utf8');
+  } catch {
+    throw new BursarError('env_invalid', `BURSAR_SHIELDED_KEY_FILE names ${path}, and it could not be read.`, { path });
+  }
+
+  return { deployment, keys: readShieldedKeys(text, chainId, deployment.ShieldedPool), relayerUrl, aspUrl };
+}
+
+const FIELD = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
+
+/** Parses a shielded key file. Messages never quote the keys. */
+export function readShieldedKeys(text: string, chainId: number, pool: Address): ShieldedKeys {
+  const bad = (reason: string, detail: Record<string, unknown> = {}) =>
+    new BursarError('env_invalid', `BURSAR_SHIELDED_KEY_FILE is not a usable shielded key file. ${reason}`, detail);
+  let file: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error('not an object');
+    file = parsed as Record<string, unknown>;
+  } catch {
+    throw bad('It is not JSON.');
+  }
+  if (file['kind'] !== SHIELDED_KEYS_KIND || file['version'] !== 1) {
+    throw bad(`Its kind is not ${SHIELDED_KEYS_KIND} version 1.`);
+  }
+  if (file['chainId'] !== chainId) {
+    throw new BursarError(
+      'config_mismatch',
+      `The shielded key file is for chain ${String(file['chainId'])}, and this server is on chain ${chainId}.`,
+      { fileChainId: file['chainId'], chainId },
+    );
+  }
+  if (typeof file['pool'] !== 'string' || file['pool'].toLowerCase() !== pool.toLowerCase()) {
+    throw new BursarError(
+      'config_mismatch',
+      `The shielded key file is for pool ${String(file['pool'])}, and the pool on this chain is ${pool}.`,
+      { filePool: file['pool'], pool },
+    );
+  }
+  const scalar = (key: string): bigint => {
+    const value = file[key];
+    if (typeof value !== 'string' || !/^[1-9][0-9]{0,77}$/u.test(value) || BigInt(value) >= FIELD) {
+      throw bad(`${key} is not a field element.`);
+    }
+    return BigInt(value);
+  };
+  return { masterNullifier: scalar('masterNullifier'), masterSecret: scalar('masterSecret') };
+}
+
 type Deployed = ReturnType<typeof deployedContracts>;
 type Env = ReturnType<typeof loadEnv<typeof SCHEMA>>;
 
@@ -379,6 +474,9 @@ export function secretsOf(config: McpConfig): readonly string[] {
   // The same key as the signer's today; listed on its own so a later split cannot drop it.
   if (config.privateMandate !== null) secrets.push(config.privateMandate.handoff.privateKey);
   if (config.index.apiKey !== undefined) secrets.push(config.index.apiKey);
+  if (config.shielded?.keys != null) {
+    secrets.push(config.shielded.keys.masterNullifier.toString(), config.shielded.keys.masterSecret.toString());
+  }
 
   return secrets;
 }

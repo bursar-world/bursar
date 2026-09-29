@@ -14,6 +14,7 @@ import { createChainGateway } from './gateway.js';
 import { createPrivateGateway } from './private.js';
 import { createProviderGateway } from './provider.js';
 import { createResolverGateway } from './resolver.js';
+import { createShieldedGateway } from './shielded.js';
 import { createHttpRelay } from './relay.js';
 import { createLocalSigner } from './signer.js';
 import { callTool, redactSecrets, toolsFor } from './tools.js';
@@ -88,6 +89,17 @@ export function createContext(config: McpConfig, options: ContextOptions = {}): 
   // the list instead of present and unusable.
   return {
     private: config.privateMandate === null ? null : createPrivateGateway({ client, handoff: config.privateMandate.handoff }),
+    shielded:
+      config.shielded === null
+        ? null
+        : createShieldedGateway({
+            client,
+            chainId: config.chain.chainId,
+            deployment: config.shielded.deployment,
+            keys: config.shielded.keys,
+            relayerUrl: config.shielded.relayerUrl,
+            aspUrl: config.shielded.aspUrl,
+          }),
     gateway:
       config.account === null || config.privateMandate !== null
         ? null

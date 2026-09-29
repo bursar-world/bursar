@@ -3,6 +3,8 @@ import type { Abi, AbiParameter, Hex } from 'viem';
 import {
   agentRegistryAbi,
   assetRegistryAbi,
+  collateralVaultAbi,
+  creditPoolAbi,
   escrowAbi,
   mandateAccountAbi,
   mandateAccountFactoryAbi,
@@ -72,6 +74,8 @@ const DEPLOYMENT_ABIS = [
   ...stockSpendRouterAbi,
   ...treasuryParkAbi,
   ...parkAdapterAbi,
+  ...collateralVaultAbi,
+  ...creditPoolAbi,
 ] as unknown as Abi;
 
 const REVERT_ABI: Abi = DEPLOYMENT_ABIS.filter((item) => item.type === 'error');

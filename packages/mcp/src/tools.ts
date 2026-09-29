@@ -6,6 +6,7 @@ import type { Address, Hex } from 'viem';
 
 import { ToolError, invalidArguments } from './errors.js';
 import type { PrivateMandateGateway } from './private.js';
+import type { ShieldedGateway } from './shielded.js';
 import type { JobSpec } from '@bursar/sdk';
 import { refusalForName } from './reasons.js';
 import { isJsonObject, toToolSchema, validate } from './schema.js';
@@ -13,10 +14,13 @@ import type { JsonObjectSchema, ObjectSchema, ScalarSchema } from './schema.js';
 import type { ApprovalInput, JobSpecInput, MandateGateway, ProviderGateway, ResolverGateway } from './types.js';
 
 /** Which role a tool belongs to. A server serves the roles it was configured for and no others. */
-export type ToolRole = 'mandate' | 'resolver' | 'provider' | 'private';
+export type ToolRole = 'mandate' | 'resolver' | 'provider' | 'private' | 'shielded' | 'shielded_float';
 
-/** The roles whose signer is configured apart from their gateway. A private mandate's key comes with it. */
-export type SignedRole = Exclude<ToolRole, 'private'>;
+/**
+ * The roles whose signer is configured apart from their gateway. A private mandate's key comes with
+ * it, and a shielded payment is sent by the relayer, never by this server.
+ */
+export type SignedRole = Exclude<ToolRole, 'private' | 'shielded' | 'shielded_float'>;
 
 export type ToolContext = {
   /** Null when this server is bound to no mandate, which a resolver-only deployment is. */
@@ -28,6 +32,8 @@ export type ToolContext = {
    * the classic mandate gateway is null: a private mandate has none of the getters those tools read.
    */
   readonly private?: PrivateMandateGateway | null;
+  /** The shielded pool on this chain, and the float this agent was handed, if any. */
+  readonly shielded?: ShieldedGateway | null;
   /** Removed from every payload on the way out, so a leaked message cannot carry one. */
   readonly secrets: readonly string[];
   /**
@@ -545,6 +551,56 @@ export const TOOLS: readonly ToolDefinition[] = [
     },
   },
   {
+    name: 'shielded_pool_status',
+    role: 'shielded',
+    writes: false,
+    description:
+      'Read the shielded USDG pool: whether it takes deposits, what it holds, the most one deposit and the ' +
+      'whole pool may hold and the room left under that, the association-set root in force and when it was ' +
+      'posted, and the relayer\u2019s fee when one is configured. Nothing is spent.',
+    inputSchema: NO_ARGUMENTS,
+  },
+  {
+    name: 'shielded_balance',
+    role: 'shielded_float',
+    writes: false,
+    description:
+      'Read the shielded balance this agent was handed: each deposit it can spend from, what is left in it, ' +
+      'and whether the association-set provider has approved it yet. Only approved deposits can pay. The ' +
+      'balance is rebuilt from public chain data with the keys in the key file; nothing is stored. Nothing ' +
+      'is spent.',
+    inputSchema: NO_ARGUMENTS,
+  },
+  {
+    name: 'shielded_pay',
+    role: 'shielded_float',
+    writes: true,
+    description:
+      'Pay an address out of the shielded balance. The server proves the withdrawal from one approved ' +
+      'deposit and hands it to the relayer, which submits it from its own wallet, so the payment carries no ' +
+      'trace of whoever funded the balance. The recipient receives the full amount; the relayer\u2019s fee is ' +
+      'drawn on top, and the rest of the deposit stays in the pool. With gasDrop the relayer also sends the ' +
+      'recipient a little ETH, which is how a fresh address gets its first network fee. One payment draws on ' +
+      'one deposit. Proving takes a few seconds. The amount and the recipient are public on chain.',
+    inputSchema: {
+      type: 'object',
+      required: ['recipient', 'amount'],
+      properties: {
+        recipient: {
+          type: 'string',
+          description: 'The address being paid, as a 0x address.',
+          pattern: ADDRESS_PATTERN,
+          patternMessage: 'recipient must be a 0x-prefixed 20-byte address',
+        },
+        amount: amountProperty('amount', `What the recipient should receive. ${AMOUNT_HELP}`),
+        gasDrop: {
+          type: 'boolean',
+          description: 'Ask the relayer to send the recipient ETH for its first network fee. Only for an address with none.',
+        },
+      },
+    },
+  },
+  {
     name: 'resolver_status',
     role: 'resolver',
     writes: false,
@@ -850,6 +906,8 @@ export type AdvertisedTool = {
 
 function servesRole(context: ToolContext, role: ToolRole): boolean {
   if (role === 'private') return (context.private ?? null) !== null;
+  if (role === 'shielded') return (context.shielded ?? null) !== null;
+  if (role === 'shielded_float') return (context.shielded?.float ?? null) !== null;
   if (role === 'resolver') return context.resolver !== null;
   if (role === 'provider') return context.provider !== null;
 
@@ -867,9 +925,34 @@ export function toolsFor(context: ToolContext): AdvertisedTool[] {
   );
 }
 
-/** A private mandate signs with the key in its file, so it can always send what it serves. */
+/**
+ * A private mandate signs with the key in its file, so it can always send what it serves. A shielded
+ * payment is sent by the relayer, so it is offered only with one configured.
+ */
 function canSign(context: ToolContext, role: ToolRole): boolean {
-  return role === 'private' ? servesRole(context, role) : context.canSign[role];
+  if (role === 'private' || role === 'shielded') return servesRole(context, role);
+  if (role === 'shielded_float') return servesRole(context, role) && (context.shielded?.relayerUrl ?? null) !== null;
+  return context.canSign[role];
+}
+
+function shieldedOf(context: ToolContext): ShieldedGateway {
+  const gateway = context.shielded ?? null;
+  if (gateway === null) {
+    throw new ToolError('shielded_unavailable', 'This chain has no shielded pool recorded, so there is nothing to read.');
+  }
+  return gateway;
+}
+
+function floatOf(context: ToolContext): NonNullable<ShieldedGateway['float']> {
+  const float = context.shielded?.float ?? null;
+  if (float === null) {
+    throw new ToolError(
+      'shielded_unconfigured',
+      'This server holds no shielded balance. Set BURSAR_SHIELDED_KEY_FILE to the shielded key file the ' +
+        'owner handed over, then restart it.',
+    );
+  }
+  return float;
 }
 
 function privateOf(context: ToolContext): PrivateMandateGateway {
@@ -993,6 +1076,17 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
       deliverWithinSeconds: args['deliverWithinSeconds'] === undefined ? 6 * 3600 : readInteger(args, 'deliverWithinSeconds'),
     }),
 
+  shielded_pool_status: (context) => shieldedOf(context).status(),
+
+  shielded_balance: (context) => floatOf(context).balance(),
+
+  shielded_pay: (context, args) =>
+    floatOf(context).pay({
+      recipient: readAddress(args, 'recipient'),
+      amount: readAmount(args, 'amount'),
+      gasDrop: args['gasDrop'] === true,
+    }),
+
   resolver_status: (context) => resolverOf(context).status(),
 
   resolver_list_disputes: (context, args) =>
@@ -1062,7 +1156,21 @@ export async function callTool(context: ToolContext, name: string, args: unknown
       throw new ToolError('unknown_tool', `This server does not serve a tool called ${name}.`);
     }
 
-    if (definition.writes && definition.role !== 'private' && !context.canSign[definition.role]) {
+    if (definition.role === 'shielded_float' && definition.writes && (context.shielded?.relayerUrl ?? null) === null && context.shielded?.float) {
+      throw new ToolError(
+        'relayer_unconfigured',
+        `${name} is sent by the relayer, so it never comes from a wallet the owner has used. Set ` +
+          'BURSAR_RELAYER_URL, then restart it.',
+      );
+    }
+
+    if (
+      definition.writes &&
+      definition.role !== 'private' &&
+      definition.role !== 'shielded' &&
+      definition.role !== 'shielded_float' &&
+      !context.canSign[definition.role]
+    ) {
       throw new ToolError(
         'relay_unconfigured',
         `${name} sends a transaction, and this server has no signer for it. Set BURSAR_RELAY_URL to ` +

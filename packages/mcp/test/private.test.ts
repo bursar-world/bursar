@@ -106,7 +106,7 @@ describe('a private mandate key file', () => {
   it('offers the private tools and none of the tools that read a public mandate', () => {
     const names = toolsFor(createContext(loadConfig(ENV))).map((tool) => tool.name);
 
-    expect(names).toEqual(['private_mandate_inspect', 'private_mandate_pay']);
+    expect(names).toEqual(['private_mandate_inspect', 'private_mandate_pay', 'shielded_pool_status']);
   });
 });
 

@@ -9,18 +9,20 @@ lists itself with collateral, manages that collateral, and reads the ceiling its
 One server carries whichever of the three it is configured for. No dashboard and no human in the
 loop.
 
-Twenty-nine tools exist in total. `tools/list` returns the ones for the roles this server is bound
-to, and the ones that send a transaction only when it can sign for that role:
+Thirty-two tools exist in total. `tools/list` returns the ones for the roles this server is bound
+to, and the ones that send a transaction only when it can sign for that role. On Robinhood Chain
+every server also carries `shielded_pool_status`, which only reads:
 
 | Bound to | No signer | With a signer |
 |---|---:|---:|
-| A mandate account | 5 | 8 |
-| A resolver | 2 | 12 |
-| A provider | 2 | 9 |
-| All three | 9 | 29 |
+| A mandate account | 6 | 9 |
+| A resolver | 3 | 13 |
+| A provider | 3 | 10 |
+| All three | 10 | 30 |
+| A shielded balance | 2 | 3 with `BURSAR_RELAYER_URL` |
 
 A local key signs for the mandate alone, so all three roles with `BURSAR_SIGNER=local` advertise
-12. The 29 in the last row needs `BURSAR_RELAY_URL`, which is the only signer the resolver's and
+13. The 30 in the fourth row needs `BURSAR_RELAY_URL`, which is the only signer the resolver's and
 the provider's writes go through. [Who signs](#who-signs) has the reasoning.
 
 The mandate contract on Robinhood Chain enforces the limits, so this server cannot relax them. A
@@ -65,9 +67,40 @@ are `BURSAR_SIGNER_KEY` and `BURSAR_RELAY_URL` alongside it. The public mandate 
 offered, because a private mandate does not answer them.
 
 What stays visible: the amount and the provider of each payment, and every transfer that funds the
-mandate or the agent address. Funding from a public wallet links that wallet to the mandate until
-shielded funding is available. The file itself spends from the mandate and reveals its terms, so
-keep it where you would keep a key.
+mandate or the agent address. Funding from a public wallet links that wallet to the mandate; funding
+it out of the shielded pool does not. The file itself spends from the mandate and reveals its terms,
+so keep it where you would keep a key.
+
+## What an agent spending a shielded balance gets
+
+The shielded pool holds USDG as notes that only their keys can spend. A principal can hand an agent
+a balance there: generate fresh keys with `randomShieldedKeys()` from `@bursar/sdk`, deposit with
+them from the principal's wallet, and write the file with `shieldedKeyFile()`. This server spends
+from it through the relayer, so no payment is sent from a wallet anyone has used before. Only the
+depositing wallet can take a deposit back by ragequit.
+
+```
+BURSAR_SHIELDED_KEY_FILE=/path/to/bursar-shielded-keys.json
+BURSAR_RELAYER_URL=https://relayer.example
+BURSAR_ASP_URL=https://asp.example        # optional
+```
+
+| Tool | What it does |
+| --- | --- |
+| `shielded_pool_status` | Whether the pool takes deposits, what it holds, the per-deposit and pool caps and the room left, the association-set root in force, and the relayer's fee. Offered on every server on Robinhood Chain. |
+| `shielded_balance` | Each deposit the key file can spend from, what is left in it, and whether the association-set provider has approved it. |
+| `shielded_pay` | Proves a withdrawal from the smallest approved deposit that covers the amount and hands it to the relayer. The recipient receives the full amount; the relayer's fee is drawn on top. `gasDrop` asks the relayer to send a fresh recipient its first ETH. |
+
+One payment draws on one deposit, so an amount above the largest approved deposit is refused with
+the figure that would fit. Without `BURSAR_RELAYER_URL` the payment tool is not offered: a
+withdrawal sent from this server's own wallet would tie the agent to the payment. The association
+set is taken from `BURSAR_ASP_URL` when it matches the root on chain and rebuilt from chain data
+otherwise.
+
+What stays visible: each deposit into the pool (who and how much), and each payment out of it (how
+much and to whom). What the pool hides is which deposit paid for which payment, and that is only as
+strong as the number of deposits in the pool. The key file is the money itself: whoever reads it can
+spend the balance.
 
 ## What a resolver gets
 

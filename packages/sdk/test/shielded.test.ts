@@ -21,8 +21,10 @@ import {
   precommitmentOf,
   proofFromWire,
   proofToWire,
+  randomShieldedKeys,
   recoverNotes,
   scopeOf,
+  shieldedKeyFile,
   shieldedPoolAbi,
   withdrawInput,
   withdrawSignals,
@@ -234,5 +236,16 @@ describe('proofs with the official artifacts', () => {
   it('refuses malformed wire proofs', () => {
     expect(() => proofFromWire({ pA: ['1'], pB: [], pC: [], pubSignals: [] })).toThrow(/pA/);
     expect(() => proofFromWire({ pA: ['1', 'x'], pB: [['1', '1'], ['1', '1']], pC: ['1', '1'], pubSignals: [] })).toThrow(/decimal/);
+  });
+});
+
+describe('shielded key files', () => {
+  it('writes the file the MCP server reads, with fresh keys each time', () => {
+    const a = randomShieldedKeys();
+    expect(a).not.toEqual(randomShieldedKeys());
+    const file = shieldedKeyFile(a, POOL, 4663);
+    expect(file).toMatchObject({ kind: 'bursar-shielded-keys', version: 1, chainId: 4663, pool: POOL });
+    expect(BigInt(file.masterNullifier)).toBe(a.masterNullifier);
+    expect(BigInt(file.masterSecret)).toBe(a.masterSecret);
   });
 });
