@@ -2,6 +2,7 @@ packages:
   - 'apps/*'
   - 'packages/*'
   - 'services/*'
+  - 'circuits'
 
 # tsx and vitest both bundle esbuild, which unpacks a platform binary in a postinstall step.
 # Without this, a fresh clone installs an esbuild that cannot run.

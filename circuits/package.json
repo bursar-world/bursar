@@ -1,0 +1,48 @@
+{
+  "name": "@bursar/circuits",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Circom circuits and Groth16 artifacts for committed BURSAR mandates.",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js"
+    },
+    "./artifacts": {
+      "types": "./artifacts.d.ts",
+      "import": "./artifacts.js"
+    },
+    "./build/*": "./build/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "artifacts.js",
+    "artifacts.d.ts",
+    "src",
+    "build"
+  ],
+  "scripts": {
+    "build": "node scripts/check-artifacts.mjs",
+    "typecheck": "node scripts/check-artifacts.mjs",
+    "test": "vitest run",
+    "compile": "sh scripts/compile.sh",
+    "setup": "sh scripts/setup.sh"
+  },
+  "dependencies": {
+    "poseidon-lite": "0.3.0"
+  },
+  "devDependencies": {
+    "circomlib": "2.0.5",
+    "snarkjs": "0.7.6",
+    "vitest": "^3.2.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
