@@ -11,6 +11,9 @@ import {
   withDefault,
 } from '@bursar/core';
 import type { RhcChain, EnvSource, RpcProvider } from '@bursar/core';
+import { readAgentHandoff } from '@bursar/sdk';
+import type { AgentHandoff } from '@bursar/sdk';
+import { readFileSync } from 'node:fs';
 import type { Address, Hex } from 'viem';
 
 export type RelayConfig = {
@@ -52,6 +55,15 @@ export type ResolverConfig = {
   readonly registry: Address;
 };
 
+/**
+ * A private mandate this server spends from as its agent. The agent's key and the readable terms
+ * it proves against both come from the key file the owner exported, so neither is typed into the
+ * environment.
+ */
+export type PrivateMandateConfig = {
+  readonly handoff: AgentHandoff;
+};
+
 export type ProviderConfig = {
   readonly account: Address;
   readonly registry: Address;
@@ -80,6 +92,8 @@ export type McpConfig = {
   readonly relay: RelayConfig | null;
   /** Null unless the operator put a key in this process. It signs for the mandate and nothing else. */
   readonly signer: LocalSignerConfig | null;
+  /** Null unless BURSAR_AGENT_KEY_FILE names a private mandate's key file. */
+  readonly privateMandate: PrivateMandateConfig | null;
   readonly index: IndexConfig;
 };
 
@@ -102,6 +116,9 @@ const SCHEMA = {
   // Which signer this server writes through, if any. Unset reads and never writes.
   BURSAR_SIGNER: optional(envVar.oneOf(['relay', 'local'])),
   BURSAR_SIGNER_KEY: optional(envVar.string({ minLength: 66, pattern: HEX32, secret: true })),
+  // A private mandate's key file, exported by the owner's console. It carries the agent key, so it
+  // is read only under BURSAR_SIGNER=local, like the key above.
+  BURSAR_AGENT_KEY_FILE: optional(envVar.string({ minLength: 1 })),
   BURSAR_RELAY_URL: optional(envVar.url({ protocols: ['http:', 'https:'] })),
   BURSAR_RELAY_TOKEN: optional(envVar.string({ minLength: 8, secret: true })),
   BURSAR_RELAY_TIMEOUT_MS: withDefault(envVar.int({ min: 1_000, max: 120_000 }), 30_000),
@@ -154,8 +171,9 @@ export function loadConfig(source: EnvSource = process.env): McpConfig {
     throw new BursarError('env_invalid', 'BURSAR_RELAY_TOKEN is set but BURSAR_RELAY_URL is not.');
   }
 
-  const account = env.MANDATE_ACCOUNT;
-  const signer = localSigner(env, account);
+  const privateMandate = privateMandateConfig(env, chain.chainId);
+  const account = env.MANDATE_ACCOUNT ?? privateMandate?.handoff.mandate;
+  const signer = privateMandate === null ? localSigner(env, account) : { key: privateMandate.handoff.privateKey };
   const resolver = resolverConfig(env, deployed, chain.chainId);
   const provider = providerConfig(env, deployed, chain.chainId);
 
@@ -184,6 +202,7 @@ export function loadConfig(source: EnvSource = process.env): McpConfig {
         ? null
         : { url: relayUrl, token: env.BURSAR_RELAY_TOKEN, timeoutMs: env.BURSAR_RELAY_TIMEOUT_MS },
     signer,
+    privateMandate,
     index: { apiKey: env.BLOCKSCOUT_API_KEY, baseUrl: env.BLOCKSCOUT_API_BASE },
   };
 }
@@ -240,6 +259,77 @@ function localSigner(env: Env, account: Address | undefined): LocalSignerConfig 
   return { key: key as Hex };
 }
 
+/**
+ * Reads the key file of a private mandate.
+ *
+ * The file is a key, so it takes the same spoken decision as BURSAR_SIGNER_KEY: BURSAR_SIGNER=local.
+ * It is the only key the server holds, and it names its own mandate, so a second key, a relay or
+ * a different MANDATE_ACCOUNT leaves open which one was meant and is refused.
+ */
+function privateMandateConfig(env: Env, chainId: number): PrivateMandateConfig | null {
+  const path = env.BURSAR_AGENT_KEY_FILE;
+  if (path === undefined) return null;
+
+  if (env.BURSAR_SIGNER !== 'local') {
+    throw new BursarError(
+      'custody_refused',
+      'BURSAR_AGENT_KEY_FILE holds an agent key and BURSAR_SIGNER is not local, so this server has been ' +
+        'handed a key it was not told to hold. Set BURSAR_SIGNER=local to sign in this process.',
+    );
+  }
+
+  if (env.BURSAR_SIGNER_KEY !== undefined) {
+    throw new BursarError(
+      'env_invalid',
+      'BURSAR_AGENT_KEY_FILE and BURSAR_SIGNER_KEY both name a key. A private mandate signs with the key ' +
+        'in its file; unset BURSAR_SIGNER_KEY.',
+    );
+  }
+
+  if (env.BURSAR_RELAY_URL !== undefined) {
+    throw new BursarError(
+      'env_invalid',
+      'BURSAR_AGENT_KEY_FILE and BURSAR_RELAY_URL both name a signer. Keep the one that should send this ' +
+        "mandate's transactions and unset the other.",
+    );
+  }
+
+  let text: string;
+  try {
+    text = readFileSync(path, 'utf8');
+  } catch {
+    throw new BursarError('env_invalid', `BURSAR_AGENT_KEY_FILE names ${path}, and it could not be read.`, { path });
+  }
+
+  let handoff: AgentHandoff;
+  try {
+    handoff = readAgentHandoff(text);
+  } catch (error) {
+    // The reader's sentences name the field and never the key, so they are safe to pass on.
+    const reason = error instanceof Error ? error.message : 'It is not a key file.';
+    throw new BursarError('env_invalid', `BURSAR_AGENT_KEY_FILE is not a usable agent key file. ${reason}`, { path });
+  }
+
+  if (handoff.chainId !== chainId) {
+    throw new BursarError(
+      'config_mismatch',
+      `The key file is for a mandate on chain ${handoff.chainId}, and this server is on chain ${chainId}.`,
+      { fileChainId: handoff.chainId, chainId },
+    );
+  }
+
+  if (env.MANDATE_ACCOUNT !== undefined && env.MANDATE_ACCOUNT.toLowerCase() !== handoff.mandate.toLowerCase()) {
+    throw new BursarError(
+      'config_mismatch',
+      `MANDATE_ACCOUNT is ${env.MANDATE_ACCOUNT} and the key file is for mandate ${handoff.mandate}. ` +
+        'Unset MANDATE_ACCOUNT to use the mandate the file names.',
+      { account: env.MANDATE_ACCOUNT, fileMandate: handoff.mandate },
+    );
+  }
+
+  return { handoff };
+}
+
 type Deployed = ReturnType<typeof deployedContracts>;
 type Env = ReturnType<typeof loadEnv<typeof SCHEMA>>;
 
@@ -286,6 +376,8 @@ export function secretsOf(config: McpConfig): readonly string[] {
 
   if (config.relay?.token !== undefined) secrets.push(config.relay.token);
   if (config.signer !== null) secrets.push(config.signer.key);
+  // The same key as the signer's today; listed on its own so a later split cannot drop it.
+  if (config.privateMandate !== null) secrets.push(config.privateMandate.handoff.privateKey);
   if (config.index.apiKey !== undefined) secrets.push(config.index.apiKey);
 
   return secrets;

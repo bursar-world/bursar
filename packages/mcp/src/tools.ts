@@ -5,19 +5,29 @@ import { isAddress, isHex } from 'viem';
 import type { Address, Hex } from 'viem';
 
 import { ToolError, invalidArguments } from './errors.js';
+import type { PrivateMandateGateway } from './private.js';
+import type { JobSpec } from '@bursar/sdk';
 import { refusalForName } from './reasons.js';
 import { isJsonObject, toToolSchema, validate } from './schema.js';
 import type { JsonObjectSchema, ObjectSchema, ScalarSchema } from './schema.js';
 import type { ApprovalInput, JobSpecInput, MandateGateway, ProviderGateway, ResolverGateway } from './types.js';
 
 /** Which role a tool belongs to. A server serves the roles it was configured for and no others. */
-export type ToolRole = 'mandate' | 'resolver' | 'provider';
+export type ToolRole = 'mandate' | 'resolver' | 'provider' | 'private';
+
+/** The roles whose signer is configured apart from their gateway. A private mandate's key comes with it. */
+export type SignedRole = Exclude<ToolRole, 'private'>;
 
 export type ToolContext = {
   /** Null when this server is bound to no mandate, which a resolver-only deployment is. */
   readonly gateway: MandateGateway | null;
   readonly resolver: ResolverGateway | null;
   readonly provider: ProviderGateway | null;
+  /**
+   * A private mandate this server spends from with the agent key in its key file. When it is set
+   * the classic mandate gateway is null: a private mandate has none of the getters those tools read.
+   */
+  readonly private?: PrivateMandateGateway | null;
   /** Removed from every payload on the way out, so a leaked message cannot carry one. */
   readonly secrets: readonly string[];
   /**
@@ -25,7 +35,7 @@ export type ToolContext = {
    * this process signs for the mandate alone, and the resolver and provider tools it cannot send
    * stay off the list instead of being advertised and then refused.
    */
-  readonly canSign: Readonly<Record<ToolRole, boolean>>;
+  readonly canSign: Readonly<Record<SignedRole, boolean>>;
   /**
    * Where a failure the caller only sees as `call_failed` is written in full, for the operator.
    * The server points it at stderr; left out, the detail is dropped.
@@ -474,6 +484,67 @@ export const TOOLS: readonly ToolDefinition[] = [
     inputSchema: settlementIdSchema(),
   },
   {
+    name: 'private_mandate_inspect',
+    role: 'private',
+    writes: false,
+    description:
+      'Read the private mandate this server spends from: its balance, whether it is active, paused, revoked ' +
+      'or ended, how many proven payments it has made, and its terms as the owner wrote them: the cap per ' +
+      'payment, the cap per period and the period, the total budget, which kinds of payment are allowed, ' +
+      'the providers it may pay, and the end date. The terms come from the key file; the chain holds only a ' +
+      'commitment to them. It also reports whether the agent address holds enough ETH for the network fee. ' +
+      'Nothing is spent. Start here.',
+    inputSchema: NO_ARGUMENTS,
+  },
+  {
+    name: 'private_mandate_pay',
+    role: 'private',
+    writes: true,
+    description:
+      'Pay a provider from the private mandate for one job. The server proves that the payment fits the ' +
+      'terms without revealing them, and the mandate locks the amount in escrow for the provider. The ' +
+      'brief is sealed to the provider when it has published a viewing key, so only the provider can read ' +
+      'it. The amount and the provider are public on chain; the terms and the rest of the provider list ' +
+      'are not. A payment the terms do not allow cannot be proven, so it is refused before anything is ' +
+      'sent. Proving takes a few seconds. The reply carries the settlement id and the transaction.',
+    inputSchema: {
+      type: 'object',
+      required: ['provider', 'capability', 'amount', 'task'],
+      properties: {
+        provider: providerProperty,
+        capability: capabilityProperty,
+        amount: amountProperty('amount', `What the job is worth. ${AMOUNT_HELP}`),
+        task: {
+          type: 'string',
+          description: 'What the provider is being paid to do, in words. Committed with the payment.',
+        },
+        input: {
+          type: 'object',
+          description: 'The machine arguments the capability runs on. Leave it out for a job that needs none.',
+          additionalProperties: true,
+        },
+        acceptance: {
+          type: 'array',
+          description: 'What the delivery will be judged against, one line each.',
+          maxItems: 20,
+          items: { type: 'string', description: 'One thing the delivery has to do.' },
+        },
+        spendClass: {
+          type: 'string',
+          description: '"service" for a payment, "hire" for hiring another agent. Defaults to "service".',
+          pattern: '^(?:service|hire)$',
+          patternMessage: 'spendClass must be "service" or "hire"',
+        },
+        deliverWithinSeconds: {
+          type: 'integer',
+          description: 'How long the provider has to deliver before the amount returns. Defaults to six hours.',
+          minimum: 300,
+          maximum: 2_592_000,
+        },
+      },
+    },
+  },
+  {
     name: 'resolver_status',
     role: 'resolver',
     writes: false,
@@ -778,6 +849,7 @@ export type AdvertisedTool = {
 };
 
 function servesRole(context: ToolContext, role: ToolRole): boolean {
+  if (role === 'private') return (context.private ?? null) !== null;
   if (role === 'resolver') return context.resolver !== null;
   if (role === 'provider') return context.provider !== null;
 
@@ -786,13 +858,32 @@ function servesRole(context: ToolContext, role: ToolRole): boolean {
 
 /** What this server offers right now. A tool it cannot carry out is not on the list. */
 export function toolsFor(context: ToolContext): AdvertisedTool[] {
-  return TOOLS.filter((tool) => servesRole(context, tool.role) && (context.canSign[tool.role] || !tool.writes)).map(
+  return TOOLS.filter((tool) => servesRole(context, tool.role) && (canSign(context, tool.role) || !tool.writes)).map(
     (tool) => ({
       name: tool.name,
       description: tool.description,
       inputSchema: toToolSchema(tool.inputSchema),
     }),
   );
+}
+
+/** A private mandate signs with the key in its file, so it can always send what it serves. */
+function canSign(context: ToolContext, role: ToolRole): boolean {
+  return role === 'private' ? servesRole(context, role) : context.canSign[role];
+}
+
+function privateOf(context: ToolContext): PrivateMandateGateway {
+  const gateway = context.private ?? null;
+
+  if (gateway === null) {
+    throw new ToolError(
+      'private_mandate_unconfigured',
+      'This server is not bound to a private mandate. Set BURSAR_AGENT_KEY_FILE to the agent key file the ' +
+        'owner exported, with BURSAR_SIGNER=local, then restart it.',
+    );
+  }
+
+  return gateway;
 }
 
 /**
@@ -890,6 +981,18 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
 
   mandate_get_dispute: (context, args) => mandateOf(context).dispute(readSettlementId(args)),
 
+  private_mandate_inspect: (context) => privateOf(context).inspect(),
+
+  private_mandate_pay: (context, args) =>
+    privateOf(context).pay({
+      payee: readAddress(args, 'provider'),
+      capability: readString(args, 'capability'),
+      amount: readAmount(args, 'amount'),
+      spendClass: args['spendClass'] === 'hire' ? 'hire' : 'service',
+      spec: jobSpecOf(readJobSpec(args)),
+      deliverWithinSeconds: args['deliverWithinSeconds'] === undefined ? 6 * 3600 : readInteger(args, 'deliverWithinSeconds'),
+    }),
+
   resolver_status: (context) => resolverOf(context).status(),
 
   resolver_list_disputes: (context, args) =>
@@ -943,7 +1046,7 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
 };
 
 /** What a tool that needs a signer says when this server has none to send it to. */
-const SIGNER_NEEDED: Readonly<Record<ToolRole, string>> = {
+const SIGNER_NEEDED: Readonly<Record<SignedRole, string>> = {
   mandate: 'the signer that submits transactions for this mandate',
   resolver: 'the signer that holds the resolver address this server votes as',
   provider: 'the signer that holds the provider address this server is listed under',
@@ -959,7 +1062,7 @@ export async function callTool(context: ToolContext, name: string, args: unknown
       throw new ToolError('unknown_tool', `This server does not serve a tool called ${name}.`);
     }
 
-    if (definition.writes && !context.canSign[definition.role]) {
+    if (definition.writes && definition.role !== 'private' && !context.canSign[definition.role]) {
       throw new ToolError(
         'relay_unconfigured',
         `${name} sends a transaction, and this server has no signer for it. Set BURSAR_RELAY_URL to ` +
@@ -1248,6 +1351,10 @@ function readJobSpec(args: Record<string, unknown>): JobSpecInput {
     input: args['input'] === undefined ? null : readObject(args, 'input'),
     acceptance,
   };
+}
+
+function jobSpecOf(job: JobSpecInput): JobSpec {
+  return { task: job.task, acceptance: job.acceptance, ...(job.input === null ? {} : { input: job.input }) };
 }
 
 function readSettlementId(args: Record<string, unknown>): bigint {

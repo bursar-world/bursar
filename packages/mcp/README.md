@@ -44,6 +44,31 @@ principal signed for that provider, capability and amount; without one it is ref
 reaches the chain. And the money is what the principal has already funded the mandate with, so
 there is no credit here.
 
+## What an agent spending a private mandate gets
+
+A private mandate keeps its terms off chain, and its owner and agent sit at fresh addresses that
+nothing public ties to the owner's wallet. The owner exports the agent's key file from the console.
+Point this server at it and the agent spends from that address:
+
+```
+BURSAR_SIGNER=local
+BURSAR_AGENT_KEY_FILE=/path/to/bursar-agent-key-96f085ad.json
+```
+
+| Tool | What it does |
+| --- | --- |
+| `private_mandate_inspect` | The terms as the owner wrote them, the balance, whether the mandate is active, and whether the agent address holds enough ETH for the network fee. |
+| `private_mandate_pay` | Proves that one payment fits the terms and locks it in escrow for the provider. The brief is sealed to the provider when it has published a viewing key. |
+
+The file names its mandate, so `MANDATE_ACCOUNT` can stay unset; a different value is refused, as
+are `BURSAR_SIGNER_KEY` and `BURSAR_RELAY_URL` alongside it. The public mandate tools are not
+offered, because a private mandate does not answer them.
+
+What stays visible: the amount and the provider of each payment, and every transfer that funds the
+mandate or the agent address. Funding from a public wallet links that wallet to the mandate until
+shielded funding is available. The file itself spends from the mandate and reveals its terms, so
+keep it where you would keep a key.
+
 ## What a resolver gets
 
 | Tool | What it does |
@@ -141,6 +166,7 @@ the mandate's writes and leaves the resolver's and the provider's off, because i
 | `BURSAR_SETTLEMENT_ASSET` | no | Defaults to USDG at `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168`, six decimals. |
 | `BURSAR_SIGNER` | for spending in this process | `local` signs here with `BURSAR_SIGNER_KEY`. Anything else, or unset, signs through `BURSAR_RELAY_URL` or not at all. |
 | `BURSAR_SIGNER_KEY` | with `BURSAR_SIGNER=local` | The 32-byte key this server signs the mandate's transactions with. It never leaves the process and is scrubbed from everything it prints. Refused unless `BURSAR_SIGNER=local` says to hold it. |
+| `BURSAR_AGENT_KEY_FILE` | for a private mandate | The agent key file the owner exported. It sets the mandate, the key and the terms. Needs `BURSAR_SIGNER=local`. |
 | `BURSAR_RELAY_URL` | for spending through your own signer | The signer that submits transactions for this mandate, and the only way to sign for a resolver or a provider. |
 | `BURSAR_RELAY_TOKEN` | no | Bearer token for the signer. Scrubbed from everything this server emits. |
 | `BURSAR_RELAY_TIMEOUT_MS` | no | Defaults to 30000. |

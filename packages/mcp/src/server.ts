@@ -1,6 +1,6 @@
 import process from 'node:process';
 
-import { AllProvidersDownError, BursarError, createRhcClient, mandateAccountAbi } from '@bursar/core';
+import { AllProvidersDownError, BursarError, committedMandateAccountAbi, createRhcClient, mandateAccountAbi } from '@bursar/core';
 import type { RpcPoolEvent } from '@bursar/core';
 import { contractSaidNo } from '@bursar/sdk';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -11,6 +11,7 @@ import { loadConfig, secretsOf } from './config.js';
 import type { McpConfig } from './config.js';
 import { createExplorerIndex } from './explorer.js';
 import { createChainGateway } from './gateway.js';
+import { createPrivateGateway } from './private.js';
 import { createProviderGateway } from './provider.js';
 import { createResolverGateway } from './resolver.js';
 import { createHttpRelay } from './relay.js';
@@ -72,7 +73,7 @@ export function createContext(config: McpConfig, options: ContextOptions = {}): 
   // account and never handed to the resolver or provider gateways. Configuration refuses both
   // signers at once, so at most one of these is not null.
   const signer =
-    config.signer === null || config.account === null
+    config.signer === null || config.account === null || config.privateMandate !== null
       ? null
       : createLocalSigner({
           client,
@@ -86,8 +87,9 @@ export function createContext(config: McpConfig, options: ContextOptions = {}): 
   // A role this server was not configured for gets no gateway at all, so its tools are absent from
   // the list instead of present and unusable.
   return {
+    private: config.privateMandate === null ? null : createPrivateGateway({ client, handoff: config.privateMandate.handoff }),
     gateway:
-      config.account === null
+      config.account === null || config.privateMandate !== null
         ? null
         : createChainGateway({
             client,
@@ -158,6 +160,11 @@ export async function checkMandate(config: McpConfig, options: ContextOptions = 
     ...(options.fetchFn === undefined ? {} : { fetchFn: options.fetchFn }),
   });
 
+  if (config.privateMandate !== null) {
+    await checkPrivateMandate(config, client, report);
+    return;
+  }
+
   let escrow: `0x${string}`;
   let asset: `0x${string}`;
 
@@ -208,6 +215,45 @@ export async function checkMandate(config: McpConfig, options: ContextOptions = 
         )
         .join(' '),
       { account, escrow, asset },
+    );
+  }
+}
+
+/**
+ * A private mandate is checked by its agent: the account has to answer as a committed mandate and
+ * name the key file's agent, or the key in this server spends from nothing.
+ */
+async function checkPrivateMandate(
+  config: McpConfig,
+  client: ReturnType<typeof createRhcClient>['client'],
+  report: (line: string) => void,
+): Promise<void> {
+  const handoff = config.privateMandate?.handoff;
+  if (handoff === undefined) return;
+
+  let agent: `0x${string}`;
+  try {
+    agent = await client.readContract({ address: handoff.mandate, abi: committedMandateAccountAbi, functionName: 'agent' });
+  } catch (error) {
+    if (contractSaidNo(error)) {
+      throw new BursarError(
+        'no_mandate_account',
+        `The key file names mandate ${handoff.mandate} on chain ${config.chain.chainId}, and nothing there ` +
+          'answers as a private mandate. Ask the owner for the file again.',
+        { address: handoff.mandate, chainId: config.chain.chainId },
+      );
+    }
+    if (!noEndpointAnswered(error)) throw error;
+    report(`Could not read mandate ${handoff.mandate} at startup, so it is unchecked; the first tool call will check it again.`);
+    return;
+  }
+
+  if (agent.toLowerCase() !== handoff.agent.toLowerCase()) {
+    throw new BursarError(
+      'config_mismatch',
+      `Mandate ${handoff.mandate} is run by agent ${agent}, and the key file holds the key of ${handoff.agent}. ` +
+        'The owner has moved the mandate to another agent; ask for the new key file.',
+      { mandate: handoff.mandate, agent, fileAgent: handoff.agent },
     );
   }
 }
