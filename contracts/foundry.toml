@@ -17,6 +17,10 @@ optimizer = true
 optimizer_runs = 200
 ffi = false
 fs_permissions = [{ access = "read", path = "./test/fixtures" }]
+# Only remappings.txt. Detected remappings depend on which nested submodules a `forge install` pulls
+# in, and every remapping lands in the metadata hash, so a detected one makes CI and a laptop build
+# different bytecode (and move every CREATE2 address a fixture was proven for).
+auto_detect_remappings = false
 
 [fuzz]
 runs = 256
