@@ -40,6 +40,7 @@ import { useWorkspace } from '@/workspace/context';
 import { draftTitle } from '@/workspace/model';
 import type { MandateDraft } from '@/workspace/model';
 import { UnlockForm } from '../../workspace/passphrase';
+import { PrivateCreate, PrivateToggle } from './private-create';
 
 type Created = { readonly address: Address; readonly hash: Hex };
 type Capability = { readonly label: string; readonly id: Hex };
@@ -124,6 +125,7 @@ export function CreateMandateView({ draftId }: { readonly draftId?: string } = {
   // lands, and this screen stays on it until the reader presses on, because a form that swaps
   // itself out on the receipt never paints the confirmation for the deployment just paid for.
   const [opened, setOpened] = useState(false);
+  const [privateMode, setPrivateMode] = useState(false);
 
   // Stopped the moment the account exists. The screen below this point is `OpenTheGates`, which
   // reads the same five states scoped to the new address; leaving this one running would poll the
@@ -220,6 +222,15 @@ export function CreateMandateView({ draftId }: { readonly draftId?: string } = {
     );
   }
 
+  if (privateMode && owner !== undefined) {
+    return (
+      <div className="space-y-8">
+        <PrivateToggle on onChange={setPrivateMode} />
+        <PrivateCreate owner={owner} />
+      </div>
+    );
+  }
+
   if (created && opened) {
     return (
       <OpenTheGates created={created} payees={payees} capabilities={capabilities} />
@@ -228,6 +239,7 @@ export function CreateMandateView({ draftId }: { readonly draftId?: string } = {
 
   return (
     <div className="space-y-8">
+      {created === undefined && <PrivateToggle on={false} onChange={setPrivateMode} disabled={frozen} />}
       <fieldset disabled={frozen} className="min-w-0 space-y-8">
         <Section
           title="Create a mandate"

@@ -1,4 +1,5 @@
 import type { SpendClass } from '@bursar/core';
+import type { TermsDocument } from '@bursar/sdk';
 
 import type { LimitsDraft } from '@/app/(app)/console/limits-form';
 import { EMPTY_DRAFT } from '@/app/(app)/console/limits-form';
@@ -33,6 +34,11 @@ export type MandateDraft = {
   readonly updatedAt: string;
   /** Set once the draft has been deployed from the create screen. */
   readonly activated: { readonly address: string; readonly hash: string; readonly at: string } | null;
+  /**
+   * The terms of a private mandate, salt included. The chain holds only a commitment to them, and
+   * the agent needs this exact document to prove each payment, so the workspace keeps the copy.
+   */
+  readonly privateTerms?: TermsDocument;
 };
 
 export type Workspace = {

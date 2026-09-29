@@ -2,8 +2,7 @@ import { getAddress } from 'viem';
 import type { ReactNode } from 'react';
 
 import { readsAsAddress } from '@/lib/path';
-import { MandateChrome } from './mandate-chrome';
-import { MandateScopeProvider } from './mandate-scope';
+import { MandateSwitch } from './mandate-switch';
 import { UnreadableAddress } from './unreadable-address';
 
 export default async function MandateLayout({
@@ -23,9 +22,5 @@ export default async function MandateLayout({
   // the status by this point, on the same rule.
   if (!readsAsAddress(mandate)) return <UnreadableAddress typed={mandate} />;
 
-  return (
-    <MandateScopeProvider address={getAddress(mandate)}>
-      <MandateChrome>{children}</MandateChrome>
-    </MandateScopeProvider>
-  );
+  return <MandateSwitch address={getAddress(mandate)}>{children}</MandateSwitch>;
 }

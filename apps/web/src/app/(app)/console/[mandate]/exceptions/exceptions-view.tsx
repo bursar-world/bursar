@@ -24,6 +24,7 @@ import { refusalOf, weaker } from '../../lib/reading';
 import { transferGates } from '../../lib/write-gates';
 import { useMandateScope } from '../mandate-scope';
 import { useWriteContract } from '@/wallet/write';
+import { ShareWithResolver } from '../../lib/share-with-resolver';
 
 /**
  * Everything that did not go through, with the reason attached.
@@ -228,6 +229,13 @@ export function ExceptionsView() {
                           })
                         }
                         onContinue={refresh}
+                      />
+                    ) : isOwner && lock.status === LockStatus.Disputed ? (
+                      <ShareWithResolver
+                        escrow={account?.escrow ?? ADDRESSES.escrow}
+                        lockId={lock.id}
+                        inputURI={lock.inputURI}
+                        payee={lock.payee}
                       />
                     ) : null,
                 },
