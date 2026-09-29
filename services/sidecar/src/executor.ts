@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 import { classCapabilityId, classOfLabel } from '@bursar/core';
 import type { SpendClass } from '@bursar/core';
+import { SealOpenError, isSealedURI, openSealedURI } from '@bursar/sdk';
 import type { Hex } from 'viem';
 
 import { canonicalStringify, capabilityId, commitCanonical } from './commit.js';
@@ -73,6 +74,11 @@ export type ExecutorOptions = FetchPolicy & {
   readonly maxInlineOutputBytes: number;
   /** Where an output too large to inline can be fetched. Unset means the commitment travels alone. */
   readonly outputBaseUrl: string | undefined;
+  /**
+   * Opens inputs sealed to this payee's viewing key (`data:application/vnd.bursar.sealed`).
+   * Absent means a sealed input is refused.
+   */
+  readonly viewingKey?: Hex | undefined;
 };
 
 const DATA_URI_PREFIX = 'data:application/json;base64,';
@@ -145,6 +151,8 @@ async function readInput(job: LockJob, options: ExecutorOptions, signal: AbortSi
  * metadata proxy. An operator who fetches inputs from this machine lists it.
  */
 async function readInputURI(uri: string, options: ExecutorOptions, signal: AbortSignal | undefined): Promise<string> {
+  if (isSealedURI(uri)) return openSealedInput(uri, options);
+
   if (uri.slice(0, DATA_URI_PREFIX.length).toLowerCase() === DATA_URI_PREFIX) {
     return decodeDataURI(uri.slice(DATA_URI_PREFIX.length), options.maxBodyBytes);
   }
@@ -170,6 +178,28 @@ async function readInputURI(uri: string, options: ExecutorOptions, signal: Abort
   }
 
   return fetchJson(url.toString(), { method: 'GET', permanent: permanentFromPayer, signal }, options);
+}
+
+/**
+ * A sealed input is opened in memory and then held to the same commitment as a plain one. Neither
+ * failure can be retried into success: the box was sealed to a key this sidecar does not hold, or
+ * it was altered, so the lock is left to its own timeout.
+ */
+async function openSealedInput(uri: string, options: ExecutorOptions): Promise<string> {
+  if (uri.length > options.maxBodyBytes * 2) {
+    throw new Rejection(`sealed input exceeds ${options.maxBodyBytes} bytes`);
+  }
+  if (options.viewingKey === undefined) {
+    throw new Rejection('input is sealed to a viewing key and this sidecar has none; set SIDECAR_VIEWING_KEY');
+  }
+  try {
+    return await openSealedURI(options.viewingKey, uri);
+  } catch (error) {
+    if (error instanceof SealOpenError) {
+      throw new Rejection('sealed input does not open with this payee viewing key');
+    }
+    throw new Rejection('sealed input is malformed');
+  }
 }
 
 /**

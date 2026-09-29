@@ -17,6 +17,7 @@ import { createLogger } from './log.js';
 import type { Logger } from './log.js';
 import { reportStartupFailure } from './refusal.js';
 import { createSigner } from './signer.js';
+import { payeeViewingKey } from './viewing.js';
 import { claimState, createFileStateStore } from './state.js';
 import type { StateStore } from './state.js';
 import { createWatcher } from './watcher.js';
@@ -24,7 +25,12 @@ import { createWatcher } from './watcher.js';
 /** Room past one confirmation window for the loop to notice, persist and return. */
 const SHUTDOWN_GRACE_MS = 5_000;
 
-async function start(config: SidecarConfig, payeeKey: `0x${string}`, logger: Logger): Promise<void> {
+async function start(
+  config: SidecarConfig,
+  payeeKey: `0x${string}`,
+  viewingKey: `0x${string}` | undefined,
+  logger: Logger,
+): Promise<void> {
   const routes = await readRoutes(config.capabilitiesPath);
 
   const shutdown = new AbortController();
@@ -79,6 +85,7 @@ async function start(config: SidecarConfig, payeeKey: `0x${string}`, logger: Log
 
     // One signer, and so one nonce manager, for every escrow: they all sign from the payee key.
     const signer = createSigner({ key: payeeKey, chain: config.chain, pool });
+    const openingKey = viewingKey ?? (await payeeViewingKey(signer.wallet.account)).privateKey;
     const gas = gasMonitor(config, client, signer.address, logger);
 
     await reportUnscoped(config, logger);
@@ -92,6 +99,7 @@ async function start(config: SidecarConfig, payeeKey: `0x${string}`, logger: Log
           routes,
           logger,
           lost: () => claimLost,
+          viewingKey: openingKey,
           // The gas floor is one balance, so one watcher checks it.
           gas: index === 0 ? gas : undefined,
           holder: claims[index]?.holder ?? 'unknown',
@@ -131,6 +139,7 @@ type Claim = Awaited<ReturnType<typeof claimState>>;
 type Shared = {
   readonly client: ReturnType<typeof createRhcClient>['client'];
   readonly signer: ReturnType<typeof createSigner>;
+  readonly viewingKey: `0x${string}`;
   readonly routes: Awaited<ReturnType<typeof readRoutes>>;
   readonly logger: Logger;
   readonly lost: () => boolean;
@@ -207,6 +216,7 @@ async function startEscrow(config: SidecarConfig, watch: EscrowWatch, shared: Sh
           fetch: globalThis.fetch,
           fetchTimeoutMs: config.fetchTimeoutMs,
           maxBodyBytes: config.maxBodyBytes,
+          viewingKey: shared.viewingKey,
           ...outputPolicy,
           writeOutput,
         },
@@ -327,8 +337,8 @@ function reportRpc(logger: Logger, event: RpcPoolEvent): void {
 const logger = createLogger();
 
 try {
-  const { config, payeeKey } = loadConfig(process.env);
-  await start(config, payeeKey, logger);
+  const { config, payeeKey, viewingKey } = loadConfig(process.env);
+  await start(config, payeeKey, viewingKey, logger);
 } catch (error) {
   reportStartupFailure(logger, error);
   process.exitCode = 1;

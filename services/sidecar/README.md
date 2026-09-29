@@ -121,6 +121,7 @@ with no capabilities file and it names the path it looked in and the example to 
 | `MIN_GAS_WEI` | unset | Warn below this fee budget, in wei of ETH. |
 | `GAS_CHECK_MS` | `300000` | How often the fee budget is read. |
 | `SIDECAR_EVIDENCE_URL` | unset | Where signed delivery evidence goes when a delivered lock is disputed. For Bursar's resolvers, `https://app.bursar.world/api/evidence`. |
+| `SIDECAR_VIEWING_KEY` | derived | Opens job inputs sealed to this payee (`data:application/vnd.bursar.sealed`). Unset derives it from the payee key's signature over the viewing-key message; `scripts/publish-viewing-key.ts` prints the ERC-6538 meta-address and the `registerKeys` calldata that publishes the matching public key. A sealed input with no key, or one sealed to another key, is refused. |
 
 Amounts are six-decimal micro-USD atomic units: `250000` is 0.25 USDG.
 

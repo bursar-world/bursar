@@ -59,6 +59,8 @@ export type PolicyEvidence = {
   readonly override: Override | null;
   /** The payer or the payee is an address the operator controls. */
   readonly operatorParty: boolean;
+  /** Disclosure grants that did not open or did not check out. Carried into the reasons. */
+  readonly disclosureNotes?: readonly string[];
 };
 
 export type Ruling = {
@@ -92,7 +94,7 @@ export function rule(evidence: PolicyEvidence, policyVersion: string = POLICY_VE
     return ruled('P0', null, ['The lock is not held in dispute at the snapshot block, so there is nothing for the registry to rule on.']);
   }
 
-  const notes: string[] = [];
+  const notes: string[] = [...(evidence.disclosureNotes ?? [])];
   if (evidence.override !== null) {
     if (!evidence.operatorParty) {
       return ruled('P6', evidence.override.score, [`Operator override: ${evidence.override.reason}`]);

@@ -77,6 +77,12 @@ export type SidecarConfig = {
 export type LoadedConfig = {
   readonly config: SidecarConfig;
   readonly payeeKey: Hex;
+  /**
+   * Opens job inputs sealed to this payee's ERC-6538 viewing key. Unset means the key is derived
+   * from the payee key's signature over the viewing-key message, which is what a payee that
+   * published its meta-address with `scripts/publish-viewing-key.ts` holds.
+   */
+  readonly viewingKey: Hex | undefined;
 };
 
 const SCHEMA = {
@@ -96,6 +102,9 @@ const SCHEMA = {
 
   /** The provider's own key. Signs releases, nothing else, and never a payer's authorisation. */
   PAYEE_PRIVATE_KEY: envVar.string({ pattern: HEX32, secret: true }),
+
+  /** The viewing private key sealed job inputs are opened with. Defaults to one derived from the payee key. */
+  SIDECAR_VIEWING_KEY: optional(envVar.string({ pattern: HEX32, secret: true })),
 
   /** Where the capability implementations are served. */
   API_BASE: envVar.url(),
@@ -211,6 +220,7 @@ export function loadConfig(source: EnvSource = process.env): LoadedConfig {
   return {
     // Checked against the 32-byte hex pattern by the schema above, which is what makes `Hex` true.
     payeeKey: env.PAYEE_PRIVATE_KEY as Hex,
+    viewingKey: env.SIDECAR_VIEWING_KEY as Hex | undefined,
     config: {
       chain,
       providers,

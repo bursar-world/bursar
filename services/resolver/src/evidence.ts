@@ -249,6 +249,11 @@ export async function checkDelivery(args: {
   readonly inputDocument: unknown;
   readonly fetcher: Fetcher;
   readonly validators: Validators;
+  /**
+   * Outputs a disclosure grant revealed, keyed by commitment. One that hashes to the commitment
+   * the payee signed is the output, whether or not its URI is public.
+   */
+  readonly disclosedOutputs?: ReadonlyMap<string, unknown>;
 }): Promise<DeliveryCheck> {
   const { submission, lock } = args;
   const hash = evidenceHash(submission);
@@ -256,7 +261,11 @@ export async function checkDelivery(args: {
   const inputMatches = submission.evidence.inputCommit.toLowerCase() === lock.inputCommit.toLowerCase();
 
   const fetched = await args.fetcher(submission.evidence.outputURI);
-  const outcome = outputCheck(fetched, submission.evidence.outputCommit);
+  let outcome = outputCheck(fetched, submission.evidence.outputCommit);
+  const disclosed = args.disclosedOutputs?.get(submission.evidence.outputCommit.toLowerCase());
+  if (outcome.check.kind !== 'verified' && disclosed !== undefined) {
+    outcome = { check: { kind: 'verified', wellFormed: nonEmpty(disclosed) }, output: disclosed };
+  }
 
   let validator: ValidatorVerdict = 'none';
   const validate = args.validators.get(lock.capabilityId.toLowerCase());

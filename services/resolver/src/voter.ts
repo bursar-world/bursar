@@ -3,10 +3,12 @@ import type { Address, Hex } from 'viem';
 
 import type { Alerter, AlertLevel } from './alert.js';
 import { DisputeStatus, LockStatus, ResolverStatus, WriteFailed } from './chain.js';
-import type { ChainPort, DisputeState, Head, Pricing, RegistryTerms, TxOutcome } from './chain.js';
+import type { ChainPort, DisputeState, Head, LockState, Pricing, RegistryTerms, TxOutcome } from './chain.js';
 import type { Served } from './config.js';
 import { checkDelivery, isOperatorParty, takeSnapshot } from './evidence.js';
 import type { Fetcher, Validators } from './evidence.js';
+import { NO_DISCLOSURES, readDisclosures } from './disclosure.js';
+import type { DisclosureReading, DisclosureSource, ViewingKeyring } from './disclosure.js';
 import type { DisputeRecord, Journal, Stage, StoredVote } from './journal.js';
 import type { ResolverKey } from './keys.js';
 import { describeError } from './log.js';
@@ -27,6 +29,13 @@ export type VoterOptions = {
   readonly fetcher: Fetcher;
   readonly validators: Validators;
   readonly operatorAddresses: readonly Address[] | null;
+  /** Scoped disclosure grants to this service's keys. Absent means none are read. */
+  readonly disclosures?: {
+    readonly source: DisclosureSource;
+    readonly keyring: ViewingKeyring;
+    /** How far before the snapshot block to look for grants. */
+    readonly lookback: bigint;
+  };
 };
 
 export type Voter = {
@@ -163,7 +172,7 @@ export function createVoter(options: VoterOptions): Voter {
         },
       }))) ?? record;
 
-    const provisional = rule(await evidenceAt(next, head.timestamp));
+    const provisional = rule(await evidenceAt(next, head.timestamp, head.number));
     await once(served, next, 'observed', 'INFO', 'dispute_observed', `Dispute ${record.disputeId} is open. Provisional ruling ${provisional.ruleId}.`, {
       escrowId: record.escrowId,
       amount: taken.lock.amount,
@@ -175,18 +184,65 @@ export function createVoter(options: VoterOptions): Voter {
     return next;
   }
 
-  async function evidenceAt(record: DisputeRecord, cutoff: bigint): Promise<PolicyEvidence & { hashes: Hex[]; transient: boolean }> {
+  async function disclosed(record: DisputeRecord, lock: LockState, snapshotBlock: bigint, headBlock: bigint): Promise<DisclosureReading> {
+    const reader = options.disclosures;
+    if (reader === undefined) return NO_DISCLOSURES;
+    try {
+      const reading = await readDisclosures({
+        source: reader.source,
+        keyring: reader.keyring,
+        escrow: record.escrow,
+        escrowId: record.escrowId,
+        lock,
+        fromBlock: snapshotBlock > reader.lookback ? snapshotBlock - reader.lookback : 0n,
+        toBlock: headBlock,
+      });
+      if (reading.opened > 0 || reading.notes.length > 0) {
+        logger.info('disclosures_read', {
+          disputeId: record.disputeId,
+          opened: reading.opened,
+          input: reading.input !== null,
+          outputs: reading.outputs.size,
+          problems: reading.notes.length,
+        });
+      }
+      return reading;
+    } catch (error) {
+      logger.warn('disclosures_unread', { disputeId: record.disputeId, reason: describeError(error) });
+      return NO_DISCLOSURES;
+    }
+  }
+
+  async function evidenceAt(
+    record: DisputeRecord,
+    cutoff: bigint,
+    headBlock: bigint,
+  ): Promise<PolicyEvidence & { hashes: Hex[]; transient: boolean }> {
     const shot = record.snapshot;
     if (shot === null) throw new Error('A ruling needs a snapshot first.');
 
-    const inputDocument = inputs.get(`${record.registry}:${record.disputeId}`) ?? null;
+    const disclosure = await disclosed(record, shot.lock, shot.block, headBlock);
+    let input = shot.input;
+    let inputDocument: unknown = inputs.get(`${record.registry}:${record.disputeId}`) ?? null;
+    // An input sealed to the payee cannot be read from its URI; a checked grant supplies it.
+    if (input.kind !== 'verified' && disclosure.input !== null) {
+      input = { kind: 'verified' };
+      inputDocument = disclosure.input.document;
+    }
     const counted = record.submissions.filter((entry) => entry.wire.kind === 'delivery' && entry.receivedAt <= cutoff);
     const deliveries: DeliveryCheck[] = [];
     for (const entry of counted) {
       const submission = parseEvidence(entry.wire);
       if (submission.kind !== 'delivery') continue;
       deliveries.push(
-        await checkDelivery({ submission, lock: shot.lock, inputDocument, fetcher: options.fetcher, validators: options.validators }),
+        await checkDelivery({
+          submission,
+          lock: shot.lock,
+          inputDocument,
+          fetcher: options.fetcher,
+          validators: options.validators,
+          disclosedOutputs: disclosure.outputs,
+        }),
       );
     }
 
@@ -194,10 +250,11 @@ export function createVoter(options: VoterOptions): Voter {
 
     return {
       heldInDispute: shot.heldInDispute,
-      input: shot.input,
+      input,
       deliveries,
       override: override === undefined ? null : { score: override.score, reason: override.reason },
       operatorParty: shot.operatorParty,
+      disclosureNotes: disclosure.notes,
       hashes: deliveries.map((delivery) => delivery.hash as Hex),
       // A host that did not answer at the cutoff may answer a minute later. The ruling waits for
       // the commit time before it treats an unfetchable output as the payee's failure.
@@ -208,7 +265,7 @@ export function createVoter(options: VoterOptions): Voter {
   async function decide(served: Served, record: DisputeRecord, tl: Timeline, head: Head): Promise<DisputeRecord> {
     if (record.ruling !== null || head.timestamp < tl.evidenceCutoff || record.snapshot === null) return record;
 
-    const evidence = await evidenceAt(record, tl.evidenceCutoff);
+    const evidence = await evidenceAt(record, tl.evidenceCutoff, head.number);
     if (evidence.transient && head.timestamp < tl.commitAt) return record;
 
     const ruling = rule(evidence);

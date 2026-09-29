@@ -71,6 +71,7 @@ The service has no public address. The console forwards `https://app.bursar.worl
 | `RESOLVER_HTTP_PORT` | `10000` | |
 | `RESOLVER_JOURNAL_PATH` | `./resolver-journal.json` | File journal. |
 | `RESOLVER_DATABASE_URL` | unset | Postgres journal instead of the file. |
+| `RESOLVER_VIEWING_KEY` | derived | Opens disclosure grants (escrow `DisclosureGranted` and the DisclosureRegistry) addressed to this service's keys. Unset derives each key's viewing key from its signature over the viewing-key message. A grant's input and output are used only when they hash to the lock's commitments; grants that do not open or do not check out are listed in the ruling's reasons. |
 | `RESOLVER_OPERATOR_TOKEN` | unset | At least 32 characters. Unset turns overrides off. |
 | `RESOLVER_OPERATOR_ADDRESSES` | unset | Every address the operator controls as payer or payee. Unset also turns overrides off. |
 | `RESOLVER_POLL_MS` | `30000` | |

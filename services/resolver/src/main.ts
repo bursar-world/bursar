@@ -1,10 +1,13 @@
 #!/usr/bin/env node
-import { BursarError } from '@bursar/core';
+import { BursarError, privacyDeployment } from '@bursar/core';
 import type { RpcPoolEvent } from '@bursar/core';
 import { isAddressEqual } from 'viem';
+import type { Hex } from 'viem';
 
 import { createAlerter } from './alert.js';
 import { ResolverStatus, createChain } from './chain.js';
+import { createDisclosureSource, viewingKeyring } from './disclosure.js';
+import type { LogReader } from './disclosure.js';
 import type { ChainPort } from './chain.js';
 import { loadConfig } from './config.js';
 import type { ResolverConfig } from './config.js';
@@ -20,17 +23,23 @@ import { reportStartupFailure } from './refusal.js';
 import { createVoter } from './voter.js';
 import { createWatcher } from './watcher.js';
 
+/**
+ * Grants can only be written once the lock is disputed, and the snapshot is taken when this
+ * service first sees the dispute. This covers a watcher that came up late after the dispute opened.
+ */
+const DISCLOSURE_LOOKBACK_BLOCKS = 200_000n;
+
 /** Room for one write already on the wire to be confirmed before the process goes. */
 const SHUTDOWN_GRACE_MS = 5_000;
 
-async function start(config: ResolverConfig, source: KeySource, logger: Logger): Promise<void> {
+async function start(config: ResolverConfig, source: KeySource, viewingKey: Hex | undefined, logger: Logger): Promise<void> {
   const keys = loadKeys(source);
   const alerts = createAlerter({ webhook: config.alertWebhook, logger });
   if (config.alertWebhook === undefined) {
     logger.warn('alerts_log_only', { action: 'BURSAR_ALERT_WEBHOOK is unset, so a CRITICAL page reaches nobody but this log' });
   }
 
-  const { port: chain } = createChain({
+  const { port: chain, client } = createChain({
     chain: config.chain,
     providers: config.providers,
     writeUrls: config.writeUrls,
@@ -52,6 +61,11 @@ async function start(config: ResolverConfig, source: KeySource, logger: Logger):
     fetcher: createFetcher({ timeoutMs: config.fetchTimeoutMs }),
     validators: NO_VALIDATORS,
     operatorAddresses: config.operatorAddresses,
+    disclosures: {
+      source: createDisclosureSource(client as unknown as LogReader, privacyDeployment(config.chain.chainId)?.DisclosureRegistry),
+      keyring: await viewingKeyring(keys, viewingKey),
+      lookback: DISCLOSURE_LOOKBACK_BLOCKS,
+    },
   });
   const watcher = createWatcher({
     chain,
@@ -182,8 +196,8 @@ function reportRpc(logger: Logger, event: RpcPoolEvent): void {
 const logger = createLogger();
 
 try {
-  const { config, keys } = loadConfig(process.env);
-  await start(config, keys, logger);
+  const { config, keys, viewingKey } = loadConfig(process.env);
+  await start(config, keys, viewingKey, logger);
 } catch (error) {
   reportStartupFailure(logger, error);
   process.exitCode = 1;

@@ -67,6 +67,11 @@ export type ResolverConfig = {
 export type LoadedConfig = {
   readonly config: ResolverConfig;
   readonly keys: KeySource;
+  /**
+   * Opens disclosure grants for every resolver key. Unset means each key's viewing key is derived
+   * from its signature over the viewing-key message, which is the key it publishes through ERC-6538.
+   */
+  readonly viewingKey: Hex | undefined;
 };
 
 const DEFAULT_KEY_ORDER = 'resolver-1,resolver-2,resolver-3';
@@ -95,6 +100,8 @@ const SCHEMA = {
 
   RESOLVER_DATABASE_URL: optional(envVar.url({ protocols: ['postgres:', 'postgresql:'] })),
   RESOLVER_JOURNAL_PATH: withDefault(envVar.string(), './resolver-journal.json'),
+
+  RESOLVER_VIEWING_KEY: optional(envVar.string({ pattern: /^0x[0-9a-fA-F]{64}$/, secret: true })),
 
   RESOLVER_OPERATOR_TOKEN: optional(envVar.string({ minLength: 32, secret: true })),
   RESOLVER_OPERATOR_ADDRESSES: optional(envVar.list()),
@@ -139,6 +146,7 @@ export function loadConfig(source: EnvSource = process.env): LoadedConfig {
 
   return {
     keys,
+    viewingKey: env.RESOLVER_VIEWING_KEY as Hex | undefined,
     config: {
       chain,
       providers,
