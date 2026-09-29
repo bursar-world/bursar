@@ -7,6 +7,7 @@ import type { Address } from 'viem';
 import { Button } from '@/components/button';
 import { AmountInput } from '@/components/amount-input';
 import { Card, Section } from '@/components/layout';
+import { usd } from '@/money';
 import { ChecksList, StatusRow } from '@/components/status';
 import { AddressInput, readAddress } from '@/components/address-input';
 import { readUsdgAmount } from '../lib/amount';
@@ -126,6 +127,8 @@ export function ProposedPayment() {
             )}
           </div>
 
+          {asked && <Verdict />}
+
           {asked && (
             <div className="rounded-md border border-[color:var(--color-line)] px-4">
               <StatusRow state={system.permission} onRetry={system.refresh}>
@@ -137,5 +140,41 @@ export function ProposedPayment() {
         </form>
       </Card>
     </Section>
+  );
+}
+
+/**
+ * The answer in one line, over the rows that explain it. The rows name each condition on its own;
+ * this says what they add up to for the payment on the screen, funds included, since the contract's
+ * preview checks the limits and not the balance.
+ */
+function Verdict() {
+  const { system, proposed } = useMandateScope();
+  const amount = proposed.amount;
+  const held = system.funding.facts.mandateBalance;
+  const levels = [system.permission.level, system.mandate.level];
+  if (levels.includes('unknown')) return null;
+
+  const short = amount !== undefined && held !== undefined && held < amount;
+  const blocked = levels.includes('blocked');
+  const waits = !blocked && system.mandate.level === 'attention' && /signature|approv/i.test(system.mandate.headline);
+  const subject = amount === undefined ? 'A payment like this' : `A payment of ${usd(amount)}`;
+
+  const line = blocked
+    ? `${subject} would be refused. The reason is below.`
+    : waits
+      ? `${subject} would wait for your approval before it settles.`
+      : `${subject} would go through within the limits.`;
+
+  return (
+    <div className="space-y-1" role="status">
+      <p className="text-sm font-medium">{line}</p>
+      {short && !blocked && (
+        <p className="text-detail text-[color:var(--color-state-attention)]">
+          The mandate holds {usd(held!)}, less than this payment, so it would fail on funds unless the account can draw the
+          difference in the same transaction.
+        </p>
+      )}
+    </div>
   );
 }
