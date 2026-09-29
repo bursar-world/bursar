@@ -1,0 +1,55 @@
+{
+  "name": "@bursar/relayer",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bursar-world/bursar.git",
+    "directory": "services/relayer"
+  },
+  "homepage": "https://github.com/bursar-world/bursar/tree/main/services/relayer#readme",
+  "bugs": {
+    "url": "https://github.com/bursar-world/bursar/issues"
+  },
+  "description": "Submits shielded-pool withdrawals for their owners through ShieldedRelay, so the payout transaction and a stealth recipient's first gas come from the relayer.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "bursar-relayer": "./bin/bursar-relayer.mjs"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "start": "node dist/main.js run",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@bursar/core": "workspace:*",
+    "@bursar/sdk": "workspace:*",
+    "viem": "^2.56.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

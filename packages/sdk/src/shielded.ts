@@ -885,8 +885,8 @@ export type RelayRequest = {
 export type RelayResult = { readonly transactionHash: Hex; readonly gasDropWei: string };
 
 async function json<T>(response: Response): Promise<T> {
-  const body = (await response.json().catch(() => ({}))) as { error?: string };
-  if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
+  const body = (await response.json().catch(() => ({}))) as { error?: string; detail?: string };
+  if (!response.ok) throw new Error(body.detail ?? body.error ?? `HTTP ${response.status}`);
   return body as T;
 }
 
@@ -906,4 +906,44 @@ export async function submitRelay(relayerUrl: string, request: RelayRequest): Pr
 
 export async function fetchAssociationSet(aspUrl: string): Promise<AssociationSet & { cid: string }> {
   return json(await fetch(new URL('/v1/association-set', aspUrl)));
+}
+
+// ---------------------------------------------------------------------------------------------
+// A shielded balance handed to an agent
+// ---------------------------------------------------------------------------------------------
+
+export const SHIELDED_KEYS_KIND = 'bursar-shielded-keys';
+
+export type ShieldedKeyFile = {
+  readonly kind: typeof SHIELDED_KEYS_KIND;
+  readonly version: 1;
+  readonly chainId: number;
+  readonly pool: Address;
+  readonly masterNullifier: string;
+  readonly masterSecret: string;
+};
+
+/**
+ * Fresh random note keys for a float of its own. Deposit into the pool with them from the owner's
+ * wallet (`depositSecrets(keys, scope, i)`), then hand the agent the file: it can spend exactly
+ * those deposits, and only the depositing wallet can ragequit them.
+ */
+export function randomShieldedKeys(): ShieldedKeys {
+  const field = () => {
+    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(48));
+    return poseidon1([BigInt(bytesToHex(bytes)) % SNARK_SCALAR_FIELD]);
+  };
+  return { masterNullifier: field(), masterSecret: field() };
+}
+
+/** The file `@bursar/mcp` reads from BURSAR_SHIELDED_KEY_FILE. Whoever holds it can spend the balance. */
+export function shieldedKeyFile(keys: ShieldedKeys, pool: Address, chainId: number): ShieldedKeyFile {
+  return {
+    kind: SHIELDED_KEYS_KIND,
+    version: 1,
+    chainId,
+    pool: getAddress(pool),
+    masterNullifier: keys.masterNullifier.toString(),
+    masterSecret: keys.masterSecret.toString(),
+  };
 }
