@@ -273,3 +273,13 @@ describe('a reading that did not land is never a clear one', () => {
     expect(wrong.headline).toBe('An endpoint is serving a different chain.');
   });
 });
+
+describe('approvalSentence', () => {
+  it('never prints an unreachable threshold', async () => {
+    const { approvalSentence } = await import('@/state/evaluate');
+    const max = (1n << 128n) - 1n;
+    expect(approvalSentence(20_000n as never, max as never)).toBe("No payment needs the principal's signature.");
+    expect(approvalSentence(20_000n as never, 20_000n as never)).toBe('At or above $0.02 the principal signs it personally.');
+    expect(approvalSentence(20_000n as never, 0n as never)).toBe('The principal signs every payment personally.');
+  });
+});

@@ -217,7 +217,7 @@ export function evaluateMandate(snapshot: ChainSnapshot | undefined, checkedAt: 
       id: 'per-call',
       label: 'Per payment',
       level: 'ok',
-      detail: `Up to ${usd(account.limits.perCallCap)} in one payment. At or above ${usd(account.limits.approvalThreshold)} the principal signs it personally.`,
+      detail: `Up to ${usd(account.limits.perCallCap)} in one payment. ${approvalSentence(account.limits.perCallCap, account.limits.approvalThreshold)}`,
     },
     windowCheck('daily', 'This period', account.remaining.daily, account.daily.cap, account.remaining.dailyResetsAt, now),
     ...(secondCap
@@ -275,7 +275,7 @@ export function evaluateMandate(snapshot: ChainSnapshot | undefined, checkedAt: 
     return report('mandate', 'Mandate', 'attention', `${usd(account.remaining.daily)} left this period.`, `That is under a tenth of the ${usd(account.daily.cap)} period cap. The period rolls ${formatRelative(account.remaining.dailyResetsAt, now)}.`, { label: 'Raise the period cap', owner: 'principal', kind: 'transaction' }, checks, facts, checkedAt, stale);
   }
 
-  return report('mandate', 'Mandate', 'ok', headroom, `Up to ${usd(account.limits.perCallCap)} in one payment, and the principal signs anything at or above ${usd(account.limits.approvalThreshold)} personally.`, null, checks, facts, checkedAt, stale);
+  return report('mandate', 'Mandate', 'ok', headroom, `Up to ${usd(account.limits.perCallCap)} in one payment. ${approvalSentence(account.limits.perCallCap, account.limits.approvalThreshold)}`, null, checks, facts, checkedAt, stale);
 }
 
 export function evaluatePermission(snapshot: ChainSnapshot | undefined, checkedAt: Date | null, stale: boolean): PermissionState {
@@ -633,4 +633,14 @@ function report<K extends StateKey, F>(
   stale: boolean,
 ): StateReport<K, F> {
   return { key, label, level, headline, detail, nextAction, checks, facts, checkedAt, stale };
+}
+
+/**
+ * Who signs what, in one sentence. A threshold above the per-payment cap can never be reached, and
+ * the contract's "no approval" setting is the largest number it can hold, so neither is printed.
+ */
+export function approvalSentence(perCallCap: Micro, threshold: Micro): string {
+  if (threshold === 0n) return 'The principal signs every payment personally.';
+  if (threshold > perCallCap) return 'No payment needs the principal\'s signature.';
+  return `At or above ${usd(threshold)} the principal signs it personally.`;
 }
