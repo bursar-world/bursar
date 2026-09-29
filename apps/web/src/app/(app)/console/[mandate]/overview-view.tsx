@@ -8,6 +8,7 @@ import { ErrorSurface } from '@/components/error-surface';
 import { Instant } from '@/components/instant';
 import { StatusList } from '@/components/status';
 import { ActivityList } from './activity-list';
+import { CollateralPanel } from './collateral-panel';
 import { ControlPanel } from './control-panel';
 import { FundingPanel } from './funding-panel';
 import { GatesPanel } from './gates-panel';
@@ -44,6 +45,7 @@ export function OverviewView() {
       <FundingPanel />
       <StockPanel />
       <ParkPanel />
+      <CollateralPanel />
       <GatesPanel />
       <ControlPanel />
 

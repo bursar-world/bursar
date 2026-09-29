@@ -255,6 +255,21 @@ export default function DocsPage() {
         </Card>
       </Section>
 
+      <Section title="Collateral lane" description="Borrowing against posted stock and treasury tokens.">
+        <Card>
+          <p className="max-w-3xl text-sm">
+            A mandate created in the collateral lane can post eligible stock and treasury tokens and borrow USDG against them, within
+            the credit limits the haircut page reads from chain. When a payment needs more USDG than the mandate holds, it borrows the difference in the same transaction.
+            Prefunded mandates cannot borrow.
+          </p>
+          <p className="mt-3 text-sm">
+            <Link href="/docs/haircuts" className="underline underline-offset-2">
+              See the haircut tiers and liquidation terms
+            </Link>
+          </p>
+        </Card>
+      </Section>
+
       <Section title="What a call costs" description={`Gas measured on real transactions, priced at what ${RHC.name} has been charging.`}>
         <Card>
           <FieldGrid columns={3}>
