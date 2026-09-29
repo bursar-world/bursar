@@ -156,8 +156,8 @@ function Verdict() {
   if (levels.includes('unknown')) return null;
 
   const short = amount !== undefined && held !== undefined && held < amount;
-  const blocked = levels.includes('blocked');
-  const waits = !blocked && system.mandate.level === 'attention' && /signature|approv/i.test(system.mandate.headline);
+  const waits = system.permission.level !== 'blocked' && /signature|approv/i.test(system.mandate.headline);
+  const blocked = !waits && levels.includes('blocked');
   const subject = amount === undefined ? 'A payment like this' : `A payment of ${usd(amount)}`;
 
   const line = blocked
