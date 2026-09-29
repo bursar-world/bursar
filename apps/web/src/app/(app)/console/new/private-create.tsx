@@ -6,7 +6,6 @@ import { parseEventLogs } from 'viem';
 import type { Address, Hex, TransactionReceipt } from 'viem';
 import { useSignMessage } from 'wagmi';
 import { committedMandateFactoryAbi } from '@bursar/core';
-import { commit, createArgs, deriveViewingKey, sealTerms, viewingKeyMessage, writeTerms } from '@bursar/sdk';
 import type { TermsDocument } from '@bursar/sdk';
 
 import { randomSalt } from '@/chain/mandates';
@@ -78,6 +77,8 @@ export function PrivateCreate({ owner }: { readonly owner: Address }) {
 
   const send = async (): Promise<Hex> => {
     if (!reading.terms || !agent) throw new Error('Fill in the agent and the terms first.');
+    // The commitment code carries the Poseidon constants, so it loads only when a private mandate is sent.
+    const { commit, createArgs, deriveViewingKey, sealTerms, viewingKeyMessage, writeTerms } = await import('@bursar/sdk');
     const signature = await signMessageAsync({ message: viewingKeyMessage(owner) });
     const key = deriveViewingKey(signature);
     const terms = writeTerms({ ...reading.terms, ...(name.trim() ? { label: name.trim() } : {}) });

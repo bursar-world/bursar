@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import type { Address, Hex } from 'viem';
 import { disclosureRegistryAbi } from '@bursar/core';
-import { disclosureSlice, isSealedURI, publishedViewingKey, readJobURI } from '@bursar/sdk';
+import { isSealedURI, readJobURI } from '@bursar/sdk';
 import type { TermsDocument } from '@bursar/sdk';
 
 import { rhcClient } from '@/chain/client';
@@ -65,6 +65,8 @@ export function ShareWithResolver({
   const send = async (): Promise<Hex> => {
     if (!resolver) throw new Error('Enter the resolver address.');
     setProblem(undefined);
+    // The disclosure code carries the Poseidon constants, so it loads only when a slice is shared.
+    const { disclosureSlice, publishedViewingKey } = await import('@bursar/sdk');
     const key = await publishedViewingKey(rhcClient(), resolver);
     if (key === null) {
       const message = 'This resolver has not published a viewing key, so there is no way to seal the slice to it. Ask it to register one.';
