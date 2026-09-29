@@ -37,7 +37,8 @@
     "test:watch": "vitest",
     "start": "node dist/main.js",
     "migrate": "node dist/db/cli.js",
-    "migrate:dry-run": "node dist/db/cli.js --dry-run"
+    "migrate:dry-run": "node dist/db/cli.js --dry-run",
+    "keeper": "node dist/collateral/keeper-main.js"
   },
   "dependencies": {
     "@bursar/core": "workspace:*",
