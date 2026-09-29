@@ -15,6 +15,7 @@ import { createPrivateGateway } from './private.js';
 import { createProviderGateway } from './provider.js';
 import { createResolverGateway } from './resolver.js';
 import { createShieldedGateway } from './shielded.js';
+import { createCollateralGateway } from './collateral.js';
 import { createHttpRelay } from './relay.js';
 import { createLocalSigner } from './signer.js';
 import { callTool, redactSecrets, toolsFor } from './tools.js';
@@ -99,6 +100,15 @@ export function createContext(config: McpConfig, options: ContextOptions = {}): 
             keys: config.shielded.keys,
             relayerUrl: config.shielded.relayerUrl,
             aspUrl: config.shielded.aspUrl,
+          }),
+    collateral:
+      config.account === null || config.privateMandate !== null
+        ? null
+        : createCollateralGateway({
+            client,
+            chain: config.chain,
+            account: config.account,
+            key: signer === null || config.signer === null ? null : config.signer.key,
           }),
     gateway:
       config.account === null || config.privateMandate !== null

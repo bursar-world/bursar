@@ -1,6 +1,8 @@
 import {
   agentRegistryAbi,
   assetRegistryAbi,
+  collateralVaultAbi,
+  creditPoolAbi,
   mandateAccountAbi,
   oracleRegistryAbi,
   priceGuardAbi,
@@ -734,6 +736,53 @@ const RWA_REFUSALS: Readonly<Record<string, Omit<Refusal, 'code'>>> = {
   },
 };
 
+/**
+ * What the collateral vault and the credit pool refuse a draw, deposit or repayment for. A spend on
+ * credit borrows inside the mandate's own `spend`, so these reach the pay and hire tools too.
+ */
+const COLLATERAL_REFUSALS: Readonly<Record<string, Omit<Refusal, 'code'>>> = {
+  HealthTooLow: {
+    subject: 'mandate',
+    message:
+      'This would leave the collateral health under the lane minimum of 1.25. Post more collateral, repay ' +
+      'some debt, or spend less. After hours and on stale prices the collateral counts for less.',
+  },
+  NotCollateralLane: {
+    subject: 'mandate',
+    message:
+      'This mandate is not in the collateral lane, so it cannot borrow. Prefunded mandates spend only what ' +
+      'they hold.',
+  },
+  NoLine: {
+    subject: 'mandate',
+    message: 'This mandate has no collateral line open. The principal opens one before collateral can be posted.',
+  },
+  NotFactoryAccount: {
+    subject: 'mandate',
+    message: 'Only a mandate created by this deployment\'s factory can open a collateral line.',
+  },
+  NotCollateral: {
+    subject: 'asset',
+    message: 'This token is not accepted as collateral. The published haircut tiers list the tokens that are.',
+  },
+  MandateCapExceeded: {
+    subject: 'limits',
+    message: 'This draw would take the mandate past its credit limit (10 USDG at launch). Repay first or spend less.',
+  },
+  TotalCapExceeded: {
+    subject: 'limits',
+    message: 'The collateral lane has reached its total credit limit. Repay or wait until other debt is repaid.',
+  },
+  InsufficientCash: {
+    subject: 'amount',
+    message: 'The credit pool does not hold enough USDG to lend this amount right now.',
+  },
+  NoDebt: { subject: 'amount', message: 'This mandate owes nothing, so there is nothing to repay.' },
+  Healthy: { subject: 'mandate', message: 'This position is at or above 1.0 health, so it cannot be liquidated.' },
+  PositionEmpty: { subject: 'asset', message: 'The mandate holds none of this asset as collateral.' },
+  NothingToSell: { subject: 'asset', message: 'Nothing needs to be sold to restore this position.' },
+};
+
 const TABLES: Readonly<Record<RefusalScope, Readonly<Record<string, Omit<Refusal, 'code'>>>>> = {
   mandate: REFUSALS,
   resolver: RESOLVER_REFUSALS,
@@ -742,6 +791,7 @@ const TABLES: Readonly<Record<RefusalScope, Readonly<Record<string, Omit<Refusal
 
 /** The same table by name, so a name from outside this package cannot index it out of range. */
 const BY_NAME: ReadonlyMap<string, Omit<Refusal, 'code'>> = new Map([
+  ...Object.entries(COLLATERAL_REFUSALS),
   ...Object.entries(RWA_REFUSALS),
   ...Object.entries(REFUSALS),
 ]);
@@ -752,6 +802,13 @@ const BY_NAME: ReadonlyMap<string, Omit<Refusal, 'code'>> = new Map([
  * enforces at compile time.
  */
 const BY_SELECTOR: ReadonlyMap<Hex, Refusal> = new Map([
+  ...[...collateralVaultAbi, ...creditPoolAbi]
+    .filter((item) => item.type === 'error' && COLLATERAL_REFUSALS[item.name] !== undefined)
+    .map((item) => {
+      const error = item as { name: string; inputs: readonly { type: string }[] };
+      const signature = `${error.name}(${error.inputs.map((input) => input.type).join(',')})`;
+      return [toFunctionSelector(signature), { code: error.name, ...COLLATERAL_REFUSALS[error.name]! }] as const;
+    }),
   ...[...assetRegistryAbi, ...priceGuardAbi, ...stockSpendRouterAbi]
     .filter((item) => item.type === 'error' && RWA_REFUSALS[item.name] !== undefined)
     .map((item) => {
