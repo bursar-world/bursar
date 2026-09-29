@@ -9,7 +9,6 @@ import {
   healthRatio,
   mandateAccountAbi,
   rwaDeployment,
-  settlementAssetAbi,
 } from '@bursar/core';
 import type { CollateralDeployment, Micro, RwaDeployment } from '@bursar/core';
 
@@ -355,7 +354,7 @@ export class CollateralClient {
   }
 
   async #approve(token: Address, spender: Address, amount: bigint): Promise<Sent | undefined> {
-    const signer = this.mandate.connection.walletClient?.account?.address;
+    const signer = this.mandate.connection.account?.address;
     if (signer !== undefined) {
       const allowance = await this.#client.readContract({
         address: token,
@@ -368,7 +367,7 @@ export class CollateralClient {
     return sendCall(this.mandate.connection, {
       to: token,
       data: encodeFunctionData({
-        abi: token === this.mandate.connection.deployment.settlementAsset ? settlementAssetAbi : erc20Abi,
+        abi: erc20Abi,
         functionName: 'approve',
         args: [spender, amount],
       }),

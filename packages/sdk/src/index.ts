@@ -27,6 +27,20 @@ export type {
 
 export { RwaClient, RwaUnavailableError, UnknownAssetError, rwa } from './rwa.js';
 export type { BuyReceipt, FeedPrice, Holding, ParkedPosition, RwaAsset } from './rwa.js';
+export {
+  CollateralClient,
+  CollateralUnavailableError,
+  NoDebtError,
+  NotCollateralLaneError,
+  collateral,
+} from './collateral.js';
+export type {
+  CollateralAccount,
+  CollateralAsset,
+  CollateralPosition,
+  CollateralTiers,
+  HaircutTier,
+} from './collateral.js';
 
 export { EscrowClient, escrow } from './escrow.js';
 export type { EscrowTerms, ReleaseArgs } from './escrow.js';

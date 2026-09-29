@@ -55,6 +55,7 @@ import { random32 } from './random.js';
 import { logsFrom } from './receipt.js';
 import { decodeRevertData, returnedNoData, type RevertInfo } from './revert.js';
 import { rwa, type BuyReceipt } from './rwa.js';
+import { collateral, type CollateralClient } from './collateral.js';
 import { sendCall, type ExplainRevert, type Sent } from './send.js';
 import { payRequest, type FetchTarget, type PaidResponse, type PaymentLane } from './x402/fetch.js';
 import {
@@ -1049,6 +1050,11 @@ export class MandateAccountClient {
    */
   async buy(asset: string, usd: Micro): Promise<BuyReceipt> {
     return rwa(this).buy(asset, usd);
+  }
+
+  /** The collateral lane for this mandate: posted collateral, credit, health and repayment. */
+  collateral(): CollateralClient {
+    return collateral(this);
   }
 
   async setPaused(paused: boolean): Promise<Sent> {
