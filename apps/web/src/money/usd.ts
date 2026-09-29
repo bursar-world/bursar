@@ -7,7 +7,20 @@ import type { Micro } from '@bursar/core';
  * suffixed the same way.
  */
 export function usd(value: Micro): string {
-  return formatMicro(value, { minDecimals: 2, maxDecimals: 2, grouped: true, symbol: true });
+  return formatMicro(toCents(value), { minDecimals: 2, maxDecimals: 2, grouped: true, symbol: true });
+}
+
+const CENT = 10_000n;
+
+/**
+ * The nearest cent, half away from zero. Cutting the digits instead shows 0.079952 as $0.07 and
+ * 0.0099 paid to a provider as $0.00, which reads as nothing arrived.
+ */
+export function toCents(value: Micro): Micro {
+  const negative = value < 0n;
+  const magnitude = negative ? -value : value;
+  const rounded = ((magnitude + CENT / 2n) / CENT) * CENT;
+  return (negative ? -rounded : rounded) as Micro;
 }
 
 /** Full six-decimal precision, for a fee or a gas figure where the last digits carry meaning. */

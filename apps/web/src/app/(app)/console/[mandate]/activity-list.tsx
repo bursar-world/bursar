@@ -5,7 +5,7 @@ import type { Hex } from 'viem';
 import { shortAddress } from '@/chain/rhc';
 import { TxHash } from '@/components/address';
 import { Instant } from '@/components/instant';
-import { usd } from '@/money';
+import { tokenAmountText, usd } from '@/money';
 import { useCapabilityLabels } from '../lib/capability-labels';
 import type { MandateEvent } from '../lib/activity';
 import { refusalOf } from '../lib/reading';
@@ -84,7 +84,13 @@ function describe(event: MandateEvent, labelFor: (id: Hex) => string | undefined
     case 'deposited':
       return `${usd(event.amount)} added by ${shortAddress(event.from)}`;
     case 'withdrawn':
-      return `${usd(event.amount)} taken out to ${shortAddress(event.to)}`;
+      return `${tokenAmountText(event.amount, event.token)} taken out to ${shortAddress(event.to)}`;
+    case 'bought':
+      return `Bought ${tokenAmountText(event.amountOut, event.asset)} for ${usd(event.usdgIn)}`;
+    case 'router-updated':
+      return event.router === ZERO ? 'Stock purchases switched off' : `Stock purchases routed through ${shortAddress(event.router)}`;
+    case 'park-updated':
+      return event.park === ZERO ? 'Parking switched off' : `Idle funds now park at ${shortAddress(event.park)}`;
     case 'limits-updated':
       return `Limits rewritten, now version ${event.version.toString()}`;
     case 'paused':
@@ -107,6 +113,8 @@ function describe(event: MandateEvent, labelFor: (id: Hex) => string | undefined
       return `Ownership moved to ${shortAddress(event.to)}`;
   }
 }
+
+const ZERO = '0x0000000000000000000000000000000000000000';
 
 function capability(id: Hex, labelFor: (id: Hex) => string | undefined): string {
   return labelFor(id) ?? shortAddress(id, 10, 6);

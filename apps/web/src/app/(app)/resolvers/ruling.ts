@@ -46,6 +46,7 @@ export function readRulingBody(status: number, body: unknown): RulingReading {
   if (status !== 200 || typeof body !== 'object' || body === null) return { kind: 'unavailable' };
 
   const record = body as Record<string, unknown>;
+  if (record['status'] === 'none') return { kind: 'none' };
   if (record['status'] === 'sealed') {
     const from = typeof record['revealsFrom'] === 'string' ? new Date(record['revealsFrom']) : null;
     return { kind: 'sealed', revealsFrom: from !== null && Number.isFinite(from.getTime()) ? from : null };

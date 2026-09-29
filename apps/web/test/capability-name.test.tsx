@@ -20,6 +20,7 @@ describe('publishedCapability', () => {
   it('answers a hash it can produce from a name', () => {
     expect(publishedCapability(SUMMARIZE)).toBe('doc.summarize:1');
     expect(publishedCapability(toCapabilityId(PUBLISHED_CAPABILITIES.render))).toBe('gpu.render:1');
+    expect(publishedCapability(toCapabilityId('service:demo.x402:1'))).toBe('service:demo.x402:1');
   });
 
   it('answers the same hash written in either case', () => {

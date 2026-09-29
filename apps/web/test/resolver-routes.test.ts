@@ -5,6 +5,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { POST } from '@/app/api/evidence/route';
 import { GET as health } from '@/app/api/rulings/health/route';
 import { GET } from '@/app/api/rulings/route';
+import { readRulingBody } from '@/app/(app)/resolvers/ruling';
 
 /**
  * The console's public face for the ruling service, which has no public address of its own. The
@@ -42,9 +43,12 @@ describe('rulings route', () => {
     expect(await response.json()).toEqual({ status: 'sealed', disputeId: '4' });
   });
 
-  it('passes a 404 through as a 404', async () => {
+  it('answers a dispute with no published ruling as none, not as a failed request', async () => {
     upstream(404, { error: 'unknown' });
-    expect((await GET(new Request('https://app.example/api/rulings?dispute=9'))).status).toBe(404);
+    const response = await GET(new Request('https://app.example/api/rulings?dispute=1&registry=0x0000000000000000000000000000000000000001'));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: 'none' });
+    expect(readRulingBody(200, { status: 'none' })).toEqual({ kind: 'none' });
   });
 
   it('refuses an id that is not one, without asking anyone', async () => {

@@ -21,5 +21,9 @@ export async function GET(request: Request): Promise<Response> {
     return json({ error: 'registry_invalid', detail: 'registry is a 20-byte hex address.' }, 400);
   }
 
-  return forward(`/rulings/${dispute}${registry === null ? '' : `?registry=${registry}`}`);
+  const answer = await forward(`/rulings/${dispute}${registry === null ? '' : `?registry=${registry}`}`);
+  // No ruling published for this dispute is an answer, not a failed request. Passed through as a
+  // 404 it lands in every reader's console as an error on each load of a desk with an old dispute.
+  if (answer.status === 404) return json({ status: 'none' }, 200);
+  return answer;
 }

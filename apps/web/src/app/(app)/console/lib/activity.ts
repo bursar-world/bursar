@@ -30,7 +30,10 @@ export type MandateEvent = EventBase &
     | { readonly kind: 'approval-revoked'; readonly approvalId: Hex }
     | { readonly kind: 'approval-consumed'; readonly approvalId: Hex; readonly escrowId: bigint }
     | { readonly kind: 'deposited'; readonly from: Address; readonly amount: Micro }
-    | { readonly kind: 'withdrawn'; readonly token: Address; readonly to: Address; readonly amount: Micro }
+    | { readonly kind: 'withdrawn'; readonly token: Address; readonly to: Address; readonly amount: bigint }
+    | { readonly kind: 'bought'; readonly asset: Address; readonly usdgIn: Micro; readonly amountOut: bigint }
+    | { readonly kind: 'router-updated'; readonly router: Address }
+    | { readonly kind: 'park-updated'; readonly park: Address }
     | { readonly kind: 'limits-updated'; readonly version: bigint }
     | { readonly kind: 'paused'; readonly paused: boolean }
     | { readonly kind: 'agent-seated'; readonly agent: Address }
@@ -110,7 +113,16 @@ export function decodeMandateEvents(logs: readonly IndexedLog[]): readonly Manda
         events.push({ ...base, kind: 'deposited', from: address(args.from), amount: amount(args.amount) });
         break;
       case 'Withdrawn':
-        events.push({ ...base, kind: 'withdrawn', token: address(args.token), to: address(args.to), amount: amount(args.amount) });
+        events.push({ ...base, kind: 'withdrawn', token: address(args.token), to: address(args.to), amount: big(args.amount) });
+        break;
+      case 'Bought':
+        events.push({ ...base, kind: 'bought', asset: address(args.asset), usdgIn: amount(args.usdgIn), amountOut: big(args.amountOut) });
+        break;
+      case 'RouterUpdated':
+        events.push({ ...base, kind: 'router-updated', router: address(args.router) });
+        break;
+      case 'TreasuryParkUpdated':
+        events.push({ ...base, kind: 'park-updated', park: address(args.treasuryPark) });
         break;
       case 'LimitsUpdated':
         events.push({ ...base, kind: 'limits-updated', version: big(args.version) });

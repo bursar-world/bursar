@@ -99,7 +99,7 @@ export function ResolverView() {
         </Unread>
       )}
 
-      <Operator />
+      <Operator commitWindow={desk?.config?.commitWindow} />
 
       <Headline desk={desk} account={account !== undefined} />
 
@@ -131,7 +131,9 @@ export function ResolverView() {
  * Who the panel is, said before anything else a reader could weigh a ruling by. Every bonded
  * resolver on this registry is Bursar's, which makes Bursar the arbiter of every dispute here.
  */
-function Operator() {
+function Operator({ commitWindow }: { readonly commitWindow: bigint | undefined }) {
+  // The ruling service stops counting evidence halfway through the sealing window.
+  const cutoff = commitWindow === undefined ? 'halfway through the sealing window' : `${formatDuration(Number(commitWindow) / 2)} after the dispute opens`;
   return (
     <Card title="Who rules today">
       <div className="max-w-3xl space-y-3 text-sm">
@@ -141,7 +143,7 @@ function Operator() {
           the dispute once the votes are revealed.
         </p>
         <p>
-          A provider who delivered can send signed evidence from its desk until three hours after the dispute opens. Bursar never
+          A provider who delivered can send signed evidence from its desk until {cutoff}. Bursar never
           overrides a dispute in which it is the payer or the provider.
         </p>
         <p>

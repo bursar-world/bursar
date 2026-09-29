@@ -8,7 +8,8 @@ import type { Address, Hex } from 'viem';
 import { ADDRESSES } from '@/chain/rhc';
 import { approvedCapabilities, decodeLockEvents, decodeMandateEvents } from './activity';
 import type { LockEvents, MandateEvent } from './activity';
-import { indexedLogs, indexedRevert, indexedTransactions, resetIndexBackoff } from './explorer';
+import { historyLogs } from './chain-logs';
+import { indexedRevert, indexedTransactions, resetIndexBackoff } from './explorer';
 import type { IndexedTransaction } from './explorer';
 import { readLedgerState } from './reads';
 import type { ApprovalState, GateEntry, LockRecord } from './reads';
@@ -65,16 +66,15 @@ export type MandateLedger = {
 /**
  * The account's history, and the current truth behind it.
  *
- * Two sources. The timeline comes from the network's index, read through this app's own route,
- * because the chain caps a log query and produces a block faster than once a second, so nothing in
- * a browser can scan for it.
+ * Two sources. The timeline comes from the chain's own log endpoint, falling back to the network's
+ * index through this app's route when the endpoint will not answer the span.
  * What the money is doing now comes from the contracts, in one batched request, because an index
  * is a copy and a copy is the wrong thing to answer "can this be spent" with.
  */
 export function useMandateLedger(mandate: Address | undefined, owner?: Address, escrow?: Address): MandateLedger {
   const timeline = useQuery({
     queryKey: ['console', 'timeline', mandate ?? 'none'],
-    queryFn: async () => decodeMandateEvents(await indexedLogs(mandate as Address)),
+    queryFn: async ({ signal }) => decodeMandateEvents(await historyLogs(mandate as Address, signal)),
     enabled: mandate !== undefined,
     refetchInterval: INDEX_REFETCH_MS,
   });
@@ -85,7 +85,7 @@ export function useMandateLedger(mandate: Address | undefined, owner?: Address, 
   const lockEscrow = escrow ?? ADDRESSES.escrow;
   const escrowLog = useQuery({
     queryKey: ['console', 'escrow-log', lockEscrow.toLowerCase()],
-    queryFn: async () => decodeLockEvents(await indexedLogs(lockEscrow)),
+    queryFn: async ({ signal }) => decodeLockEvents(await historyLogs(lockEscrow, signal)),
     enabled: escrow !== undefined,
     refetchInterval: INDEX_REFETCH_MS,
   });

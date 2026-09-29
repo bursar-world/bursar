@@ -24,6 +24,11 @@ export type { SpendClass, SpendClassInfo };
 export const PUBLISHED_CAPABILITIES = {
   summarize: 'doc.summarize:1',
   render: 'gpu.render:1',
+  x402Demo: 'demo.x402:1',
+  researchSummarize: 'research.summarize:1',
+  review: 'review:1',
+  searchWeb: 'search.web:1',
+  quote: 'quote.get:1',
 } as const;
 
 /** Every published name, bare and under each class it can be spent in. */

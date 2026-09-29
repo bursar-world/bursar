@@ -74,7 +74,7 @@ export function EvidenceForm({ lock }: { readonly lock: ProviderLock }) {
           The payer disputed this job before it was paid, so no output reached the chain. Signed evidence lets the resolvers check the
           delivery.{' '}
           {cutoff === null ? (
-            'It counts if it arrives within three hours of the dispute opening.'
+            'It counts if it arrives within the first half of the resolvers’ sealing window.'
           ) : (
             <>
               It counts if it arrives before <Instant at={cutoff} />.
@@ -183,7 +183,7 @@ export function readDraft(outputText: string, uriText: string): Draft {
   return { evidence: { outputCommit, outputURI: uri }, outputProblem: undefined, uriProblem: undefined };
 }
 
-/** Half the sealing window after the dispute opened, which is three hours today. */
+/** Half the sealing window after the dispute opened: 30 minutes on the current registry, three hours on v1. */
 function cutoffOf(lock: ProviderLock): Date | null {
   const opened = lock.dispute?.openedAt;
   const sealing = lock.dispute?.commitEndsAt;
