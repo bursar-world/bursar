@@ -50,6 +50,8 @@ export function PrivateOwnersView() {
       <p className="max-w-3xl text-detail text-[color:var(--color-muted)]">
         Mandates whose owner and agent are stealth addresses drawn from your wallet’s keys. Nobody else can list them.
       </p>
+      <p className="max-w-3xl text-detail text-[color:var(--color-muted)]">{STEALTH_LIMIT_LINE}</p>
+      {shieldedContracts() && <p className="max-w-3xl text-detail text-[color:var(--color-muted)]">{SHIELDED_TIMING_LINE}</p>}
     </div>
   );
 
@@ -107,8 +109,6 @@ export function PrivateOwnersView() {
                 </Button>
               )}
             </div>
-            <p className="text-detail text-[color:var(--color-muted)]">{STEALTH_LIMIT_LINE}</p>
-            {shieldedContracts() && <p className="text-detail text-[color:var(--color-muted)]">{SHIELDED_TIMING_LINE}</p>}
             {problem && (
               <p className="text-detail" style={{ color: 'var(--color-state-blocked)' }}>
                 {problem}

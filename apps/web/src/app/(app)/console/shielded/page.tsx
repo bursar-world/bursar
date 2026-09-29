@@ -5,7 +5,7 @@ import { ShieldedView } from './shielded-view';
 
 export const metadata: Metadata = {
   title: 'Shielded funds · BURSAR',
-  description: 'Fund mandates, hidden owners and providers from a USDG pool, with no on-chain link back to your wallet.',
+  description: 'Fund mandates, hidden owners and providers from a shared USDG pool instead of straight from your wallet.',
 };
 
 export default function ShieldedPage() {

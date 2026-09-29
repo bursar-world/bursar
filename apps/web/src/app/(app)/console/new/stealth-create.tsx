@@ -50,8 +50,8 @@ export function StealthToggle({ on, onChange, disabled = false }: { readonly on:
       <span>
         <span className="font-medium">Hide the owner and the agent.</span>
         <span className="block text-[color:var(--color-muted)]">
-          The mandate is owned by a new address drawn from your wallet’s keys, and the agent gets one too. Nobody reading the
-          chain can tell they belong to you. Your console finds them again from one signature.
+          The mandate is owned by a new address drawn from your wallet’s keys, and the agent gets one too. Neither address names
+          your wallet, and your console finds them again from one signature. How you fund them decides what can still be linked.
         </span>
         <span className="block text-[color:var(--color-muted)]">{STEALTH_LIMIT_LINE}</span>
       </span>

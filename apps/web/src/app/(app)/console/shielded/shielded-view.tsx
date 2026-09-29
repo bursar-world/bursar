@@ -40,6 +40,7 @@ import { Button } from '@/components/button';
 import { Card, EmptyState, Field, FieldGrid, Section } from '@/components/layout';
 import { Stat, StatGrid } from '@/components/stat';
 import { TxButton } from '@/components/tx-button';
+import { SHIELDED_TIMING_LINE } from '@/chain/stealth';
 import { useWalletAccount } from '@/wallet/account';
 import { ConnectButton } from '@/wallet/connect-button';
 import { useWriteContract } from '@/wallet/write';
@@ -74,8 +75,6 @@ const erc20 = [
   },
 ] as const;
 
-const TIMING_LINE =
-  'A deposit and a withdrawal that land close together, in the same amount, can still be matched by anyone watching the pool. Leave time between them and withdraw a different amount than you put in.';
 
 type Unlocked = { readonly keys: ShieldedKeys };
 
@@ -98,8 +97,11 @@ export function ShieldedView() {
       </Link>
       <h1 className="page-title">Shielded funds</h1>
       <p className="max-w-3xl text-detail text-[color:var(--color-muted)]">
-        Put USDG into a shared pool from this wallet, then fund mandates, hidden owners and providers out of it. What leaves the pool
-        carries no on-chain link back to the wallet that put it in.
+        Put USDG into a shared pool from this wallet, then fund mandates, hidden owners and providers out of it. A payout is sent by
+        the pool, so it does not name the wallet that deposited.
+      </p>
+      <p className="max-w-3xl text-detail" style={{ color: 'var(--color-state-attention)' }}>
+        {SHIELDED_TIMING_LINE}
       </p>
     </div>
   );
@@ -351,7 +353,7 @@ function NoteList({
   const setReady = setMatchesChain(set, reading.latestRoot);
 
   return (
-    <Section title={open.length === 1 ? 'One deposit to spend from' : `${open.length} deposits to spend from`} description={TIMING_LINE}>
+    <Section title={open.length === 1 ? 'One deposit to spend from' : `${open.length} deposits to spend from`} description="Each deposit this wallet made, and what it still holds.">
       {open.length === 0 ? (
         <Card>
           <EmptyState title="Nothing in the pool belongs to this wallet yet.">Deposit above, then come back to spend from it.</EmptyState>
