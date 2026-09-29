@@ -1,12 +1,13 @@
 'use client';
 
-import { micro, mulBps } from '@bursar/core';
+import { deploymentsForChain, micro, mulBps } from '@bursar/core';
 import type { Micro } from '@bursar/core';
 import { useMemo, useState } from 'react';
 import { isAddress } from 'viem';
 import type { Address as EvmAddress } from 'viem';
 
-import { ADDRESSES, RHC } from '@/chain';
+import { ADDRESSES, CHAIN_ID, RHC, TOKEN_ADDRESSES } from '@/chain';
+import { deployment } from '@/chain/rhc';
 import { Address } from '@/components/address';
 import { LevelDot } from '@/components/badge';
 import { Button } from '@/components/button';
@@ -21,17 +22,115 @@ import { bps, formatEth, usd } from '@/money';
 import { DEPLOY_FEE, DEPLOY_GAS, ROUND_TRIP_FEE, ROUND_TRIP_GAS, useSystemState } from '@/state';
 
 type ContractRow = { readonly name: string; readonly address: EvmAddress; readonly role: string };
+type ContractGroup = { readonly title: string; readonly note?: string; readonly rows: readonly ContractRow[] };
 
-const CONTRACTS: readonly ContractRow[] = [
-  { name: 'Mandate accounts', address: ADDRESSES.mandateAccountFactory, role: 'Creates an account at an address the owner can compute first.' },
-  { name: 'Escrow', address: ADDRESSES.escrow, role: 'Holds a payment until the provider delivers or the deadline passes.' },
-  { name: 'Provider registry', address: ADDRESSES.agentRegistry, role: 'Who may be paid, and the stake behind them.' },
-  { name: 'Reputation', address: ADDRESSES.reputation, role: 'Settled work raises how much one job may carry.' },
-  { name: 'Disputes', address: ADDRESSES.oracleRegistry, role: 'Bonded resolvers rule on a contested delivery.' },
-  { name: 'Governance delay', address: ADDRESSES.adminTimelock, role: 'Parameter changes wait out a fixed delay before they take effect.' },
-  { name: 'USDG', address: ADDRESSES.usdg, role: 'The asset payments settle in. Transaction fees are paid in ETH, which is a different asset.' },
-  { name: 'Fee account', address: ADDRESSES.treasury, role: 'Receives the settlement fee the escrow collects.' },
-];
+/**
+ * Every contract a user can touch, from the deployment records, so a contract added to a record is
+ * listed here without anyone remembering to add it.
+ */
+export function contractGroups(): readonly ContractGroup[] {
+  const current = deployment();
+  const rwa = current.rwa;
+  const privacy = current.privacy;
+  const shielded = privacy?.shielded;
+  const collateral = rwa?.collateral;
+  const older = deploymentsForChain(CHAIN_ID).filter((d) => d.network !== current.network);
+
+  const groups: ContractGroup[] = [
+    {
+      title: 'Payments',
+      rows: [
+        { name: 'Mandate accounts', address: ADDRESSES.mandateAccountFactory, role: 'Creates an account at an address the owner can compute first.' },
+        ...(rwa?.MandateAccountFactoryV21
+          ? [{ name: 'Mandate accounts with treasury and collateral lanes', address: rwa.MandateAccountFactoryV21, role: 'Creates accounts that can draw parked or borrowed USDG inside a payment.' }]
+          : []),
+        { name: 'Escrow', address: ADDRESSES.escrow, role: 'Holds a payment until the provider delivers or the deadline passes.' },
+        { name: 'Provider registry', address: ADDRESSES.agentRegistry, role: 'Who may be paid, and the stake behind them.' },
+        { name: 'Reputation', address: ADDRESSES.reputation, role: 'Settled work raises how much one job may carry.' },
+        { name: 'Disputes', address: ADDRESSES.oracleRegistry, role: 'Bonded resolvers rule on a contested delivery.' },
+        { name: 'Governance delay', address: ADDRESSES.adminTimelock, role: 'Changes to the payment, dispute and credit contracts wait out a fixed delay.' },
+        { name: 'USDG', address: ADDRESSES.usdg, role: 'The asset payments settle in. Transaction fees are paid in ETH, which is a different asset.' },
+        { name: 'Fee account', address: ADDRESSES.treasury, role: 'Receives the settlement fee the escrow collects.' },
+      ],
+    },
+  ];
+
+  if (rwa) {
+    groups.push({
+      title: 'Stocks and treasury funds',
+      rows: [
+        { name: 'Asset registry', address: rwa.AssetRegistry, role: 'Which stock and treasury tokens a mandate may hold, and their price feeds.' },
+        { name: 'Price guard', address: rwa.PriceGuard, role: 'Refuses a trade on a stale, paused or out-of-band price.' },
+        { name: 'Stock purchases', address: rwa.StockSpendRouter, role: 'Buys an eligible stock token from a mandate within its slippage limit.' },
+        { name: 'Treasury parking', address: rwa.TreasuryPark, role: 'Holds the idle part of a budget in a treasury fund and unparks it for payments.' },
+        ...rwa.assets.map((asset) => ({ name: asset.symbol, address: asset.address, role: `${asset.kind === 'treasury' ? 'Treasury fund' : 'Stock'} token.` })),
+      ],
+    });
+  }
+
+  if (collateral) {
+    groups.push({
+      title: 'Collateralized lane',
+      rows: [
+        { name: 'Collateral vault', address: collateral.CollateralVault, role: 'Holds posted stock and treasury tokens and checks health before a draw.' },
+        { name: 'Credit pool', address: collateral.CreditPool, role: 'Lends USDG against posted collateral. Bad debt is written off here.' },
+      ],
+    });
+  }
+
+  if (privacy) {
+    groups.push({
+      title: 'Private mandates',
+      rows: [
+        { name: 'Private mandate accounts', address: privacy.CommittedMandateFactory, role: 'Creates mandates whose terms are committed on chain and readable only with the owner’s key.' },
+        ...(privacy.CommittedMandateFactoryV1Escrow
+          ? [{ name: 'Private mandate accounts, first escrow', address: privacy.CommittedMandateFactoryV1Escrow, role: 'Creates private mandates that settle through the first escrow.' }]
+          : []),
+        { name: 'Payment proof verifier', address: privacy.WithinMandateVerifier, role: 'Checks that a private payment stays inside its committed terms.' },
+        { name: 'Disclosure registry', address: privacy.DisclosureRegistry, role: 'Records what an owner has chosen to show a resolver.' },
+        { name: 'Solvency log', address: privacy.SolvencyLog, role: 'Publishes proofs that private mandates hold what they owe.' },
+      ],
+    });
+  }
+
+  if (shielded) {
+    groups.push({
+      title: 'Shielded pool',
+      rows: [
+        { name: 'Shielded pool entry', address: shielded.Entrypoint, role: 'Takes deposits into the pool and approves withdrawals.' },
+        { name: 'Shielded pool', address: shielded.ShieldedPool, role: 'Holds deposited USDG.' },
+        { name: 'Shielded relay', address: shielded.ShieldedRelay, role: 'Pays a withdrawal to a mandate or a provider.' },
+      ],
+    });
+  }
+
+  groups.push({
+    title: 'Token',
+    rows: [
+      { name: 'BRSR', address: TOKEN_ADDRESSES.BRSR, role: 'The token resolvers bond and stakers hold.' },
+      { name: 'Staking', address: TOKEN_ADDRESSES.Staking, role: 'Holds staked BRSR and pays out the buyback and the collateralized lane’s spread.' },
+      { name: 'Vesting', address: TOKEN_ADDRESSES.Vesting, role: 'Holds the team grant for its term.' },
+      { name: 'Buyback', address: TOKEN_ADDRESSES.Buyback, role: 'Turns fee revenue into BRSR for the staking pool.' },
+    ],
+  });
+
+  for (const d of older) {
+    groups.push({
+      title: 'Earlier payment contracts',
+      note: 'Still live for the payments, locks and disputes opened against them. New mandates use the contracts above.',
+      rows: [
+        { name: 'Mandate accounts', address: d.contracts.MandateAccountFactory, role: 'Created the first mandates, which still hold funds and history.' },
+        { name: 'Escrow', address: d.contracts.Escrow, role: 'Serves the locks opened against it until they close.' },
+        { name: 'Provider registry', address: d.contracts.AgentRegistry, role: 'Providers registered on the first contracts.' },
+        { name: 'Reputation', address: d.contracts.Reputation, role: 'Scores earned on the first contracts.' },
+        { name: 'Disputes', address: d.contracts.OracleRegistry, role: 'Rules on disputes opened against the first escrow.' },
+        { name: 'Governance delay', address: d.contracts.AdminTimelock, role: 'Changes to the token, staking and the first contracts wait out a 48-hour delay.' },
+      ],
+    });
+  }
+
+  return groups;
+}
 
 /** One hundred USDG, as the worked example the settlement fee is easiest to read against. */
 const EXAMPLE_PAYMENT: Micro = micro(100_000_000n);
@@ -157,18 +256,20 @@ export function StatusView() {
       </Section>
 
       <Section title="Contracts" description={`Deployed on ${RHC.name}, chain ${RHC.chainId}. Every address below is public and can be read by anyone.`}>
-        <Card>
-          <Table
-            caption="Deployed contracts"
-            rows={CONTRACTS}
-            rowKey={(row) => row.name}
-            columns={[
-              { key: 'name', header: 'Contract', cell: (row) => <span className="font-medium">{row.name}</span> },
-              { key: 'address', header: 'Address', cell: (row) => <Address value={row.address} /> },
-              { key: 'role', header: 'What it does', secondary: true, cell: (row) => <span className="text-[color:var(--color-muted)]">{row.role}</span> },
-            ]}
-          />
-        </Card>
+        {contractGroups().map((group) => (
+          <Card key={group.title} title={group.title} description={group.note}>
+            <Table
+              caption={group.title}
+              rows={group.rows}
+              rowKey={(row) => row.address}
+              columns={[
+                { key: 'name', header: 'Contract', cell: (row) => <span className="font-medium">{row.name}</span> },
+                { key: 'address', header: 'Address', cell: (row) => <Address value={row.address} /> },
+                { key: 'role', header: 'What it does', secondary: true, cell: (row) => <span className="text-[color:var(--color-muted)]">{row.role}</span> },
+              ]}
+            />
+          </Card>
+        ))}
       </Section>
 
       <Section title="Parameters" description="Read from the contracts on this page load, not from a configuration file.">
