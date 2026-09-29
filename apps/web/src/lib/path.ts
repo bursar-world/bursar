@@ -15,14 +15,14 @@ import { isAddress } from 'viem';
 export type AddressRoute = { readonly prefix: string; readonly reserved: ReadonlySet<string> };
 
 /**
- * `/console/new` is a page of its own and the router prefers it over the dynamic segment. The
- * provider desk has no such page, so nothing is held back from it.
+ * `/console/new` and `/console/private` are pages of their own and the router prefers them over the
+ * dynamic segment. The provider desk has no such page, so nothing is held back from it.
  *
  * `middleware.ts` repeats these prefixes in its matcher, which Next reads statically and cannot
  * take from here. The test pins the two lists to each other.
  */
 export const ADDRESS_ROUTES: readonly AddressRoute[] = [
-  { prefix: 'console', reserved: new Set(['new']) },
+  { prefix: 'console', reserved: new Set(['new', 'private']) },
   { prefix: 'providers', reserved: new Set() },
 ];
 

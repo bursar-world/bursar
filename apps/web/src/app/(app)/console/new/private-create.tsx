@@ -22,6 +22,7 @@ import { useWriteContract } from '@/wallet/write';
 import { useWorkspace } from '@/workspace/context';
 import { newDraft, upsert } from '@/workspace/model';
 import { ChipList } from '../chip-list';
+import { StealthCreate, StealthToggle } from './stealth-create';
 
 export const PRIVATE_LIMIT_LINE =
   'The amount and the provider of each payment are visible on chain. The terms are not: the chain holds a commitment to them, and only your viewing key opens the readable copy.';
@@ -46,6 +47,7 @@ export function PrivateCreate({ owner }: { readonly owner: Address }) {
   const [name, setName] = useState('');
   const [agentText, setAgentText] = useState('');
   const [providerText, setProviderText] = useState('');
+  const [stealth, setStealth] = useState(false);
   // Written in the send and read on the receipt, which can land before a re-render.
   const prepared = useRef<TermsDocument | undefined>(undefined);
   const [created, setCreated] = useState<Created | undefined>(undefined);
@@ -65,7 +67,7 @@ export function PrivateCreate({ owner }: { readonly owner: Address }) {
 
   const reading = readPrivateForm(form);
   const agent = readAddress(agentText).value;
-  const ready = reading.terms !== undefined && agent !== undefined;
+  const ready = reading.terms !== undefined && (stealth || agent !== undefined);
   const set = (patch: Partial<PrivateForm>) => setForm({ ...form, ...patch });
 
   const addProvider = () => {
@@ -118,8 +120,13 @@ export function PrivateCreate({ owner }: { readonly owner: Address }) {
     <div className="space-y-8">
       <Section title="Private terms" description={PRIVATE_LIMIT_LINE}>
         <Card title="Who spends" description="The agent proves each payment against the terms below. It needs a copy of them, which you download after creating the mandate.">
+          <div className="mb-4">
+            <StealthToggle on={stealth} onChange={setStealth} />
+          </div>
           <FieldGrid columns={2}>
-            <AddressInput label="Agent address" value={agentText} onChange={setAgentText} hint="The address your agent signs with." />
+            {!stealth && (
+              <AddressInput label="Agent address" value={agentText} onChange={setAgentText} hint="The address your agent signs with." />
+            )}
             <Field label="Name" hint="Kept inside the sealed terms. Nobody else reads it.">
               <input
                 className="w-full rounded-md border border-[color:var(--color-line)] bg-transparent px-3 py-2 text-sm"
@@ -206,7 +213,14 @@ export function PrivateCreate({ owner }: { readonly owner: Address }) {
         </Card>
       </Section>
 
-      <Section title="Review" description="Creating it asks your wallet for two things: a signature that derives your viewing key, then the transaction.">
+      <Section
+        title="Review"
+        description={
+          stealth
+            ? 'Your wallet signs once. The owner address then sends the announcements and the create itself, once it holds a little gas.'
+            : 'Creating it asks your wallet for two things: a signature that derives your viewing key, then the transaction.'
+        }
+      >
         <Card>
           <div className="space-y-4">
             <p className="text-detail text-[color:var(--color-muted)]">
@@ -219,7 +233,11 @@ export function PrivateCreate({ owner }: { readonly owner: Address }) {
                 exists.
               </p>
             )}
-            <TxButton label="Create the private mandate" disabled={!ready} send={send} onConfirmed={(receipt) => void onConfirmed(receipt)} />
+            {stealth ? (
+              <StealthCreate owner={owner} terms={reading.terms} label={name.trim()} />
+            ) : (
+              <TxButton label="Create the private mandate" disabled={!ready} send={send} onConfirmed={(receipt) => void onConfirmed(receipt)} />
+            )}
             {reading.problems.length > 0 && (
               <ul className="space-y-1 text-detail" style={{ color: 'var(--color-state-blocked)' }}>
                 {reading.problems.map((problem) => (

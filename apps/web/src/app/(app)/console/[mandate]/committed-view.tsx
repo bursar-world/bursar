@@ -225,7 +225,12 @@ function Unlock({
       </p>
       {!sameAddress(connected, mandate.principal) && (
         <p className="text-detail text-[color:var(--color-muted)]">
-          The connected wallet is not the owner of this mandate, so its key will not open these terms.
+          The connected wallet is not the owner address. If you created this mandate with a hidden owner, its key still opens
+          the terms, and your{' '}
+          <Link href="/console/private" className="underline underline-offset-2">
+            private mandates
+          </Link>{' '}
+          page holds its controls.
         </p>
       )}
       <Button onClick={() => void unlock()} disabled={busy}>

@@ -89,6 +89,9 @@ export function ConsoleView() {
             <Link href="/workspace">
               <Button size="sm">Drafts in your workspace</Button>
             </Link>
+            <Link href="/console/private">
+              <Button size="sm">Private mandates</Button>
+            </Link>
             <Link href="/console/new">
               <Button tone="primary" size="sm">
                 Create a mandate
