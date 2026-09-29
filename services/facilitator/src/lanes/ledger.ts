@@ -63,6 +63,7 @@ import type {
   Settlement,
 } from './types.js';
 import { laneExtendsCredit } from './types.js';
+import type { OnchainCollateral, OnchainCollateralReader } from './onchain-collateral.js';
 
 /**
  * The lane ledger.
@@ -136,6 +137,11 @@ export type LaneLedgerOptions = {
   /** The settlement asset's ticker, carried on trust events so a consumer knows the units. */
   readonly currency: string;
   readonly now?: () => Date;
+  /**
+   * Reads the on-chain collateral lane. With it, an account whose mandate is known is measured
+   * against the vault and the credit pool rather than against this service's collateral rows.
+   */
+  readonly onchainCollateral?: OnchainCollateralReader | null;
 };
 
 export type UpsertAccountInput = {
@@ -307,9 +313,11 @@ export class LaneLedger {
   private readonly trust: TrustStore;
   private readonly currency: string;
   private readonly now: () => Date;
+  private readonly onchain: OnchainCollateralReader | null;
 
   constructor(options: LaneLedgerOptions) {
     this.db = options.db;
+    this.onchain = options.onchainCollateral ?? null;
     this.trust = options.trust;
     this.currency = options.currency;
     this.now = options.now ?? (() => new Date());
@@ -762,6 +770,28 @@ export class LaneLedger {
     const summary = await this.collateralSummary(client, agentId, pool.poolId);
     const held = await sumOpenHolds(client, agentId, pool.poolId);
     const committed = addMicro(summary.outstandingMicro, held);
+
+    // The vault's headroom already applies its own borrow floor and the pool's caps and cash. Holds
+    // this service has granted and not yet seen drawn come off it.
+    if (summary.source === 'chain' && summary.headroomMicro !== undefined) {
+      const room = summary.headroomMicro > held ? subMicro(summary.headroomMicro, held) : ZERO_MICRO;
+      if (amountMicro > room) {
+        throw new LedgerError(
+          'collateral_headroom_exceeded',
+          `${agentId} can draw ${room} micro-USD more against its on-chain collateral, not ${amountMicro}`,
+          {
+            agentId,
+            poolId: pool.poolId,
+            headroomMicro: room.toString(),
+            amountMicro: amountMicro.toString(),
+            effectiveCollateralMicro: summary.effectiveCollateralMicro.toString(),
+            committedMicro: committed.toString(),
+            mandateAccount: summary.mandateAccount ?? null,
+          },
+        );
+      }
+      return;
+    }
 
     const headroom = borrowingHeadroom(summary.effectiveCollateralMicro, committed, pool.ltvCapBps);
     if (amountMicro > headroom) {
@@ -1809,15 +1839,44 @@ export class LaneLedger {
     const outstanding = await sumOutstanding(client, agentId, poolId);
     const effective = sumToMicro(aggregate?.effective, 'effective_collateral_micro');
     const capBps = pool ? pool.ltv_cap_bps : 0;
+    const available = sumToMicro(aggregate?.available, 'available_collateral_micro');
+
+    const chain = await this.readChain(client, agentId);
+    if (chain !== null) {
+      return {
+        poolId,
+        totalAvailableMicro: available,
+        effectiveCollateralMicro: chain.effectiveCollateralMicro,
+        outstandingMicro: chain.outstandingMicro,
+        ltvBps: ltvBps(chain.outstandingMicro, chain.effectiveCollateralMicro),
+        healthFactor: chain.healthFactor,
+        source: 'chain',
+        headroomMicro: chain.headroomMicro,
+        mandateAccount: chain.mandate,
+      };
+    }
 
     return {
       poolId,
-      totalAvailableMicro: sumToMicro(aggregate?.available, 'available_collateral_micro'),
+      totalAvailableMicro: available,
       effectiveCollateralMicro: effective,
       outstandingMicro: outstanding,
       ltvBps: ltvBps(outstanding, effective),
       healthFactor: healthFactor(outstanding, effective, capBps),
+      source: 'ledger',
     };
+  }
+
+  private async readChain(client: Queryable, agentId: string): Promise<OnchainCollateral | null> {
+    if (this.onchain === null) return null;
+    const row = await one<{ mandate_account: string | null }>(
+      client,
+      `SELECT mandate_account FROM bursar_accounts WHERE agent_id = $1`,
+      [agentId],
+    );
+    const mandate = row?.mandate_account;
+    if (!mandate) return null;
+    return this.onchain.read(mandate as `0x${string}`);
   }
 
 

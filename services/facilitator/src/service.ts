@@ -6,6 +6,8 @@ import { appliedMigrations, migrationPlan } from './db/migrate.js';
 import { createPostgres, describeDatabase } from './db/postgres.js';
 import type { Database } from './db/sql.js';
 import { LaneLedger } from './lanes/ledger.js';
+import { createOnchainCollateralReader } from './lanes/onchain-collateral.js';
+import type { OnchainCollateralReader } from './lanes/onchain-collateral.js';
 import { TrustRelay } from './trust/relay.js';
 import { TrustStore } from './trust/store.js';
 import { createHttpSink } from './trust/http-sink.js';
@@ -55,6 +57,11 @@ export type ServiceOptions = {
    * is the authority and both of these only mirror what it already permits.
    */
   readonly underwriterFor?: UnderwriterLookup;
+  /**
+   * Reads the on-chain collateral lane. Defaults to the vault in the deployment record for the
+   * configured chain, read through `rhc`; `null` measures credit against the ledger's rows alone.
+   */
+  readonly onchainCollateral?: OnchainCollateralReader | null;
   readonly log?: (line: string) => void;
   readonly now?: () => Date;
 };
@@ -142,6 +149,10 @@ export function createFacilitatorService(options: ServiceOptions): FacilitatorSe
     trust,
     currency: config.brand.settlementAsset.symbol,
     now: options.now,
+    onchainCollateral:
+      options.onchainCollateral !== undefined
+        ? options.onchainCollateral
+        : createOnchainCollateralReader(rhc.client, config.chain.chainId),
   });
 
   const facilitator = new Facilitator({

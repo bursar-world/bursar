@@ -230,6 +230,14 @@ export type CollateralSummary = {
   readonly outstandingMicro: Micro;
   readonly ltvBps: number;
   readonly healthFactor: number | null;
+  /**
+   * `chain` when the figures were read from `CollateralVault` for the account's mandate, `ledger`
+   * when they come from this service's own collateral rows.
+   */
+  readonly source?: 'chain' | 'ledger';
+  /** What the vault would lend now. Present only when read from chain. */
+  readonly headroomMicro?: Micro;
+  readonly mandateAccount?: `0x${string}`;
 };
 
 export type LaneStatement = {
