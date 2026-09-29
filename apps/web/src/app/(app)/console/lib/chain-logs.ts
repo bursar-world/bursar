@@ -61,21 +61,35 @@ async function chainLogs(address: Address, floor: bigint): Promise<readonly Inde
     ),
   );
 
+  const live = pages.flat().filter((raw) => raw.removed !== true);
+
+  // The endpoint stamps most logs with their block time, but answers 0x0 for blocks it has not
+  // finalised yet. Those few are read block by block, once each, rather than dated 1970.
+  const unstamped = [...new Set(live.filter((raw) => !stamped(raw)).map((raw) => raw.blockNumber))];
+  const times = new Map(
+    await Promise.all(
+      unstamped.map(async (block) => [block, (await client.getBlock({ blockNumber: BigInt(block) })).timestamp] as const),
+    ),
+  );
+
   const logs: IndexedLog[] = [];
-  for (const raw of pages.flat()) {
-    if (raw.removed === true) continue;
-    // A log without its block time cannot be placed on the page; the index can, so hand it over.
-    if (raw.blockTimestamp === undefined) throw new Error('The endpoint returned logs without block times.');
+  for (const raw of live) {
+    const seconds = stamped(raw) ? BigInt(raw.blockTimestamp!) : times.get(raw.blockNumber);
+    if (seconds === undefined) throw new Error('The endpoint returned logs without block times.');
     logs.push({
       address: raw.address,
       topics: [...raw.topics],
       data: raw.data,
       blockNumber: BigInt(raw.blockNumber),
-      at: new Date(Number(BigInt(raw.blockTimestamp)) * 1000),
+      at: new Date(Number(seconds) * 1000),
       transactionHash: raw.transactionHash,
       logIndex: Number(BigInt(raw.logIndex)),
     });
   }
 
   return logs.sort((a, b) => (a.blockNumber === b.blockNumber ? a.logIndex - b.logIndex : a.blockNumber < b.blockNumber ? -1 : 1));
+}
+
+function stamped(raw: RawLog): boolean {
+  return raw.blockTimestamp !== undefined && BigInt(raw.blockTimestamp) > 0n;
 }

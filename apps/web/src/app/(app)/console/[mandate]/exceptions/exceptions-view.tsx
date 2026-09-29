@@ -326,8 +326,8 @@ export function ExceptionsView() {
                             </>
                           ) : lock.status === LockStatus.Locked ? (
                             <>
-                              The escrow still holds it. The provider has until <Countdown to={lock.deadline} /> to
-                              deliver, and a bond of {bond === undefined ? 'the escrow’s rate' : usdExact(bond)} is posted
+                              The escrow still holds it. The provider has to deliver <Countdown to={lock.deadline} />,
+                              and a bond of {bond === undefined ? 'the escrow’s rate' : usdExact(bond)} is posted
                               from this mandate when you contest. {feeWarning(lock.amount, resolverFeeBps, account.contractSet)}
                             </>
                           ) : (

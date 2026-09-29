@@ -281,7 +281,7 @@ function Outcome({ row, chainTime }: { readonly row: Row; readonly chainTime: Da
           </>
         ) : status === LockStatus.Locked ? (
           <>
-            The provider has until <Countdown to={row.lock.deadline} /> to deliver.
+            The provider has to deliver <Countdown to={row.lock.deadline} />.
           </>
         ) : (
           lockDetail(status)
