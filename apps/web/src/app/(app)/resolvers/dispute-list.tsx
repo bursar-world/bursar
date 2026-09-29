@@ -147,8 +147,8 @@ function ScanNote({ desk }: { readonly desk: ResolverDesk }) {
         : `All ${desk.scanned.to.toString()} disputes read.`;
   const earlier = desk.earlier.map((entry) =>
     !entry.disputesReadable
-      ? `The ${entry.deployment.contractSet} registry did not answer.`
-      : `${entry.scanned.to.toString()} on the ${entry.deployment.contractSet} registry.`,
+      ? 'The earlier dispute registry did not answer.'
+      : `${entry.scanned.to.toString()} on the earlier registry.`,
   );
 
   return <span className="text-note text-[color:var(--color-muted)]">{[current, ...earlier].join(' ')}</span>;

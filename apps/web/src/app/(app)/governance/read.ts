@@ -127,12 +127,25 @@ const MAX_SHOWN = 50;
  * Error selectors for the timelock, computed from its ABI so they cannot drift from it. `canExecute`
  * answers with four bytes, and four bytes is not a reason a person can act on.
  */
+/** Why `execute` would refuse right now, in the words the proposal card finishes its sentence with. */
+const REFUSAL_WORDS: Readonly<Record<string, string>> = {
+  TimelockNotExpired: 'the delay has not run out yet',
+  InsufficientApprovals: 'it does not have two approvals yet',
+  ProposalExpired: 'its window to execute has closed',
+  AlreadyExecuted: 'it has already been executed',
+  AlreadyCancelled: 'it was cancelled',
+  AlreadyVetoed: 'it was vetoed',
+  ExecutionFailed: 'the target contract would refuse the call',
+  ProposalNotFound: 'there is no such proposal',
+};
+
 const REFUSALS: ReadonlyMap<string, string> = new Map(
   adminTimelockAbi
     .filter((entry): entry is Extract<typeof entry, { type: 'error' }> => entry.type === 'error')
     .map((entry) => {
       const inputs = entry.inputs as readonly { readonly type: string }[];
-      return [toFunctionSelector(`${entry.name}(${inputs.map((input) => input.type).join(',')})`), entry.name] as const;
+      const selector = toFunctionSelector(`${entry.name}(${inputs.map((input) => input.type).join(',')})`);
+      return [selector, REFUSAL_WORDS[entry.name] ?? 'the governance contract would refuse it'] as const;
     }),
 );
 

@@ -95,9 +95,9 @@ describe('what the page tells a wallet it may do', () => {
   });
 
   it('states how the keys are held once, without hedging', () => {
-    expect(CUSTODY_LINE).toContain('three plain keys');
-    expect(CUSTODY_LINE).toContain('deliberate operator decision');
-    expect(CUSTODY_LINE).toContain('multisig follows public launch');
+    expect(CUSTODY_LINE).toContain('plain keys');
+    expect(CUSTODY_LINE).toContain('multisig after public launch');
+    expect(CUSTODY_LINE).not.toMatch(/Release \d|operator decision/);
     expect(CUSTODY_LINE).not.toContain('audit');
   });
 });

@@ -143,7 +143,7 @@ export function DisputeCard({
 
         {!dispute.deployment.current && dispute.phase !== 'finalized' && dispute.phase !== 'failed' && (
           <p className="border-t border-[color:var(--color-line)] pt-4 text-detail text-[color:var(--color-muted)]">
-            This dispute is on the earlier {dispute.deployment.contractSet} registry at {shortAddress(registry)}. It runs to
+            This dispute is on the earlier registry at {shortAddress(registry)}. It runs to
             its ruling there under that registry&rsquo;s rules. This page shows it and takes no vote or closing call on it.
           </p>
         )}

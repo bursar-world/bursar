@@ -50,7 +50,7 @@ export function OpsView() {
     <div className="space-y-10">
       <Section
         title="Operations"
-        description="Escrow fees, the treasury that receives them, and the two parameters that ship at their fail-closed defaults."
+        description="Escrow fees, the treasury that receives them, and the staking and buyback settings governance controls."
         actions={
           <Button size="sm" onClick={ops.refresh} disabled={ops.isFetching}>
             {ops.isFetching ? 'Reading' : 'Read again'}

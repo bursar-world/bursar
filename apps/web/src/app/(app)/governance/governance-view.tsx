@@ -349,7 +349,7 @@ function ProposalCard({
 
       {proposal.refusal && open && (
         <p className="mt-4 text-detail text-[color:var(--color-muted)]">
-          Executing it right now would be refused with {proposal.refusal}.
+          It cannot be executed right now: {proposal.refusal}.
         </p>
       )}
 

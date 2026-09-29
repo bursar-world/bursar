@@ -83,4 +83,4 @@ export function governanceNotice(roles: Roles): RoleNotice | undefined {
 
 /** The one sentence the page owes a reader about how these three keys are held. */
 export const CUSTODY_LINE =
-  'Release 1 governance is three plain keys and a guardian key, by a deliberate operator decision taken for launch. Two of three is a property of the contract, not yet of the custody. The multisig follows public launch.';
+  'Today the three signers and the guardian are plain keys. The contract enforces two of three; the keys move into a multisig after public launch.';

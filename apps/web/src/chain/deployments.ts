@@ -48,7 +48,7 @@ export function readableDeployments(): readonly DeploymentTag[] {
   return [tagOf(current, true), ...older.map((d) => tagOf(d, false))];
 }
 
-/** How a screen names a set: the contract version, and that an older one is read only. */
+/** How a screen names a set: the current contracts, or earlier ones this console only reads. */
 export function deploymentLabel(tag: DeploymentTag): string {
-  return tag.current ? `${tag.contractSet} contracts` : `${tag.contractSet} contracts, read only`;
+  return tag.current ? 'current contracts' : 'earlier contracts, read only';
 }

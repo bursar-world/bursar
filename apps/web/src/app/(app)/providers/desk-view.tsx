@@ -506,8 +506,8 @@ function earlierNote(desk: ProviderDesk): string {
   return desk.earlier
     .map((entry) =>
       entry.complete
-        ? ` Jobs on the earlier ${entry.deployment.contractSet} escrow are included and marked.`
-        : ` The earlier ${entry.deployment.contractSet} escrow did not answer.`,
+        ? ` Jobs on the earlier escrow are included and marked.`
+        : ` The earlier escrow did not answer.`,
     )
     .join('');
 }
