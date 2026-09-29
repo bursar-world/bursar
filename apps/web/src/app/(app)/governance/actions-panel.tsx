@@ -1,19 +1,24 @@
 'use client';
 
+import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
+import { readContract } from 'viem/actions';
 import type { Address } from 'viem';
 
-import { ADDRESSES, adminTimelockAbi, sameAddress } from '@/chain';
+import { adminTimelockAbi, rhcClient, sameAddress } from '@/chain';
+import { governedByKey, pauseControllerOf } from '@/chain/admin-actions';
+import type { AdminAction } from '@/chain/admin-actions';
 import { Address as AddressLabel } from '@/components/address';
 import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
-import { Card, Field, FieldGrid, Section } from '@/components/layout';
+import { Card, Section } from '@/components/layout';
 import { TxButton } from '@/components/tx-button';
 import { formatDuration } from '@/lib';
 import type { AnyState } from '@/state';
 
 import { CalldataBuilder } from './builder';
-import type { BrakeTarget } from './read';
+import { governanceTimelocks } from './read';
+import type { BrakeTarget, TimelockTag } from './read';
 import { permits } from './roles';
 import type { Answer } from './roles';
 import { useWriteContract } from '@/wallet/write';
@@ -24,6 +29,49 @@ import { useWriteContract } from '@/wallet/write';
  * The proposer's own approval counts as the first of the two, so a change made here needs exactly
  * one further signer and then the full delay. Nothing on this panel can shorten either.
  */
+/**
+ * The governance delay a proposal on `action` has to go to: the one that administers its target.
+ * A proposal sent to the other would wait out its delay and then revert, so the answer is read
+ * from the target and the propose control stays off until it lands.
+ */
+function useProposingTimelock(action: AdminAction | undefined): {
+  readonly timelock: TimelockTag | undefined;
+  readonly problem: string | undefined;
+} {
+  const timelocks = governanceTimelocks();
+  const contract = action === undefined ? undefined : governedByKey(action.contract);
+  const target = contract?.address();
+  const self = timelocks.find((entry) => sameAddress(entry.address, target));
+  const controller = action === undefined ? 'admin' : pauseControllerOf(action.contract);
+
+  const admin = useQuery({
+    queryKey: ['governance', 'admin-of', target, controller],
+    queryFn: async () =>
+      (await readContract(rhcClient(), { address: target as Address, abi: contract?.abi as never, functionName: controller })) as Address,
+    enabled: target !== undefined && self === undefined,
+    staleTime: 60_000,
+  });
+
+  if (action === undefined || contract === undefined) return { timelock: undefined, problem: undefined };
+  if (self) return { timelock: self, problem: undefined };
+  if (admin.isPending) return { timelock: undefined, problem: `Reading which governance delay administers ${contract.name}.` };
+  if (admin.data === undefined) {
+    return { timelock: undefined, problem: `Which governance delay administers ${contract.name} could not be read. Read again before proposing.` };
+  }
+  const match = timelocks.find((entry) => sameAddress(entry.address, admin.data));
+  if (!match) {
+    return {
+      timelock: undefined,
+      problem: `${capitalise(contract.name)} is administered by ${admin.data}, which is not one of the governance delays, so a proposal from here could not change it.`,
+    };
+  }
+  return { timelock: match, problem: undefined };
+}
+
+function capitalise(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 export function ProposePanel({
   canPropose,
   delaySeconds,
@@ -49,43 +97,74 @@ export function ProposePanel({
       title={title}
       description={
         description ??
-        `Proposing counts as your own approval. One more signer and ${
-          delaySeconds === undefined ? 'the delay' : formatDuration(Number(delaySeconds))
-        } stand between this and the change taking effect.`
+        `Proposing counts as your own approval. One more signer and the delay of the governance contract that administers the change stand between this and it taking effect${
+          delaySeconds === undefined ? '' : `: ${formatDuration(Number(delaySeconds))} on the current contracts, longer on the token and staking`
+        }.`
       }
     >
       <Card>
         <CalldataBuilder only={only}>
-          {(built) => (
-            <div className="space-y-2">
-              {built.ok ? (
-                <TxButton
-                  label="Propose"
-                  disabled={!allowed}
-                  blockedBy={blockedBy}
-                  send={() =>
-                    writeContractAsync({
-                      address: ADDRESSES.adminTimelock,
-                      abi: adminTimelockAbi,
-                      functionName: 'propose',
-                      args: [built.target as Address, built.data],
-                    })
-                  }
-                  onConfirmed={onProposed}
-                />
-              ) : (
-                <Button disabled>Propose</Button>
-              )}
-              {!allowed && (
-                <p className="text-detail" style={{ color: 'var(--color-state-blocked)' }}>
-                  Proposing needs one of the three signer keys. This wallet is not one of them.
-                </p>
-              )}
-            </div>
+          {(built, action) => (
+            <ProposeControl
+              built={built}
+              action={action}
+              allowed={allowed}
+              blockedBy={blockedBy}
+              onProposed={onProposed}
+              send={(timelock) => {
+                if (!built.ok) throw new Error('The change is not complete yet.');
+                return writeContractAsync({
+                  address: timelock,
+                  abi: adminTimelockAbi,
+                  functionName: 'propose',
+                  args: [built.target, built.data],
+                });
+              }}
+            />
           )}
         </CalldataBuilder>
       </Card>
     </Section>
+  );
+}
+
+function ProposeControl({
+  built,
+  action,
+  allowed,
+  blockedBy,
+  onProposed,
+  send,
+}: {
+  readonly built: { readonly ok: boolean };
+  readonly action: AdminAction;
+  readonly allowed: boolean;
+  readonly blockedBy: readonly AnyState[];
+  readonly onProposed: () => void;
+  readonly send: (timelock: Address) => Promise<`0x${string}`>;
+}) {
+  const { timelock, problem } = useProposingTimelock(action);
+
+  return (
+    <div className="space-y-2">
+      {built.ok && timelock ? (
+        <TxButton label="Propose" disabled={!allowed} blockedBy={blockedBy} send={() => send(timelock.address)} onConfirmed={onProposed} />
+      ) : (
+        <Button disabled>Propose</Button>
+      )}
+      {timelock && (
+        <p className="text-detail text-[color:var(--color-muted)]">
+          Goes to the governance delay for {timelock.name.toLowerCase()}, <AddressLabel value={timelock.address} />, which
+          administers this contract.
+        </p>
+      )}
+      {problem && <p className="text-detail text-[color:var(--color-muted)]">{problem}</p>}
+      {!allowed && (
+        <p className="text-detail" style={{ color: 'var(--color-state-blocked)' }}>
+          Proposing needs one of the three signer keys. This wallet is not one of them.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -99,131 +178,145 @@ export function ProposePanel({
 export function GuardianPanel({
   canPause,
   targets,
-  timelock,
   delaySeconds,
   blockedBy,
   onPaused,
 }: {
   readonly canPause: Answer;
   readonly targets: readonly BrakeTarget[];
-  readonly timelock: Address;
   readonly delaySeconds: bigint | undefined;
+  readonly blockedBy: readonly AnyState[];
+  readonly onPaused: () => void;
+}) {
+  const allowed = permits(canPause);
+  const timelocks = governanceTimelocks();
+  const outOfReach = targets.filter((target) => target.admin !== undefined && !timelocks.some((tag) => sameAddress(tag.address, target.admin)));
+  const unread = targets.filter((target) => target.admin === undefined);
+
+  return (
+    <Section
+      title="The brake"
+      description="Stops a contract in the same block. No approvals, no delay, and no other call this key can make."
+    >
+      <Card>
+        <div className="max-w-3xl space-y-3 text-sm">
+          <p>
+            The guardian key pauses and does nothing else. The call it sends is built inside a governance delay contract
+            and is always <code>pause()</code>, so the key cannot be talked into anything adjacent to a pause. Restarting
+            is an ordinary proposal: two signatures and{' '}
+            {delaySeconds === undefined ? 'the full delay' : formatDuration(Number(delaySeconds))} on the current
+            contracts. Stopping is instant and starting is not, so a stolen guardian key costs an outage rather than a
+            loss.
+          </p>
+          <p className="text-[color:var(--color-muted)]">
+            The escrow, the dispute registry, the provider registry, the staking pool and the buyback carry a pause.
+            Reputation, the mandate factories and the token carry none. Each contract answers the brake only through the
+            delay that administers it, so they are grouped by that delay below.
+          </p>
+        </div>
+
+        {timelocks.map((tag) => {
+          const group = targets.filter((target) => sameAddress(target.admin, tag.address));
+          if (group.length === 0) return null;
+          return <BrakeGroup key={tag.address} tag={tag} targets={group} allowed={allowed} blockedBy={blockedBy} onPaused={onPaused} />;
+        })}
+
+        {(outOfReach.length > 0 || unread.length > 0) && (
+          <div className="mt-5 space-y-2">
+            {[...outOfReach, ...unread].map((target) => (
+              <div key={target.address} className="flex flex-wrap items-center gap-3 rounded-md border border-[color:var(--color-line)] px-3 py-2">
+                <span className="text-sm font-medium">{target.name}</span>
+                <AddressLabel value={target.address} />
+                <span className="ml-auto">
+                  <Badge tone="quiet">{target.admin === undefined ? 'Not read' : 'Out of reach'}</Badge>
+                </span>
+              </div>
+            ))}
+            {outOfReach.length > 0 && (
+              <p className="text-detail" style={{ color: 'var(--color-state-attention)' }}>
+                A contract marked out of reach answers its pause to an address that is not a governance delay, so the
+                brake cannot stop it.
+              </p>
+            )}
+          </div>
+        )}
+
+        {!allowed && (
+          <p className="mt-5 text-detail" style={{ color: 'var(--color-state-blocked)' }}>
+            The pause needs the guardian key. This wallet is not the guardian, and no signer key can send it.
+          </p>
+        )}
+      </Card>
+    </Section>
+  );
+}
+
+function BrakeGroup({
+  tag,
+  targets,
+  allowed,
+  blockedBy,
+  onPaused,
+}: {
+  readonly tag: TimelockTag;
+  readonly targets: readonly BrakeTarget[];
+  readonly allowed: boolean;
   readonly blockedBy: readonly AnyState[];
   readonly onPaused: () => void;
 }) {
   const { writeContractAsync } = useWriteContract();
   const [chosen, setChosen] = useState<readonly Address[]>([]);
-  const allowed = permits(canPause);
 
   const toggle = (address: Address) =>
     setChosen((current) => (current.some((entry) => sameAddress(entry, address)) ? current.filter((entry) => !sameAddress(entry, address)) : [...current, address]));
 
   return (
-    <Section
-      title="The brake"
-      description="Stops an administered contract in the same block. No approvals, no delay, and no other call this key can make."
-    >
-      <Card>
-        <div className="max-w-3xl space-y-3 text-sm">
-          <p>
-            The guardian key pauses and does nothing else. The call it sends is built inside the timelock and is always{' '}
-            <code>pause()</code>, so the key cannot be talked into anything adjacent to a pause. Restarting is an ordinary
-            proposal: two signatures and{' '}
-            {delaySeconds === undefined ? 'the full delay' : formatDuration(Number(delaySeconds))}. Stopping is instant and
-            starting is not, because a brake that takes two days is not a brake, and a stolen guardian key should cost an
-            outage rather than a loss.
-          </p>
-          <p className="text-[color:var(--color-muted)]">
-            Three contracts carry a pause. The escrow, reputation, the dispute registry, the mandate account factory and the
-            token carry none, so stopping the money path means stopping the registry the agents using it are registered in.
-          </p>
-        </div>
-
-        <div className="mt-5 space-y-2">
-          {targets.map((target) => {
-            const administered = target.admin === undefined ? undefined : sameAddress(target.admin, timelock);
-            const stopped = target.paused;
-            const checked = chosen.some((entry) => sameAddress(entry, target.address));
-
-            return (
-              <div
-                key={target.address}
-                className="flex flex-wrap items-center gap-3 rounded-md border border-[color:var(--color-line)] px-3 py-2"
-              >
-                {/* The label covers the checkbox and the name only. The copy and explorer controls
-                    on the address are their own buttons, and inside a label a press on either of
-                    them would tick the box instead. */}
-                <label className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    disabled={!allowed || stopped === true || administered === false}
-                    onChange={() => toggle(target.address)}
-                  />
-                  <span className="text-sm font-medium">{target.name}</span>
-                </label>
-                <AddressLabel value={target.address} />
-                <span className="ml-auto flex items-center gap-2">
-                  <Badge tone={stopped === true ? 'neutral' : 'quiet'}>
-                    {stopped === undefined ? 'Not read' : stopped ? 'Stopped' : 'Running'}
-                  </Badge>
-                  {administered === false && <Badge tone="quiet">Out of reach</Badge>}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-
-        {targets.some((target) => target.admin !== undefined && !sameAddress(target.admin, timelock)) && (
-          <p className="mt-3 text-detail" style={{ color: 'var(--color-state-attention)' }}>
-            A contract marked out of reach has an admin other than the timelock, so the brake cannot stop it. Propose{' '}
-            <code>acceptAdmin</code> on it, wait out the delay, and the brake reaches it afterwards.
-          </p>
-        )}
-
-        <div className="mt-5 space-y-2">
-          <TxButton
-            label={chosen.length > 1 ? `Stop ${chosen.length} contracts` : 'Stop'}
-            tone="destructive"
-            disabled={chosen.length === 0 || !allowed}
-            blockedBy={blockedBy}
-            confirmPhrase="PAUSE"
-            confirmTitle="Stop these contracts now"
-            confirmDescription="This lands in the next block with no approvals and no delay. Starting them again is a proposal, which takes two signatures and the full delay."
-            send={() =>
-              writeContractAsync({
-                address: ADDRESSES.adminTimelock,
-                abi: adminTimelockAbi,
-                functionName: 'guardianPause',
-                args: [chosen],
-              })
-            }
-            onConfirmed={() => {
-              setChosen([]);
-              onPaused();
-            }}
-          />
-          {!allowed && (
-            <p className="text-detail" style={{ color: 'var(--color-state-blocked)' }}>
-              The pause needs the guardian key. This wallet is not the guardian, and no signer key can send it.
-            </p>
-          )}
-          {allowed && chosen.length === 0 && (
-            <p className="text-detail text-[color:var(--color-muted)]">Choose at least one contract to stop.</p>
-          )}
-        </div>
-
-        <div className="mt-5">
-          <FieldGrid columns={2}>
-            <Field label="Guardian sends through" hint="The timelock builds the call, so the key cannot reach anything else.">
-              <AddressLabel value={timelock} />
-            </Field>
-            <Field label="Restarting" hint="A proposal on the contract's own unpause, from the list above.">
-              {delaySeconds === undefined ? 'The full delay' : `Two signatures and ${formatDuration(Number(delaySeconds))}`}
-            </Field>
-          </FieldGrid>
-        </div>
-      </Card>
-    </Section>
+    <div className="mt-5 space-y-2">
+      <p className="text-detail text-[color:var(--color-muted)]">
+        {tag.name}, stopped through <AddressLabel value={tag.address} />
+      </p>
+      {targets.map((target) => {
+        const stopped = target.paused;
+        const checked = chosen.some((entry) => sameAddress(entry, target.address));
+        return (
+          <div key={target.address} className="flex flex-wrap items-center gap-3 rounded-md border border-[color:var(--color-line)] px-3 py-2">
+            {/* The label covers the checkbox and the name only. The copy and explorer controls on the
+                address are their own buttons, and inside a label a press on either of them would
+                tick the box instead. */}
+            <label className="flex items-center gap-3">
+              <input type="checkbox" checked={checked} disabled={!allowed || stopped === true} onChange={() => toggle(target.address)} />
+              <span className="text-sm font-medium">{target.name}</span>
+            </label>
+            <AddressLabel value={target.address} />
+            <span className="ml-auto">
+              <Badge tone={stopped === true ? 'neutral' : 'quiet'}>{stopped === undefined ? 'Not read' : stopped ? 'Stopped' : 'Running'}</Badge>
+            </span>
+          </div>
+        );
+      })}
+      {allowed && (
+        <TxButton
+          label={chosen.length > 1 ? `Stop ${chosen.length} contracts` : 'Stop'}
+          tone="destructive"
+          disabled={chosen.length === 0}
+          blockedBy={blockedBy}
+          confirmPhrase="PAUSE"
+          confirmTitle="Stop these contracts now"
+          confirmDescription="This lands in the next block with no approvals and no delay. Starting them again is a proposal, which takes two signatures and the full delay."
+          send={() =>
+            writeContractAsync({
+              address: tag.address,
+              abi: adminTimelockAbi,
+              functionName: 'guardianPause',
+              args: [chosen],
+            })
+          }
+          onConfirmed={() => {
+            setChosen([]);
+            onPaused();
+          }}
+        />
+      )}
+    </div>
   );
 }

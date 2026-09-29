@@ -13,6 +13,7 @@ import {
   formatBps,
   formatUsdg,
   parseDecimal,
+  pauseControllerOf,
   readCall,
 } from '@/chain/admin-actions';
 import type { AdminAction, AdminDraft } from '@/chain/admin-actions';
@@ -273,7 +274,7 @@ describe('the builder refuses what the contract refuses', () => {
 
     expect(built.ok).toBe(true);
     if (!built.ok) return;
-    expect(readCall(built.target, built.data).sentence).toContain('Clears the credit lane');
+    expect(readCall(built.target, built.data).sentence).toContain('Clears the credit manager');
   });
 
   it('collects every problem at once rather than one per attempt', () => {
@@ -358,5 +359,36 @@ describe('the catalogue', () => {
       const built = buildCall(entry, emptyDraft(entry));
       expect(built.ok).toBe(true);
     }
+  });
+});
+
+describe('the proposals on the token governance delay', () => {
+  const STAKING_ADDRESS = '0x3f2a0E7822B30aD928488F053348b137866Cf962' as const;
+
+  it('reads proposal 10 as naming the credit pool, and says the pool cannot take stake', () => {
+    const reading = readCall(STAKING_ADDRESS, '0x69dd793b000000000000000000000000c217af334e6eac06b774b5059b16257695937b0a');
+    expect(reading.recognised).toBe(true);
+    expect(reading.targetName).toBe('the staking pool');
+    expect(reading.sentence).toContain('credit pool');
+    expect(reading.sentence).toContain('no call that takes stake');
+  });
+
+  it('reads a per-resolver bond floor in BRSR', () => {
+    const reading = readCall(
+      STAKING_ADDRESS,
+      '0x4ee6aa36000000000000000000000000d8d90e4c8f3419b1b8305df2905eb31d3fbbf59900000000000000000000000000000000000000000000054b40b1f852bda00000',
+    );
+    expect(reading.functionName).toBe('setBondFloor');
+    expect(reading.sentence).toContain('25,000');
+  });
+
+  it('keeps finished handovers out of the builder', () => {
+    expect(ADMIN_ACTIONS.filter((entry) => entry.functionName === 'acceptAdmin').every((entry) => entry.retired)).toBe(true);
+  });
+
+  it('knows the escrow answers its brake to a pauser, not an admin', () => {
+    expect(PAUSABLE).toContain('escrow');
+    expect(pauseControllerOf('escrow')).toBe('pauser');
+    expect(pauseControllerOf('staking')).toBe('admin');
   });
 });

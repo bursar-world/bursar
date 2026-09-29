@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 
-import { ADDRESSES, adminTimelockAbi, sameAddress } from '@/chain';
+import { adminTimelockAbi, sameAddress } from '@/chain';
 import { readCall } from '@/chain/admin-actions';
 import { Address } from '@/components/address';
 import { Badge, LevelDot } from '@/components/badge';
@@ -18,7 +18,7 @@ import type { AnyState } from '@/state';
 import { useWalletAccount } from '@/wallet/account';
 
 import { GuardianPanel, ProposePanel } from './actions-panel';
-import type { Proposal, ProposalStatus } from './read';
+import type { Proposal, ProposalStatus, TimelockReading } from './read';
 import { CUSTODY_LINE, governanceNotice, permits } from './roles';
 import type { Roles } from './roles';
 import { useGovernance } from './use-governance';
@@ -37,7 +37,7 @@ const STATUS_WORD: Readonly<Record<ProposalStatus, string>> = {
 const NOT_READ = <span className="text-[color:var(--color-muted)]">Not read</span>;
 
 /**
- * Governance, which on this deployment is two signatures and two days.
+ * Governance: two signatures and a fixed delay, on each of the two delay contracts.
  *
  * The page is built around the thing a reader needs from it: what is pending, what each
  * pending change would do in words, who has signed it, and when it can land. A signer can do all
@@ -50,9 +50,6 @@ export function GovernanceView() {
   const blockedBy = [system.connectivity, system.asset];
   const data = governance.data;
   const roles = governance.roles;
-  // Before the first reading lands every field is still on its way. After it lands, a field with
-  // nothing in it is a call the timelock did not answer, and the two must not share a word.
-  const unread = data === undefined ? 'Reading' : NOT_READ;
 
   return (
     <div className="space-y-10">
@@ -73,7 +70,12 @@ export function GovernanceView() {
               before it lands, because blocking a change should cost less than making one.
             </p>
             <p>
-              The pause is the exception, and it has to be. A brake that takes two days is not a brake, so the guardian
+              Two governance delay contracts are live. One administers the payment, dispute and credit contracts with a
+              one-hour delay. The other administers the token, staking, the buyback and the first payment contracts with a
+              48-hour delay. A change goes to the one that administers its target, and every proposal below says which.
+            </p>
+            <p>
+              The pause is the exception, and it has to be. A brake that takes hours is not a brake, so the guardian
               key can stop an administered contract in the same block with no approvals and no wait. It can do nothing
               else: the call it sends is built inside the timelock and is always <code>pause()</code>. Restarting is a
               proposal like any other. That is what makes a stolen guardian key an outage rather than a loss.
@@ -81,37 +83,11 @@ export function GovernanceView() {
             <p className="text-[color:var(--color-muted)]">{CUSTODY_LINE}</p>
           </div>
 
-          <div className="mt-5">
-            <FieldGrid columns={4}>
-              <Field label="Delay" hint="Fixed at deployment. There is no setter for it.">
-                {data?.delaySeconds === undefined ? unread : formatDuration(Number(data.delaySeconds))}
-              </Field>
-              <Field label="Approvals needed" hint="Proposing counts as the proposer's approval.">
-                {data?.requiredApprovals === undefined || data.signerCount === undefined
-                  ? unread
-                  : `${data.requiredApprovals} of ${data.signerCount}`}
-              </Field>
-              <Field label="Window to execute" hint="After the delay. A proposal left past this has to be made again.">
-                {data?.graceSeconds === undefined ? unread : formatDuration(Number(data.graceSeconds))}
-              </Field>
-              <Field label="Governance contract">
-                <Address value={ADDRESSES.adminTimelock} />
-              </Field>
-            </FieldGrid>
-          </div>
-
-          <div className="mt-5">
-            <FieldGrid columns={2}>
-              <Field label="Signers" hint="Approvals are counted over this set, so a rotated key stops carrying what it approved.">
-                <div className="space-y-1">
-                  {data?.signers === undefined ? unread : data.signers.map((signer) => <Address key={signer} value={signer} />)}
-                </div>
-              </Field>
-              <Field label="Guardian" hint="Holds the pause and nothing else, and is barred from the signer set.">
-                {data?.guardian === undefined ? unread : <Address value={data.guardian} />}
-              </Field>
-            </FieldGrid>
-          </div>
+          {data === undefined ? (
+            <p className="mt-5 text-sm text-[color:var(--color-muted)]">Reading the governance contracts.</p>
+          ) : (
+            data.timelocks.map((reading) => <TimelockFacts key={reading.tag.address} reading={reading} />)
+          )}
         </Card>
 
         <ConnectedAs roles={roles} />
@@ -131,7 +107,7 @@ export function GovernanceView() {
         description={
           data?.blockNumber === undefined
             ? 'Newest first. Read from the contract.'
-            : `Newest first, so the top card is the highest id. Read at block ${data.blockNumber.toString()}. Countdowns run against the chain's clock.`
+            : `Newest first, from both governance delays. Read at block ${data.blockNumber.toString()}. Countdowns run against the chain's clock.`
         }
       >
         {data === undefined ? (
@@ -140,8 +116,8 @@ export function GovernanceView() {
           </Card>
         ) : !data.complete ? (
           <EmptyState title="This list was not read.">
-            The timelock did not answer how many proposals it holds, so whether anything is pending is unknown. Nothing
-            has changed on chain; only the reading failed.
+            A governance delay did not answer how many proposals it holds, so whether anything is pending is unknown.
+            Nothing has changed on chain; only the reading failed.
           </EmptyState>
         ) : data.proposals.length === 0 ? (
           <EmptyState title="Nothing is pending.">
@@ -152,9 +128,9 @@ export function GovernanceView() {
           <div className="space-y-4">
             {data.proposals.map((proposal) => (
               <ProposalCard
-                key={proposal.id}
+                key={`${proposal.timelock.address}-${proposal.id}`}
                 proposal={proposal}
-                canSign={permits(roles.signer)}
+                canSign={permits(roles.signer) && signsFor(data.timelocks, proposal, roles.address)}
                 blockedBy={blockedBy}
                 onChanged={governance.refresh}
               />
@@ -173,7 +149,6 @@ export function GovernanceView() {
       <GuardianPanel
         canPause={roles.guardian}
         targets={data?.brake ?? []}
-        timelock={ADDRESSES.adminTimelock}
         delaySeconds={data?.delaySeconds}
         blockedBy={blockedBy}
         onPaused={governance.refresh}
@@ -189,6 +164,48 @@ export function GovernanceView() {
           , which also builds the staking and buyback proposals through this same form.
         </p>
       </Card>
+    </div>
+  );
+}
+
+/** The timelock's own signer set decides, and an unread set leaves the control offered. */
+function signsFor(timelocks: readonly TimelockReading[], proposal: Proposal, address: string | undefined): boolean {
+  const signers = timelocks.find((reading) => sameAddress(reading.tag.address, proposal.timelock.address))?.signers;
+  return signers === undefined || signers.some((signer) => sameAddress(signer, address));
+}
+
+function TimelockFacts({ reading }: { readonly reading: TimelockReading }) {
+  return (
+    <div className="mt-5">
+      <p className="mb-2 text-sm font-medium">{reading.tag.name}</p>
+      <FieldGrid columns={4}>
+        <Field label="Delay" hint="Fixed at deployment. There is no setter for it.">
+          {reading.delaySeconds === undefined ? NOT_READ : formatDuration(Number(reading.delaySeconds))}
+        </Field>
+        <Field label="Approvals needed" hint="Proposing counts as the proposer's approval.">
+          {reading.requiredApprovals === undefined || reading.signerCount === undefined
+            ? NOT_READ
+            : `${reading.requiredApprovals} of ${reading.signerCount}`}
+        </Field>
+        <Field label="Window to execute" hint="After the delay. A proposal left past this has to be made again.">
+          {reading.graceSeconds === undefined ? NOT_READ : formatDuration(Number(reading.graceSeconds))}
+        </Field>
+        <Field label="Governance contract">
+          <Address value={reading.tag.address} />
+        </Field>
+      </FieldGrid>
+      <div className="mt-3">
+        <FieldGrid columns={2}>
+          <Field label="Signers" hint="Approvals are counted over this set, so a rotated key stops carrying what it approved.">
+            <div className="space-y-1">
+              {reading.signers === undefined ? NOT_READ : reading.signers.map((signer) => <Address key={signer} value={signer} />)}
+            </div>
+          </Field>
+          <Field label="Guardian" hint="Holds the pause and nothing else, and is barred from the signer set.">
+            {reading.guardian === undefined ? NOT_READ : <Address value={reading.guardian} />}
+          </Field>
+        </FieldGrid>
+      </div>
     </div>
   );
 }
@@ -248,7 +265,7 @@ function ProposalCard({
 
   const send = (functionName: 'approve' | 'execute' | 'cancel') => () =>
     writeContractAsync({
-      address: ADDRESSES.adminTimelock,
+      address: proposal.timelock.address,
       abi: adminTimelockAbi,
       functionName,
       args: [BigInt(proposal.id)],
@@ -257,7 +274,7 @@ function ProposalCard({
   return (
     <Card
       title={`Proposal ${proposal.id}`}
-      description={call.sentence}
+      description={`${call.sentence} Governed by the delay for ${proposal.timelock.name.toLowerCase()}.`}
       actions={<Badge tone={open ? 'neutral' : 'quiet'}>{STATUS_WORD[proposal.status]}</Badge>}
     >
       <FieldGrid columns={4}>
@@ -369,7 +386,7 @@ function ProposalCard({
 
       {!canSign && open && (
         <p className="mt-5 text-detail text-[color:var(--color-muted)]">
-          Approving, executing and cancelling need one of the three signer keys.
+          Approving, executing and cancelling need one of the three signer keys of this proposal&rsquo;s governance delay.
         </p>
       )}
     </Card>

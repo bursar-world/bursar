@@ -52,7 +52,10 @@ export type CalldataBuilderProps = {
 };
 
 export function CalldataBuilder({ only, initialActionId, label = 'Change to propose', children }: CalldataBuilderProps) {
-  const catalogue = useMemo(() => (only === undefined ? ADMIN_ACTIONS : ADMIN_ACTIONS.filter((entry) => only.includes(entry.id))), [only]);
+  const catalogue = useMemo(
+    () => ADMIN_ACTIONS.filter((entry) => !entry.retired && (only === undefined || only.includes(entry.id))),
+    [only],
+  );
   const first = initialActionId ?? catalogue[0]?.id ?? ADMIN_ACTIONS[0]?.id ?? '';
 
   const [selected, setSelected] = useState(first);
@@ -87,7 +90,7 @@ export function CalldataBuilder({ only, initialActionId, label = 'Change to prop
         value={selected}
         onChange={choose}
         options={catalogue.map((entry) => ({ value: entry.id, label: entry.label, group: governedByKey(entry.contract).name }))}
-        help="Every entry here is a call the timelock is the admin for. Anything not on this list is not a change governance can make."
+        help="Every entry here is a call one of the governance delays administers. The proposal goes to the delay that administers the contract it changes."
       />
 
       <p className="max-w-3xl text-sm">{action.consequence}</p>

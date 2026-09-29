@@ -14,7 +14,7 @@
 import { decodeFunctionData, encodeFunctionData, formatUnits, getAddress, isAddress, slice } from 'viem';
 import type { Abi, AbiFunction, Address, Hex } from 'viem';
 
-import { deploymentsForChain, micro } from '@bursar/core';
+import { collateralDeployment, deploymentsForChain, micro } from '@bursar/core';
 import type { MandateContractName, Micro } from '@bursar/core';
 
 import { brsr } from '../money';
@@ -85,12 +85,17 @@ export function governedByKey(key: GovernedKey): GovernedContract {
 }
 
 /**
- * The three contracts the guardian's brake reaches. Each has a `pause()` behind `onlyAdmin`, and
- * the timelock holds all three admins. The escrow, reputation, the dispute registry, the factory
- * and the token have no pause at all, so stopping the money path means stopping the registry the
- * agents using it are registered in.
+ * The contracts the guardian's brake reaches. Each has a `pause()` that answers one address: the
+ * escrow's pauser, and every other one's admin. Which timelock that is differs by contract, so the
+ * page reads it rather than assuming the current one. Reputation, the factory and the token carry
+ * no pause.
  */
-export const PAUSABLE: readonly GovernedKey[] = ['agentRegistry', 'staking', 'buyback'];
+export const PAUSABLE: readonly GovernedKey[] = ['escrow', 'oracleRegistry', 'agentRegistry', 'staking', 'buyback'];
+
+/** The function naming the address a pausable contract lets call `pause()`. */
+export function pauseControllerOf(key: GovernedKey): 'admin' | 'pauser' {
+  return key === 'escrow' ? 'pauser' : 'admin';
+}
 
 // Fields
 
@@ -119,6 +124,11 @@ export type AdminAction = {
   /** What it does and what follows from it, once, in one or two sentences. */
   readonly consequence: string;
   readonly shape: AdminShape;
+  /**
+   * Kept so a proposal already on chain still reads back in words, and left out of the builder:
+   * the handover it completes has already happened, so proposing it again would be refused.
+   */
+  readonly retired?: true;
 };
 
 const USDG_DECIMALS = 6;
@@ -150,9 +160,9 @@ export const ADMIN_ACTIONS: readonly AdminAction[] = [
     contract: 'agentRegistry',
     functionName: 'acceptAdmin',
     label: 'Take administration of the provider registry',
-    consequence:
-      'The registry names the timelock as its incoming admin and the handover completes only when the timelock calls this. Until it lands the deploy key is still the registry’s admin and the guardian’s brake does not reach it.',
+    consequence: 'Completes a handover the provider registry has already started.',
     shape: { kind: 'none' },
+    retired: true,
   },
   {
     id: 'reputation.setCurve',
@@ -195,6 +205,7 @@ export const ADMIN_ACTIONS: readonly AdminAction[] = [
     label: 'Take administration of reputation',
     consequence: 'Completes a handover that reputation has already started. It does nothing unless the timelock is the incoming admin.',
     shape: { kind: 'none' },
+    retired: true,
   },
   {
     id: 'oracleRegistry.setConfig',
@@ -246,6 +257,7 @@ export const ADMIN_ACTIONS: readonly AdminAction[] = [
     label: 'Take administration of the dispute registry',
     consequence: 'Completes a handover the dispute registry has already started.',
     shape: { kind: 'none' },
+    retired: true,
   },
   {
     id: 'agentRegistry.setMinStake',
@@ -308,6 +320,36 @@ export const ADMIN_ACTIONS: readonly AdminAction[] = [
     shape: { kind: 'none' },
   },
   {
+    id: 'escrow.unpause',
+    contract: 'escrow',
+    functionName: 'unpause',
+    label: 'Restart the escrow',
+    consequence: 'Restarting waits out the full delay. While the escrow is stopped, new payments cannot lock and new disputes cannot open; releases and refunds of existing locks continue.',
+    shape: { kind: 'none' },
+  },
+  {
+    id: 'oracleRegistry.unpause',
+    contract: 'oracleRegistry',
+    functionName: 'unpause',
+    label: 'Restart the dispute registry',
+    consequence: 'Restarting waits out the full delay. While the registry is stopped, resolvers cannot join, add bond or commit votes.',
+    shape: { kind: 'none' },
+  },
+  {
+    id: 'staking.setBondFloor',
+    contract: 'staking',
+    functionName: 'setBondFloor',
+    label: 'Set one resolver’s bond floor',
+    consequence: 'Overrides the resolver bond floor for one address. Zero returns that resolver to the floor everyone else is held to.',
+    shape: {
+      kind: 'fields',
+      fields: [
+        { name: 'resolver', label: 'Resolver', kind: 'address', help: 'The resolver key this floor applies to.' },
+        { name: 'amount', label: 'Floor', kind: 'brsr', help: 'Zero removes the override.', placeholder: '25000' },
+      ],
+    },
+  },
+  {
     id: 'staking.setTiers',
     contract: 'staking',
     functionName: 'setTiers',
@@ -328,12 +370,12 @@ export const ADMIN_ACTIONS: readonly AdminAction[] = [
     id: 'staking.setCreditManager',
     contract: 'staking',
     functionName: 'setCreditManager',
-    label: 'Name the credit lane that may take stake',
+    label: 'Name the credit manager on the staking pool',
     consequence:
-      'The only address that can take stake to cover a default, and the only one that can pay the spread in. The zero address clears it, which is where this deployment stands: no contract here charges a spread yet.',
+      'The one address the staking pool accepts spread from, and the one address allowed to call its slash. The collateralized lane’s credit pool pays spread in and has no call that takes stake. The zero address clears it.',
     shape: {
       kind: 'fields',
-      fields: [{ name: 'account', label: 'Credit lane', kind: 'address', help: 'The zero address is legal here and means nothing can be slashed.' }],
+      fields: [{ name: 'account', label: 'Credit manager', kind: 'address', help: 'The zero address is legal here and stops spread arriving.' }],
     },
   },
   {
@@ -379,6 +421,7 @@ export const ADMIN_ACTIONS: readonly AdminAction[] = [
     label: 'Take administration of the staking pool',
     consequence: 'Completes a handover the staking pool has already started.',
     shape: { kind: 'none' },
+    retired: true,
   },
   {
     id: 'buyback.setParams',
@@ -420,6 +463,7 @@ export const ADMIN_ACTIONS: readonly AdminAction[] = [
     label: 'Take administration of the buyback',
     consequence: 'Completes a handover the buyback has already started.',
     shape: { kind: 'none' },
+    retired: true,
   },
   {
     id: 'adminTimelock.setGuardian',
@@ -827,6 +871,11 @@ export function readCall(target: Address, data: Hex): CallReading {
   };
 }
 
+function isCreditPool(value: unknown): boolean {
+  const pool = collateralDeployment(CHAIN_ID)?.CreditPool;
+  return typeof value === 'string' && sameAddress(value, pool);
+}
+
 function addressOrUndefined(entry: GovernedContract): Address | undefined {
   try {
     return entry.address();
@@ -1070,9 +1119,14 @@ function sentenceFor(name: string, contract: GovernedContract | undefined, args:
     case 'setTiers':
       return tiersSentence(args[0]);
     case 'setCreditManager':
-      return isZero(first)
-        ? 'Clears the credit lane. Nothing can take stake to cover a default and no spread can be paid in until one is named again.'
-        : `Names ${plain(first)} as the credit lane allowed to take stake to cover a default and to pay the spread in.`;
+      if (isZero(first)) return 'Clears the credit manager. No spread can be paid in to stakers until one is named again.';
+      return isCreditPool(first)
+        ? `Names the collateralized lane’s credit pool, ${plain(first)}, as the staking pool’s credit manager, so the lane’s spread is paid to stakers. The credit pool has no call that takes stake.`
+        : `Names ${plain(first)} as the staking pool’s credit manager: the one address that can pay spread in and call its slash.`;
+    case 'setBondFloor':
+      return asBigint(args[1]) === 0n
+        ? `Returns resolver ${plain(first)} to the bond floor everyone else is held to.`
+        : `Sets the bond floor for resolver ${plain(first)} to ${formatBrsrAmount(brsr(asBigint(args[1])))}.`;
     case 'setUnbondingPeriod':
       return `Changes the staking exit wait to ${seconds(first)}. It applies to requests already pending, in both directions.`;
     case 'setMinBond':
