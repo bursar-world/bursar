@@ -10,7 +10,8 @@ import type { TermsDocument } from '@bursar/sdk';
 
 import { rhcClient } from '@/chain/client';
 import { committedFactories, privateContracts } from '@/chain/private';
-import { STEALTH_LIMIT_LINE, agentKeyFile, downloadFile, formatEth, ownerKeysFrom, scanOwnedMandates, sendFromStealth } from '@/chain/stealth';
+import { shieldedContracts, shieldedHref } from '@/chain/shielded';
+import { SHIELDED_TIMING_LINE, STEALTH_LIMIT_LINE, agentKeyFile, downloadFile, formatEth, ownerKeysFrom, scanOwnedMandates, sendFromStealth } from '@/chain/stealth';
 import type { OwnedPrivateMandate, OwnerKeys } from '@/chain/stealth';
 import { Address as AddressView } from '@/components/address';
 import { Badge } from '@/components/badge';
@@ -107,6 +108,7 @@ export function PrivateOwnersView() {
               )}
             </div>
             <p className="text-detail text-[color:var(--color-muted)]">{STEALTH_LIMIT_LINE}</p>
+            {shieldedContracts() && <p className="text-detail text-[color:var(--color-muted)]">{SHIELDED_TIMING_LINE}</p>}
             {problem && (
               <p className="text-detail" style={{ color: 'var(--color-state-blocked)' }}>
                 {problem}
@@ -230,6 +232,16 @@ function OwnedMandate({
           <Button size="sm" onClick={togglePause} disabled={busy || entry.revoked || entry.ownerGas === 0n}>
             {entry.paused ? 'Resume spending' : 'Pause spending'}
           </Button>
+          {shieldedContracts() && (
+            <>
+              <Link href={shieldedHref('mandate', entry.mandate)}>
+                <Button size="sm">Fund from shielded funds</Button>
+              </Link>
+              <Link href={shieldedHref('stealth-owner', entry.principal.stealthAddress as Address)}>
+                <Button size="sm">Send the owner gas from shielded funds</Button>
+              </Link>
+            </>
+          )}
         </div>
         {entry.ownerGas === 0n && (
           <p className="text-detail text-[color:var(--color-muted)]">The owner address holds no gas, so it cannot pause or resume until it gets some.</p>

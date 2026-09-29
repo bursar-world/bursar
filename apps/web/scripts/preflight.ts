@@ -1,4 +1,7 @@
+import { fileURLToPath } from 'node:url';
+
 import { refusal } from '../src/chain/preflight';
+import { copyShieldedArtifacts } from './shielded-artifacts';
 
 /**
  * Read the network this build is pointed at before anything is compiled.
@@ -12,5 +15,15 @@ const refused = refusal(process.env);
 
 if (refused !== undefined) {
   process.stderr.write(refused);
+  process.exit(1);
+}
+
+try {
+  copyShieldedArtifacts(
+    fileURLToPath(new URL('../../../circuits/privacy-pools', import.meta.url)),
+    fileURLToPath(new URL('../public/shielded', import.meta.url)),
+  );
+} catch (error) {
+  process.stderr.write(`shielded pool artifacts: ${error instanceof Error ? error.message : String(error)}\n`);
   process.exit(1);
 }

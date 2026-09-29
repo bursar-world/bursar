@@ -92,6 +92,9 @@ export function ConsoleView() {
             <Link href="/console/private">
               <Button size="sm">Private mandates</Button>
             </Link>
+            <Link href="/console/shielded">
+              <Button size="sm">Shielded funds</Button>
+            </Link>
             <Link href="/console/new">
               <Button tone="primary" size="sm">
                 Create a mandate

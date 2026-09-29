@@ -14,7 +14,9 @@ import { rhcClient } from '@/chain/client';
 import { randomSalt } from '@/chain/mandates';
 import { privateContracts } from '@/chain/private';
 import { CHAIN_ID } from '@/chain/rhc';
+import { shieldedContracts, shieldedHref } from '@/chain/shielded';
 import {
+  SHIELDED_TIMING_LINE,
   STEALTH_LIMIT_LINE,
   STEALTH_STEP_LABEL,
   agentGasWei,
@@ -234,9 +236,15 @@ function GasFor({
       {!ready && reading.data && (
         <div className="space-y-2">
           <p className="text-detail text-[color:var(--color-muted)]">
-            Send {formatEth(required - balance)} or more to the owner address from any wallet. Sending it from the connected
-            wallet is quickest and links the two on chain.
+            Send {formatEth(required - balance)} or more to the owner address. Sending it from the connected wallet is quickest
+            and links the two on chain. Sending it from your shielded funds leaves no such link: the relayer pays the gas along
+            with a small USDG withdrawal.
           </p>
+          {shieldedContracts() && (
+            <Link href={shieldedHref('stealth-owner', address)} target="_blank" className="text-sm underline underline-offset-2">
+              Send it from your shielded funds
+            </Link>
+          )}
           <TxButton
             label={`Send ${formatEth(required - balance)} from this wallet`}
             tone="secondary"
@@ -316,7 +324,7 @@ function StealthCreated({ created, prepared }: { readonly created: Created; read
       <Card>
         <div className="space-y-4">
           <FieldGrid columns={2}>
-            <Field label="Mandate address" hint="Send USDG here to fund it.">
+            <Field label="Mandate address" hint="Send USDG here to fund it, from your shielded funds to keep it unlinked.">
               <AddressView value={created.mandate} full />
             </Field>
             <Field label="Created in">
@@ -330,6 +338,7 @@ function StealthCreated({ created, prepared }: { readonly created: Created; read
             </Field>
           </FieldGrid>
           <p className="text-detail text-[color:var(--color-muted)]">{STEALTH_LIMIT_LINE}</p>
+          {shieldedContracts() && <p className="text-detail text-[color:var(--color-muted)]">{SHIELDED_TIMING_LINE}</p>}
           <p className="text-detail">
             The agent key file holds the agent’s private key and the readable terms. Give it to your agent runtime and to nobody
             else. You can download it again from your private mandates at any time.
@@ -341,6 +350,11 @@ function StealthCreated({ created, prepared }: { readonly created: Created; read
             <Button onClick={() => void fundAgent()} disabled={busy || sent !== undefined}>
               {sent ? 'Gas sent to the agent' : busy ? 'Sending' : 'Send the agent gas from the owner address'}
             </Button>
+            {shieldedContracts() && (
+              <Link href={shieldedHref('mandate', created.mandate)} className="self-center text-sm underline underline-offset-2">
+                Fund it from your shielded funds
+              </Link>
+            )}
             <Link href="/console/private" className="self-center text-sm underline underline-offset-2">
               Your private mandates
             </Link>

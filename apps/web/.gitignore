@@ -2,3 +2,6 @@
 next-env.d.ts
 out/
 *.tsbuildinfo
+
+# Copied from circuits/privacy-pools by scripts/preflight.ts, checked against its manifest.
+public/shielded/
