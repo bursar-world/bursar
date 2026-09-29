@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useState } from 'react';
+import { erc20Abi } from 'viem';
 import type { Address } from 'viem';
 import { useSignMessage } from 'wagmi';
 import { committedMandateAccountAbi, micro } from '@bursar/core';
@@ -12,7 +13,8 @@ import type { TermsDocument } from '@bursar/sdk';
 import { rhcClient } from '@/chain/client';
 import { PERIODS, privateContracts, readProvenPayments } from '@/chain/private';
 import type { CommittedRead } from '@/chain/private';
-import { sameAddress, shortAddress } from '@/chain/rhc';
+import { ADDRESSES, sameAddress, shortAddress } from '@/chain/rhc';
+import { AmountInput } from '@/components/amount-input';
 import { Address as AddressView, TxHash } from '@/components/address';
 import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
@@ -22,6 +24,7 @@ import { usd } from '@/money';
 import { useWalletAccount } from '@/wallet/account';
 import { ConnectButton } from '@/wallet/connect-button';
 import { useWriteContract } from '@/wallet/write';
+import { readUsdgAmount } from '../lib/amount';
 import { ShareWithResolver } from '../lib/share-with-resolver';
 import { PRIVATE_LIMIT_LINE } from '../new/private-create';
 
@@ -94,6 +97,8 @@ export function CommittedMandateView({ mandate, onRefresh }: { readonly mandate:
           </FieldGrid>
         </Card>
       </Section>
+
+      {connected !== undefined && !mandate.revoked && <Fund mandate={mandate} onDone={onRefresh} />}
 
       <Section title="Terms" description="Readable only with the viewing key of the wallet that created this mandate.">
         <Card>
@@ -278,6 +283,45 @@ export function TermsView({ terms, onLock }: { readonly terms: TermsDocument; re
         </Button>
       )}
     </div>
+  );
+}
+
+/**
+ * A private mandate is funded by a plain USDG transfer, so any wallet can send it. One transaction,
+ * no allowance. What it sends shows on chain, which is the funding link the page states above.
+ */
+function Fund({ mandate, onDone }: { readonly mandate: CommittedRead; readonly onDone: () => void }) {
+  const { writeContractAsync } = useWriteContract();
+  const [text, setText] = useState('');
+  const amount = readUsdgAmount(text);
+
+  return (
+    <Section title="Add funds" description="Send USDG from the connected wallet. The agent can spend it only inside the private terms.">
+      <Card>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-[14rem] flex-1">
+            <AmountInput
+              label="Amount"
+              asset="USDG"
+              value={text}
+              onChange={setText}
+              {...(amount.problem === undefined ? {} : { problem: amount.problem })}
+            />
+          </div>
+          <TxButton
+            label="Send it to the mandate"
+            disabled={amount.value === undefined || amount.value <= 0n}
+            send={() =>
+              writeContractAsync({ address: ADDRESSES.usdg, abi: erc20Abi, functionName: 'transfer', args: [mandate.address, amount.value as bigint] })
+            }
+            onContinue={() => {
+              setText('');
+              onDone();
+            }}
+          />
+        </div>
+      </Card>
+    </Section>
   );
 }
 
