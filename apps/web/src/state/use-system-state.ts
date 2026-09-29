@@ -8,6 +8,7 @@ import { probeProviders } from '../chain/client';
 import { readSystem } from '../chain/reader';
 import type { ReadScope } from '../chain/reader';
 import { evaluateAsset, evaluateConnectivity, evaluateFunding, evaluateMandate, evaluatePermission } from './evaluate';
+import type { Micro } from '@bursar/core';
 import type { AnyState, SystemState } from './types';
 import { useWalletAccount } from '../wallet/account';
 
@@ -19,6 +20,11 @@ export type SystemScope = ReadScope & {
   /** Past this age a reading is labelled stale on every surface that shows it. */
   readonly staleAfterMs?: number;
   readonly enabled?: boolean;
+  /**
+   * USDG a payment from this mandate can draw inside the same transaction, from parked value or a
+   * credit line, on an account built to do so. Undefined where it cannot or it is not known.
+   */
+  readonly drawable?: Micro;
 };
 
 const DEFAULT_REFETCH_MS = 12_000;
@@ -95,7 +101,7 @@ export function useSystemState(scope: SystemScope = {}): SystemState {
     const asset = evaluateAsset(snapshot, checkedAt, stale);
     const mandate = evaluateMandate(snapshot, checkedAt, stale, read.mandate);
     const permission = evaluatePermission(snapshot, checkedAt, stale);
-    const funding = evaluateFunding(snapshot, checkedAt, stale);
+    const funding = evaluateFunding(snapshot, checkedAt, stale, scope.drawable);
     const connectivity = evaluateConnectivity(providerHealth, CHAIN_ID, snapshot?.blockNumber, providerCheckedAt, providerStale);
 
     const all: readonly AnyState[] = [connectivity, asset, mandate, permission, funding];
@@ -132,6 +138,7 @@ export function useSystemState(scope: SystemScope = {}): SystemState {
     refetchProviders,
     read.mandate,
     staleAfterMs,
+    scope.drawable,
   ]);
 }
 

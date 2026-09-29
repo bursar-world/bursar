@@ -359,7 +359,7 @@ export function evaluatePermission(snapshot: ChainSnapshot | undefined, checkedA
  * mandate settles nothing. So every sentence here names the asset that is short, and the two are
  * never added, compared or summarised into one figure.
  */
-export function evaluateFunding(snapshot: ChainSnapshot | undefined, checkedAt: Date | null, stale: boolean): FundingState {
+export function evaluateFunding(snapshot: ChainSnapshot | undefined, checkedAt: Date | null, stale: boolean, drawable?: Micro): FundingState {
   const funding = snapshot?.funding;
   const account = snapshot?.mandate;
   const facts = {
@@ -375,12 +375,18 @@ export function evaluateFunding(snapshot: ChainSnapshot | undefined, checkedAt: 
     return report('funding', 'Funding', 'not-applicable', 'Nothing to fund yet.', 'Connect a wallet or choose a mandate, and this shows the USDG the account holds for payments and the ETH the signer holds for fees.', null, [], facts, checkedAt, stale);
   }
 
+  // An account that draws parked value or credit inside the payment is not short while the two
+  // together cover it, and telling its owner to fund it would contradict the spending power shown
+  // beside this.
+  const draw = drawable ?? 0n;
+  const drawNote = draw > 0n ? ` It can draw ${usd(draw as Micro)} more inside a payment, from parked value or its credit line.` : '';
+
   const checks: Check[] = [];
   if (funding.mandateBalance !== undefined && account) {
     checks.push({
       id: 'mandate-balance',
       label: 'Mandate account, USDG',
-      level: funding.mandateBalance === 0n ? 'blocked' : funding.mandateBalance < account.limits.perCallCap ? 'attention' : 'ok',
+      level: funding.mandateBalance === 0n && draw === 0n ? 'blocked' : funding.mandateBalance + draw < account.limits.perCallCap ? 'attention' : 'ok',
       detail:
         funding.mandateBalance === 0n
           ? `${shortAddress(account.address)} holds no USDG. Providers are paid out of this account.`
@@ -402,7 +408,7 @@ export function evaluateFunding(snapshot: ChainSnapshot | undefined, checkedAt: 
     return report('funding', 'Funding', 'blocked', 'The signer has no ETH for a transaction fee.', `Fees on ${RHC.name} are paid in ETH, and ${shortAddress(funding.gasPayer ?? '0x')} holds ${formatEth(funding.gasBalance)}. One payment costs about ${formatEth(ROUND_TRIP_FEE)}. USDG is a different asset here: funding the mandate account buys nothing a transaction can spend.`, { label: 'Send ETH to the signer', owner: 'principal', kind: 'fund' }, checks, facts, checkedAt, stale);
   }
 
-  if (account && funding.mandateBalance === 0n) {
+  if (account && funding.mandateBalance === 0n && draw === 0n) {
     return report('funding', 'Funding', 'blocked', 'The mandate account holds no USDG.', `Providers are paid in USDG out of ${shortAddress(account.address)}, and it holds none. Send USDG to that address to fund it. The signer's ETH pays transaction fees and never pays a provider.`, { label: 'Fund the mandate', owner: 'principal', kind: 'fund' }, checks, facts, checkedAt, stale);
   }
 
@@ -412,11 +418,11 @@ export function evaluateFunding(snapshot: ChainSnapshot | undefined, checkedAt: 
     return report('funding', 'Funding', 'attention', `About ${trips} payments of fees left.`, `${shortAddress(funding.gasPayer ?? '0x')} holds ${formatEth(funding.gasBalance)} and a payment costs about ${formatEth(ROUND_TRIP_FEE)}. Send it more ETH before a run stops halfway.`, { label: 'Send ETH to the signer', owner: 'principal', kind: 'fund' }, checks, facts, checkedAt, stale);
   }
 
-  if (account && funding.mandateBalance !== undefined && funding.mandateBalance < account.limits.perCallCap) {
-    return report('funding', 'Funding', 'attention', `The mandate holds ${usdg(funding.mandateBalance)}.`, `That is under the ${usd(account.limits.perCallCap)} this mandate allows in a single payment, so the largest payment it permits would fail on funds.`, { label: 'Fund the mandate', owner: 'principal', kind: 'fund' }, checks, facts, checkedAt, stale);
+  if (account && funding.mandateBalance !== undefined && funding.mandateBalance + draw < account.limits.perCallCap) {
+    return report('funding', 'Funding', 'attention', `The mandate holds ${usdg(funding.mandateBalance)}.`, `${drawNote.trim()} ${draw > 0n ? 'Together that is' : 'That is'} under the ${usd(account.limits.perCallCap)} this mandate allows in a single payment, so the largest payment it permits would fail on funds.`.trim(), { label: 'Fund the mandate', owner: 'principal', kind: 'fund' }, checks, facts, checkedAt, stale);
   }
 
-  const held = funding.mandateBalance === undefined ? '' : `The mandate holds ${usdg(funding.mandateBalance)} for payments. `;
+  const held = funding.mandateBalance === undefined ? '' : `The mandate holds ${usdg(funding.mandateBalance)} for payments.${drawNote} `;
   const fees = funding.gasBalance === undefined ? '' : `The signer holds ${formatEth(funding.gasBalance)} for fees.`;
 
   // A balance that was asked for and did not answer is not a balance that passed. "Funded in both

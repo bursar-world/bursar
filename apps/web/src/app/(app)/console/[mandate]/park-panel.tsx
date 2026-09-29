@@ -1,5 +1,6 @@
 'use client';
 
+import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { Micro } from '@bursar/core';
 import { mandateAccountAbi, treasuryParkAbi, usdgMicrosToRaw } from '@bursar/core';
@@ -15,7 +16,7 @@ import { TxButton } from '@/components/tx-button';
 import { bps, usd, usdExact } from '@/money';
 import { formatRelative } from '@/lib/time';
 import { readUsdgAmount } from '../lib/amount';
-import { feedPrice, hours, holdingValue, refuseEarly, tokenAmount, useRwa } from '../lib/rwa';
+import { drawsInsidePayment, feedPrice, hours, holdingValue, refuseEarly, tokenAmount, useRwa } from '../lib/rwa';
 import type { ParkPosition, RwaState } from '../lib/rwa';
 import { callGates, transferGates } from '../lib/write-gates';
 import { useMandateScope } from './mandate-scope';
@@ -37,10 +38,11 @@ export function ParkPanel() {
 }
 
 function ParkBody({ rwa, onChange }: { readonly rwa: RwaState; readonly onChange: () => void }) {
-  const { isOwner } = useMandateScope();
+  const { address, isOwner } = useMandateScope();
   const now = rwa.chainTime ?? new Date();
   const valuationStaleness = rwa.positions.find((p) => p.asset?.config)?.asset?.config?.valuationStaleness;
   const parked = rwa.positions.filter((p) => (p.raw ?? 0n) > 0n);
+  const draws = useQuery({ queryKey: ['console', 'draws', address], queryFn: () => drawsInsidePayment(address), staleTime: Infinity });
 
   return (
     <Section
@@ -65,7 +67,11 @@ function ParkBody({ rwa, onChange }: { readonly rwa: RwaState; readonly onChange
             <Stat
               label="Spending power"
               value={rwa.spendingPower === undefined ? 'Unread' : usdExact(rwa.spendingPower as Micro)}
-              hint="USDG in the mandate, USDG waiting in its parking vault, and the counted parked value."
+              hint={
+                draws.data === false
+                  ? 'USDG in the mandate, USDG waiting in its parking vault, and the counted parked value. This account pays only from the USDG it holds, so parked value has to be unparked before it can pay a provider.'
+                  : 'USDG in the mandate, USDG waiting in its parking vault, and the counted parked value. A payment the USDG on hand cannot cover unparks the difference in the same transaction.'
+              }
             />
             <Stat
               label="Buffer"
@@ -129,6 +135,8 @@ function ParkBody({ rwa, onChange }: { readonly rwa: RwaState; readonly onChange
             </p>
           )}
 
+          {!isOwner && <BufferNote rwa={rwa} />}
+
           {isOwner ? <OwnerForms rwa={rwa} onChange={onChange} /> : (
             <p className="text-detail text-[color:var(--color-muted)]">Only the owner can park and unpark.</p>
           )}
@@ -136,6 +144,12 @@ function ParkBody({ rwa, onChange }: { readonly rwa: RwaState; readonly onChange
       </Card>
     </Section>
   );
+}
+
+function BufferNote({ rwa }: { readonly rwa: RwaState }) {
+  const { account } = useMandateScope();
+  if (!account || (rwa.buffer ?? 0n) === 0n || parkableOf(account.balance, rwa.vaultHeld ?? 0n, rwa.buffer ?? 0n) > 0n) return null;
+  return <p className="text-detail text-[color:var(--color-muted)]">{bufferSentence(account.balance, rwa.buffer ?? 0n)}</p>;
 }
 
 function OwnerForms({ rwa, onChange }: { readonly rwa: RwaState; readonly onChange: () => void }) {
@@ -155,8 +169,12 @@ function OwnerForms({ rwa, onChange }: { readonly rwa: RwaState; readonly onChan
   };
   const vaultHeld = rwa.vaultHeld ?? 0n;
   const target = rwa.positions.find((p) => p.symbol === parkSymbol);
+  const parkable = parkableOf(account.balance, vaultHeld, rwa.buffer ?? 0n);
   const park = readUsdgAmount(parkText, {
-    ceiling: { most: (account.balance + vaultHeld) as Micro, over: `The mandate and its vault hold ${usd((account.balance + vaultHeld) as Micro)}.` },
+    ceiling: {
+      most: parkable as Micro,
+      over: `Up to ${usd(parkable as Micro)} can be parked while the mandate keeps its ${usd((rwa.buffer ?? 0n) as Micro)} buffer.`,
+    },
   });
   const shortfall = park.value === undefined ? 0n : park.value > vaultHeld ? park.value - vaultHeld : 0n;
 
@@ -209,9 +227,13 @@ function OwnerForms({ rwa, onChange }: { readonly rwa: RwaState; readonly onChan
               value={parkText}
               onChange={setParkText}
               {...(parkText.trim() === '' || park.problem === undefined ? {} : { problem: park.problem })}
-              hint={`This mandate holds ${usd(account.balance)}.`}
+              hint={`This mandate holds ${usd(account.balance)}. Up to ${usd(parkable as Micro)} can be parked.`}
             />
-            {shortfall > 0n ? (
+            {parkable === 0n ? (
+              <p className="text-detail" style={{ color: 'var(--color-state-attention)' }}>
+                {bufferSentence(account.balance, rwa.buffer ?? 0n)}
+              </p>
+            ) : shortfall > 0n ? (
               <TxButton
                 label="Move the USDG into the vault"
                 tone="secondary"
@@ -295,7 +317,10 @@ function OwnerForms({ rwa, onChange }: { readonly rwa: RwaState; readonly onChan
       </FieldGrid>
 
       <FieldGrid columns={2}>
-        <Field label="Buffer" hint="USDG the mandate keeps on hand. Parking stops while the balance is below it.">
+        <Field
+          label="Buffer"
+          hint={`USDG the mandate keeps on hand for payments, now ${usd((rwa.buffer ?? 0n) as Micro)}. Parking can only use what the mandate holds above it.`}
+        >
           <div className="space-y-3">
             <AmountInput
               label="Keep at least"
@@ -350,6 +375,20 @@ function OwnerForms({ rwa, onChange }: { readonly rwa: RwaState; readonly onChan
       </FieldGrid>
     </div>
   );
+}
+
+/**
+ * What can be parked now. The mandate has to hold at least its buffer once the USDG has moved to
+ * the vault, so only USDG already in the vault and the balance above the buffer can go.
+ */
+export function parkableOf(balance: bigint, vaultHeld: bigint, buffer: bigint): bigint {
+  return vaultHeld + (balance > buffer ? balance - buffer : 0n);
+}
+
+/** Why nothing can be parked, with the two ways out. */
+export function bufferSentence(balance: bigint, buffer: bigint): string {
+  if (buffer === 0n) return 'The mandate holds no USDG to park.';
+  return `Parking keeps ${usd(buffer as Micro)} in the account for payments. It holds ${usd(balance as Micro)}, so nothing can be parked until it holds more or the buffer is lowered.`;
 }
 
 function minBig(a: bigint, b: bigint): bigint {

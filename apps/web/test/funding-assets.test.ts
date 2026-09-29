@@ -266,3 +266,18 @@ describe('a reading that did not land', () => {
     expect(state.detail).toContain('Connect a wallet');
   });
 });
+
+describe('a mandate that draws parked value or credit inside a payment', () => {
+  it('is not told to fund itself while what it can draw covers the largest payment', () => {
+    const state = evaluateFunding(snapshot({ mandateBalance: micro(0n) }), NOW, false, micro(10_000_000_000n) as Micro);
+    expect(state.level).toBe('ok');
+    expect(state.detail).toContain('can draw');
+    expect(state.nextAction).toBeNull();
+  });
+
+  it('still warns when the two together fall short, and says both', () => {
+    const state = evaluateFunding(snapshot({ mandateBalance: micro(1n) }), NOW, false, micro(1n) as Micro);
+    expect(state.level).toBe('attention');
+    expect(state.detail).toContain('Together that is under');
+  });
+});

@@ -13,11 +13,13 @@ import {
 } from '@bursar/core';
 import type { RwaAssetKind, RwaDeployment } from '@bursar/core';
 import { decodeErrorResult, erc20Abi, formatUnits, zeroAddress } from 'viem';
+import { getCode, readContract } from 'viem/actions';
 import type { Abi, Address } from 'viem';
 
 import { ReadBatch, addChainTime, runBatch } from '@/chain/batch';
 import type { Slot } from '@/chain/batch';
 import { rhcClient } from '@/chain/client';
+import { collateralLane, readCollateralAccount } from '@/chain/collateral';
 import { ADDRESSES, CHAIN_ID } from '@/chain/rhc';
 import { formatDuration } from '@/lib/time';
 
@@ -321,4 +323,39 @@ export function useRwa(mandate: Address, enabled: boolean) {
     enabled: enabled && rwaLane() !== undefined,
     refetchInterval: 30_000,
   });
+}
+
+/**
+ * Length of the runtime code of a v2.1 mandate account, the build whose `spend` and `buy` draw a
+ * shortfall from their park (parked value or the collateral line) inside the same transaction. A v2
+ * account holds the same park and never draws from it. `chain/mandates.ts` fingerprints both.
+ */
+const DRAWING_BUILD_LENGTH = 20_331;
+
+/** Whether the account's own code draws from its park during a payment. */
+export async function drawsInsidePayment(mandate: Address): Promise<boolean> {
+  const code = await getCode(rhcClient(), { address: mandate });
+  return code !== undefined && (code.length - 2) / 2 === DRAWING_BUILD_LENGTH;
+}
+
+/**
+ * USDG a payment can pull in beyond what the account holds: the collateral line's headroom when the
+ * park is the collateral vault, the counted parked value when it is the treasury park. Zero for an
+ * account that cannot draw inside a payment.
+ */
+export async function readDrawable(mandate: Address): Promise<bigint> {
+  if (!(await drawsInsidePayment(mandate))) return 0n;
+  const park = (await readContract(rhcClient(), { address: mandate, abi: mandateAccountAbi as Abi, functionName: 'treasuryPark' })) as Address;
+  if (park === zeroAddress) return 0n;
+
+  const lane = collateralLane();
+  if (lane !== undefined && park.toLowerCase() === lane.CollateralVault.toLowerCase()) {
+    return (await readCollateralAccount(mandate, undefined))?.headroom ?? 0n;
+  }
+  const [rwa, held] = await Promise.all([
+    readRwa(mandate),
+    readContract(rhcClient(), { address: ADDRESSES.usdg, abi: settlementAssetAbi as Abi, functionName: 'balanceOf', args: [mandate] }) as Promise<bigint>,
+  ]);
+  const power = rwa?.spendingPower ?? 0n;
+  return power > held ? power - held : 0n;
 }
