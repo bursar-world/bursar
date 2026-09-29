@@ -42,7 +42,7 @@
     "fake-indexeddb": "^6.2.5",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.20.0",
-    "typescript": "^5.9.0"
+    "typescript": "^7.0.2"
   },
   "engines": {
     "node": ">=22"
