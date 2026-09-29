@@ -37,7 +37,7 @@ export type PrivatePaymentReceipt = {
 
 type Client = Pick<
   PublicClient,
-  'getLogs' | 'readContract' | 'getTransaction' | 'getBlock' | 'simulateContract' | 'waitForTransactionReceipt' | 'request' | 'chain'
+  'getLogs' | 'readContract' | 'getTransaction' | 'getBlock' | 'simulateContract' | 'estimateContractGas' | 'waitForTransactionReceipt' | 'request' | 'chain'
 >;
 
 export function privateAgent(handoff: AgentHandoff, client: Client) {
@@ -77,7 +77,10 @@ export function privateAgent(handoff: AgentHandoff, client: Client) {
       args,
       account,
     });
-    const hash = await wallet.writeContract({ ...request, gas: 900_000n });
+    // Robinhood Chain bills the L1 data inside gasUsed, and a sealed brief is long, so the limit is
+    // estimated per call rather than fixed.
+    const gas = await client.estimateContractGas({ ...request, account });
+    const hash = await wallet.writeContract({ ...request, gas: (gas * 6n) / 5n });
     const receipt = await client.waitForTransactionReceipt({ hash });
     if (receipt.status !== 'success') throw new Error(`The spend reverted: ${hash}`);
     return { hash, escrowId: result, sealed: viewingKey !== null, receipt };
