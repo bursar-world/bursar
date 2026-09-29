@@ -68,6 +68,20 @@ export type Deployment = {
   readonly note?: string;
   /** The RWA lane (asset registry, price guard, stock router, treasury park), where deployed. */
   readonly rwa?: RwaDeployment;
+  /** Committed mandates, disclosure grants and the solvency log (M4), where deployed. */
+  readonly privacy?: PrivacyDeployment;
+};
+
+export type PrivacyDeployment = {
+  readonly WithinMandateVerifier: Address;
+  /** Committed mandates that lock on this record's escrow. */
+  readonly CommittedMandateFactory: Address;
+  /** Committed mandates that lock on the previous record's escrow, where one was deployed. */
+  readonly CommittedMandateFactoryV1Escrow?: Address;
+  readonly DisclosureRegistry: Address;
+  readonly SolvencyLog: Address;
+  /** First block to scan for privacy events. */
+  readonly fromBlock: number;
 };
 
 export type RwaAssetKind = 'stock' | 'treasury';
@@ -173,6 +187,7 @@ export function parseDeployment(json: unknown, label = 'record'): Deployment {
   }
 
   const rwa = record['rwa'] === undefined ? undefined : parseRwa(record['rwa'], name);
+  const privacy = record['privacy'] === undefined ? undefined : parsePrivacy(record['privacy'], name);
 
   const optionalString = (key: string): string | undefined => {
     const value = record[key];
@@ -207,7 +222,27 @@ export function parseDeployment(json: unknown, label = 'record'): Deployment {
       : { deployCostUsdc: optionalString('deployCostUsdc') }),
     ...(optionalString('note') === undefined ? {} : { note: optionalString('note') }),
     ...(rwa === undefined ? {} : { rwa }),
+    ...(privacy === undefined ? {} : { privacy }),
   }) as Deployment;
+}
+
+function parsePrivacy(json: unknown, name: string): PrivacyDeployment {
+  const r = object(json, name, 'privacy');
+  const label = `${name}.privacy`;
+  const fromBlock = r['fromBlock'];
+  if (typeof fromBlock !== 'number' || !Number.isInteger(fromBlock) || fromBlock < 0) {
+    throw new DeploymentError(label, 'fromBlock is not a block number.');
+  }
+  return Object.freeze({
+    WithinMandateVerifier: address(r, label, 'WithinMandateVerifier'),
+    CommittedMandateFactory: address(r, label, 'CommittedMandateFactory'),
+    ...(r['CommittedMandateFactoryV1Escrow'] === undefined
+      ? {}
+      : { CommittedMandateFactoryV1Escrow: address(r, label, 'CommittedMandateFactoryV1Escrow') }),
+    DisclosureRegistry: address(r, label, 'DisclosureRegistry'),
+    SolvencyLog: address(r, label, 'SolvencyLog'),
+    fromBlock,
+  });
 }
 
 function parseRwa(json: unknown, name: string): RwaDeployment {

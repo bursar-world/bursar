@@ -90,6 +90,7 @@ export type {
   MandateContractName,
   RwaAssetKind,
   RwaAssetRecord,
+  PrivacyDeployment,
   RwaDeployment,
 } from './deployments.js';
 
@@ -116,6 +117,7 @@ export {
 } from './generated/abi.js';
 
 export { RWA_CLASS_BIT, rwaDeployment, rawToUsdgMicros, usdgMicrosToRaw } from './rwa.js';
+export { privacyDeployment } from './privacy.js';
 
 export {
   adminTimelockAbiV1,

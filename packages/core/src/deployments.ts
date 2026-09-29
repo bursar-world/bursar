@@ -19,6 +19,7 @@ export type {
   MandateContractName,
   RwaAssetKind,
   RwaAssetRecord,
+  PrivacyDeployment,
   RwaDeployment,
 } from './deployment-record.js';
 
