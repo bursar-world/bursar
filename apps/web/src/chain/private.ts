@@ -78,6 +78,9 @@ export function readPrivateForm(form: PrivateForm, now: number = Date.now()): Pr
   if (periodCap !== undefined && totalCap !== undefined && totalCap < periodCap) {
     problems.push('The total budget cannot be smaller than the period cap.');
   }
+  if (totalCap !== undefined && totalCap > PRIVATE_TOTAL_CEILING) {
+    problems.push('A private mandate can have a total budget of at most $25.00 for now.');
+  }
   const classes = (Object.keys(form.classes) as CommittedClass[]).filter((id) => form.classes[id]);
   if (classes.length === 0) problems.push('Allow services, agent hires, or both.');
   if (form.counterparties.length === 0) problems.push('Name at least one provider this mandate may pay.');
@@ -96,6 +99,9 @@ export function readPrivateForm(form: PrivateForm, now: number = Date.now()): Pr
     problems: [],
   };
 }
+
+/** The largest total budget the console will seal into private terms, while the proof system is new. */
+export const PRIVATE_TOTAL_CEILING = 25_000_000n;
 
 export type CommittedRead = {
   readonly address: Address;

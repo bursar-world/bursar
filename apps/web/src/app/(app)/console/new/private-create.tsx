@@ -25,7 +25,7 @@ import { ChipList } from '../chip-list';
 import { StealthCreate, StealthToggle } from './stealth-create';
 
 export const PRIVATE_LIMIT_LINE =
-  'The amount and the provider of each payment are visible on chain. The terms are not: the chain holds a commitment to them, and only your viewing key opens the readable copy.';
+  'The amount and the provider of each payment are visible on chain. The terms are not: the chain holds a commitment to them, and only your viewing key opens the readable copy. A private mandate can have a total budget of at most $25.00 for now.';
 
 type Created = { readonly address: Address; readonly hash: Hex; readonly terms: TermsDocument; readonly saved: boolean };
 
