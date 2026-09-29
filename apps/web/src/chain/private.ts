@@ -132,7 +132,11 @@ export async function readCommittedMandate(address: Address): Promise<CommittedR
   let factory: Address;
   try {
     factory = await client.readContract({ address, abi, functionName: 'factory' });
-  } catch {
+  } catch (error) {
+    // Only the contract's own answer says this is not a private mandate. A dropped or metered
+    // request says nothing, and treating it as a no would show a private mandate's page as a
+    // standard one.
+    if (notAnAnswer(error)) throw error;
     return undefined;
   }
   if (!factories.some((known) => sameAddress(known, factory))) return undefined;
@@ -154,6 +158,16 @@ export async function readCommittedMandate(address: Address): Promise<CommittedR
   const balance = await client.readContract({ address: asset, abi: settlementAssetAbi, functionName: 'balanceOf', args: [address] });
 
   return { address, factory, principal, agent, escrow, verifier, paused, revoked, version, nonce, termsCommitment, balance };
+}
+
+/** True for a failure of the request itself, as opposed to the contract refusing the call. */
+function notAnAnswer(error: unknown): boolean {
+  for (let cause = error as { name?: string; cause?: unknown } | undefined; cause !== undefined; cause = cause.cause as typeof cause) {
+    if (cause.name === 'ContractFunctionRevertedError' || cause.name === 'ContractFunctionZeroDataError') return false;
+    if (cause.name === 'HttpRequestError' || cause.name === 'TimeoutError' || cause.name === 'RpcRequestError' || cause.name === 'LimitExceededRpcError') return true;
+    if (cause.cause === undefined) break;
+  }
+  return false;
 }
 
 export type ProvenPayment = {
