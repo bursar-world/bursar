@@ -226,7 +226,7 @@ export {
   viewingKeyOfMetaAddress,
 } from './seal.js';
 
-export { VIEWING_KEY_VERSION, deriveViewingKey, viewingKeyMessage } from './viewing-key.js';
+export { VIEWING_KEY_VERSION, deriveSpendingKey, deriveViewingKey, viewingKeyMessage } from './viewing-key.js';
 export type { ViewingKey } from './viewing-key.js';
 
 export {
@@ -247,3 +247,36 @@ export type { CommittedClass, Commitment, SealedTermsRecord, TermsDocument, Term
 
 export { disclosureSlice, openDisclosure } from './disclosure.js';
 export type { DisclosureSlice, OpenedDisclosure } from './disclosure.js';
+
+export {
+  ERC5564_ANNOUNCER,
+  STEALTH_ROLES,
+  announceArgs,
+  announcementMetadata,
+  checkStealthAddress,
+  computeStealthKey,
+  deriveStealthKeys,
+  erc5564AnnouncerAbi,
+  fetchAnnouncements,
+  generateStealthAddress,
+  metaAddressURI,
+  parseMetaAddress,
+  planStealthMandate,
+  recoverStealthMandates,
+  registerKeysArgs,
+  scanAnnouncements,
+} from './stealth.js';
+export type {
+  Announcement,
+  GeneratedStealthAddress,
+  MetaAddressKeys,
+  RecoveredMandate,
+  StealthIdentity,
+  StealthKeys,
+  StealthMandatePlan,
+  StealthMatch,
+  StealthRole,
+} from './stealth.js';
+
+export { AGENT_HANDOFF_KIND, agentHandoff, agentHandoffFileName, readAgentHandoff } from './handoff.js';
+export type { AgentHandoff } from './handoff.js';

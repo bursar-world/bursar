@@ -26,6 +26,10 @@
       "types": "./dist/prove.d.ts",
       "import": "./dist/prove.js"
     },
+    "./agent": {
+      "types": "./dist/private-agent.d.ts",
+      "import": "./dist/private-agent.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

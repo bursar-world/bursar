@@ -42,17 +42,37 @@ export type ViewingKey = {
 
 const SALT = new TextEncoder().encode('bursar.viewing-key.v1');
 
-export function deriveViewingKey(signature: Hex): ViewingKey {
+function signatureBytes(signature: Hex): Uint8Array {
   const ikm = hexToBytes(signature);
   if (ikm.length < 64) throw new Error('A viewing key needs a full wallet signature.');
-  const termsKey = hkdf(sha256, ikm, SALT, 'terms', 32);
+  return ikm;
+}
+
+function scalarKey(ikm: Uint8Array, info: string): Hex {
   // 48 bytes reduced mod n - 1 leaves a bias of about 2^-128, and the +1 keeps the key off zero.
-  const wide = BigInt(bytesToHex(hkdf(sha256, ikm, SALT, 'secp256k1', 48)));
+  const wide = BigInt(bytesToHex(hkdf(sha256, ikm, SALT, info, 48)));
   const scalar = (wide % (secp256k1.CURVE.n - 1n)) + 1n;
-  const privateKey: Hex = `0x${scalar.toString(16).padStart(64, '0')}`;
+  return `0x${scalar.toString(16).padStart(64, '0')}`;
+}
+
+export function deriveViewingKey(signature: Hex): ViewingKey {
+  const ikm = signatureBytes(signature);
+  const privateKey = scalarKey(ikm, 'secp256k1');
   return {
-    termsKey,
+    termsKey: hkdf(sha256, ikm, SALT, 'terms', 32),
     privateKey,
     publicKey: bytesToHex(secp256k1.getPublicKey(hexToBytes(privateKey), true)),
   };
+}
+
+/**
+ * The spending half of the principal's ERC-5564 keys, from the same signature.
+ *
+ * It is a separate HKDF output, so handing someone the viewing key (to scan or to open sealed
+ * payloads) does not hand them this one. Every stealth address the principal controls is this key
+ * plus a per-address tweak, so it never signs a transaction itself.
+ */
+export function deriveSpendingKey(signature: Hex): { readonly privateKey: Hex; readonly publicKey: Hex } {
+  const privateKey = scalarKey(signatureBytes(signature), 'stealth-spending');
+  return { privateKey, publicKey: bytesToHex(secp256k1.getPublicKey(hexToBytes(privateKey), true)) };
 }
