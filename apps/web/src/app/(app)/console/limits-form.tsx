@@ -81,11 +81,11 @@ const SHORT_WINDOWS: readonly { readonly seconds: number; readonly label: string
  * so editing one of those does not quietly turn its cap into a lifetime total.
  */
 const LONG_WINDOWS: readonly { readonly seconds: number; readonly label: string }[] = [
-  { seconds: NEVER_REFILLS, label: 'Never. It is a total budget' },
-  { seconds: 7 * DAY_SECONDS, label: 'Every 7 days' },
-  { seconds: MONTH_SECONDS, label: 'Every 30 days' },
-  { seconds: 90 * DAY_SECONDS, label: 'Every 90 days' },
-  { seconds: 365 * DAY_SECONDS, label: 'Every 365 days' },
+  { seconds: NEVER_REFILLS, label: 'A total budget, which never refills' },
+  { seconds: 7 * DAY_SECONDS, label: 'A second cap, refilled every 7 days' },
+  { seconds: MONTH_SECONDS, label: 'A second cap, refilled every 30 days' },
+  { seconds: 90 * DAY_SECONDS, label: 'A second cap, refilled every 90 days' },
+  { seconds: 365 * DAY_SECONDS, label: 'A second cap, refilled every 365 days' },
 ];
 
 /** Whether this draft's second window is the total budget. */
@@ -290,7 +290,7 @@ export function LimitsFields({
   const longWindows = withCurrent(
     separateTotal ? LONG_WINDOWS.filter((entry) => entry.seconds !== NEVER_REFILLS) : LONG_WINDOWS,
     draft.longWindow,
-    'Every ',
+    'A second cap, refilled every ',
   );
 
   return (
@@ -350,7 +350,7 @@ export function LimitsFields({
           problem={problemFor(problems, 'dailyWindow')}
         />
         <Select
-          label={total ? 'Total budget refills' : 'Second cap refills'}
+          label="Overall limit"
           value={String(draft.longWindow)}
           disabled={disabled}
           onChange={(value) => set('longWindow', Number(value))}
@@ -576,7 +576,7 @@ function DateField({
   );
 }
 
-function Choice({
+export function Choice({
   name,
   checked,
   onSelect,

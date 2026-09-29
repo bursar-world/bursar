@@ -2,6 +2,7 @@ import type { SpendClass } from '@bursar/core';
 import type { TermsDocument } from '@bursar/sdk';
 
 import type { LimitsDraft } from '@/app/(app)/console/limits-form';
+import type { FundingLane } from '@/chain/mandates';
 import { EMPTY_DRAFT } from '@/app/(app)/console/limits-form';
 
 /**
@@ -30,6 +31,8 @@ export type MandateDraft = {
   readonly classes: Readonly<Record<SpendClass, boolean>>;
   readonly capabilities: readonly DraftCapability[];
   readonly payees: readonly string[];
+  /** How the mandate will be funded. Absent in drafts saved before the choice existed: prefund. */
+  readonly lane?: FundingLane;
   readonly createdAt: string;
   readonly updatedAt: string;
   /** Set once the draft has been deployed from the create screen. */
@@ -64,6 +67,7 @@ export function newDraft(now = new Date()): MandateDraft {
     classes: { service: true, hire: false, rwa: false },
     capabilities: [],
     payees: [],
+    lane: 'prefund',
     createdAt: at,
     updatedAt: at,
     activated: null,

@@ -11,7 +11,14 @@ import { CreateWorkspaceForm, ImportBackupForm, UnlockForm } from './passphrase'
  * Whatever a workspace screen needs before it can show a draft: a workspace, and the passphrase
  * that opens it. Children render only once it is open.
  */
-export function WorkspaceGate({ children }: { readonly children: (workspace: Workspace) => ReactNode }) {
+export function WorkspaceGate({
+  children,
+  withoutWorkspace,
+}: {
+  readonly children: (workspace: Workspace) => ReactNode;
+  /** Said first when this browser holds no workspace at all, for a screen that expected one. */
+  readonly withoutWorkspace?: ReactNode;
+}) {
   const { view } = useWorkspace();
 
   switch (view.status) {
@@ -30,9 +37,12 @@ export function WorkspaceGate({ children }: { readonly children: (workspace: Wor
       );
     case 'none':
       return (
-        <div className="grid gap-6 lg:grid-cols-2">
-          <CreateWorkspaceForm />
-          <ImportBackupForm replacing={false} />
+        <div className="space-y-6">
+          {withoutWorkspace}
+          <div className="grid gap-6 lg:grid-cols-2">
+            <CreateWorkspaceForm />
+            <ImportBackupForm replacing={false} />
+          </div>
         </div>
       );
     case 'locked':

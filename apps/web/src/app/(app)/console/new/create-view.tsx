@@ -6,11 +6,11 @@ import { useEffect, useRef, useState } from 'react';
 import { parseEventLogs } from 'viem';
 import type { Address, Hex, TransactionReceipt } from 'viem';
 
-import { ADDRESSES, ZERO_ADDRESS, shortAddress } from '@/chain/rhc';
+import { ZERO_ADDRESS, shortAddress } from '@/chain/rhc';
 import { mandateAccountAbi, mandateAccountFactoryAbi } from '@/chain/abi';
 import { toLimitsTuple } from '@/chain/limits';
-import { predictMandateSlot, randomSalt } from '@/chain/mandates';
-import type { PredictedMandate } from '@/chain/mandates';
+import { laneAvailable, laneParkOf, laneValue, newMandateFactory, predictMandateSlot, randomSalt } from '@/chain/mandates';
+import type { FundingLane, PredictedMandate } from '@/chain/mandates';
 import { Address as AddressView, TxHash } from '@/components/address';
 import { Button } from '@/components/button';
 import { ErrorSurface } from '@/components/error-surface';
@@ -41,13 +41,15 @@ import { draftTitle } from '@/workspace/model';
 import type { MandateDraft } from '@/workspace/model';
 import { UnlockForm } from '../../workspace/passphrase';
 import { PrivateCreate, PrivateToggle } from './private-create';
+import { LANE_FOLLOW_UPS, LANE_NAME, LaneFields } from './lane-fields';
+import { LaneGates } from './lane-gates';
 
 type Created = { readonly address: Address; readonly hash: Hex };
 type Capability = { readonly label: string; readonly id: Hex };
 type CreateArgs = readonly [Address, Address, Hex, ReturnType<typeof toLimitsTuple>];
 
 /** What was handed to the wallet, and where it said the account would land. */
-type Submitted = { readonly args: CreateArgs; readonly slot: PredictedMandate };
+type Submitted = { readonly args: CreateArgs; readonly slot: PredictedMandate; readonly factory: Address; readonly lane: FundingLane };
 
 /**
  * Whether a create is in the air, or already landed.
@@ -78,7 +80,7 @@ const GATE_REFETCH_MS = 15_000;
  * limits alone. Nothing is unsafe in between: a mandate refuses every payee and every capability it
  * has not been told to allow, so a setup abandoned halfway spends nothing.
  */
-export function CreateMandateView({ draftId }: { readonly draftId?: string } = {}) {
+export function CreateMandateView({ draftId, lane: askedLane }: { readonly draftId?: string; readonly lane?: FundingLane } = {}) {
   const { address: owner, isConnected } = useWalletAccount();
   const { writeContractAsync } = useWriteContract();
   const { remember } = useCapabilityLabels();
@@ -91,6 +93,7 @@ export function CreateMandateView({ draftId }: { readonly draftId?: string } = {
   const [payees, setPayees] = useState<readonly Address[]>([]);
   const [classes, setClasses] = useState<ClassSelection>({ service: true, hire: false, rwa: false });
   const [classed, setClassed] = useState<readonly ClassedCapability[]>([]);
+  const [lane, setLane] = useState<FundingLane>(askedLane !== undefined && laneAvailable(askedLane) ? askedLane : 'prefund');
   const [salt, setSalt] = useState<Hex | undefined>(undefined);
   const [created, setCreated] = useState<Created | undefined>(undefined);
   const [phase, setPhase] = useState<TxPhase>('idle');
@@ -119,6 +122,7 @@ export function CreateMandateView({ draftId }: { readonly draftId?: string } = {
     setPayees(source.payees.map((entry) => readAddress(entry).value).filter((entry): entry is Address => entry !== undefined));
     setClasses(source.classes);
     setClassed(source.capabilities);
+    if (source.lane !== undefined && laneAvailable(source.lane)) setLane(source.lane);
   }, [source]);
 
   // The receipt and the reader are two different events. The account exists the moment the receipt
@@ -138,7 +142,9 @@ export function CreateMandateView({ draftId }: { readonly draftId?: string } = {
 
   // The classes go into the account itself as a bit mask, which the contract checks on every spend.
   const classMask = classMaskOf(SPEND_CLASSES.filter((id) => classes[id]));
-  const reading = readDraft(draft, Date.now(), { contractSet: 'v2', classMask });
+  const reading = readDraft(draft, Date.now(), { contractSet: 'v2', classMask, lane: laneValue(lane) });
+  const factory = newMandateFactory();
+  const followUps = LANE_FOLLOW_UPS[lane];
   const agentReading = readAddress(agentText);
   const agent: Address | undefined = seatLater ? ZERO_ADDRESS : agentReading.value;
   const ready = owner !== undefined && agent !== undefined && reading.limits !== undefined && salt !== undefined;
@@ -146,7 +152,7 @@ export function CreateMandateView({ draftId }: { readonly draftId?: string } = {
   // Every keystroke in the limits is a different set of inputs and so a different address, and
   // asking the factory about each one sends seven calls to spell out a daily cap. The address is
   // read once the typing stops.
-  const inputs = `${owner ?? ''}|${agent ?? ''}|${salt ?? ''}|${JSON.stringify(reading.limits, replacer)}`;
+  const inputs = `${factory}|${owner ?? ''}|${agent ?? ''}|${salt ?? ''}|${JSON.stringify(reading.limits, replacer)}`;
   const settled = useSettled(inputs, TYPING_PAUSE_MS) === inputs;
 
   const predicted = useQuery({
@@ -157,6 +163,7 @@ export function CreateMandateView({ draftId }: { readonly draftId?: string } = {
         agent: agent as Address,
         salt: salt as Hex,
         limits: reading.limits!,
+        factory,
       }),
     enabled: ready && settled,
     // The factory computes the address from the inputs, so the same inputs always give the same
@@ -176,12 +183,12 @@ export function CreateMandateView({ draftId }: { readonly draftId?: string } = {
   const submit = () => {
     if (slot === undefined || !ready) return Promise.reject(new Error('The mandate address has not been read yet.'));
     // The factory takes a create only from the principal it names, which is the connected wallet.
-    const sent: Submitted = { slot, args: [owner, agent, salt, toLimitsTuple(reading.limits!)] };
+    const sent: Submitted = { slot, factory, lane, args: [owner, agent, salt, toLimitsTuple(reading.limits!)] };
     setSubmitted(sent);
     // Kept now so the gate rows after the deploy read names, not hashes.
     for (const capability of capabilities) remember(capability.label);
     return writeContractAsync({
-      address: ADDRESSES.mandateAccountFactory,
+      address: sent.factory,
       abi: mandateAccountFactoryAbi,
       functionName: 'create',
       args: sent.args,
@@ -201,10 +208,14 @@ export function CreateMandateView({ draftId }: { readonly draftId?: string } = {
   const shownOwner = owner ?? submitted?.args[0];
   if (shownOwner === undefined || (!isConnected && !frozen)) {
     return (
-      <Section title="Create a mandate" description="A mandate is owned by the wallet that creates it.">
+      <Section
+        title={askedLane !== undefined && laneAvailable(askedLane) ? `Create a mandate · ${LANE_NAME[askedLane]} lane` : 'Create a mandate'}
+        description="A mandate is owned by the wallet that creates it."
+      >
         <EmptyState title="Connect the wallet that will own this mandate." action={<ConnectButton />}>
           The owner sets the limits, funds the account, approves the payments above the threshold, and can take the
           funds back at any time.
+          {askedLane !== undefined && laneAvailable(askedLane) && ` The ${LANE_NAME[askedLane]} funding lane is chosen for you once the wallet connects.`}
         </EmptyState>
       </Section>
     );
@@ -233,7 +244,7 @@ export function CreateMandateView({ draftId }: { readonly draftId?: string } = {
 
   if (created && opened) {
     return (
-      <OpenTheGates created={created} payees={payees} capabilities={capabilities} />
+      <OpenTheGates created={created} payees={payees} capabilities={capabilities} lane={submitted?.lane ?? lane} />
     );
   }
 
@@ -270,6 +281,12 @@ export function CreateMandateView({ draftId }: { readonly draftId?: string } = {
                 </span>
               </label>
             </div>
+          </Card>
+          <Card
+            title="How it is funded"
+            description="The funding lane is written into the account when it is created. Pick the one you mean to use; it cannot be switched into later."
+          >
+            <LaneFields lane={lane} onChange={setLane} disabled={frozen} />
           </Card>
         </Section>
 
@@ -380,9 +397,13 @@ export function CreateMandateView({ draftId }: { readonly draftId?: string } = {
               <Field label="Creating it costs" hint="Paid in ETH by the connected wallet, at the fee this chain has been charging.">
                 <span className="tabular">{formatEth(DEPLOY_FEE)}</span>
               </Field>
-              <Field label="Then" hint="Each payee and each capability is a separate transaction, and each is cheap.">
+              <Field label="Then" hint="Each payee, each capability and each lane step is a separate transaction, and each is cheap.">
                 {payees.length} payee{payees.length === 1 ? '' : 's'}, {capabilities.length} capabilit
                 {capabilities.length === 1 ? 'y' : 'ies'}
+                {followUps.length > 0 && `, then ${followUps.join(' and ')}`}
+              </Field>
+              <Field label="Funding lane" hint="Written into the account.">
+                {LANE_NAME[lane]}
               </Field>
             </FieldGrid>
 
@@ -472,10 +493,12 @@ function OpenTheGates({
   created,
   payees,
   capabilities,
+  lane,
 }: {
   readonly created: Created;
   readonly payees: readonly Address[];
   readonly capabilities: readonly Capability[];
+  readonly lane: FundingLane;
 }) {
   const { writeContractAsync } = useWriteContract();
   const system = useSystemState({ mandate: created.address });
@@ -529,7 +552,7 @@ function OpenTheGates({
       >
         <Card>
           <div className="space-y-4">
-            {payees.length === 0 && capabilities.length === 0 && (
+            {payees.length === 0 && capabilities.length === 0 && lane === 'prefund' && (
               <p className="text-detail text-[color:var(--color-muted)]">
                 You listed no payee and no capability. The mandate refuses every payment until you allow at least one of
                 each, which you can do from its own screen.
@@ -575,6 +598,10 @@ function OpenTheGates({
                 context={{ mandate: created.address, funding: system.funding.facts, capabilityId: capability.id, capability: capability.label }}
               />
             ))}
+
+            {laneParkOf(lane) !== undefined && (
+              <LaneGates mandate={created.address} lane={lane} blockedBy={blockedBy} context={{ mandate: created.address, funding: system.funding.facts }} />
+            )}
 
             {gates.error !== null && gates.error !== undefined && (
               <ErrorSurface

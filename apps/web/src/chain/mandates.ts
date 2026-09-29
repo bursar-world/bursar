@@ -1,4 +1,4 @@
-import { deploymentsForChain, isTotalBudgetWindow, micro } from '@bursar/core';
+import { COLLATERAL_LANE, collateralDeployment, deploymentsForChain, isTotalBudgetWindow, micro, rwaDeployment } from '@bursar/core';
 import type { ContractSet, Micro } from '@bursar/core';
 import { getCode, readContract } from 'viem/actions';
 import { bytesToHex, hexToBytes, keccak256 } from 'viem';
@@ -64,6 +64,62 @@ export function mandateFactories(): readonly Address[] {
     }
   }
   return out;
+}
+
+/**
+ * A live mandate anyone can read, for a visitor with no wallet. The record's `exampleMandate`; the
+ * core package does not carry that field, so it is named here per chain.
+ */
+export function exampleMandate(): Address | undefined {
+  return CHAIN_ID === 4663 ? '0x420BeB507F72173E7d78e0f956968f64fb508356' : undefined;
+}
+
+/**
+ * How a mandate is funded, as the website names the three lanes.
+ *
+ * Prefund holds USDG and spends it. Treasury parks the idle part in a treasury token and the
+ * account unparks it inside a spend. Collateral borrows the shortfall against stock or treasury
+ * tokens posted to the vault. Treasury and collateral need the v2.1 account, which is the one that
+ * asks its park for USDG inside a spend; the vault also refuses any account outside lane 1.
+ */
+export type FundingLane = 'prefund' | 'treasury' | 'collateral';
+
+export const FUNDING_LANES: readonly FundingLane[] = ['prefund', 'treasury', 'collateral'];
+
+export const LANE_NAME: Readonly<Record<FundingLane, string>> = {
+  prefund: 'Prefund',
+  treasury: 'Treasury',
+  collateral: 'Collateral',
+};
+
+export function readFundingLane(value: unknown): FundingLane | undefined {
+  return typeof value === 'string' && (FUNDING_LANES as readonly string[]).includes(value) ? (value as FundingLane) : undefined;
+}
+
+/** The value written into the account's `lane` field. Treasury is lane 0 with a park named. */
+export function laneValue(lane: FundingLane): number {
+  return lane === 'collateral' ? COLLATERAL_LANE : 0;
+}
+
+/** Where a lane's account names its park after it is created, if anywhere. */
+export function laneParkOf(lane: FundingLane): Address | undefined {
+  if (lane === 'treasury') return rwaDeployment(CHAIN_ID)?.TreasuryPark;
+  if (lane === 'collateral') return collateralDeployment(CHAIN_ID)?.CollateralVault;
+  return undefined;
+}
+
+/** Whether this chain carries the contracts a lane needs. Prefund always works. */
+export function laneAvailable(lane: FundingLane): boolean {
+  if (lane === 'prefund') return true;
+  return rwaDeployment(CHAIN_ID)?.MandateAccountFactoryV21 !== undefined && laneParkOf(lane) !== undefined;
+}
+
+/**
+ * The factory new mandates are created through. The v2.1 factory when the chain has one, for every
+ * lane, so a prefund mandate can take a park later; otherwise the record's own.
+ */
+export function newMandateFactory(): Address {
+  return rwaDeployment(CHAIN_ID)?.MandateAccountFactoryV21 ?? ADDRESSES.mandateAccountFactory;
 }
 
 /**
@@ -213,9 +269,11 @@ export async function predictMandate(args: {
   readonly agent: Address;
   readonly salt: Hex;
   readonly limits: LimitsForm;
+  /** The factory the create will go through. The same inputs land elsewhere on another factory. */
+  readonly factory?: Address;
 }): Promise<Address> {
   return (await readContract(rhcClient(), {
-    address: ADDRESSES.mandateAccountFactory,
+    address: args.factory ?? ADDRESSES.mandateAccountFactory,
     abi: mandateAccountFactoryAbi,
     functionName: 'predict',
     args: [args.principal, args.agent, args.salt, toLimitsTuple(args.limits)],
@@ -237,6 +295,7 @@ export async function predictMandateSlot(args: {
   readonly agent: Address;
   readonly salt: Hex;
   readonly limits: LimitsForm;
+  readonly factory?: Address;
 }): Promise<PredictedMandate> {
   const address = await predictMandate(args);
   const code = await getCode(rhcClient(), { address });

@@ -22,17 +22,25 @@ import type { PlannedSpend, RuleCheckResult } from '@/workspace/rule-check';
 import { ChipList } from '../../../console/chip-list';
 import { LimitsFields, readDraft } from '../../../console/limits-form';
 import { SpendClassFields } from '../../../console/spend-class-fields';
+import { LaneFields } from '../../../console/new/lane-fields';
 import { WorkspaceGate } from '../../gate';
 
 export function DraftView({ draftId }: { readonly draftId: string }) {
   return (
-    <WorkspaceGate>
+    <WorkspaceGate
+      withoutWorkspace={
+        <EmptyState title="Draft not found.">
+          This browser holds no workspace, so the draft is not here. Drafts stay in the browser that made them. Import a
+          backup of that workspace below to open it here.
+        </EmptyState>
+      }
+    >
       {(workspace) => {
         const draft = workspace.drafts.find((entry) => entry.id === draftId);
         if (!draft) {
           return (
-            <EmptyState title="This draft is not in your workspace." action={<Link href="/workspace" className="text-sm underline underline-offset-2">Back to the workspace</Link>}>
-              It may have been removed, or it belongs to a workspace in another browser.
+            <EmptyState title="Draft not found." action={<Link href="/workspace" className="text-sm underline underline-offset-2">Back to the workspace</Link>}>
+              It is not in this workspace. It may have been removed, or it belongs to a workspace in another browser.
             </EmptyState>
           );
         }
@@ -149,6 +157,12 @@ function DraftEditor({ saved, workspace }: { readonly saved: MandateDraft; reado
                 </Field>
               )}
             </FieldGrid>
+          </Card>
+        </Section>
+
+        <Section title="How it is funded" description="The funding lane is written into the mandate when it is activated.">
+          <Card>
+            <LaneFields lane={draft.lane ?? 'prefund'} onChange={(lane) => setDraft({ ...draft, lane })} />
           </Card>
         </Section>
 

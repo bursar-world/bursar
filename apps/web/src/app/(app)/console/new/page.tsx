@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 
+import { readFundingLane } from '@/chain/mandates';
 import { CreateMandateView } from './create-view';
 
 export const metadata: Metadata = {
@@ -12,6 +13,12 @@ export default async function NewMandatePage({
 }: {
   readonly searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const { draft } = await searchParams;
-  return <CreateMandateView {...(typeof draft === 'string' && draft !== '' ? { draftId: draft } : {})} />;
+  const { draft, lane } = await searchParams;
+  const funding = readFundingLane(lane);
+  return (
+    <CreateMandateView
+      {...(typeof draft === 'string' && draft !== '' ? { draftId: draft } : {})}
+      {...(funding !== undefined ? { lane: funding } : {})}
+    />
+  );
 }

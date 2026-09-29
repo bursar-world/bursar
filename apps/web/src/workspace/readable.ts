@@ -1,6 +1,7 @@
 import { SPEND_CLASS_INFO, SPEND_CLASSES } from '@bursar/core';
 
 import { isTotalDraft } from '@/app/(app)/console/limits-form';
+import { LANE_NAME } from '@/chain/mandates';
 import { formatDuration } from '@/lib/time';
 import { draftTitle } from './model';
 import type { MandateDraft, Workspace, WorkspaceAgent } from './model';
@@ -17,6 +18,7 @@ export const DRAFT_FIELDS = [
   { id: 'notes', label: 'Notes' },
   { id: 'agent', label: 'Agent address' },
   { id: 'limits', label: 'Limits and expiry' },
+  { id: 'lane', label: 'Funding lane' },
   { id: 'classes', label: 'Spend classes and capabilities' },
   { id: 'payees', label: 'Counterparties' },
   { id: 'status', label: 'Activation status' },
@@ -80,6 +82,9 @@ function pickDraft(draft: MandateDraft, fields: readonly DraftField[]): Record<s
         };
         break;
       }
+      case 'lane':
+        out['fundingLane'] = LANE_NAME[draft.lane ?? 'prefund'];
+        break;
       case 'classes':
         out['spendClasses'] = SPEND_CLASSES.filter((id) => draft.classes[id]).map((id) => ({
           class: SPEND_CLASS_INFO[id].name,

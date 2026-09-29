@@ -19,11 +19,34 @@ import { Table } from '@/components/table';
 import { ConnectButton } from '@/wallet/connect-button';
 import { usd } from '@/money';
 import { useMandates, useSystemState } from '@/state';
+import { exampleMandate } from '@/chain/mandates';
 import type { MandateSummary } from '@/chain/mandates';
 import { AddressInput, readAddress } from '@/components/address-input';
 import { useWalletAccount } from '@/wallet/account';
 import { readingOf, refusalOf } from './lib/reading';
 import type { Reading } from './lib/reading';
+
+/** Where a visitor with no wallet can go next. */
+function StartLinks() {
+  const example = exampleMandate();
+  return (
+    <>
+      {example !== undefined && (
+        <Link href={`/console/${example}`}>
+          <Button size="sm">See an example mandate</Button>
+        </Link>
+      )}
+      <Link href="/workspace">
+        <Button size="sm">Open the workspace</Button>
+      </Link>
+      <Link href="/console/new">
+        <Button tone="primary" size="sm">
+          Create a mandate
+        </Button>
+      </Link>
+    </>
+  );
+}
 
 /**
  * Every mandate the connected wallet owns.
@@ -43,11 +66,12 @@ export function ConsoleView() {
       <div className="space-y-8">
         <Section
           title="Console"
-          description="Mandates you own, what each one has left, and what it has paid."
+          description="A mandate is an account that lets an AI agent pay for work within limits you set, enforced by the contract."
+          actions={<StartLinks />}
         >
           <EmptyState title="Connect a wallet to see the mandates it owns." action={<ConnectButton />}>
-            A mandate is an account with an agent inside it and a limit written into the contract. The owner funds it,
-            approves the payments above the threshold, and can stop it in one transaction.
+            The owner funds the mandate, approves the payments above a threshold, and can stop it in one transaction.
+            Reading one needs no wallet: open the example mandate, or draft terms in a private workspace first.
           </EmptyState>
         </Section>
 
