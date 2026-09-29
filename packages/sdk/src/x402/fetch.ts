@@ -41,11 +41,14 @@ export type Settlement = {
 };
 
 export type PaymentRecord = {
+  readonly lane: PaymentLane;
   readonly amount: Micro;
   readonly payTo: Address;
   readonly asset: Address;
   readonly network: string;
   readonly nonce: Hex;
+  /** The escrow lock the mandate opened, on the mandate lane. */
+  readonly lock?: { readonly escrow: Address; readonly id: bigint; readonly transaction: Hex };
   readonly settlement: Settlement | undefined;
 };
 
@@ -66,14 +69,47 @@ export type PaymentGate = {
   assertCanPay(request: { to: Address; amount: Micro; capability: string }): Promise<void>;
 };
 
+/**
+ * A mandate that can also pay from its own balance. `MandateAccountClient` satisfies it.
+ *
+ * `pay` runs the account's `spend`, which debits the daily and monthly windows and moves the
+ * amount into an escrow lock payable to the merchant.
+ */
+export type MandateSpender = PaymentGate & {
+  readonly escrow: Address;
+  pay(request: {
+    readonly to: Address;
+    readonly amount: Micro;
+    readonly capability: string;
+    readonly inputCommit: Hex;
+  }): Promise<{ readonly escrowId: bigint; readonly hash: Hex }>;
+};
+
 /** The mandate that authorises this spend, and the capability the call falls under. */
 export type PaymentAuthority = {
   readonly mandate: PaymentGate;
   readonly capability: string;
 };
 
+/**
+ * Where the money for a paid call comes from.
+ *
+ *   mandate  the mandate account pays through its own `spend`. Every limit it holds is enforced
+ *            on chain, the daily and monthly windows included, and the call is paid through an
+ *            escrow lock the server's facilitator reads. Needs a server that offers `escrow`.
+ *   wallet   the agent's own wallet signs an EIP-3009 transfer under the `exact` scheme. Per-call
+ *            only; windows client-enforced: the mandate is read before signing, but nothing on
+ *            chain counts these payments against the daily or monthly window.
+ */
+export type PaymentLane = 'mandate' | 'wallet';
+
+/** The offer scheme each lane pays under. */
+export const LANE_SCHEME: Readonly<Record<PaymentLane, string>> = { mandate: 'escrow', wallet: 'exact' };
+
 type PayRequestBase = {
   readonly connection: Connection;
+  /** Defaults to `wallet`. `mandate` needs `through` with a mandate that can pay. */
+  readonly lane?: PaymentLane;
   /** How long the signed authorization stays valid. Defaults to the offer's own timeout. */
   readonly validForSeconds?: number;
   readonly fetchFn?: typeof fetch;
@@ -150,13 +186,17 @@ function describe(entry: PaymentRequirements): string {
 /**
  * Fetches a resource, paying for it over x402 if it asks to be paid.
  *
- * The funds come from the signer on the connection, not from the mandate account: the `exact`
+ * On the wallet lane, the default, the funds come from the signer on the connection: the `exact`
  * scheme is a signature from the address that holds the money, and a contract cannot produce one.
- * The mandate is what decides whether the payment happens at all. Pass `through` and a refusal
- * lands before anything is signed, with the limit that stopped it named.
+ * The payment is a single-use EIP-3009 authorization for the exact amount the server quoted, and
+ * no allowance is left standing afterwards. Per-call only; windows client-enforced: `through` is
+ * read before signing, and nothing on chain counts the payment against a window.
  *
- * The payment is a single-use EIP-3009 authorization for the exact amount the server quoted. No
- * allowance is left standing afterwards.
+ * On the mandate lane the mandate account pays through its own `spend`, so its daily and monthly
+ * windows move by the amount paid and the contract refuses what they do not cover.
+ *
+ * Either way, pass `through` and a refusal lands before anything is signed or sent, with the limit
+ * that stopped it named.
  */
 export async function payRequest(
   input: FetchTarget,
@@ -191,9 +231,14 @@ export async function payRequest(
   // reported as a server with nothing this client can pay.
   const maxAmount = options.maxAmount === undefined ? undefined : checkPositiveAmount('maxAmount', options.maxAmount);
 
+  const lane = options.lane ?? 'wallet';
+  const spender = lane === 'mandate' ? mandateSpender(options.through) : undefined;
+  const scheme = LANE_SCHEME[lane];
+
   const requirements = selectRequirement(challenge, {
     network,
     asset,
+    scheme,
     ...(maxAmount === undefined ? {} : { maxAmount }),
   });
 
@@ -201,7 +246,7 @@ export async function payRequest(
     throw new NoAcceptablePaymentError(
       resource,
       challenge.accepts.map(describe),
-      `exact in ${asset} on ${network}` + (maxAmount === undefined ? '' : `, up to ${usd(maxAmount)}`),
+      `${scheme} in ${asset} on ${network}` + (maxAmount === undefined ? '' : `, up to ${usd(maxAmount)}`),
     );
   }
 
@@ -210,6 +255,18 @@ export async function payRequest(
       to: requirements.payTo,
       amount: requirements.amount,
       capability: options.through.capability,
+    });
+  }
+
+  if (spender && options.through) {
+    return payThroughMandate({
+      spender,
+      capability: options.through.capability,
+      requirements,
+      version: challenge.version,
+      retryable,
+      resource,
+      fetchFn,
     });
   }
 
@@ -270,11 +327,94 @@ export async function payRequest(
   return {
     response,
     payment: {
+      lane: 'wallet',
       amount: requirements.amount,
       payTo: requirements.payTo,
       asset: requirements.asset,
       network: requirements.network,
       nonce: authorization.nonce,
+      settlement,
+    },
+  };
+}
+
+function mandateSpender(through: PaymentAuthority | undefined): MandateSpender {
+  const mandate = through?.mandate as Partial<MandateSpender> | undefined;
+  if (!mandate || typeof mandate.pay !== 'function' || typeof mandate.escrow !== 'string') {
+    throw new InvalidArgumentError(
+      'lane',
+      'The mandate lane pays from the mandate account, so it needs `through` with a mandate that can pay, ' +
+        'such as a MandateAccountClient with a signer.',
+    );
+  }
+  return mandate as MandateSpender;
+}
+
+/**
+ * The mandate lane: the account's own `spend` opens an escrow lock for the quoted price, and the
+ * retry carries a pointer to it.
+ *
+ * The lock commits to the same request-bound nonce the wallet lane signs, so the lock can only be
+ * redeemed against the request it was opened for. The mandate's refusals surface from `pay`
+ * before anything moves.
+ */
+async function payThroughMandate(input: {
+  readonly spender: MandateSpender;
+  readonly capability: string;
+  readonly requirements: PaymentRequirements;
+  readonly version: X402Version;
+  readonly retryable: Request;
+  readonly resource: string;
+  readonly fetchFn: typeof fetch;
+}): Promise<PaidResponse> {
+  const { spender, requirements } = input;
+  const binding: PaymentBinding = {
+    requestHash: hashRequest(new Uint8Array(await input.retryable.clone().arrayBuffer())),
+    salt: randomSalt(),
+  };
+  const inputCommit = deriveNonce(binding);
+
+  const paid = await spender.pay({
+    to: requirements.payTo,
+    amount: requirements.amount,
+    capability: input.capability,
+    inputCommit,
+  });
+
+  const lock = { escrow: spender.escrow, id: paid.escrowId, transaction: paid.hash };
+  const payload = {
+    lock: { escrow: lock.escrow, id: lock.id.toString(), mandate: spender.address, transaction: lock.transaction, inputCommit },
+    binding,
+  };
+  const envelope =
+    input.version === 2
+      ? { x402Version: 2, accepted: requirements.raw, payload }
+      : { x402Version: 1, scheme: requirements.scheme, network: requirements.network, asset: requirements.asset, payTo: requirements.payTo, payload };
+
+  const headers = new Headers(input.retryable.headers);
+  headers.set(PAYMENT_HEADER[input.version], encodeBase64Json(envelope));
+
+  const response = await input.fetchFn(new Request(input.retryable, { headers }));
+  const settlement = settlementFrom(response.headers.get(SETTLEMENT_HEADER[input.version]));
+
+  if (response.status === 402 || settlement?.success === false) {
+    throw new PaymentRejectedError(
+      input.resource,
+      response.status,
+      settlement?.errorReason ?? (await refusalReason(response)),
+    );
+  }
+
+  return {
+    response,
+    payment: {
+      lane: 'mandate',
+      amount: requirements.amount,
+      payTo: requirements.payTo,
+      asset: requirements.asset,
+      network: requirements.network,
+      nonce: inputCommit,
+      lock,
       settlement,
     },
   };

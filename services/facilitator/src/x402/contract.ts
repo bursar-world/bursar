@@ -190,9 +190,18 @@ export function requiredAmount(requirements: PaymentRequirements): bigint | null
   }
 }
 
-/** The EIP-3009 nonce a payload carries, lowercased, or null when it carries none. */
+/**
+ * The request-bound nonce a payload carries, lowercased, or null when it carries none.
+ *
+ * On the `exact` rails it is the EIP-3009 authorisation nonce. On the mandate lane it is the
+ * escrow lock's input commitment, which the client derives the same way and the scheme checks
+ * against the lock on chain.
+ */
 export function authorizationNonce(payload: PaymentPayload): string | null {
-  const authorization = payload.payload?.authorization;
+  const lock = payload.payload?.['lock'];
+  const authorization =
+    payload.payload?.authorization ??
+    (lock && typeof lock === 'object' ? { nonce: (lock as { inputCommit?: unknown }).inputCommit } : undefined);
   if (!authorization || typeof authorization !== 'object') return null;
   const nonce = (authorization as { nonce?: unknown }).nonce;
   if (typeof nonce !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(nonce)) return null;

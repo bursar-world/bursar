@@ -462,3 +462,72 @@ describe('a payment a facilitator will accept', () => {
     ).toBe(false);
   });
 });
+
+describe('payRequest on the mandate lane', () => {
+  const ESCROW: Address = '0x4315F8be7C9661345710910577Ec31cb867f3c20';
+  const LOCK_TX = `0x${'cd'.repeat(32)}` as const;
+
+  function spender(paid: { calls: unknown[] }) {
+    return {
+      ...allowAll(),
+      escrow: ESCROW,
+      pay: async (request: unknown) => {
+        paid.calls.push(request);
+        return { escrowId: 9n, hash: LOCK_TX };
+      },
+    };
+  }
+
+  it('pays through the mandate, commits the lock to the request and sends a pointer to it', async () => {
+    const { connection } = fakeConnection({ read: tokenReads });
+    const paid = { calls: [] as unknown[] };
+    const fetchFn = challengeThen(settled(), [offer(), offer({ scheme: 'escrow', maxAmountRequired: '10000' })]);
+
+    const result = await payRequest(RESOURCE, {
+      connection,
+      fetchFn,
+      lane: 'mandate',
+      through: { mandate: spender(paid), capability: 'service:demo.x402:1' },
+      init: { method: 'POST', body: '{"q":1}' },
+    });
+
+    expect(paid.calls).toHaveLength(1);
+    const call = paid.calls[0] as { to: Address; amount: Micro; inputCommit: `0x${string}`; capability: string };
+    expect(call).toMatchObject({ to: PAY_TO, amount: micro(10_000n), capability: 'service:demo.x402:1' });
+
+    const header = lastRequest?.headers.get('x-payment') ?? '';
+    const envelope = JSON.parse(atob(header)) as {
+      payload: { lock: Record<string, string>; binding: { requestHash: string; salt: `0x${string}` } };
+    };
+    expect(envelope.payload.lock).toMatchObject({ escrow: ESCROW, id: '9', transaction: LOCK_TX, inputCommit: call.inputCommit });
+    expect(envelope.payload.binding.requestHash).toBe(hashRequest(new TextEncoder().encode('{"q":1}')));
+    expect(nonceBindsRequest(call.inputCommit, envelope.payload.binding)).toBe(true);
+    expect(result.payment).toMatchObject({ lane: 'mandate', lock: { escrow: ESCROW, id: 9n, transaction: LOCK_TX } });
+  });
+
+  it('refuses a server that offers no escrow payment rather than falling back to the wallet', async () => {
+    const { connection } = fakeConnection({ read: tokenReads });
+    const paid = { calls: [] as unknown[] };
+    await expect(
+      payRequest(RESOURCE, {
+        connection,
+        fetchFn: challengeThen(settled()),
+        lane: 'mandate',
+        through: { mandate: spender(paid), capability: 'service:demo.x402:1' },
+      }),
+    ).rejects.toThrow(/escrow/);
+    expect(paid.calls).toHaveLength(0);
+  });
+
+  it('needs a mandate that can pay', async () => {
+    const { connection } = fakeConnection({ read: tokenReads });
+    await expect(
+      payRequest(RESOURCE, {
+        connection,
+        fetchFn: challengeThen(settled()),
+        lane: 'mandate',
+        through: { mandate: allowAll(), capability: 'service:demo.x402:1' },
+      }),
+    ).rejects.toBeInstanceOf(InvalidArgumentError);
+  });
+});

@@ -19,6 +19,7 @@ import { createPostgres, describeDatabase } from './db/postgres.js';
 import type { Database } from './db/sql.js';
 import { FacilitatorConfigError } from './errors.js';
 import { loadScheme } from './scheme-module.js';
+import { createEscrowChain, createEscrowLockScheme, routeSchemes } from './x402/escrow-lock.js';
 import type { Check } from './http/routes.js';
 import { createFacilitatorService } from './service.js';
 import type { FacilitatorService } from './service.js';
@@ -78,7 +79,7 @@ export async function compose(source: EnvSource = process.env): Promise<Composed
 
     // The scheme runs the same binding policy this service does. Left to its own default it
     // refuses every payment as unbound, because the request digest reaches it only through here.
-    const scheme = await loadScheme({
+    const exact = await loadScheme({
       configure: {
         chain: config.chain,
         providers: config.rpcProviders,
@@ -87,6 +88,14 @@ export async function compose(source: EnvSource = process.env): Promise<Composed
         requireBinding: config.requireBinding,
       },
     });
+    // The mandate lane: a payment made by the mandate account's own `spend`, read off the escrow.
+    const scheme = routeSchemes(
+      exact,
+      createEscrowLockScheme({
+        chainId: config.chain.chainId,
+        chain: createEscrowChain({ chain: config.chain, providers: config.rpcProviders }),
+      }),
+    );
 
     const { lookup, underwriter, ready } = await wireUnderwriter(config, source);
 

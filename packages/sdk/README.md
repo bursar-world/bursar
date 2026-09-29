@@ -201,23 +201,27 @@ const paid = await mandate.fetch('https://api.provider.dev/render', {
   method: 'POST',
   body: JSON.stringify({ prompt: 'a koi' }),
   capability: 'gpu.render:1',
-  maxAmount: usdg('5.00'),
+  lane: 'mandate',
 });
 ```
 
-If the resource answers 402, this reads the offer, checks it against the mandate, signs a
-single-use EIP-3009 authorization for the exact amount quoted, and retries. Both x402 versions are
-handled. What the mandate refuses is never signed.
+If the resource answers 402, this reads the offer, checks it against the mandate, pays, and
+retries. Both x402 versions are handled. What the mandate refuses is never paid.
 
-In this path the funds come from the agent's own wallet. The `exact` scheme is a signature from the
-address that holds the money, and a contract cannot produce one. Each payment is checked against
-the mandate's per-call cap, its merchant and capability allowlists, and whether it is active.
+There are two lanes, and they differ in whose money moves and what the chain counts.
 
-The daily and monthly windows are read but never debited here, so they do not bound the total
-paid over HTTP. A payment larger than what a window has left is refused, but payments that each
-fit keep clearing, however many there are, because none of them is counted. When the windows have
-to hold, use `pay` or `hire`. Those move the funds from the mandate into the escrow, and the
-contract counts every spend against both windows.
+**`lane: 'mandate'`** pays from the mandate account. The account's `spend` locks the quoted price in
+escrow for the provider, under the same checks as `pay`, and the retry names that lock. The daily
+and monthly windows move by the amount paid, and a call they do not cover is refused by the
+contract. The provider has to offer the `escrow` scheme; its facilitator checks the lock, and the
+lock is committed to the request, so it cannot be redeemed against another one.
+
+**The wallet lane**, the default, pays from the agent's own wallet with a single-use EIP-3009
+authorization for the exact amount quoted, under the `exact` scheme. Per-call only; windows
+client-enforced. Each payment is checked against the mandate's per-call cap, its merchant and
+capability allowlists, and whether it is active, but the windows are read and never debited: a
+payment larger than what a window has left is refused, and payments that each fit keep clearing,
+however many there are. Use it only where the provider offers nothing else.
 
 Every payment needs a bound. Pass `through` and the mandate decides, or `maxAmount` and this
 client refuses anything above it. Passing neither does not compile.

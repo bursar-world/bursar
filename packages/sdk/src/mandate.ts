@@ -56,7 +56,7 @@ import { logsFrom } from './receipt.js';
 import { decodeRevertData, returnedNoData, type RevertInfo } from './revert.js';
 import { rwa, type BuyReceipt } from './rwa.js';
 import { sendCall, type ExplainRevert, type Sent } from './send.js';
-import { payRequest, type FetchTarget, type PaidResponse } from './x402/fetch.js';
+import { payRequest, type FetchTarget, type PaidResponse, type PaymentLane } from './x402/fetch.js';
 import {
   LockStatus,
   MerchantGate,
@@ -230,6 +230,11 @@ export type MandateFetchOptions = RequestInit & {
   /** How long the signed authorization stays valid. Defaults to the offer's own timeout. */
   readonly validForSeconds?: number;
   readonly fetchFn?: typeof fetch;
+  /**
+   * `mandate` pays from this account through `spend`, with every window enforced on chain.
+   * `wallet`, the default, pays from the agent's wallet: per-call only; windows client-enforced.
+   */
+  readonly lane?: PaymentLane;
 };
 
 export type WithdrawArgs = {
@@ -674,23 +679,22 @@ export class MandateAccountClient {
   /**
    * Fetches a resource, paying for it over x402 if it asks to be paid.
    *
-   * The agent's own wallet pays: the `exact` scheme is a signature from the address holding the
-   * funds, and this contract cannot produce one. Before signing, each payment is checked against
-   * the mandate's per-call cap, merchant and capability allowlists, and state. What it refuses is
-   * never signed, and the refusal names the limit that stopped it.
+   * With `lane: 'mandate'` this account pays through `spend`: the windows move by the amount paid
+   * and the contract refuses what they do not cover. The server has to offer the `escrow` scheme.
    *
-   * The daily and monthly windows are read but never debited on this path. A payment larger than
-   * what a window has left is refused, yet a hundred payments that each fit all clear, because
-   * none of them is counted. For spending the windows count and enforce, use `pay` or `hire`,
-   * which move funds from the mandate into the escrow.
+   * The default `wallet` lane has the agent's own wallet pay under `exact`. Per-call only; windows
+   * client-enforced. Each payment is checked against the per-call cap, merchant and capability
+   * allowlists and state before it is signed, and the windows are read but never debited, so a
+   * hundred payments that each fit all clear.
    */
   async fetch(input: FetchTarget, options: MandateFetchOptions): Promise<PaidResponse> {
-    const { capability, maxAmount, validForSeconds, fetchFn, ...init } = options;
+    const { capability, maxAmount, validForSeconds, fetchFn, lane, ...init } = options;
 
     return payRequest(input, {
       connection: this.connection,
       through: { mandate: this, capability },
       init,
+      ...(lane === undefined ? {} : { lane }),
       ...(maxAmount === undefined ? {} : { maxAmount }),
       ...(validForSeconds === undefined ? {} : { validForSeconds }),
       ...(fetchFn === undefined ? {} : { fetchFn }),

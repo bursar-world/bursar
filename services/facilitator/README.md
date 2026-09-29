@@ -6,9 +6,22 @@ the ledger behind the funding lanes.
 ## What it does
 
 A provider that wants to charge for a call sends the payment it received to `POST /verify` and
-`POST /settle`. Verification is read-only and free. Settlement broadcasts a transaction, which the
-relayer pays for, so it is metered against a budget that refuses once spent and guarded by a nonce
+`POST /settle`. Verification is read-only and free. Settlement records the payment against a nonce
 claim that makes a replay cost nothing.
+
+Two x402 schemes are accepted.
+
+- **`escrow`**, the mandate lane. The mandate account paid through its own `spend`, which debits
+  the daily and monthly windows and locks the price in escrow for the provider. The payment names
+  that lock. Verification reads it: open, paid by an account this deployment's factory created,
+  payable to `payTo`, for the price, under the offer's `extra.capability` when one is named, with
+  time left before its deadline, and committed to the request-bound nonce. Settlement broadcasts
+  nothing and charges no relay fee; the provider collects by calling `release` on the escrow once
+  it has served the call.
+- **`exact`**, the wallet lane. The agent's wallet signed an EIP-3009 USDG authorisation, and
+  settlement broadcasts it. The relayer pays the gas, so it is metered against a budget that
+  refuses once spent. Per-call only; windows client-enforced: nothing on chain counts these
+  payments against the mandate's windows.
 
 Three lanes decide where the money comes from.
 
@@ -208,7 +221,7 @@ answers `account_not_found` or `pool_not_found` until they do.
 | `POST /reservations/:id/release` | Give a hold back unspent. |
 | `POST /reservations/expire` | Sweep holds past their window. The service also does this on its own timer. |
 | `POST /verify` | Check a payment without broadcasting anything. Free. |
-| `POST /settle` | Broadcast a payment. 429 when the daily or per-payer budget is spent. |
+| `POST /settle` | Record a payment, broadcasting it on the `exact` scheme. 429 when the daily or per-payer budget is spent. |
 
 ### Paying out and repaying
 
@@ -453,6 +466,10 @@ on, the payer folds that digest and a random `salt` into the EIP-3009 nonce (`de
 hold a settle redeems. The authorisation is good only between `validAfter` and `validBefore`, so
 this exact body now answers `invalid_exact_evm_payload_authorization_valid_before`. Sign a fresh one
 to try it.
+
+On the `escrow` scheme `payload.lock` replaces the authorisation: `{ escrow, id, mandate,
+transaction, inputCommit }`, where `id` is a decimal string, `transaction` opened the lock, and
+`inputCommit` is the same derived nonce, which the lock carries on chain.
 
 ```json
 {

@@ -320,7 +320,10 @@ export class Facilitator {
     // Giving the allowance or the claim back would let it be spent twice.
     if (!settlement.broadcast) {
       this.budget.refund(verdict.payer);
-      await this.release(network, verdict.payer, nonce);
+      // A settle that succeeds without broadcasting is the mandate lane, where the payment is a
+      // lock already on chain. The claim stays: it is what stops the same lock being redeemed
+      // twice.
+      if (!settlement.success) await this.release(network, verdict.payer, nonce);
     }
 
     if (!settlement.success || !settlement.transaction) {
@@ -336,7 +339,9 @@ export class Facilitator {
       return withoutDetail(settlement);
     }
 
-    const feeMicro = this.fee(amountMicro);
+    // The fee pays for the broadcast. A mandate-lane settle relays nothing, and the escrow takes
+    // its own fee when the merchant releases the lock.
+    const feeMicro = settlement.broadcast ? this.fee(amountMicro) : (0n as Micro);
     try {
       const recorded = claim
         ? await this.closeReservation(claim, request, settlement, verdict.payer, amountMicro, feeMicro)

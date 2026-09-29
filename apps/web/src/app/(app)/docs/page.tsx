@@ -24,6 +24,15 @@ const receipt = await mandate.pay({
   capability: 'gpu.render:1',
 });`;
 
+const FETCH = `const paid = await mandate.fetch('https://api.provider.dev/render', {
+  method: 'POST',
+  body: JSON.stringify({ prompt: 'a koi' }),
+  capability: 'gpu.render:1',
+  lane: 'mandate',
+});
+
+paid.payment?.lock; // the escrow lock the mandate opened for this call`;
+
 const PREVIEW = `const decision = await mandate.preview({
   to: PROVIDER,
   amount: usdg('2.50'),
@@ -106,6 +115,20 @@ export default function DocsPage() {
           </p>
         </Card>
 
+        <Card title="Pay for an HTTP call" description="x402: the provider answers 402 with a price, the mandate pays, the call goes through.">
+          <CodeBlock code={FETCH} label="Copy the x402 example" />
+          <p className="mt-3 max-w-3xl text-sm">
+            With <code className="font-mono text-note">lane: &apos;mandate&apos;</code> the account pays the quoted price
+            through the same checks as <code className="font-mono text-note">pay</code>. The daily and monthly windows
+            move by the amount paid, and a call they do not cover is refused on chain before any money moves.
+          </p>
+          <p className="mt-3 max-w-3xl text-sm">
+            Leave the lane out and the agent&apos;s own wallet pays by signing a USDG transfer for the exact price.
+            That lane is per-call only; windows client-enforced. The mandate&apos;s per-call cap, providers and
+            capabilities are checked before signing, but nothing on chain counts the payment against a window.
+          </p>
+        </Card>
+
         <Card title="Ask before you pay" description="The same check the contract will make, without sending anything.">
           <CodeBlock code={PREVIEW} label="Copy the preview example" />
           <p className="mt-3 max-w-3xl text-sm">
@@ -174,12 +197,18 @@ export default function DocsPage() {
             A provider charging for a call sends the payment it received to{' '}
             <code className="font-mono text-note">POST /verify</code> and{' '}
             <code className="font-mono text-note">POST /settle</code>. Verification reads and costs nothing.
-            Settlement broadcasts a transaction, so it draws on a budget that stops paying when it runs out, and a
-            nonce claim makes a replay worthless.
+            Settlement records the payment once, so a replay is worthless, and for a wallet payment it also
+            broadcasts the transfer, drawing on a daily budget that stops when it runs out.
           </p>
           <p className="mt-3 max-w-3xl text-sm">
-            Payments settle in USDG through the EIP-3009 <code className="font-mono text-note">exact</code>{' '}
-            scheme. The signing domain is read from the token, never assumed. The network identifier is{' '}
+            Offer two schemes. <code className="font-mono text-note">escrow</code> is paid by the mandate account
+            itself: the payment names the escrow lock its spend opened, verification checks that lock against your
+            price, address and the request, and you collect by releasing it once the call is served.{' '}
+            <code className="font-mono text-note">exact</code> is paid from the agent&apos;s wallet with an EIP-3009
+            USDG transfer that settlement broadcasts. It is per-call only; windows client-enforced.
+          </p>
+          <p className="mt-3 max-w-3xl text-sm">
+            The signing domain is read from the token, never assumed. The network identifier is{' '}
             <code className="font-mono text-note">eip155:{CHAIN_ID}</code>.
           </p>
         </Card>

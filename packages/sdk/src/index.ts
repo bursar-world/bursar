@@ -180,13 +180,15 @@ export type {
   X402Version,
 } from './x402/requirements.js';
 
-export { paidFetch, payRequest } from './x402/fetch.js';
+export { LANE_SCHEME, paidFetch, payRequest } from './x402/fetch.js';
 export type {
   FetchTarget,
   PaidResponse,
   PayRequestOptions,
   PaymentAuthority,
+  MandateSpender,
   PaymentGate,
+  PaymentLane,
   PaymentRecord,
   Settlement,
 } from './x402/fetch.js';
