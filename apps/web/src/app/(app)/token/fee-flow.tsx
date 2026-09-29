@@ -1,7 +1,8 @@
 'use client';
 
 
-import { ADDRESSES, TOKEN_ADDRESSES, buybackAbi } from '@/chain';
+import { ADDRESSES, TOKEN_ADDRESSES, buybackAbi, isZeroAddress, sameAddress } from '@/chain';
+import { collateralLane } from '@/chain/collateral';
 import type { EscrowRead } from '@/chain';
 import { Address } from '@/components/address';
 import { Instant } from '@/components/instant';
@@ -17,7 +18,7 @@ import { useWriteContract } from '@/wallet/write';
  * The path a fee takes from a settled call to a staker, with the state of each leg beside it.
  *
  * Two lines of revenue and two destinations. The buyback raises what a share is worth in BRSR;
- * the credit-lane spread would arrive as USDG a staker claims. Describing them as one number
+ * the credit-lane spread arrives as USDG a staker claims, once Staking names the credit pool. Describing them as one number
  * would be describing a yield.
  */
 export function FeeFlowSection({
@@ -32,6 +33,15 @@ export function FeeFlowSection({
   const buyback = data.token?.buyback;
   const { writeContractAsync } = useWriteContract();
   const unread = data.token === undefined ? 'Reading' : 'Not read';
+  const lane = collateralLane();
+  const manager = data.extras?.creditManager;
+  const spreadNamed = manager !== undefined && !isZeroAddress(manager) && lane !== undefined && sameAddress(manager, lane.CreditPool);
+  const spreadState =
+    manager === undefined
+      ? 'Whether the spread reaches stakers yet is being read.'
+      : spreadNamed
+      ? 'Spread swept from the credit pool is paid to stakers today.'
+      : 'Until governance names the credit pool on the staking contract, spread collects in the credit pool and nothing is paid out. The proposal that names it is on the governance page.';
 
   const canTrigger =
     buyback !== undefined && buyback.paused === false && buyback.available !== undefined && buyback.available > 0n;
@@ -52,7 +62,7 @@ export function FeeFlowSection({
     : 'There is nothing to spend right now, so a buy would do nothing.';
 
   return (
-    <Section title="Where the revenue comes from and where it goes" description="Two charges, both in USDG. One is being made today; the other waits on a credit lane governance has not named.">
+    <Section title="Where the revenue comes from and where it goes" description="Two charges, both in USDG, and both made today.">
       <Card title="The two lines">
         <FieldGrid columns={2}>
           <Field
@@ -68,17 +78,21 @@ export function FeeFlowSection({
             )}
           </Field>
           <Field
-            label="Credit-lane spread"
+            label="Collateralized-lane spread"
             hint="Charged only where an agent spends against posted collateral. Nothing outside that lane borrows, and nothing outside it pays this."
           >
-            Set per credit line
+            A yearly rate on what is borrowed, rising with how much of the credit pool is lent out
           </Field>
         </FieldGrid>
         <p className="mt-4 max-w-3xl text-sm">
           The facilitator fee accrues in USDG to the treasury the escrow already pays, at{' '}
-          <Address value={ADDRESSES.treasury} />. The spread would land at the same address in the same asset. Neither
-          is invented for this page: they are the two charges the payment path was built to make, and only the first
-          one is being made.
+          <Address value={ADDRESSES.treasury} />. The spread accrues in USDG inside the credit pool
+          {lane && (
+            <>
+              {' '}at <Address value={lane.CreditPool} />
+            </>
+          )}
+          , and a sweep sends it to the staking contract. {spreadState}
         </p>
       </Card>
 
@@ -99,9 +113,9 @@ export function FeeFlowSection({
             staking pool. No new shares are minted, so each share outstanding is worth more BRSR than it was.
           </li>
           <li>
-            <span className="font-medium">Credit-lane spread to the staking contract.</span> Once a lane exists, its
-            spread is distributed in USDG and claimed per share. It arrives as the settlement asset because borrowers
-            pay in the settlement asset.
+            <span className="font-medium">Collateralized-lane spread to the staking contract.</span> The spread is
+            distributed in USDG and claimed per share. It arrives as the settlement asset because borrowers pay in the
+            settlement asset.
           </li>
         </ol>
       </Card>

@@ -7,9 +7,9 @@ import { rhcClient } from './client';
 import { ReadBatch, addBlockNumber, runBatch } from './batch';
 import { brsr } from '../money';
 import type { Brsr } from '../money';
-import { BRSR_SUPPLY, TOKEN_ADDRESSES, buybackAbi, brsrAbi, stakingAbi, vestingAbi } from './generated/token';
+import { BRSR_SUPPLY, TOKEN_ADDRESSES, TOKEN_ROLES, buybackAbi, brsrAbi, stakingAbi, vestingAbi } from './generated/token';
 
-export { BRSR_SUPPLY, TOKEN_ADDRESSES, buybackAbi, brsrAbi, stakingAbi, vestingAbi };
+export { BRSR_SUPPLY, TOKEN_ADDRESSES, TOKEN_ROLES, buybackAbi, brsrAbi, stakingAbi, vestingAbi };
 
 /**
  * The staking pool holds two positions at once: stake that is working, and stake that is unbonding

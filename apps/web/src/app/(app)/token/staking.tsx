@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 
-import { TOKEN_ADDRESSES, isZeroAddress, brsrAbi, stakingAbi } from '@/chain';
+import { TOKEN_ADDRESSES, isZeroAddress, brsrAbi, sameAddress, stakingAbi } from '@/chain';
+import { collateralLane } from '@/chain/collateral';
 import { Address } from '@/components/address';
 import { AmountInput } from '@/components/amount-input';
 import { Countdown, Instant } from '@/components/instant';
@@ -23,15 +24,16 @@ import { useWriteContract } from '@/wallet/write';
  * The staking surface.
  *
  * What a staker is exposed to comes before what the position pays, and both come before the
- * controls. Staked BRSR is first-loss capital behind
- * somebody else's borrowing. A page that leads with the reward and files the loss under a footnote
- * is a sales page.
+ * controls. The credit pool writes bad debt off against its own lender and never calls
+ * `Staking.slash`, so the page says stake is not first-loss cover rather than implying it is.
  */
 export function StakingSection({ data, blockedBy }: { readonly data: TokenPageData; readonly blockedBy: readonly AnyState[] }) {
   const pool = data.token?.pool;
   const position = data.token?.position;
   const creditLane = data.extras?.creditManager;
   const creditLaneLive = creditLane !== undefined && !isZeroAddress(creditLane);
+  const creditPool = collateralLane()?.CreditPool;
+  const spreadReachesStakers = creditLaneLive && creditPool !== undefined && sameAddress(creditLane, creditPool);
   const unread = unreadWord(data);
   const laneUnread = data.extras === undefined ? 'Reading' : 'Not read';
 
@@ -41,27 +43,25 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
       : null;
 
   return (
-    <Section title="Staking" description="First-loss capital for the collateralized lane, and the fee rebate a staked balance earns.">
+    <Section title="Staking" description="Where the collateralized lane's spread and the buyback arrive, and the fee rebate a staked balance earns.">
       <Card title="What staking here exposes you to">
         <div className="max-w-3xl space-y-3 text-sm">
           <p>
-            Staking BRSR in this pool is underwriting agent credit. When a borrower in the collateralized lane defaults
-            past the collateral they posted, this pool covers the shortfall before the protocol does, and that cover is
-            taken out of stake. A loss is taken from every staker in proportion to their share, on the way out as much
-            as while staying: an exit is priced when it completes, so asking to leave before a default does not escape
-            one.
+            Staked BRSR does not cover credit defaults. The collateralized lane lends USDG from a separate credit pool
+            against posted stock and treasury tokens. When a line&rsquo;s collateral cannot repay its debt, the shortfall
+            is written off inside that credit pool and falls on the pool&rsquo;s lender, not on stakers. The credit pool
+            has no call that takes stake.
           </p>
           <p>
-            A large enough default takes the entire pool. That is not an edge the contract avoids: a first-loss pool
-            that cannot be emptied is not first loss. When it happens the outstanding shares stop being worth anything.
-            Spread already accrued survives, because it was earned before the loss and is held in USDG, outside the
-            stake entirely.
+            The staking contract lets exactly one address take stake: the credit manager governance names. Naming a
+            different one is a proposal that waits out the 48-hour delay and appears on the governance page before it
+            can run. What staking does carry is the BRSR price itself, which can fall, and the exit wait below.
           </p>
           <p>
-            In exchange the pool is where the credit-lane spread is paid, in USDG, once a lane exists to pay it. The
-            buyback compounds purchased BRSR into the same pool. A staked balance also takes a rebate off the
-            facilitator fee on that party&rsquo;s own settlements. None of these is a rate. None is promised. What
-            arrives depends on how much the system is used.
+            In exchange the pool is where the collateralized lane&rsquo;s spread is paid, in USDG. The buyback
+            compounds purchased BRSR into the same pool. A staked balance also takes a rebate off the facilitator fee
+            on that party&rsquo;s own settlements. None of these is a rate. None is promised. What arrives depends on
+            how much the system is used.
           </p>
         </div>
       </Card>
@@ -69,10 +69,22 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
       <Card title="What is switched on today" description="Read from the staking contract, not from a plan.">
         <FieldGrid columns={3}>
           <Field
-            label="Credit lane"
-            hint="The only address that can take stake. Until governance names one, nothing can be slashed and no spread is arriving."
+            label="Spread from the collateralized lane"
+            hint={
+              spreadReachesStakers
+                ? 'The credit pool is named here, so its spread is paid to stakers in USDG.'
+                : 'The lane is lending. Its spread waits in the credit pool until governance names the pool here; that proposal is on the governance page.'
+            }
           >
-            {creditLane === undefined ? laneUnread : creditLaneLive ? <Address value={creditLane} /> : 'Not named yet'}
+            {creditLane === undefined ? (
+              laneUnread
+            ) : spreadReachesStakers ? (
+              'Reaching stakers'
+            ) : creditLaneLive ? (
+              <Address value={creditLane} />
+            ) : (
+              'Waiting on governance'
+            )}
           </Field>
           {/*
             The hint here used to read "a staked balance earns a rebate of zero until this table is
@@ -80,7 +92,7 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
             anywhere on the page, so a staker reading 0% beside it was told the wrong cause. What a
             tier is measured against is the part that is not obvious, and it belongs here.
           */}
-          <Field label="Fee rebate tiers" hint="Each tier is measured against stake still at risk, so a pending withdrawal counts against it.">
+          <Field label="Fee rebate tiers" hint="Each tier is measured against active stake, so a pending withdrawal counts against it.">
             {pool?.tiers === undefined ? unread : pool.tiers.length === 0 ? 'None set' : `${pool.tiers.length} tiers`}
           </Field>
           <Field label="Exit wait" hint="How long a withdrawal request sits before it can complete.">
@@ -121,9 +133,9 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
           <Card title="Your position">
             <StatGrid columns={4}>
               <Stat
-                label="At risk"
+                label="Active stake"
                 value={amountOr(position?.activeStake, unread)}
-                hint="Backing the lane and exposed to a default."
+                hint="Earning spread and counted for the rebate."
               />
               <Stat
                 label="Held in the pool"
@@ -144,7 +156,7 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
 
             {/*
               Why that figure is that figure, read off the same three numbers the contract reads.
-              The tiers, the stake at risk and the stake held are all on this card already, and
+              The tiers, the active stake and the stake held are all on this card already, and
               nothing on the page joined them to the rebate.
             */}
             <p className="mt-4 max-w-3xl text-detail text-[color:var(--color-muted)]">
@@ -225,7 +237,7 @@ function StakeCard({ data, blockedBy }: { readonly data: TokenPageData; readonly
           }}
           max={balance === undefined ? undefined : { atomic: balance, label: 'All of it' }}
           problem={overBalance ? 'More than this wallet holds.' : undefined}
-          hint="Once staked, this is exposed to a default in the collateralized lane and leaving takes the exit wait above."
+          hint="Once staked, leaving takes the exit wait above."
           disabled={paused === true}
         />
       </div>
@@ -357,8 +369,7 @@ function ExitCard({
         </FieldGrid>
 
         <p className="mt-4 max-w-3xl text-sm">
-          These shares are no longer backing the lane, so they earn no further spread. What they are worth in BRSR is
-          decided when the withdrawal completes, which means a slash between now and then still reduces it.
+          These shares no longer earn spread. What they are worth in BRSR is decided when the withdrawal completes.
         </p>
 
         <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -380,8 +391,7 @@ function ExitCard({
 
         {paused === true && (
           <p className="mt-3 text-detail text-[color:var(--color-muted)]">
-            Withdrawals are held while the pool is paused. The brake exists to keep cover in place while a shortfall is
-            being measured.
+            Withdrawals are held while the pool is paused. Restarting it is a governance proposal.
           </p>
         )}
         {maturesAt === null && (

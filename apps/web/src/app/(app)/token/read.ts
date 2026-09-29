@@ -4,6 +4,7 @@ import {
   ADDRESSES,
   ReadBatch,
   TOKEN_ADDRESSES,
+  TOKEN_ROLES,
   addBlockNumber,
   assertTokenChain,
   rhcClient,
@@ -25,11 +26,17 @@ import type { Brsr } from '@/money';
  * load.
  */
 export type SupplyHolders = {
-  /** AdminTimelock. Every community release is a proposal that waits out the delay. */
+  /**
+   * The governance delay the token record names as the community holder. It is the earlier of the
+   * two timelocks, the one that administers the token contracts, so every community release is a
+   * proposal that waits out its delay.
+   */
   readonly community: Brsr | undefined;
   /** The vesting contract, which is where the team grant sits for the whole term. */
   readonly team: Brsr | undefined;
   readonly treasury: Brsr | undefined;
+  /** The key holding the share reserved for the BRSR/USDG pool until the pool is seeded. */
+  readonly liquidity: Brsr | undefined;
 };
 
 /**
@@ -72,7 +79,10 @@ export type TokenExtras = {
   readonly holders: SupplyHolders;
   /** What this wallet has already let the staking contract move. */
   readonly allowance: Brsr | undefined;
-  /** The credit lane. Zero means nothing can be slashed and no spread is arriving. */
+  /**
+   * The address Staking accepts spread from. Zero until governance names the credit pool, and
+   * until then the spread waits in the pool's reserves.
+   */
   readonly creditManager: Address | undefined;
   readonly bonding: ResolverBonding;
 };
@@ -113,9 +123,10 @@ export async function readTokenExtras(account?: Address): Promise<TokenExtras> {
   const blockNumber = addBlockNumber(batch);
 
   const holders = {
-    community: batch.add<bigint>('brsr.balanceOf:timelock', token('balanceOf', [ADDRESSES.adminTimelock])),
+    community: batch.add<bigint>('brsr.balanceOf:community', token('balanceOf', [TOKEN_ROLES.community])),
     team: batch.add<bigint>('brsr.balanceOf:vesting', token('balanceOf', [TOKEN_ADDRESSES.Vesting])),
-    treasury: batch.add<bigint>('brsr.balanceOf:treasury', token('balanceOf', [ADDRESSES.treasury])),
+    treasury: batch.add<bigint>('brsr.balanceOf:treasury', token('balanceOf', [TOKEN_ROLES.treasury])),
+    liquidity: batch.add<bigint>('brsr.balanceOf:liquidity', token('balanceOf', [TOKEN_ROLES.liquidity])),
   };
 
   const creditManager = batch.add<Address>('staking.creditManager', staking('creditManager'));
@@ -147,6 +158,7 @@ export async function readTokenExtras(account?: Address): Promise<TokenExtras> {
       community: asBrsr(results.get(holders.community)),
       team: asBrsr(results.get(holders.team)),
       treasury: asBrsr(results.get(holders.treasury)),
+      liquidity: asBrsr(results.get(holders.liquidity)),
     },
     allowance: yours ? asBrsr(results.get(yours.allowance)) : undefined,
     creditManager: results.get(creditManager),

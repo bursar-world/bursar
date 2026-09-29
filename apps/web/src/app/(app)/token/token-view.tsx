@@ -34,7 +34,7 @@ export function TokenView() {
     <div className="space-y-10">
       <Section
         title="$BRSR"
-        description="The capital behind the two places in this system that need capital at risk: the bond a resolver posts to rule on a dispute, and the first-loss cover behind the collateralized lane."
+        description="The bond a resolver posts to rule on a dispute, and the stake that collects the collateralized lane's spread and the buyback."
         actions={
           <Button size="sm" onClick={data.refresh} disabled={data.isFetching}>
             {data.isFetching ? 'Reading' : 'Read again'}
@@ -70,10 +70,10 @@ export function TokenView() {
       <StakingSection data={data} blockedBy={blockedBy} />
       <BondingSection data={data} />
 
-      <Section title="Governance" description="Every parameter named on this page is behind a two-of-three signature and a 48-hour delay.">
+      <Section title="Governance" description="Every token parameter named on this page is behind a two-of-three signature and a 48-hour delay.">
         <Card>
           <p className="max-w-3xl text-sm">
-            The tier table, the bond floor, the buyback&rsquo;s limits and the address of the credit lane are all set by
+            The tier table, the bond floor, the buyback&rsquo;s limits and the credit manager on the staking contract are all set by
             proposal. Pending proposals, who has approved them and when each becomes executable are on the governance
             page.
           </p>

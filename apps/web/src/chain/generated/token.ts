@@ -13,6 +13,14 @@ export const TOKEN_ADDRESSES = {
   PoolManager: '0x8366a39CC670B4001A1121B8F6A443A643e40951',
 } as const satisfies Readonly<Record<string, Address>>;
 
+/** Who the record says holds each share of the supply, and the governance delay that administers the token contracts. */
+export const TOKEN_ROLES = {
+  adminTimelock: '0x5a32Eab02454f97a39857E85b536F83EE0f844Bf',
+  community: '0x5a32Eab02454f97a39857E85b536F83EE0f844Bf',
+  treasury: '0x7f2D3be9597fb538BDBA3Dbcb9BEcECCD9056d21',
+  liquidity: '0x0DF776dBD1Ce5A8F38993Bc98bc3D81661FA51B2',
+} as const satisfies Readonly<Record<string, Address>>;
+
 /** Fixed at construction and read back from chain at deploy. Eighteen decimals, wei. */
 export const BRSR_SUPPLY = {
   total: 1000000000000000000000000000n,

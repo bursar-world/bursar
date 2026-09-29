@@ -94,6 +94,7 @@ export type {
 export {
   BRSR_SUPPLY,
   TOKEN_ADDRESSES,
+  TOKEN_ROLES,
   buybackAbi,
   brsrAbi,
   readToken,

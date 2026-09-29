@@ -2,7 +2,7 @@
 
 import type { Address as AddressValue } from 'viem';
 
-import { ADDRESSES, BRSR_SUPPLY, TOKEN_ADDRESSES, vestingAbi } from '@/chain';
+import { BRSR_SUPPLY, TOKEN_ADDRESSES, TOKEN_ROLES, vestingAbi } from '@/chain';
 import { Address } from '@/components/address';
 import { Instant } from '@/components/instant';
 import { Card, Field, FieldGrid, Section } from '@/components/layout';
@@ -41,9 +41,9 @@ export function SupplySection({ data, blockedBy }: { readonly data: TokenPageDat
       key: 'community',
       name: 'Community and ecosystem',
       allocation: BRSR_SUPPLY.community,
-      holder: ADDRESSES.adminTimelock,
-      holderLabel: 'Governance delay',
-      terms: 'Staking rewards, resolver incentives and integration grants. Each release is a proposal that waits out the same delay as any other change.',
+      holder: TOKEN_ROLES.community,
+      holderLabel: 'Token governance delay',
+      terms: 'Staking rewards, resolver incentives and integration grants. Each release is a proposal that waits out the 48-hour delay on the token contracts.',
       heldNow: extras?.holders.community,
     },
     {
@@ -59,7 +59,7 @@ export function SupplySection({ data, blockedBy }: { readonly data: TokenPageDat
       key: 'treasury',
       name: 'Treasury',
       allocation: BRSR_SUPPLY.treasury,
-      holder: ADDRESSES.treasury,
+      holder: TOKEN_ROLES.treasury,
       holderLabel: 'Treasury',
       terms: 'Protocol-owned. Spending it is a governance proposal.',
       heldNow: extras?.holders.treasury,
@@ -68,11 +68,10 @@ export function SupplySection({ data, blockedBy }: { readonly data: TokenPageDat
       key: 'liquidity',
       name: 'Liquidity',
       allocation: BRSR_SUPPLY.liquidity,
-      holder: null,
+      holder: TOKEN_ROLES.liquidity,
       holderLabel: 'Liquidity key',
-      terms: 'Reserved for the BRSR/USDG pool. That pool has not been initialised and holds nothing.',
-      heldNow: undefined,
-      heldNote: 'Not placed',
+      terms: 'Reserved for the BRSR/USDG pool. That pool has not been initialised, so the share waits on this key.',
+      heldNow: extras?.holders.liquidity,
     },
   ];
 
@@ -84,8 +83,8 @@ export function SupplySection({ data, blockedBy }: { readonly data: TokenPageDat
       <Card>
         <p className="max-w-3xl text-sm">
           The token has no owner, no minter, no pauser and no upgrade path. The whole supply exists already, and a mint
-          is refused once the supply is non-zero. What changes over time is who holds each share, and three of the four
-          holders are contracts this page reads directly.
+          is refused once the supply is non-zero. What changes over time is who holds each share, and each figure under
+          Held today is that holder&rsquo;s balance, read from the token.
         </p>
 
         <div className="mt-4">
