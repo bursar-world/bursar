@@ -1,0 +1,54 @@
+{
+  "mandate": "0x1a118049d8a039e58bc5dc1e692c16fa45037abc",
+  "now": 1790600000,
+  "termsCommitment": "0x1d24f1680b2abbc8431782ca0ed9d934ca1fcfe877466f88c9e7d7cd1800b4c4",
+  "counter": "0x13fa76283dbcb5db868241c533d02e04f9eaa029971bdb5e161dd35f3e30dc82",
+  "spend1": {
+    "amount": 80000,
+    "provenAt": 1790600060,
+    "newCounter": "0x184f7b2e66dbbc16f5db9fe98823d30a5182580883cdc62e7d4e8940328ec4d3",
+    "nullifier": "0x2ad00e7ce9fe860dd3aa05d5afcf49d158a0d2a541c4d4ad47de6678a2eb5f6a",
+    "a": [
+      "0x0280fa8e3a5ced97de9e7bc587a36c784d92a732ce1a2517ac6f8c1b7838a2f7",
+      "0x1941ac9e8fd1bd4d2468e057881fcfc221ebbb3f44ce3025d54db68309573bc7"
+    ],
+    "b": [
+      [
+        "0x2eda74ff5cc1aea5ed9379545069c2d7173014d4fdd8b39fcc322cc0a6f36700",
+        "0x0a4d9239001bc00ec5ec0e146858f6b5fdfedae6508ae747c6cc669d2f2270f1"
+      ],
+      [
+        "0x114e0ecea58f21ff97a4700307bf72ba10afd8bf7c4ff89e40a467cb77c77943",
+        "0x0e57232b2e7ef8a145fa593779b17db987690f07e95b504535d3e5cb980c0b79"
+      ]
+    ],
+    "c": [
+      "0x1282af50e0ce19e0cd45b2e9d4f13f371e7dda6f4f95b8d7d0ebbfcd0c3118ef",
+      "0x20ee17fd03daf96ed58148c4034cfae116b2868462e34b5c40c9f81a336c8ba1"
+    ]
+  },
+  "spend2": {
+    "amount": 90000,
+    "provenAt": 1790600060,
+    "newCounter": "0x16752bd1b9fd36dca95b288abd8a0cbfaf0d068cfc7fbf0ab41f35541576620d",
+    "nullifier": "0x2b4d2f95f999f0701b2d3a62be3a284678dea065b413ba2554726f4fdfe4b765",
+    "a": [
+      "0x08e50a6b947a7656de6948e6ee9a6bd3f4446f7dd81f831ff8a6076f46768468",
+      "0x0594b33ce1a32c788731ec025ae8578dc98a38f8234368d7e38513b7e3e23c6d"
+    ],
+    "b": [
+      [
+        "0x2d2d733baa9e6f0198ec32519ba0942edda8b74f7d7809f536edc2ba2287ba0f",
+        "0x301870328a3d24543ef8719ff4785018ce1ec231a4c1516ce1fb5ef363055960"
+      ],
+      [
+        "0x1f4b3dc5a14c2cdcb8d59802316e674204352c94adcfc8a196a82ac18a950169",
+        "0x14e3843883796d65bd24840473a1d5ba632943353b65abb639aba2dfbba4caee"
+      ]
+    ],
+    "c": [
+      "0x2d32242d74703493a69bbee116ebf266b82b84127b096256aa28ac7d0cee2bcb",
+      "0x0479cdd2e54d6435fdaa90c69ab2773036489cf3c3b933e00f2459794a535026"
+    ]
+  }
+}
