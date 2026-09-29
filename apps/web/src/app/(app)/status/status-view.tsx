@@ -203,7 +203,7 @@ export function StatusView() {
             </p>
             <p className="text-[color:var(--color-muted)]">
               Neither control belongs to BURSAR and neither can be worked around. Both are read from the token at{' '}
-              <span className="tabular">{ADDRESSES.usdg}</span> on every refresh of this page and reported above as
+              <span className="tabular break-all">{ADDRESSES.usdg}</span> on every refresh of this page and reported above as
               their own condition.
             </p>
           </div>

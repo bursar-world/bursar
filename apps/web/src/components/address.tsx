@@ -29,8 +29,8 @@ export function Address({ value, label, full = false, copy = true, explorer = tr
   const link = explorer ? explorerAddress(value as EvmAddress) : undefined;
 
   return (
-    <span className={`inline-flex items-center gap-1.5 ${className}`}>
-      <span className="tabular text-detail" title={value}>
+    <span className={`inline-flex max-w-full items-center gap-1.5 ${className}`}>
+      <span className={`tabular text-detail ${full ? 'min-w-0 break-all' : ''}`} title={value}>
         {label ?? (full ? value : shortAddress(value))}
       </span>
       {copy && <CopyControl value={value} />}

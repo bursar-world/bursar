@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-import { ADDRESS_ROUTES, addressSegment, readsAsAddress } from './lib/path';
+import { ADDRESS_ROUTES, addressSegment, readsAsAddress, unknownPage } from './lib/path';
 
 /**
  * The status line for a URL whose address cannot be read.
@@ -16,6 +16,7 @@ import { ADDRESS_ROUTES, addressSegment, readsAsAddress } from './lib/path';
  */
 export function middleware(request: NextRequest): NextResponse {
   const { pathname } = request.nextUrl;
+  if (unknownPage(pathname)) return NextResponse.rewrite(request.nextUrl, { status: 404 });
 
   for (const route of ADDRESS_ROUTES) {
     const segment = addressSegment(pathname, route);
@@ -27,5 +28,9 @@ export function middleware(request: NextRequest): NextResponse {
   return NextResponse.next();
 }
 
-/** Next reads this statically, so the prefixes in `ADDRESS_ROUTES` are written out again here. */
-export const config = { matcher: ['/console/:path*', '/providers/:path*'] };
+/**
+ * Next reads this statically, so the prefixes in `ADDRESS_ROUTES` are written out again here. The
+ * last entry is every other page path: not the framework's files, the API or a file with an
+ * extension.
+ */
+export const config = { matcher: ['/console/:path*', '/providers/:path*', '/((?!_next/|api/|console|providers)[^.]+)'] };

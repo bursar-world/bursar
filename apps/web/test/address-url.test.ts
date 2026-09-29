@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { NextRequest } from 'next/server';
 import { describe, expect, it } from 'vitest';
 
-import { ADDRESS_ROUTES, addressSegment, readsAsAddress } from '@/lib/path';
+import { ADDRESS_ROUTES, addressSegment, readsAsAddress, unknownPage } from '@/lib/path';
 import type { AddressRoute } from '@/lib/path';
 import { config, middleware } from '@/middleware';
 
@@ -96,7 +96,13 @@ describe('the address middleware', () => {
   });
 
   it('runs on every route that names an address, and nowhere else', () => {
-    expect(config.matcher).toEqual(ADDRESS_ROUTES.map((entry) => `/${entry.prefix}/:path*`));
+    expect(config.matcher.slice(0, ADDRESS_ROUTES.length)).toEqual(ADDRESS_ROUTES.map((entry) => `/${entry.prefix}/:path*`));
+  });
+
+  it('answers 404 for a first segment no page claims, and leaves every page alone', () => {
+    expect(unknownPage('/does-not-exist')).toBe(true);
+    expect(unknownPage('/console/nope/deeper')).toBe(false);
+    for (const page of ['/', '/status', '/workspace/drafts/x', '/docs/haircuts', '/governance']) expect(unknownPage(page)).toBe(false);
   });
 });
 

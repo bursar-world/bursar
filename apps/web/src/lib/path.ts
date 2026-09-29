@@ -47,3 +47,25 @@ export function addressSegment(pathname: string, route: AddressRoute): string | 
 export function readsAsAddress(segment: string): boolean {
   return isAddress(segment, { strict: false });
 }
+
+/**
+ * The first path segments the app answers. Anything else is a 404 decided in middleware, for the
+ * same reason as an unreadable address: the layout streams before a page can set the status.
+ */
+export const TOP_ROUTES: ReadonlySet<string> = new Set([
+  'console',
+  'docs',
+  'governance',
+  'ops',
+  'providers',
+  'resolvers',
+  'status',
+  'token',
+  'workspace',
+]);
+
+/** Whether a path the app itself answers, rather than an asset or an API route, names no page. */
+export function unknownPage(pathname: string): boolean {
+  const first = pathname.split('/').find((part) => part !== '');
+  return first !== undefined && !TOP_ROUTES.has(first);
+}
