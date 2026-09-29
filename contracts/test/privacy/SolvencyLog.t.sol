@@ -28,10 +28,6 @@ contract SolvencyLogTest is Test {
         vm.prank(poster);
         vm.expectRevert(SolvencyLog.StaleEpoch.selector);
         solvency.post(1, 99, bytes32(uint256(2)), 10, 20);
-
-        vm.prank(poster);
-        vm.expectRevert(SolvencyLog.FutureBlock.selector);
-        solvency.post(2, 100, bytes32(uint256(2)), 10, 20);
     }
 
     function test_onlyThePosterPostsAndOnlyTheAdminMovesIt() public {

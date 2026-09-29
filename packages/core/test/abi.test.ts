@@ -11,6 +11,9 @@ describe('generated ABIs', () => {
       'AdminTimelock',
       'AgentRegistry',
       'AssetRegistry',
+      'CommittedMandateAccount',
+      'CommittedMandateFactory',
+      'DisclosureRegistry',
       'Escrow',
       'MandateAccount',
       'MandateAccountFactory',
@@ -18,8 +21,10 @@ describe('generated ABIs', () => {
       'PriceGuard',
       'Reputation',
       'RobinhoodStockAdapter',
+      'SolvencyLog',
       'StockSpendRouter',
       'TreasuryPark',
+      'WithinMandateVerifier',
     ]);
   });
 

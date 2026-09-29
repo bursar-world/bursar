@@ -11685,11 +11685,6 @@ export const solvencyLogAbi = [
   },
   {
     "type": "error",
-    "name": "FutureBlock",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "NotAdmin",
     "inputs": []
   },

@@ -10,7 +10,6 @@ contract SolvencyLog {
     error NotAdmin();
     error NotPendingAdmin();
     error StaleEpoch();
-    error FutureBlock();
     error ZeroAddress();
 
     struct Epoch {
@@ -41,11 +40,11 @@ contract SolvencyLog {
         emit PosterSet(poster_);
     }
 
-    /// Epochs only move forward, so a posted root can never be overwritten.
+    /// Epochs only move forward, so a posted root can never be overwritten. `asOfBlock` is an L2
+    /// block number and is not checked here: on an Arbitrum chain `block.number` reads the L1 block.
     function post(uint64 epoch, uint64 asOfBlock, bytes32 root, uint128 liabilities, uint128 assets) external {
         if (msg.sender != poster) revert NotPoster();
         if (epoch <= latestEpoch) revert StaleEpoch();
-        if (asOfBlock >= block.number) revert FutureBlock();
         latestEpoch = epoch;
         _epochs[epoch] = Epoch(root, liabilities, assets, asOfBlock, uint64(block.timestamp));
         emit EpochPosted(epoch, root, liabilities, assets, asOfBlock);

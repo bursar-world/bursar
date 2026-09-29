@@ -194,7 +194,13 @@
     "Get written confirmation from Chainlink or Robinhood that the Robinhood feeds price one raw token with the multiplier included, before the treasury lane is presented as live.",
     "Add a market-session check (MarketStatusOracle) so stock purchases refuse outside the 24/5 session; today the 26 h staleness bound and the pool-versus-feed band carry that case.",
     "Make the v2.1 factory (unpark inside a spend) the default for new mandates in the console, and run a park-manager service that parks above the buffer and unparks in market hours.",
-    "External review of AssetRegistry, PriceGuard, StockSpendRouter, TreasuryPark and both adapters."
+    "External review of AssetRegistry, PriceGuard, StockSpendRouter, TreasuryPark and both adapters.",
+    "M4: run the multi-party phase 2 for within_mandate (three independent contributors plus a Robinhood Chain block hash as beacon), publish the transcript, then redeploy WithinMandateVerifier and both committed-mandate factories against the new zkey.",
+    "M4: register a payee on the v2 AgentRegistry and make the v2 CommittedMandateFactory the console default; the example committed mandate locks on the v1 escrow.",
+    "M4: move the SolvencyLog poster from the deployer to a dedicated key run by services/solvency, by timelock proposal setPoster.",
+    "M4: the three resolvers publish ERC-6538 viewing keys so disclosure grants can be sealed to them.",
+    "M4: external review of within_mandate.circom, CommittedMandateAccount, its factory and DisclosureRegistry before any committed mandate holds more than 25 USDG.",
+    "M4: a refund to a committed mandate returns the money but not the confidential allowance; the console must offer amend with a recomputed counter."
   ],
   "pending": "Development deployment. See productionChecklist for the settings that change before public launch.",
   "exampleMandate": {
@@ -414,5 +420,84 @@
       "sgovParkedRaw": "395374858707165",
       "vault": "0x0E502c7b9e3EF964e51A5A4b752238B5A9Aa3A25"
     }
+  },
+  "privacy": {
+    "milestone": "M4 part 1",
+    "deployedAt": "2026-09-29T11:41:00Z",
+    "deployCostEth": "0.000121619",
+    "sourceCommit": "fb3b8de",
+    "note": "Committed mandates (F13): the account stores a Poseidon commitment to its terms and to its counters, and every spend carries a Groth16 proof checked by WithinMandateVerifier before the escrow lock opens. The readable terms are published once as AES-GCM ciphertext under the principal's viewing key. DisclosureRegistry (F14) is event-only. SolvencyLog (F16 phase A) takes daily roots from services/solvency; its admin is the v2 AdminTimelock and its poster is the deployer. The phase-2 setup is a single development contribution on top of the PSE Perpetual Powers of Tau (circuits/build/setup.json). Amount and payee of each spend stay visible in the escrow lock until shielded settlement (F17); the principal stays visible until stealth addressing (F15).",
+    "WithinMandateVerifier": "0x85Be714530F931d4b42fdCa6590eFc3e09A9DFbb",
+    "CommittedMandateFactory": "0xbb4E0427872C825ADec1DaA3b896034f3a9ab3D7",
+    "CommittedMandateFactoryV1Escrow": "0xdbB3bD6172132d9049b2825C5deA18d0Bb2A30D1",
+    "DisclosureRegistry": "0xE4e8Ec05d203a990cd7Bdf115f57C89386770D6E",
+    "SolvencyLog": "0x6A5093ff254DfF5B17Ca9Ba34611a4c855e7bE55",
+    "fromBlock": 75627494,
+    "setup": {
+      "circuit": "within_mandate",
+      "constraints": 7307,
+      "phase1": "PSE ppot_0080_16.ptau sha256 ed3622a7c79b0b49aadd134ebbc5b77df8c8c59bccebdfd0d9bf2c1a51561cf9",
+      "phase2": "one development contribution, no beacon",
+      "zkeySha256": "dfb4b8dd40e6f52ed40e7ec6cb7cca25ff132097f97928fead4c318008c0a464"
+    },
+    "transactions": {
+      "WithinMandateVerifier": {
+        "hash": "0xda6989d15f7152d3c65bebcb92f4afaff4582e14ea6283aca8cade76fe1d925a",
+        "block": 75627494,
+        "gas": 526984
+      },
+      "CommittedMandateFactory": {
+        "hash": "0xa87d8c24475404beb0c548bf81cf0b93582262a4e17f26d371bef1fb0c47d88b",
+        "block": 75627519,
+        "gas": 2066573
+      },
+      "CommittedMandateFactoryV1Escrow": {
+        "hash": "0xafdce5ef9453483f8b216fbacac28f8b7bac3a676756c9e6a73c72fe12f8a95f",
+        "block": 75627544,
+        "gas": 2066573
+      },
+      "DisclosureRegistry": {
+        "hash": "0x62951f252efdb920d0cdc4fa58ee2ff8a6534d0dbc5a13e9bfd4c7bdec240a50",
+        "block": 75627569,
+        "gas": 457937
+      },
+      "SolvencyLog": {
+        "hash": "0xc83b114992f3920e9227464a8149577746a12346a90cb4d1be8bb69ff9bf8c9d",
+        "block": 75630600,
+        "gas": 466995
+      }
+    },
+    "exampleCommittedMandate": {
+      "address": "0x96f085Adc31984F1eE0F769798FA52465d39f56c",
+      "factory": "0xdbB3bD6172132d9049b2825C5deA18d0Bb2A30D1",
+      "escrow": "0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4",
+      "principal": "0x877c349EFb5926082C413833E8055F0991185c61",
+      "agent": "0x877c349EFb5926082C413833E8055F0991185c61",
+      "why v1 escrow": "The only registered payee (0x5210\u2026a374) is active on the v1 AgentRegistry. v2 registration needs a 5 USDG stake and the v1 stake unbonds over 7 days.",
+      "createdTx": "0x31fd88783d0f38428e1c048862af0c8b2e14b2a0732d4a88bfa14120f50cb19a",
+      "createdBlock": 75627698,
+      "fundedTx": "0x0daad5b9a77c85ed73a204e9c442b83f34a41203ac0850844e6c15e3c56548e5",
+      "funded": "0.05 USDG from the payer key's own balance",
+      "provenSpendTx": "0xa6d45fab2a9d5760cc0f70de4a971e6dbd016491f9ebc9f26bfa5e2a7b138a92",
+      "provenSpendGas": 766333,
+      "escrowId": 11,
+      "releaseTx": "0xbb31d016106fd0c5ebaf7c3fe139136ac48ea0f199e54c5cc8b766325eda8f5a",
+      "payeeViewingKeyTx": "0x3896b2078040accca6820ef01a0195717c32bcf87db6b59a935287f6322b579d"
+    },
+    "supersededSolvencyLog": {
+      "address": "0x4349A8A41B2a62FD6015f4a2bE0F4C9ba51c4c06",
+      "why": "Checked asOfBlock against block.number, which reads the L1 block on Robinhood Chain, so every post reverted. Never used."
+    },
+    "solvencyEpochs": [
+      {
+        "epoch": 20725,
+        "asOfBlock": 75630693,
+        "root": "0x2b7ef2035fe7fae833891cf0d0043b327771cf9dd6b54c87cc88f63b975de593",
+        "liabilitiesUsdg": "0.007895",
+        "assetsUsdg": "0.007895",
+        "postTx": "0x4d41ee45c58d738036bde773dd344019b9989f9cf5fcdcc4191a8420560ad14c",
+        "verify": "MATCH (services/solvency/scripts/solvency-verify.ts)"
+      }
+    ]
   }
 }
