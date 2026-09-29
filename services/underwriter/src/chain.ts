@@ -371,10 +371,14 @@ export function createMandateChain(client: RhcPublicClient): MandateChain {
 
   const readAccount: MandateChain['readAccount'] = async (account, blockNumber) =>
     read(async () => {
+      // `limits` is the one getter whose shape differs between builds: v2 appends the class mask,
+      // the lifetime total and the lane, and a v1 account's eight words do not decode as eleven.
+      // Every other getter read here is the same in both, so the build decides only the ABI.
+      const set = await contractSet(account);
       const call = <const T extends string>(functionName: T, args?: readonly unknown[]) =>
         client.readContract({
           address: account,
-          abi: mandateAccountAbi,
+          abi: set === 'v1' ? mandateAccountAbiV1 : mandateAccountAbi,
           functionName,
           ...(args === undefined ? {} : { args }),
           ...at(blockNumber),
@@ -441,9 +445,6 @@ export function createMandateChain(client: RhcPublicClient): MandateChain {
         number,
         Hex32,
       ];
-
-      const set = contractSetOfEscrow(escrow) ?? 'v2';
-      sets.set(account.toLowerCase(), set);
 
       const balance = (await client.readContract({
         address: settlementAsset,

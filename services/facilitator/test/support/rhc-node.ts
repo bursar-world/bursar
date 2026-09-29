@@ -6,7 +6,9 @@ import {
   RHC_MAINNET,
   agentRegistryAbi,
   escrowAbi,
+  escrowAbiV1,
   mandateAccountAbi,
+  mandateAccountAbiV1,
   reputationAbi,
   settlementAssetAbi,
 } from '@bursar/core';
@@ -23,10 +25,19 @@ import { decodeFunctionData, encodeFunctionResult } from 'viem';
  *
  * Nothing here is a policy decision. `previewSpend` answers what the account is set up to answer
  * and the underwriter reaches its own verdict from that.
+ *
+ * Two accounts over the one fixture, one per contract build, because both are live on 4663. Each
+ * points at its build's real escrow address, which is how a reader tells them apart, and each
+ * answers `limits` in its build's shape: v1 in eight words, v2 with the class mask, lifetime total
+ * and lane appended.
  */
 
+/** A v1 account: created against the rhc-mainnet escrow, answering the frozen v1 ABI. */
 export const ACCOUNT = '0xe8fd2904175811Db41636c6085eBFE6661E196d5' as const;
-export const ESCROW = '0x4aCAeAdAE9AEf21D23719aa2F3E45A9c7Eda1BD3' as const;
+/** A v2 account: created against the rhc-mainnet-v2 escrow, answering the current ABI. */
+export const ACCOUNT_V2 = '0x5b1A4bA0D5E2C6f3A7b8c9D0E1f2a3b4C5d6e7F8' as const;
+export const ESCROW = '0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4' as const;
+export const ESCROW_V2 = '0x4315F8be7C9661345710910577Ec31cb867f3c20' as const;
 export const REGISTRY = '0x002750230E742b52F63987704f09f4E44CF4b2C8' as const;
 export const REPUTATION = '0x95A14367fA7D9a4F06dd6D41DabbaDB881469a19' as const;
 export const USDG = RHC_MAINNET.usdg;
@@ -92,8 +103,10 @@ export type RhcNode = {
 };
 
 const ABIS: Readonly<Record<string, Abi>> = {
-  [ACCOUNT.toLowerCase()]: mandateAccountAbi as Abi,
-  [ESCROW.toLowerCase()]: escrowAbi as Abi,
+  [ACCOUNT.toLowerCase()]: mandateAccountAbiV1 as Abi,
+  [ACCOUNT_V2.toLowerCase()]: mandateAccountAbi as Abi,
+  [ESCROW.toLowerCase()]: escrowAbiV1 as Abi,
+  [ESCROW_V2.toLowerCase()]: escrowAbi as Abi,
   [REGISTRY.toLowerCase()]: agentRegistryAbi as Abi,
   [REPUTATION.toLowerCase()]: reputationAbi as Abi,
   [USDG.toLowerCase()]: settlementAssetAbi as Abi,
@@ -216,15 +229,16 @@ function call(
 }
 
 function read(to: string, fn: string, args: readonly unknown[], fixture: AccountFixture): unknown {
-  if (to === ACCOUNT.toLowerCase()) return account(fn, args, fixture);
-  if (to === ESCROW.toLowerCase()) return escrow(fn);
+  if (to === ACCOUNT.toLowerCase()) return account('v1', fn, args, fixture);
+  if (to === ACCOUNT_V2.toLowerCase()) return account('v2', fn, args, fixture);
+  if (to === ESCROW.toLowerCase() || to === ESCROW_V2.toLowerCase()) return escrow(fn);
   if (to === REGISTRY.toLowerCase()) return fn === 'isActive';
   if (to === REPUTATION.toLowerCase()) return 25_000_000n;
   if (to === USDG.toLowerCase()) return settlementAsset(fn, args, fixture);
   throw new Error(`this node holds no contract at ${to}`);
 }
 
-function account(fn: string, args: readonly unknown[], fixture: AccountFixture): unknown {
+function account(build: 'v1' | 'v2', fn: string, args: readonly unknown[], fixture: AccountFixture): unknown {
   switch (fn) {
     case 'principal':
       return PRINCIPAL;
@@ -233,7 +247,7 @@ function account(fn: string, args: readonly unknown[], fixture: AccountFixture):
     case 'settlementAsset':
       return USDG;
     case 'escrow':
-      return ESCROW;
+      return build === 'v1' ? ESCROW : ESCROW_V2;
     case 'paused':
       return fixture.paused;
     case 'revoked':
@@ -254,6 +268,8 @@ function account(fn: string, args: readonly unknown[], fixture: AccountFixture):
         approvalThreshold: fixture.approvalThreshold,
         validFrom: 0n,
         validUntil: 0n,
+        // Every class allowed, no lifetime total, the escrow lane.
+        ...(build === 'v2' ? { classMask: 7, totalCap: 0n, lane: 0 } : {}),
       };
     case 'window': {
       const daily = args[0] === 0;

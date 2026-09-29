@@ -10,7 +10,7 @@ import { createUnderwriterService, loadUnderwriterConfig } from '@bursar/underwr
 
 import { compose } from '../src/main.js';
 import type { Composed } from '../src/main.js';
-import { ACCOUNT, AGENT_WALLET, CAPABILITY, MERCHANT, USDG, startRhcNode } from './support/rhc-node.js';
+import { ACCOUNT, ACCOUNT_V2, AGENT_WALLET, CAPABILITY, MERCHANT, USDG, startRhcNode } from './support/rhc-node.js';
 import type { RhcNode } from './support/rhc-node.js';
 import { TEST_DATABASE_URL } from './support/postgres.js';
 
@@ -100,6 +100,7 @@ describe.skipIf(!TEST_DATABASE_URL)('the composition the binary runs', () => {
     composed: Composed;
     call: (method: string, path: string, body?: unknown) => Promise<{ status: number; body: Record<string, unknown> }>;
   }> {
+    const account = overrides['MANDATE_ACCOUNT'] ?? ACCOUNT;
     const composed = await compose(env({ FACILITATOR_PORT: String(await freePort()), ...overrides }));
     running.push(composed);
     const server = await composed.service.start();
@@ -119,7 +120,7 @@ describe.skipIf(!TEST_DATABASE_URL)('the composition the binary runs', () => {
       payerWallet: AGENT_WALLET,
       repayWallet: AGENT_WALLET,
       networks: ['eip155:4663'],
-      mandateAccount: ACCOUNT,
+      mandateAccount: account,
     });
     await call('POST', '/pools', { poolId: POOL, lane: 'prefund', maxSingleMicro: '5000000' });
     await call('POST', `/lanes/${AGENT}/prefund`, {
@@ -147,14 +148,21 @@ describe.skipIf(!TEST_DATABASE_URL)('the composition the binary runs', () => {
     capabilityId: CAPABILITY,
   });
 
-  it('answers POST /underwrite with a real decision, started from nothing but environment', async () => {
-    const { call } = await start();
+  // Both builds are live on 4663 and answer `limits` in different shapes, so the decision is taken
+  // against one account of each.
+  const builds = [
+    { build: 'v1', account: ACCOUNT },
+    { build: 'v2', account: ACCOUNT_V2 },
+  ] as const;
 
-    const answered = await call('POST', '/underwrite', spend('1000000', 'compose-allow-1'));
+  it.each(builds)('answers POST /underwrite with a real decision against a $build account', async ({ build, account }) => {
+    const { call } = await start({ MANDATE_ACCOUNT: account });
+
+    const answered = await call('POST', '/underwrite', spend('1000000', `compose-allow-${build}`));
 
     expect(answered.status).toBe(201);
     expect(answered.body['decision']).toEqual({ decision: 'allow' });
-    expect(answered.body['mandateAccount']).toBe(ACCOUNT);
+    expect(answered.body['mandateAccount']).toBe(account);
 
     // The decision has to survive into the ledger in a form a reservation can be opened against,
     // which is the half of the seam the route is there for.
@@ -169,14 +177,15 @@ describe.skipIf(!TEST_DATABASE_URL)('the composition the binary runs', () => {
     });
     expect(reserved.status).toBe(201);
 
-    // The account's own answer decided it: `previewSpend` was read over the socket.
-    expect(rhc.calls).toContain(`${ACCOUNT.toLowerCase()}.previewSpend`);
+    // The account's own answer decided it: `limits` and `previewSpend` were read over the socket.
+    expect(rhc.calls).toContain(`${account.toLowerCase()}.limits`);
+    expect(rhc.calls).toContain(`${account.toLowerCase()}.previewSpend`);
   }, 30_000);
 
-  it('refuses a spend the account refuses, and names the limit', async () => {
-    const { call } = await start();
+  it.each(builds)('refuses a spend a $build account refuses, and names the limit', async ({ build, account }) => {
+    const { call } = await start({ MANDATE_ACCOUNT: account });
 
-    const answered = await call('POST', '/underwrite', spend('2500000', 'compose-refuse-1'));
+    const answered = await call('POST', '/underwrite', spend('2500000', `compose-refuse-${build}`));
 
     expect(answered.status).toBe(201);
     expect(answered.body['decision']).toEqual({ decision: 'refuse', reason: 'daily_cap_exceeded' });
