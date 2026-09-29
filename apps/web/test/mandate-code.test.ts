@@ -10,6 +10,7 @@ const fixture = (name: string) => readFileSync(new URL(`./fixtures/${name}.hex`,
 const FIRST: Address = '0xB4Bd99d8604fDB876fA1B38a3f8bA024D20ccD0b';
 const SECOND: Address = '0xb840f3BD8Ccb2B7fcB731EEE1fDa5B40A4e656c1';
 const V2_EXAMPLE: Address = '0x420BeB507F72173E7d78e0f956968f64fb508356';
+const COLLATERAL: Address = '0x4686C3566E1C50b4cC14c37A1088b7892d7D7407';
 
 describe('isMandateCode', () => {
   it('recognises every account the factory deployed, whatever its address', () => {
@@ -39,6 +40,11 @@ describe('mandateCodeSet', () => {
     expect(mandateCodeSet(FIRST, fixture('mandate-b4bd'))).toBe('v1');
     expect(mandateCodeSet(V2_EXAMPLE, fixture('mandate-420b'))).toBe('v2');
     expect(isMandateCode(V2_EXAMPLE, fixture('mandate-420b'))).toBe(true);
+  });
+
+  it('recognises an account from the v2.1 factory, which speaks the v2 abi', () => {
+    expect(mandateCodeSet(COLLATERAL, fixture('mandate-4686'))).toBe('v2');
+    expect(mandateCodeSet(V2_EXAMPLE, fixture('mandate-4686'))).toBeUndefined();
   });
 
   it('refuses v2 code claimed at another address', () => {

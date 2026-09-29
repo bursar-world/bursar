@@ -34,7 +34,7 @@ export type MandateSummary = {
  * first, then the v1 factory whose accounts still hold funds and history. One call per factory.
  */
 export async function mandatesOf(principal: Address): Promise<readonly Address[]> {
-  const factories = deploymentsForChain(CHAIN_ID).map((d) => d.contracts.MandateAccountFactory);
+  const factories = mandateFactories();
   const lists = await Promise.all(
     (factories.length > 0 ? factories : [ADDRESSES.mandateAccountFactory]).map(
       async (factory) =>
@@ -47,6 +47,23 @@ export async function mandatesOf(principal: Address): Promise<readonly Address[]
     ),
   );
   return lists.flat();
+}
+
+/**
+ * Every factory on this chain that deploys standard mandate accounts: each record's own, then the
+ * v2.1 factory behind the treasury and collateral lanes where a record carries one.
+ */
+export function mandateFactories(): readonly Address[] {
+  const seen = new Set<string>();
+  const out: Address[] = [];
+  for (const d of deploymentsForChain(CHAIN_ID)) {
+    for (const factory of [d.contracts.MandateAccountFactory, d.rwa?.MandateAccountFactoryV21]) {
+      if (factory === undefined || seen.has(factory.toLowerCase())) continue;
+      seen.add(factory.toLowerCase());
+      out.push(factory);
+    }
+  }
+  return out;
 }
 
 /**
@@ -65,37 +82,48 @@ export async function mandatesOf(principal: Address): Promise<readonly Address[]
  * One entry per build. The offsets come from `immutableReferences` in the compiled artifact: the
  * address sits in the low 20 bytes of its 32-byte slot. The v2 hash was taken from
  * 0x420BeB507F72173E7d78e0f956968f64fb508356 on chain 4663, whose code matches the artifact byte for
- * byte outside the immutables.
+ * byte outside the immutables. The v2.1 build (the treasury and collateral lanes) speaks the v2 ABI
+ * with more behind it, so it answers as v2; its hash was taken from
+ * 0x4686C3566E1C50b4cC14c37A1088b7892d7D7407.
  */
 type MandateFingerprint = {
+  readonly set: ContractSet;
   readonly length: number;
   readonly selfAddress: { readonly offset: number; readonly length: 20 };
   readonly domainSeparator: { readonly offset: number; readonly length: 32 };
   readonly maskedHash: Hex;
 };
 
-const MANDATE_CODE: Readonly<Record<ContractSet, MandateFingerprint>> = {
-  v1: {
+const MANDATE_CODE: readonly MandateFingerprint[] = [
+  {
+    set: 'v1',
     length: 16_607,
     selfAddress: { offset: 8_522, length: 20 },
     domainSeparator: { offset: 8_594, length: 32 },
     maskedHash: '0x5588423c534f95c86931f78024212ef022e8f777a95cd18e4ce4d945a06cbdbe',
   },
-  v2: {
+  {
+    set: 'v2',
     length: 19_835,
     selfAddress: { offset: 10_786, length: 20 },
     domainSeparator: { offset: 10_858, length: 32 },
     maskedHash: '0xf11d2c8e0e96768711954cbe9a7c2fa69674c47258b5ecb615f8d4c063079bef',
   },
-};
+  {
+    set: 'v2',
+    length: 20_331,
+    selfAddress: { offset: 10_971, length: 20 },
+    domainSeparator: { offset: 11_043, length: 32 },
+    maskedHash: '0x179f3eaab82df63c910bf4891ad166a24daec88a85b343f1abc8d9857c5c01b5',
+  },
+];
 
 /** Which build `code` is, when it is a mandate account's runtime code deployed at `account`. Pure. */
 export function mandateCodeSet(account: Address, code: Hex | undefined): ContractSet | undefined {
   if (code === undefined) return undefined;
   const bytes = hexToBytes(code);
 
-  for (const set of ['v2', 'v1'] as const) {
-    const { length, selfAddress, domainSeparator, maskedHash } = MANDATE_CODE[set];
+  for (const { set, length, selfAddress, domainSeparator, maskedHash } of MANDATE_CODE) {
     if (bytes.length !== length) continue;
 
     const named = bytesToHex(bytes.subarray(selfAddress.offset, selfAddress.offset + selfAddress.length));
