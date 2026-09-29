@@ -124,8 +124,9 @@ export default function DocsPage() {
           </p>
           <p className="mt-3 max-w-3xl text-sm">
             Leave the lane out and the agent&apos;s own wallet pays by signing a USDG transfer for the exact price.
-            That lane is per-call only; windows client-enforced. The mandate&apos;s per-call cap, providers and
-            capabilities are checked before signing, but nothing on chain counts the payment against a window.
+            The SDK checks the mandate&apos;s per-call cap, providers and capabilities before signing, but a wallet
+            payment is not counted against the daily or monthly window on chain. Use the mandate lane when those
+            windows have to hold.
           </p>
         </Card>
 
@@ -205,7 +206,8 @@ export default function DocsPage() {
             itself: the payment names the escrow lock its spend opened, verification checks that lock against your
             price, address and the request, and you collect by releasing it once the call is served.{' '}
             <code className="font-mono text-note">exact</code> is paid from the agent&apos;s wallet with an EIP-3009
-            USDG transfer that settlement broadcasts. It is per-call only; windows client-enforced.
+            USDG transfer that settlement broadcasts. Each wallet payment is checked on its own; the mandate&apos;s
+            daily and monthly windows do not count it.
           </p>
           <p className="mt-3 max-w-3xl text-sm">
             The signing domain is read from the token, never assumed. The network identifier is{' '}
