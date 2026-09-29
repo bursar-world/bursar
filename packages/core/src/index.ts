@@ -98,6 +98,9 @@ export {
   adminTimelockAbi,
   agentRegistryAbi,
   assetRegistryAbi,
+  committedMandateAccountAbi,
+  committedMandateFactoryAbi,
+  disclosureRegistryAbi,
   escrowAbi,
   mandateAccountAbi,
   mandateAccountFactoryAbi,
@@ -106,8 +109,10 @@ export {
   priceGuardAbi,
   reputationAbi,
   settlementAssetAbi,
+  solvencyLogAbi,
   stockSpendRouterAbi,
   treasuryParkAbi,
+  withinMandateVerifierAbi,
 } from './generated/abi.js';
 
 export { RWA_CLASS_BIT, rwaDeployment, rawToUsdgMicros, usdgMicrosToRaw } from './rwa.js';

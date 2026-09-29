@@ -34,6 +34,11 @@ const CONTRACTS = {
   StockSpendRouter: 'stockSpendRouterAbi',
   TreasuryPark: 'treasuryParkAbi',
   RobinhoodStockAdapter: 'parkAdapterAbi',
+  CommittedMandateAccount: 'committedMandateAccountAbi',
+  CommittedMandateFactory: 'committedMandateFactoryAbi',
+  DisclosureRegistry: 'disclosureRegistryAbi',
+  SolvencyLog: 'solvencyLogAbi',
+  WithinMandateVerifier: 'withinMandateVerifierAbi',
 } as const;
 
 /**

@@ -22,6 +22,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./prove": {
+      "types": "./dist/prove.d.ts",
+      "import": "./dist/prove.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -35,7 +39,11 @@
   },
   "dependencies": {
     "@bursar/core": "workspace:*",
-    "viem": "^2.56.0"
+    "viem": "^2.56.0",
+    "@bursar/circuits": "workspace:*",
+    "@noble/curves": "1.9.1",
+    "@noble/hashes": "1.8.0",
+    "snarkjs": "0.7.6"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

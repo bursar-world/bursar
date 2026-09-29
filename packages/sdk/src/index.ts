@@ -209,3 +209,41 @@ export {
   totalBudgetWindowSeconds,
 } from '@bursar/core';
 export type { SpendClass, SpendClassInfo } from '@bursar/core';
+
+export {
+  ERC5564_SCHEME_SECP256K1,
+  ERC6538_REGISTRY,
+  SealOpenError,
+  encodeMetaAddress,
+  erc6538Abi,
+  isSealedURI,
+  open,
+  openSealedURI,
+  openText,
+  publishedViewingKey,
+  seal,
+  sealedURI,
+  viewingKeyOfMetaAddress,
+} from './seal.js';
+
+export { VIEWING_KEY_VERSION, deriveViewingKey, viewingKeyMessage } from './viewing-key.js';
+export type { ViewingKey } from './viewing-key.js';
+
+export {
+  COMMITTED_CLASSES,
+  TermsLockedError,
+  circuitTerms,
+  classMaskOf,
+  commit,
+  committedMandateAccountAbi,
+  committedMandateFactoryAbi,
+  createArgs,
+  latestSealedTerms,
+  openTerms,
+  sealTerms,
+  writeTerms,
+} from './committed.js';
+export type { CommittedClass, Commitment, SealedTermsRecord, TermsDocument, TermsInput } from './committed.js';
+
+export { disclosureSlice, openDisclosure } from './disclosure.js';
+export type { DisclosureSlice, OpenedDisclosure } from './disclosure.js';
