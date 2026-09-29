@@ -156,3 +156,38 @@ function countWord(count: number, one: string, many: string): string {
 function opensAt(lock: ProviderLock): number {
   return lock.recordableAt?.getTime() ?? Number.POSITIVE_INFINITY;
 }
+
+/**
+ * Delivering and collecting in one step, for a provider without a sidecar. `release` pays the
+ * payee from the lock before its deadline; no output is committed, so the payer has nothing to
+ * check the work against and can still contest within the window.
+ */
+export function TakePayment({
+  lock,
+  blockedBy,
+  onTaken,
+}: {
+  readonly lock: ProviderLock;
+  readonly blockedBy: readonly AnyState[];
+  readonly onTaken: () => void;
+}) {
+  const { writeContractAsync } = useWriteContract();
+  if (lock.stage !== 'awaiting-delivery' || !lock.deployment.current) return null;
+
+  return (
+    <TxButton
+      label="Take the payment"
+      tone="secondary"
+      blockedBy={blockedBy}
+      send={() =>
+        writeContractAsync({
+          address: ADDRESSES.escrow,
+          abi: escrowAbi,
+          functionName: 'release',
+          args: [lock.id, `0x${'0'.repeat(64)}`, ''],
+        })
+      }
+      onContinue={onTaken}
+    />
+  );
+}

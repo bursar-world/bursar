@@ -26,7 +26,7 @@ import { RulingNote } from '../resolvers/ruling-note';
 import { EvidenceForm } from './[payee]/evidence-form';
 import type { ProviderDesk, ProviderLock } from './desk';
 import { AddStakeCard, AvailabilityCard, RegisterCard, WithdrawalCard } from './onboarding';
-import { RecordCard } from './record-card';
+import { RecordCard, TakePayment } from './record-card';
 import { ReputationPanel } from './reputation';
 import { stageDetail, stageLabel, stageLevel, ttlRange } from './stages';
 import { useProviderDesk } from './use-desk';
@@ -112,7 +112,7 @@ export function DeskView({ payee, owned }: { readonly payee: Address; readonly o
             <ReputationPanel desk={desk} owned={owned} />
           </Section>
 
-          <Work desk={desk} owned={owned} />
+          <Work desk={desk} owned={owned} blockedBy={writeBlockers} onTaken={refresh} />
           <Disputes desk={desk} owned={owned} />
           <Settled desk={desk} owned={owned} />
           <DeskStanding desk={desk} owned={owned} />
@@ -252,7 +252,28 @@ function UnrecordedNote({ desk }: { readonly desk: ProviderDesk }) {
   );
 }
 
-function Work({ desk, owned }: { readonly desk: ProviderDesk; readonly owned: boolean }) {
+function Work({
+  desk,
+  owned,
+  blockedBy,
+  onTaken,
+}: {
+  readonly desk: ProviderDesk;
+  readonly owned: boolean;
+  readonly blockedBy: readonly AnyState[];
+  readonly onTaken: () => void;
+}) {
+  const columns = owned
+    ? [
+        ...lockColumns(desk, owned),
+        {
+          key: 'take',
+          header: '',
+          align: 'right' as const,
+          cell: (lock: ProviderLock) => <TakePayment lock={lock} blockedBy={blockedBy} onTaken={onTaken} />,
+        },
+      ]
+    : lockColumns(desk, owned);
   return (
     <Section
       title={owned ? 'Work held against you' : 'Work held against this address'}
@@ -263,7 +284,7 @@ function Work({ desk, owned }: { readonly desk: ProviderDesk; readonly owned: bo
           caption="Open locks"
           rows={desk.working}
           rowKey={lockKey}
-          columns={lockColumns(desk, owned)}
+          columns={columns}
           empty={
             desk.complete ? (
               <EmptyState title={`Nothing is locked against ${owned ? 'you' : 'this address'} right now.`}>
