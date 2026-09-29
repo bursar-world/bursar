@@ -207,7 +207,7 @@ function OwnedMandate({
     >
       <div className="space-y-4">
         <FieldGrid columns={2}>
-          <Field label="Owner address" hint={`Gas: ${formatEth(entry.ownerGas)}. Pausing and withdrawing are sent from here.`}>
+          <Field label="Owner address" hint={`Gas: ${formatEth(entry.ownerGas)}. Pause and resume are sent from here.`}>
             <AddressView value={entry.principal.stealthAddress as Address} />
           </Field>
           <Field

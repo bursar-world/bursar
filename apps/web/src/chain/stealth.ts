@@ -112,7 +112,7 @@ export type OwnedPrivateMandate = RecoveredMandate & {
   readonly balance: bigint;
   readonly paused: boolean;
   readonly revoked: boolean;
-  /** ETH on the owner-side address, which pays for pause, resume and withdrawals. */
+  /** ETH on the owner-side address, which pays for pause and resume. */
   readonly ownerGas: bigint;
   readonly agentGas: bigint;
 };
