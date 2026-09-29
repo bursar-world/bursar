@@ -43,6 +43,97 @@ Packages are not yet published to npm. Build them from this repository.
 | [`services/sidecar/`](services/sidecar/README.md) | Runs on the provider's side: watches escrow for its jobs, does the work, releases payment. |
 | [`apps/web/`](apps/web/README.md) | The console at app.bursar.world, for principals, providers, resolvers and governance. |
 
+## Architecture
+
+```mermaid
+flowchart TB
+  subgraph users["People and agents"]
+    direction LR
+    P["Principal wallet"]
+    C["Console<br/>app.bursar.world"]
+    A["Agent<br/>SDK or MCP server"]
+  end
+
+  subgraph offchain["Services"]
+    direction LR
+    F["Facilitator<br/>x402 payments"]
+    U["Underwriter<br/>spend checks"]
+    R["Resolver service<br/>dispute votes"]
+    S["Provider sidecar<br/>runs on the provider"]
+  end
+
+  subgraph chain["Robinhood Chain, chain 4663"]
+    subgraph mandates["Mandates"]
+      MF["MandateAccountFactory"]
+      MA["MandateAccount"]
+      CM["Committed mandates<br/>and proof verifier"]
+    end
+    subgraph settle["Settlement and trust"]
+      E["Escrow"]
+      OR["OracleRegistry"]
+      AR["AgentRegistry"]
+      REP["Reputation"]
+    end
+    subgraph rwa["Stocks, treasury and credit"]
+      RG["AssetRegistry, PriceGuard<br/>and StockSpendRouter"]
+      TP["TreasuryPark"]
+      CV["CollateralVault<br/>and CreditPool"]
+    end
+    subgraph privacy["Privacy"]
+      DR["DisclosureRegistry"]
+      SL["SolvencyLog"]
+      SP["ShieldedPool<br/>and Entrypoint"]
+    end
+    subgraph gov["Governance and token"]
+      TL["AdminTimelock"]
+      TOK["BRSR, Staking<br/>Vesting, Buyback"]
+    end
+    subgraph ext["Robinhood Chain assets and markets"]
+      USDG[("USDG")]
+      CL["Chainlink price feeds"]
+      UNI["Uniswap v4"]
+    end
+  end
+
+  P -->|"creates, funds, sets limits"| C
+  P -.->|"approves payments above threshold"| MA
+  C --> MF
+  MF -->|"one account per mandate"| MA
+  A -->|"pays inside its limits"| MA
+  A -->|"x402 payment"| F
+  F -->|"checks the spend"| U
+  U -->|"reads limits"| MA
+  F -->|"settles"| E
+  MA -->|"locks each payment"| E
+  CM -->|"locks each payment"| E
+  S -->|"delivers and releases"| E
+  AR -->|"provider caps"| E
+  E -->|"records outcomes"| REP
+  E -->|"disputed jobs"| OR
+  R -->|"commits and reveals votes"| OR
+  OR -->|"resolver bonds"| TOK
+  MA -->|"stock, treasury, credit"| rwa
+  RG --> CL
+  RG --> UNI
+  CV --> CL
+  C -->|"private mandates, shielded funding"| privacy
+  E -.->|"balances in daily root"| SL
+  TL -->|"administers"| settle
+  MA --- USDG
+  SP --- USDG
+
+  classDef own fill:#faf8f7,stroke:#49345f,color:#49345f
+  classDef extn fill:#ffffff,stroke:#ecb29d,color:#49345f
+  class P,C,A,F,U,R,S,MF,MA,CM,E,OR,AR,REP,RG,TP,CV,DR,SL,SP,TL,TOK own
+  class USDG,CL,UNI extn
+```
+
+A principal sets limits in the console, and the factory deploys one mandate account for them. An
+agent pays through that account, directly or as an x402 payment the facilitator checks and
+settles. Each payment is locked in escrow until the provider's sidecar delivers the work and
+releases it. A disputed job goes to bonded resolvers, who vote on chain. A static copy of the
+diagram is at [architecture.svg](https://github.com/bursar-world/.github/blob/main/profile/assets/architecture.svg).
+
 ## Quick start
 
 ### Prerequisites
