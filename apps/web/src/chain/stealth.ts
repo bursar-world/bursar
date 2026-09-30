@@ -1,11 +1,11 @@
 import { committedMandateAccountAbi, settlementAssetAbi } from '@bursar/core';
-import type { AgentHandoff, RecoveredMandate, StealthKeys, TermsDocument } from '@bursar/sdk';
+import type { AgentHandoff, GeneratedStealthAddress, RecoveredMandate, StealthIdentity, StealthKeys, StealthMandatePlan, StealthRole, TermsDocument } from '@bursar/sdk';
 import { createWalletClient, custom } from 'viem';
 import type { Abi, Address, ContractFunctionArgs, ContractFunctionName, Hex, PublicClient, TransactionReceipt } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
+import { privateKeyToAccount, privateKeyToAddress } from 'viem/accounts';
 
 import { rhcClient } from './client';
-import { CHAIN, CHAIN_ID } from './rhc';
+import { CHAIN, CHAIN_ID, sameAddress } from './rhc';
 
 /**
  * Private owners: a mandate whose owner and agent are fresh stealth addresses drawn from the
@@ -156,6 +156,61 @@ export async function scanOwnedMandates(args: {
 }
 
 export type OwnerKeys = { readonly stealth: StealthKeys; readonly termsKey: Uint8Array };
+
+/**
+ * The two addresses drawn for a hidden owner and agent, kept until the mandate exists.
+ *
+ * The draw is random and its ephemeral keys live in the page, so a reload between sending gas to
+ * the owner address and announcing it used to strand that gas: nothing could find the address
+ * again. Only the public half is kept, and the private keys are recomputed from the wallet's
+ * signature, so what sits in storage opens nothing on its own.
+ */
+export type SavedDraw = Readonly<Record<StealthRole, GeneratedStealthAddress>>;
+
+const drawKey = (owner: Address) => `bursar.stealth-draw.${owner.toLowerCase()}`;
+
+export function readDraw(owner: Address): SavedDraw | undefined {
+  try {
+    const raw = globalThis.localStorage?.getItem(drawKey(owner));
+    return raw ? (JSON.parse(raw) as SavedDraw) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function keepDraw(owner: Address, plan: StealthMandatePlan): void {
+  const draw: SavedDraw = { principal: plan.principal.announcement, agent: plan.agent.announcement };
+  try {
+    globalThis.localStorage?.setItem(drawKey(owner), JSON.stringify(draw));
+  } catch {
+    // Storage refused (private mode, quota): the draw lives in the page only, as it did before.
+  }
+}
+
+export function forgetDraw(owner: Address): void {
+  try {
+    globalThis.localStorage?.removeItem(drawKey(owner));
+  } catch {
+    // Nothing kept, nothing to remove.
+  }
+}
+
+/** The plan again from a kept draw, or undefined when the draw was not made with these keys. */
+export async function planFromDraw(keys: StealthKeys, draw: SavedDraw): Promise<StealthMandatePlan | undefined> {
+  const { computeStealthKey } = await import('@bursar/sdk');
+  const identity = (role: StealthRole): StealthIdentity | undefined => {
+    const announcement = draw[role];
+    const privateKey = computeStealthKey({
+      ephemeralPublicKey: announcement.ephemeralPublicKey,
+      viewingPrivateKey: keys.viewingPrivateKey,
+      spendingPrivateKey: keys.spendingPrivateKey,
+    });
+    return sameAddress(privateKeyToAddress(privateKey), announcement.stealthAddress) ? { address: announcement.stealthAddress, privateKey, announcement, role } : undefined;
+  };
+  const principal = identity('principal');
+  const agent = identity('agent');
+  return principal && agent ? { principal, agent } : undefined;
+}
 
 /** The owner's stealth keys and terms key, from the one viewing-key signature. */
 export async function ownerKeysFrom(signature: Hex): Promise<OwnerKeys> {
