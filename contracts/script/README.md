@@ -294,6 +294,11 @@ that runs before anything is broadcast.
 The token script's own refusals are in [`TOKEN-README.md`](TOKEN-README.md), and the move's in
 [`MIGRATION.md`](MIGRATION.md).
 
+When a deploy script refuses, forge can print a line such as
+`Error: Failed to decode return value: 0x0fc35f08…` just above the refusal. That line is forge's own:
+the deploy scripts return the addresses they deployed, and forge tries to read the refusal as that
+return value before it reports it. The refusal is the `script failed:` line that follows.
+
 ## 8. Rehearsing
 
 Two rehearsals run the real scripts, each against an anvil of its own. Neither reads a private key:
