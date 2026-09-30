@@ -38,7 +38,7 @@ contract RwaForkTest is ForkWorld {
         _save();
     }
 
-    function test_fork_rwaLaneAgainstTheLiveMarket() public {
+    function test_fork_stocksBuyAtTheGuardedPriceAndTheFundParksAndComesBack() public {
         _requireSession("SPY");
         _requireSession("NVDA");
         _requireSession("SGOV");

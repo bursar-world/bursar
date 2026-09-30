@@ -38,7 +38,7 @@ contract StakingTest is Test {
         staking = new Staking(brsr, usdg, address(this), SLASH_SINK, TREASURY, UNBONDING, MIN_BOND);
         staking.setCreditManager(CREDIT);
         staking.setSlasher(SLASHER);
-        // These cases are about where a loss lands, not how fast one may. The cap has its own.
+        // These cases are about where a loss lands. How fast one may land has tests of its own.
         staking.setSlashLimit(10_000, 1 days);
 
         for (uint256 i; i < stakers.length; ++i) {
@@ -279,10 +279,9 @@ contract StakingTest is Test {
         assertEq(staking.slash(1e18), 1e18);
     }
 
-    /// The unit trap, proved instead of argued: eighteen-decimal shares divide six-decimal
-    /// spread, and across any sequence of stakes, distributions and claims the pool pays out
-    /// what it took in, minus at most one micro-dollar of truncation per settlement point,
-    /// and that remainder stays in the contract instead of vanishing.
+    /// The unit trap: eighteen-decimal shares divide six-decimal spread, and across any sequence of
+    /// stakes, distributions and claims the pool pays out what it took in, minus at most one
+    /// micro-dollar of truncation per settlement point, and that remainder stays in the contract.
     function testFuzz_noDustCreatedOrDestroyed(uint96[6] memory stakes, uint64[6] memory spread, uint8 claimMask)
         public
     {
@@ -319,8 +318,7 @@ contract StakingTest is Test {
         }
 
         assertEq(staking.unallocatedRewards(), 0);
-        // Anything a staker is still owed is the rounding the cap held back, not a share of
-        // the spread that went missing.
+        // Anything a staker is still owed is the rounding the cap held back.
         assertLe(pending, settlements + 12);
 
         // Nothing was created and nothing was destroyed: every micro-dollar taken in is
@@ -330,8 +328,8 @@ contract StakingTest is Test {
             staking.rewardsBacked() + staking.rewardResidual() + staking.unallocatedRewards(), distributed - claimed
         );
 
-        // What is left behind is truncation dust, not a lost distribution: one
-        // micro-dollar per settlement point and a couple per division, no more.
+        // What is left behind is truncation dust: at most one micro-dollar per settlement point
+        // and a couple per division.
         assertLe(staking.rewardsBacked() + staking.rewardResidual(), settlements + 12);
     }
 

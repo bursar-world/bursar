@@ -14,13 +14,13 @@ interface IUnlockCallback {
 /// moved is settled to zero.
 ///
 /// The types are the ones `Buyback` declares, so an encoding that would miss the live manager
-/// misses this one too. By default the price is a constant, not a curve, because the contract
-/// under test never reads a price: what it checks is how much arrived, and a curve would only
-/// make the expected figure harder to state in the test.
+/// misses this one too. By default the price is a constant, because the contract under test never
+/// reads a price: what it checks is how much arrived, and a curve would only make the expected
+/// figure harder to state in the test.
 ///
-/// `setReserves` turns it into a constant-product market instead, for the tests that are about
-/// the price moving: every swap moves it, in either direction, so a trader can push the price
-/// ahead of a buyback and sell back into it afterwards the way one would on the live pool.
+/// `setReserves` turns it into a constant-product market for the tests that are about the price
+/// moving: every swap moves it, in either direction, so a trader can push the price ahead of a
+/// buyback and sell back into it afterwards the way one would on the live pool.
 ///
 /// The knobs exist to reproduce failures a real venue can produce. A hook may rewrite either
 /// leg of a swap, a pool that runs out of liquidity fills part of an exact-input order, and a
@@ -43,7 +43,7 @@ contract MockPoolManager {
     bool public unlocked;
 
     /// Set to the last swap's key so a test can prove the buyback sent the pool it was built
-    /// against, and not one assembled from the wrong sort order.
+    /// against, in the right sort order.
     PoolKey public lastKey;
     bytes public lastHookData;
     int256 public lastAmountSpecified;

@@ -17,7 +17,7 @@ import {World} from "./World.sol";
 
 /// The collateral lane, built entirely on what the record names: the registry and guard the RWA
 /// run deployed, the record's factory, staking pool and buyback, and a lender named on purpose.
-/// Nothing in it is a dev address baked into the script.
+/// Every address comes from the record or the parameter file.
 contract DeployCollateralTest is World {
     address internal constant USDG = 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168;
 
@@ -128,7 +128,7 @@ contract DeployCollateralTest is World {
 
     /// The vault values collateral through the registry and lends against it from a pool in the
     /// record's asset. A registry that settles in something else would value the wrong money, and
-    /// an address that is not a registry at all is named rather than left to a bare revert.
+    /// an address that is not a registry at all is named in the error.
     function _aRegistryOnAnotherAssetIsRefused() private {
         _restore();
         MockUsdg otherAsset = new MockUsdg();

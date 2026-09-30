@@ -393,8 +393,7 @@ contract MandateAccountWindowsTest is Test {
 
         vm.warp(START + DAILY_WINDOW);
 
-        // The view rolls before storage does. A quote taken now matches the spend that follows
-        // it, not the stale bucket underneath.
+        // The view rolls before storage does, so a quote taken now matches the next spend.
         (, uint128 daily,) = account.remaining();
         assertEq(daily, DAILY_CAP);
 
@@ -422,7 +421,7 @@ contract MandateAccountWindowsTest is Test {
         _spend(account, PER_CALL_CAP);
         _spend(account, DAILY_CAP - PER_CALL_CAP - 1);
 
-        // Eighteen hours after that first spend, not twenty-four.
+        // Eighteen hours after that first spend.
         vm.warp(START + 2 * DAILY_WINDOW - 1);
         vm.prank(agent);
         vm.expectRevert(IMandateAccount.DailyCapExceeded.selector);
@@ -443,7 +442,7 @@ contract MandateAccountWindowsTest is Test {
         _spend(account, 1);
 
         IMandateAccount.Window memory window = account.window(IMandateAccount.WindowKind.Daily);
-        // Epochs count resets, not elapsed periods: three idle days are one reset.
+        // Epochs count resets: three idle days are one reset.
         assertEq(window.epoch, 1);
         assertEq(window.start, START + 3 * DAILY_WINDOW);
 
@@ -451,7 +450,7 @@ contract MandateAccountWindowsTest is Test {
         _spend(account, DAILY_CAP - PER_CALL_CAP - 1);
 
         // The remainder of the period the agent woke up in is still on the clock. The next
-        // reset is nineteen hours out, not a full day.
+        // reset is nineteen hours out.
         vm.warp(START + 4 * DAILY_WINDOW - 1);
         vm.prank(agent);
         vm.expectRevert(IMandateAccount.DailyCapExceeded.selector);
@@ -783,7 +782,7 @@ contract MandateAccountWindowsTest is Test {
         vm.expectRevert(IMandateAccount.DailyCapExceeded.selector);
         account.spend(_request(merchantA, 1), _noProof());
 
-        // The overdraft clears at the next rollover rather than carrying into it.
+        // The overdraft clears at the next rollover.
         vm.warp(START + DAILY_WINDOW);
         (, daily,) = account.remaining();
         assertEq(daily, 300e6);
@@ -980,7 +979,7 @@ contract MandateAccountWindowsTest is Test {
     }
 
     /// A quote's refusal has to name the same error the settlement would revert with, so these
-    /// comparisons are on the selector and not on the fact that something failed.
+    /// comparisons are on the selector.
     function _assertReason(bytes4 reason, bytes4 expected) private pure {
         assertEq(bytes32(reason), bytes32(expected), "the quote named a different refusal");
     }

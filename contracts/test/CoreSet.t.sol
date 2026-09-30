@@ -22,9 +22,8 @@ import {MockBRSR} from "./mocks/MockBRSR.sol";
 import {MockReputation} from "./mocks/MockReputation.sol";
 import {MockUsdg} from "./mocks/MockUsdg.sol";
 
-/// A payer contract whose refund hook burns every unit of gas it is given. Under v1 a caller
-/// could size `finalize` so the ruling ran out of gas inside the registry's try, the dispute
-/// closed as failed, and the escrow timeout later paid this payer in full.
+/// A payer contract whose refund hook burns every unit of gas it is given, so a caller can try to
+/// size `finalize` to run the ruling out of gas inside the registry's try.
 contract HungryPayer {
     function lock(Escrow escrow, MockUsdg asset, address payee, uint128 amount, uint64 deadline)
         external
@@ -67,9 +66,10 @@ contract FixedRouter is IStockRouter {
     }
 }
 
-/// One test per v2 fix, each written against the behaviour v1 had, so every one of them fails
-/// on the v1 bytecode and passes on this one. Labels match the contract review and F7.
-contract V2FixesTest is Test {
+/// The core set wired the way a deployment wires it: rulings and bonds between the escrow and the
+/// resolver registry, the timelock's veto and brake, and the mandate account's approvals, classes,
+/// lifetime total and lane.
+contract CoreSetTest is Test {
     uint128 private constant AMOUNT = 1_000e6;
     uint128 private constant DISPUTE_BOND = 50e6;
     uint128 private constant BOND = 2_000e18;
@@ -141,9 +141,7 @@ contract V2FixesTest is Test {
         r3 = _bond("r3");
     }
 
-    // D14 and D18 / M1 -----------------------------------------------------------------------
-
-    function test_D14_aRulingWithNoSharesTakesNoResolverFee() public {
+    function test_aRulingWithNoSharesTakesNoResolverFee() public {
         uint256 id = _lockAndDispute(payer);
         uint256 disputeId = registry.disputeIdOf(id);
         _vote(disputeId, 0, 50, 100);
@@ -156,7 +154,7 @@ contract V2FixesTest is Test {
         assertEq(usdg.balanceOf(address(escrow)), 0);
     }
 
-    function test_D18_aBondWithNoResolverToPayGoesBackToThePayeeDisputer() public {
+    function test_aBondWithNoResolverToPayGoesBackToThePayeeDisputer() public {
         uint256 id = _lockAndDispute(payee);
         uint256 disputeId = registry.disputeIdOf(id);
         // No centre, so the payer is refunded in full, which is the opposite of what the payee
@@ -171,9 +169,7 @@ contract V2FixesTest is Test {
         assertEq(registry.rewardFloat(), 0);
     }
 
-    // D19 / H1 -------------------------------------------------------------------------------
-
-    function test_H1_noGasLimitTurnsARulingIntoAFailedDispute() public {
+    function test_noGasLimitTurnsARulingIntoAFailedDispute() public {
         HungryPayer hungry = new HungryPayer();
         usdg.mint(address(hungry), AMOUNT + DISPUTE_BOND);
         uint256 id = hungry.lock(escrow, usdg, payee, AMOUNT, uint64(block.timestamp + 1 days));
@@ -202,9 +198,7 @@ contract V2FixesTest is Test {
         }
     }
 
-    // H2 root and M1 -------------------------------------------------------------------------
-
-    function test_H2_aDisputeNobodyHeardReopensTheLockInsteadOfRefundingIt() public {
+    function test_aDisputeNobodyHeardReopensTheLock() public {
         uint256 id = _lockAndDispute(payer);
         uint256 disputeId = registry.disputeIdOf(id);
         uint64 deadline = escrow.getLock(id).deadline;
@@ -225,7 +219,7 @@ contract V2FixesTest is Test {
         assertEq(usdg.balanceOf(payee), AMOUNT - AMOUNT / 100);
     }
 
-    function test_H2_aReopenAfterTheDeadlineStillGivesThePayeeAFullMinTtl() public {
+    function test_aReopenAfterTheDeadlineStillGivesThePayeeAFullMinTtl() public {
         uint256 id = _lockAndDispute(payer);
         uint256 disputeId = registry.disputeIdOf(id);
 
@@ -235,7 +229,7 @@ contract V2FixesTest is Test {
         assertEq(escrow.getLock(id).deadline, block.timestamp + MIN_TTL);
     }
 
-    function test_H2_aLockCanOnlyEverBeDisputedOnce() public {
+    function test_aLockCanOnlyEverBeDisputedOnce() public {
         uint256 id = _lockAndDispute(payer);
         vm.warp(registry.getDispute(registry.disputeIdOf(id)).revealEndsAt);
         registry.failDispute(registry.disputeIdOf(id));
@@ -248,7 +242,7 @@ contract V2FixesTest is Test {
         vm.stopPrank();
     }
 
-    function test_M1_aPayeeDisputerKeepsItsBondWhenNobodyVotes() public {
+    function test_aPayeeDisputerKeepsItsBondWhenNobodyVotes() public {
         uint256 id = _lockAndDispute(payee);
         vm.warp(registry.getDispute(registry.disputeIdOf(id)).revealEndsAt);
         registry.failDispute(registry.disputeIdOf(id));
@@ -257,9 +251,7 @@ contract V2FixesTest is Test {
         assertEq(registry.rewardFloat(), 0);
     }
 
-    // H3 -------------------------------------------------------------------------------------
-
-    function test_H3_neitherPartyCanVoteOnItsOwnDispute() public {
+    function test_neitherPartyCanVoteOnItsOwnDispute() public {
         address bondedPayer = _bondAs(payer);
         address bondedPayee = _bondAs(payee);
         uint256 id = _lockAndDispute(bondedPayer);
@@ -281,7 +273,7 @@ contract V2FixesTest is Test {
         registry.commitVote(disputeId, commitment);
     }
 
-    function test_H3_thePrincipalBehindAMandatePayerCannotVoteEither() public {
+    function test_thePrincipalBehindAMandatePayerCannotVoteEither() public {
         MandateAccount account = _mandate(principal, _limits());
         vm.prank(principal);
         account.setMerchant(payee, true);
@@ -300,9 +292,7 @@ contract V2FixesTest is Test {
         registry.commitVote(disputeId, commitment);
     }
 
-    // D20 ------------------------------------------------------------------------------------
-
-    function test_D20_aCurveThatCapsEveryPayeeAtZeroIsRefused() public {
+    function test_aCurveThatCapsEveryPayeeAtZeroIsRefused() public {
         vm.expectRevert(IReputation.BadCurve.selector);
         new Reputation(address(this), IReputation.CapCurve({baseCap: 0, capPerScore: 0, maxCap: 0}));
 
@@ -312,7 +302,7 @@ contract V2FixesTest is Test {
         live.setCurve(IReputation.CapCurve({baseCap: 0, capPerScore: 5e6, maxCap: 0}));
     }
 
-    function test_D20_theAgentStakeFloorIsBounded() public {
+    function test_theAgentStakeFloorIsBounded() public {
         AgentRegistry agents = new AgentRegistry(usdg, address(this), sink, 5e6, 1_000);
         uint128 ceiling = agents.MAX_MIN_STAKE();
 
@@ -324,9 +314,7 @@ contract V2FixesTest is Test {
         new AgentRegistry(usdg, address(this), sink, ceiling + 1, 1_000);
     }
 
-    // D22 ------------------------------------------------------------------------------------
-
-    function test_D22_onlyThePrincipalCreatesItsAccount() public {
+    function test_onlyThePrincipalCreatesItsAccount() public {
         vm.prank(makeAddr("stranger"));
         vm.expectRevert(IMandateAccountFactory.NotPrincipal.selector);
         factory.create(principal, agent, SALT, _limits());
@@ -336,9 +324,7 @@ contract V2FixesTest is Test {
         assertEq(factory.accountCount(principal), 1);
     }
 
-    // M3 -------------------------------------------------------------------------------------
-
-    function test_M3_oneSignerCannotCancelAnotherSignersProposal() public {
+    function test_oneSignerCannotCancelAnotherSignersProposal() public {
         vm.prank(signerA);
         uint256 id = timelock.propose(address(registry), abi.encodeCall(OracleRegistry.unpause, ()));
 
@@ -356,7 +342,7 @@ contract V2FixesTest is Test {
         assertTrue(timelock.getProposal(id).cancelled, "two vetoes cancel");
     }
 
-    function test_M3_theProposerWithdrawsItsOwnAlone() public {
+    function test_theProposerWithdrawsItsOwnAlone() public {
         vm.prank(signerA);
         uint256 id = timelock.propose(address(registry), abi.encodeCall(OracleRegistry.unpause, ()));
 
@@ -365,9 +351,7 @@ contract V2FixesTest is Test {
         assertTrue(timelock.getProposal(id).cancelled);
     }
 
-    // M4 -------------------------------------------------------------------------------------
-
-    function test_M4_theGuardianPausesTheEscrowAndTheRegistry() public {
+    function test_theGuardianPausesTheEscrowAndTheRegistry() public {
         uint256 open = _lockAndDispute(payer);
 
         address[] memory targets = new address[](2);
@@ -400,7 +384,7 @@ contract V2FixesTest is Test {
         assertEq(uint8(escrow.getLock(open).status), uint8(IEscrow.LockStatus.Released));
     }
 
-    function test_M4_onlyTheTimelockHoldsTheEscrowBrake() public {
+    function test_onlyTheTimelockHoldsTheEscrowBrake() public {
         vm.expectRevert(IEscrow.NotPauser.selector);
         escrow.pause();
 
@@ -408,9 +392,7 @@ contract V2FixesTest is Test {
         escrow.setPauser(address(this));
     }
 
-    // L3 -------------------------------------------------------------------------------------
-
-    function test_L3_anApprovalDoesNotSurviveAChangeOfPrincipal() public {
+    function test_anApprovalDoesNotSurviveAChangeOfPrincipal() public {
         IMandateAccount.Limits memory limits = _limits();
         limits.approvalThreshold = 5e6;
         MandateAccount account = _mandate(principal, limits);
@@ -443,8 +425,6 @@ contract V2FixesTest is Test {
         vm.expectRevert(IMandateAccount.ApprovalMismatch.selector);
         account.spendApproved(_request(10e6, 0), new bytes32[](0), approval, "");
     }
-
-    // Native class, total and lane ---------------------------------------------------------
 
     function test_classMaskRefusesAClassThePrincipalDidNotAllow() public {
         IMandateAccount.Limits memory limits = _limits();
@@ -511,8 +491,6 @@ contract V2FixesTest is Test {
         new MandateAccount(principal, agent, address(usdg), address(escrow), limits);
     }
 
-    // Hooks for F9, F13 and F14 ----------------------------------------------------------------
-
     function test_buyRunsUnderTheRwaClassAndEveryCap() public {
         IMandateAccount.Limits memory limits = _limits();
         MandateAccount account = _funded(limits);
@@ -563,8 +541,6 @@ contract V2FixesTest is Test {
         vm.expectRevert(IEscrow.NotParty.selector);
         escrow.grantDisclosure(id, r1, keccak256("slice"), hex"c0ffee");
     }
-
-    // Fixture ----------------------------------------------------------------------------------
 
     function _bond(string memory label) private returns (address who) {
         who = _bondAs(makeAddr(label));

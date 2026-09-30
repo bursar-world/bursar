@@ -64,7 +64,7 @@ contract CollateralForkTest is ForkWorld {
         _save();
     }
 
-    function test_fork_collateralLaneAgainstTheLiveMarket() public {
+    function test_fork_aLineDrawsRepaysAndIsLiquidatedThroughThePinnedPool() public {
         _requireSession("SPY");
         _aLineDrawsOnCreditAndRepays();
         _aPrefundedMandateCannotBorrow();

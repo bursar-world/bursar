@@ -208,7 +208,7 @@ contract SeedPoolTest is SeedPoolWorld {
         _open();
         _set("BURSAR_BUYBACK_POOL_MANAGER", vm.toString(address(manager)));
 
-        // The seeder used to be named in the shell. The record names it now.
+        // The record names the seeder, and a shell that still names one stops the run.
         _set("BURSAR_SEEDER", vm.toString(makeAddr("aSeeder")));
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -219,7 +219,7 @@ contract SeedPoolTest is SeedPoolWorld {
         _unset("BURSAR_SEEDER");
         assertEq(manager.openedAt(id), 0);
 
-        // A price written the way a person might write it is named, not read as missing.
+        // A price written the way a person might write it stops the run with what was typed.
         _set("BURSAR_SEED_PRICE_MICRO_USD", "$200");
         vm.expectRevert(
             abi.encodeWithSelector(BursarScript.InvalidEnv.selector, _key("BURSAR_SEED_PRICE_MICRO_USD"), "$200")
@@ -285,7 +285,7 @@ contract SeedPoolTest is SeedPoolWorld {
 
     /// The gate between the two derivations admits every price a seed could open at, down to a
     /// single micro-dollar, where the Q96 route is at its least precise.
-    function test_theGateAdmitsTheBottomOfTheRange() public view {
+    function test_openingPriceClearsTheGateFromOneMicroDollar() public view {
         for (uint256 price = 1; price < 10; ++price) {
             assertEq(script.openingSqrtPrice(price, true), V4Math.initialSqrtPriceX96(1e18, price));
             assertEq(script.openingSqrtPrice(price, false), V4Math.initialSqrtPriceX96(price, 1e18));
@@ -293,7 +293,7 @@ contract SeedPoolTest is SeedPoolWorld {
         assertEq(script.openingSqrtPrice(200, true), OPEN_SQRT_PRICE_X96);
     }
 
-    function testFuzz_theGateAdmitsEveryPrice(uint64 price) public view {
+    function testFuzz_openingPriceClearsTheGateAtEveryPrice(uint64 price) public view {
         uint256 p = bound(price, 1, 1e12);
         assertEq(script.openingSqrtPrice(p, true), V4Math.initialSqrtPriceX96(1e18, p));
         assertEq(script.openingSqrtPrice(p, false), V4Math.initialSqrtPriceX96(p, 1e18));

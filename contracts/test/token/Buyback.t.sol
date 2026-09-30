@@ -241,8 +241,7 @@ contract BuybackTest is Test {
         );
         buyback.buyback();
 
-        // Exactly at the ceiling clears. The number is a boundary, not an approximation of
-        // one.
+        // Exactly at the ceiling clears: the number is a hard boundary.
         manager.setPrice(POOL_PRICE_AT_CEILING);
         vm.prank(keeper);
         (, uint256 received) = buyback.buyback();
@@ -279,8 +278,7 @@ contract BuybackTest is Test {
         vm.expectRevert(abi.encodeWithSelector(Buyback.BelowMinimumSpend.selector, 0, MIN_SPEND));
         buyback.buyback();
 
-        // The window rolls by whole periods, so waiting it out buys one fresh budget and not
-        // a clock of the caller's choosing.
+        // The window rolls by whole periods, so waiting buys one fresh budget on the old schedule.
         vm.warp(block.timestamp + WINDOW);
         assertEq(buyback.available(), SPEND_PER_CALL);
         vm.prank(keeper);
@@ -352,7 +350,7 @@ contract BuybackTest is Test {
     /// A short fill at the extreme price limit means the pool ran out of liquidity under the
     /// trade. The remainder would sit here and the minimum out would have been checked against
     /// an amount nobody chose.
-    function test_aPartialFillIsRefusedRatherThanAccepted() public {
+    function test_aPartialFillIsRefused() public {
         manager.setFillBps(5_000);
 
         vm.prank(keeper);
@@ -527,9 +525,9 @@ contract BuybackTest is Test {
         buyback.setParams(p);
     }
 
-    /// Lowering the cap below what the live window already spent is a legitimate tightening.
-    /// It has to close the window rather than revert every call until the period rolls.
-    function test_tighteningTheCapMidWindowClosesItRatherThanBreakingIt() public {
+    /// Lowering the cap below what the live window already spent is a legitimate tightening. The
+    /// window closes, and calls refuse with `BelowMinimumSpend` until the period rolls.
+    function test_tighteningTheCapMidWindowClosesItUntilThePeriodRolls() public {
         _fund(10_000e6);
         vm.prank(keeper);
         buyback.buyback();
@@ -568,7 +566,7 @@ contract BuybackTest is Test {
         assertEq(buyback.available(), 0);
     }
 
-    function test_anIdleWindowRollsByWholePeriodsRatherThanToNow() public {
+    function test_anIdleWindowRollsByWholePeriods() public {
         _fund(10_000e6);
         uint64 startedAt = buyback.window().start;
 
@@ -857,13 +855,9 @@ contract BuybackTest is Test {
         buyback.buyback();
     }
 
-    /// The value the testnet parameters carried as a placeholder that would "refuse every
-    /// trade". In the unit it was written in, BRSR wei per whole USDC, it blocked nothing: it
-    /// asked for one BRSR per dollar spent, which only bites above a dollar a token, and the
-    /// token has never been near that. Every fill cleared and a permissionless buyback ran
-    /// with almost no floor under it. Read as a price it is a million million dollars a token,
-    /// and the constructor says so.
-    function test_theOldPlaceholderIsNotAPriceAndCannotBeDeployed() public {
+    /// A ceiling written in the retired unit, BRSR wei per whole USDC, reads as a price of a
+    /// million million dollars a token, and the constructor refuses it.
+    function test_aCeilingInTheRetiredUnitCannotBeDeployed() public {
         Buyback.Params memory p = _params();
         p.maxPriceMicroUsdPerBrsr = 1e18;
 

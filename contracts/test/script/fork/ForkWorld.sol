@@ -58,7 +58,7 @@ abstract contract ForkWorld is World {
     }
 
     /// A stock trades only on a feed inside its trade bound. Out of session the answer is Friday's
-    /// close, too old to trade on, so a lane that buys skips rather than fail on the calendar.
+    /// close, too old to trade on, so a lane that buys skips out of session.
     function _requireSession(string memory symbol) internal {
         AssetRegistry.Asset memory a = AssetRegistry(_readAddress(path, K.ASSET_REGISTRY)).get(_asset(symbol));
         (,,, uint256 updatedAt,) = IAggregatorV3(a.feed).latestRoundData();

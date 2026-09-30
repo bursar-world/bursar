@@ -35,9 +35,8 @@ contract RepRegResolverStub {
     function notifyReward(uint256, uint256) external {}
 }
 
-/// Score derivation, the cap curve and the write permissions, driven directly instead of
-/// through an escrow. The fixture makes this contract the escrow so a test can place a
-/// counter exactly where it wants one.
+/// Score derivation, the cap curve and the write permissions, driven directly. The fixture makes
+/// this contract the escrow so a test can place a counter exactly where it wants one.
 contract ReputationTest is Test {
     event EscrowSet(address indexed escrow);
     event CurveUpdated(uint128 baseCap, uint128 capPerScore, uint128 maxCap);
@@ -74,8 +73,7 @@ contract ReputationTest is Test {
         new Reputation(admin, IReputation.CapCurve({baseCap: 100, capPerScore: 1, maxCap: 99}));
     }
 
-    /// A flat curve is a policy, not a misconfiguration: a ceiling equal to the floor is the
-    /// boundary the constructor has to admit.
+    /// A flat curve is a policy, so the constructor has to admit a ceiling equal to the floor.
     function test_constructorAdmitsACeilingEqualToTheFloor() public {
         Reputation flat = new Reputation(admin, IReputation.CapCurve({baseCap: 100, capPerScore: 7, maxCap: 100}));
         flat.setEscrow(address(this));
@@ -102,7 +100,7 @@ contract ReputationTest is Test {
 
     /// Three settled jobs and two of them released is 66.67 percent. The payee gets 66, since
     /// rounding up would hand out the headroom of a point the history has not reached.
-    function test_scoreTruncatesRatherThanRoundingUp() public {
+    function test_scoreRoundsDown() public {
         _release(reputation, payerA, payee);
         _release(reputation, payerA, payee);
         reputation.onDisputed(payerA, payee);
@@ -135,7 +133,7 @@ contract ReputationTest is Test {
     }
 
     /// The curve is written so a perfect payee lands exactly on the ceiling, then the ceiling
-    /// is lowered by one to prove the clamp fires on the next unit, not one late.
+    /// is lowered by one to prove the clamp fires on the next unit.
     function test_capClampsAtTheCeilingAndOneUnitBeyondIt() public {
         vm.prank(admin);
         reputation.setCurve(IReputation.CapCurve({baseCap: 100, capPerScore: 9, maxCap: 1_000}));
@@ -150,7 +148,7 @@ contract ReputationTest is Test {
     }
 
     /// A hundred times a uint128 slope leaves the type. The widened multiply has to survive it
-    /// and come back clamped instead of reverting under the escrow's lock.
+    /// and come back clamped, so the escrow's lock does not revert.
     function test_capSurvivesASlopeThatOverflowsTheTypeWhenScaled() public {
         vm.prank(admin);
         reputation.setCurve(
@@ -227,8 +225,8 @@ contract ReputationTest is Test {
         reputation.onDisputed(payerB, payee);
     }
 
-    /// The admin holds the curve, not the counters. A key that could write history could mint
-    /// itself an unbounded cap.
+    /// The admin holds the curve and cannot touch the counters. A key that could write history
+    /// could mint itself an unbounded cap.
     function test_theAdminCannotMoveACounterEither() public {
         vm.prank(admin);
         vm.expectRevert(IReputation.NotEscrow.selector);
@@ -269,8 +267,8 @@ contract ReputationTest is Test {
         reputation.setCurve(IReputation.CapCurve({baseCap: 1, capPerScore: 1, maxCap: 2}));
     }
 
-    /// The live curve had a base of 25, a slope of 1 and a ceiling of 250: a perfect score
-    /// reaches 125, and the 250 the deployment record published was a figure nothing paid.
+    /// A base of 25 and a slope of 1 bring a perfect score to 125, so a ceiling of 250 is a figure
+    /// nothing pays and is refused; 125 is admitted and reached.
     function test_aCeilingNoScoreReachesIsRefused() public {
         vm.expectRevert(IReputation.BadCurve.selector);
         new Reputation(admin, IReputation.CapCurve({baseCap: 25e6, capPerScore: 1e6, maxCap: 250e6}));
@@ -291,8 +289,8 @@ contract ReputationTest is Test {
         reputation.setCurve(IReputation.CapCurve({baseCap: 500, capPerScore: 1, maxCap: 499}));
     }
 
-    /// A curve change is retroactive: the cap is derived on read. A tightened policy binds the
-    /// next lock, not only the next payee.
+    /// A curve change is retroactive: the cap is derived on read. A tightened policy binds every
+    /// payee's next lock.
     function test_aNewCurveRepricesTheHistoryAlreadyRecorded() public {
         _release(reputation, payerA, payee);
         assertEq(reputation.capOf(payee), BASE_CAP + CAP_PER_SCORE * 100);
@@ -426,9 +424,8 @@ contract ReputationTest is Test {
     }
 }
 
-/// One lock, one counter. Every way a lock can end is walked against a live escrow to prove
-/// the payee's history moves exactly once and that the cap the escrow reads is the cap this
-/// contract publishes.
+/// Every way a lock can end, walked against a live escrow to prove the payee's history moves
+/// exactly once and that the cap the escrow reads is the cap this contract publishes.
 contract ReputationEscrowCountingTest is Test {
     uint16 internal constant FEE_BPS = 100;
     uint64 internal constant MIN_TTL = 1 hours;
@@ -1052,7 +1049,7 @@ contract AgentRegistryTest is Test {
     }
 
     /// The floor can move under a pending request. The exit still pays out, and the agent
-    /// drops off the active list instead of sitting there underfunded.
+    /// drops off the active list.
     function test_anExitThatLandsBelowANewFloorDeactivatesTheAgent() public {
         _register(agentA, 300e6);
 
@@ -1143,7 +1140,7 @@ contract AgentRegistryTest is Test {
 
     /// A resolver finalising a dispute cannot be left holding an unresolvable case because it
     /// asked for more than the ceiling. An oversized request is clamped, never refused.
-    function test_aRulingIsClampedToTheCeilingRatherThanReverting() public {
+    function test_aRulingIsClampedToTheCeiling() public {
         _register(agentA, 300e6);
 
         uint256 ceiling = registry.maxSlash(agentA);
@@ -1185,7 +1182,7 @@ contract AgentRegistryTest is Test {
 
     /// An agent that has already served the delay should not have to serve it again because a
     /// ruling landed in the meantime.
-    function test_aRulingTrimsAPendingExitInsteadOfStrandingIt() public {
+    function test_aRulingTrimsAPendingExit() public {
         vm.prank(admin);
         registry.setSlashBps(5_000);
 
@@ -1395,7 +1392,7 @@ contract AgentRegistryTest is Test {
         assertTrue(registry.isBlacklisted(agentA));
     }
 
-    function test_aZeroRootDisablesTheGateRatherThanBarringEveryone() public {
+    function test_aZeroRootDisablesTheGate() public {
         _register(agentA, 300e6);
 
         vm.prank(admin);
@@ -1568,7 +1565,7 @@ contract AgentRegistryTest is Test {
     }
 
     /// `getAgents(0, type(uint256).max)` is how a caller asks for everything. It has to answer
-    /// with the list instead of reverting on an arithmetic overflow.
+    /// with the list, with no arithmetic overflow on the way.
     function test_getAgentsClampsAnUnboundedLimit() public {
         _register(agentA, MIN_STAKE);
         _register(agentB, MIN_STAKE);

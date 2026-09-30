@@ -110,7 +110,7 @@ contract TokenRailForkTest is ForkWorld {
         _save();
     }
 
-    function test_fork_tokenRailAgainstTheLivePool() public {
+    function test_fork_onlyTheKeeperBuysBackUnderTheCeiling() public {
         _theGovernanceSeederNamesTheLivePool();
         _theLivePositionMovesToGovernancesSeeder();
         _aBuybackFromTheKeeperFillsUnderTheCeilingAndStakesWhatItBuys();
@@ -187,7 +187,7 @@ contract TokenRailForkTest is ForkWorld {
         trader.run(2e6);
     }
 
-    /// A ceiling below the market has to refuse the trade rather than fill badly.
+    /// A ceiling below the market refuses the trade.
     function _aCeilingUnderTheMarketRefusesToFill() private {
         _restore();
         _stake(makeAddr("staker"), 100_000 * BRSR_UNIT);

@@ -66,7 +66,7 @@ contract DeployScriptTest is ScriptHarness {
         script.pinEnvPrefix(_prefix());
     }
 
-    function test_deployScript_stopsOnEveryParameterSetThatDoesNotHoldTogether() public {
+    function test_deployScript_refusesBadParametersAndDeploysGoodOnes() public {
         _caseWrongChain();
         _caseARecordForAnotherChain();
         _caseALocalRecordNeedsTheLocalFlag();
@@ -318,7 +318,7 @@ contract DeployScriptTest is ScriptHarness {
         vm.stopBroadcast();
     }
 
-    /// The v2 curve: 25 plus 1 per point never reaches 250.
+    /// A curve of 25 plus 1 per point never reaches 250.
     function _caseACapCeilingNoScoreReaches() private {
         _setBaseEnv();
         _set("BURSAR_CAP_BASE", "25000000");
@@ -330,7 +330,7 @@ contract DeployScriptTest is ScriptHarness {
         vm.stopBroadcast();
     }
 
-    /// The v2 cap of five voters let whoever committed first fill the panel.
+    /// A cap of five voters lets whoever commits first fill the panel.
     function _caseAVoterCapBelowTheRoster() private {
         _setBaseEnv();
         _set("BURSAR_MAX_VOTERS", "5");
@@ -358,7 +358,7 @@ contract DeployScriptTest is ScriptHarness {
     }
 
     /// The script rejects only zero. The floor that makes the delay worth having lives in the
-    /// timelock, and a period under it stops the run there instead.
+    /// timelock, and a period under it stops the run there.
     function _casePeriodBelowTheTimelocksOwnFloor() private {
         _setBaseEnv();
         _set("BURSAR_TIMELOCK_PERIOD", vm.toString(uint256(1 hours - 1)));
@@ -419,9 +419,7 @@ contract DeployScriptTest is ScriptHarness {
         script.run();
     }
 
-    /// Three plain keys are refused on every chain. What stands in for an exemption is a variable
-    /// an operator has to mean, and it lifts on a phrase rather than a boolean, because `true` is
-    /// a word that arrives in a shell by accident.
+    /// Three plain keys are refused on every chain unless an operator sets the phrase.
     function _caseEveryChainDemandsAMultisigOrAnExplicitAcknowledgement() private {
         _setBaseEnv();
         _set("BURSAR_TIMELOCK_SIGNER_1", vm.toString(makeAddr("hotKey")));
@@ -557,14 +555,13 @@ contract DeployScriptTest is ScriptHarness {
         assertEq(vm.parseJsonString(vm.readFile(path), ".parameters.Escrow.minLock"), "10000");
     }
 
-    /// A second copy of a contract the rest of the system points at is two answers to one
-    /// question. The run refuses one the record holds, unless told to replace it.
+    /// The run refuses to deploy a contract the record holds, unless told to replace it.
     function _caseASecondRunRefusesWhatTheRecordHolds() private {
         _setBaseEnv();
         Deploy.Deployment memory first = _runAsDeployKey();
 
-        // The timelock is joined, not refused: it is the governance the rest of the run answers
-        // to. The first contract the run would deploy again is what stops it.
+        // The recorded timelock is joined: it is the governance the rest of the run answers to.
+        // The first contract the run would deploy again is what stops it.
         vm.expectRevert(abi.encodeWithSelector(BursarScript.AlreadyRecorded.selector, K.REPUTATION, first.reputation));
         _as(DEFAULT_SENDER, address(script), abi.encodeCall(Deploy.run, ()));
 
@@ -589,8 +586,8 @@ contract DeployScriptTest is ScriptHarness {
         assertGt(out.timelock.code.length, 0);
     }
 
-    /// A role the record names is the role. A shell carrying another value for it stops the run
-    /// instead of quietly deploying against last month's treasury.
+    /// A role the record names is the role. A shell carrying another value for it stops the run,
+    /// so nothing deploys against last month's treasury.
     function _caseTheRecordedRolesWinAndAShellMayNotDisagree() private {
         _setBaseEnv();
         address recordedTreasury = makeAddr("recordedTreasury");
@@ -627,8 +624,8 @@ contract DeployScriptTest is ScriptHarness {
         script.run();
     }
 
-    /// The run never sets the terms of governance it joins, so it holds the live contract against
-    /// the parameter file instead.
+    /// The run never sets the terms of governance it joins, so it checks the live contract against
+    /// the parameter file.
     function _caseLiveGovernanceDisagreesWithTheParameterFile() private {
         AdminTimelock shorterDelay = new AdminTimelock([multisigSigner, signerB, signerC], guardian, 2 days);
         _setBaseEnv();
@@ -680,7 +677,7 @@ contract DeployScriptTest is ScriptHarness {
         assertEq(_readAddress(path, K.ADMIN_TIMELOCK), address(live));
     }
 
-    /// The same, with governance named by the record rather than the shell.
+    /// The same, with governance named by the record.
     function _caseJoinsGovernanceTheRecordNames() private {
         AdminTimelock live = new AdminTimelock([multisigSigner, signerB, signerC], guardian, 3 days);
         _setBaseEnv();
@@ -692,7 +689,7 @@ contract DeployScriptTest is ScriptHarness {
     }
 
     /// Robinhood Chain is the one chain this run pins an asset address on, because it is the one
-    /// chain the address was read off. A typo in the record stops here instead of becoming the
+    /// chain the address was read off. A typo in the record stops here, before it becomes the
     /// settlement asset of a live deployment.
     function _caseRobinhoodChainPinsTheUsdgAddress() private {
         _setBaseEnv();
@@ -769,7 +766,7 @@ contract DeployScriptTest is ScriptHarness {
         _set("BURSAR_LOCAL", "1");
         _unset("BURSAR_FORCE");
 
-        // Cleared, not assumed absent, because a case sets each to prove the run rejects it.
+        // Cleared, because a case sets each to prove the run rejects it.
         _set("BURSAR_RESOLVER_MIN_BOND", "");
         _set("BURSAR_DISPUTE_TIMEOUT", "");
         _set("BURSAR_STAKING", "");

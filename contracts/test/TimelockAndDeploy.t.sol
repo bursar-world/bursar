@@ -421,7 +421,7 @@ contract MandateTimelockTest is Test {
         assertEq(reason, AdminTimelock.AlreadyCancelled.selector);
     }
 
-    function test_theSignerSetIsReadableAsASetRatherThanOneSlotAtATime() public view {
+    function test_theSignerSetIsReadableInOneCall() public view {
         address[3] memory signers = timelock.getSigners();
 
         assertEq(signers[0], signerA);
@@ -511,8 +511,8 @@ contract MandateTimelockTest is Test {
         timelock.guardianPause(targets);
     }
 
-    /// An address with no code accepts any call silently. It is recorded as skipped, never as
-    /// paused, and it does not stop the rest of the batch.
+    /// An address with no code accepts any call silently. It is recorded as skipped, and it does
+    /// not stop the rest of the batch.
     function test_guardianPause_skipsATargetWithNoCodeAndPausesTheRest() public {
         BrakeTarget target = new BrakeTarget();
         address empty = makeAddr("notAContract");
@@ -698,8 +698,8 @@ contract MandateTimelockTest is Test {
     }
 }
 
-/// Drives the timelock through random orderings so the delay and the signer set can be checked
-/// as properties, not as single paths.
+/// Drives the timelock through random orderings so the delay and the signer set are checked as
+/// properties over many paths.
 contract TimelockHandler is Test {
     AdminTimelock public timelock;
     BrakeTarget public target;
@@ -901,10 +901,9 @@ contract MandateWiringTest is Test {
         assertEq(address(oracleRegistry.bondAsset()), address(bondAsset));
     }
 
-    /// The resolver produces a quality score, not a figure to take off an agent's balance
-    /// sheet, and it imports nothing from this registry. Naming it as the slasher would publish
-    /// a capability it does not have: agent collateral moves on a timelock proposal, with a
-    /// person naming the amount.
+    /// The resolver produces a quality score and imports nothing from this registry. Naming it
+    /// as the slasher would publish a capability it does not have: agent collateral moves on a
+    /// timelock proposal, with a person naming the amount.
     function test_wiring_leavesNoContractAbleToTakeAgentCollateral() public {
         assertEq(agentRegistry.slasher(), address(0));
 
@@ -1026,8 +1025,8 @@ contract MandateWiringTest is Test {
         agentRegistry.setMinStake(1e6);
     }
 
-    /// A target already paused, or one with no `pause()` at all, used to revert the whole batch
-    /// and hold back the brake on everything after it. Each target now stands alone.
+    /// Each target is paused on its own. One already paused, or one with no `pause()` at all,
+    /// does not stop the rest.
     function test_guardian_aBatchWithAPausedOrPauselessTargetStillStopsTheRest() public {
         escrow.setPauser(address(timelock));
 

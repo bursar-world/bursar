@@ -69,7 +69,7 @@ abstract contract ScriptHarness is Test {
         );
     }
 
-    /// Acts as `who`. The runner is etched from its runtime code rather than deployed, so a call
+    /// Acts as `who`. The runner is etched from its runtime code, with no deployment, so a call
     /// made right after `vm.expectRevert` is the call the expectation lands on.
     function _as(address who, address script, bytes memory data) internal returns (bytes memory) {
         if (who.code.length == 0) vm.etch(who, type(Runner).runtimeCode);

@@ -13,8 +13,8 @@ import {MockUsdg} from "./mocks/MockUsdg.sol";
 import {MockReputation} from "./mocks/MockReputation.sol";
 
 /// A principal funds an account before it exists, so the address it computes has to be the
-/// address it gets. Everything here is about that promise: what the salt binds, what it does
-/// not, and what happens when two creations collide.
+/// address it gets. Everything here is about that promise: what the salt binds and what happens
+/// when two creations collide.
 contract MandateFactoryTest is Test {
     MockUsdg internal asset;
     Escrow internal escrow;
@@ -65,7 +65,7 @@ contract MandateFactoryTest is Test {
         assertEq(account.perCallCap(), 100e6);
     }
 
-    function test_aSecondCreationOnTheSameSaltIsRefusedWithAReasonRatherThanACreateFailure() public {
+    function test_aSecondCreationOnTheSameSaltIsRefusedWithAReason() public {
         IMandateAccount.Limits memory limits = _limits();
         vm.prank(principal);
         factory.create(principal, agent, bytes32(uint256(1)), limits);

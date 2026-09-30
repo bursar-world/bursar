@@ -5,12 +5,12 @@ import {Test} from "forge-std/Test.sol";
 
 import {V4Math} from "../../script/lib/V4Math.sol";
 
-/// The arithmetic that decides the opening price of $BRSR.
+/// The arithmetic that decides the opening price of BRSR.
 ///
 /// Every number in here is checked against something that did not produce it: the two
 /// derivations against each other, the square root against its own square, the tick constants
 /// against Uniswap's published values, and the whole of it against the deposit the live pool
-/// actually took, which is `test/token/TokenRailFork.t.sol`.
+/// actually took, which is `test/script/fork/TokenRailFork.t.sol`.
 contract V4MathTest is Test {
     uint256 internal constant BRSR_UNIT = 1e18;
     uint256 internal constant Q96 = 1 << 96;
@@ -22,7 +22,7 @@ contract V4MathTest is Test {
     }
 
     /// The same at four other prices, so a single lucky constant cannot pass this file.
-    function test_knownPrices() public pure {
+    function test_openingPriceMatchesAtFourOtherPrices() public pure {
         assertEq(V4Math.initialSqrtPriceX96(BRSR_UNIT, 100), 792281625142643375935);
         assertEq(V4Math.initialSqrtPriceX96(BRSR_UNIT, 500), 1771595571142957102961);
         assertEq(V4Math.initialSqrtPriceX96(BRSR_UNIT, 1_000), 2505414483750479311864);
@@ -59,9 +59,8 @@ contract V4MathTest is Test {
 
     /// One to nine micro-dollars, the bottom of the range and where the Q96 route is least
     /// precise. Each expected value is `isqrt((p << 192) / 1e18)` computed outside Solidity, and
-    /// the Q96 route lands inside the script's gate at every one of them. The gate used to be a
-    /// fiftieth of a tick, which refused six of the nine.
-    function test_theBottomOfTheRange() public pure {
+    /// the Q96 route lands inside the script's gate at every one of them.
+    function test_bothRoutesPriceOneToNineMicroDollarsInsideTheGate() public pure {
         uint160[9] memory expected = [
             uint160(79228162514264337593),
             112045541949572279837,
@@ -101,7 +100,7 @@ contract V4MathTest is Test {
 
     /// The two ends of the widest position a 60-spacing pool can hold. These are the ticks the
     /// seed uses, and the values are what the live pool reported back on the fork.
-    function test_fullRangeAtSpacingSixty() public pure {
+    function test_fullRangeTicks_spanPlusMinus887220AtSpacingSixty() public pure {
         (int24 lower, int24 upper) = V4Math.fullRangeTicks(60);
         assertEq(lower, -887220);
         assertEq(upper, 887220);
@@ -111,7 +110,7 @@ contract V4MathTest is Test {
         assertLe(V4Math.getSqrtPriceAtTick(upper), V4Math.MAX_SQRT_PRICE);
     }
 
-    function test_fullRangeAtOtherSpacings() public pure {
+    function test_fullRangeTicks_alignToOtherSpacings() public pure {
         (int24 lower, int24 upper) = V4Math.fullRangeTicks(1);
         assertEq(lower, V4Math.MIN_TICK);
         assertEq(upper, V4Math.MAX_TICK);
@@ -145,8 +144,8 @@ contract V4MathTest is Test {
         this.openViaQ96At(BRSR_UNIT, 0);
     }
 
-    /// A ratio outside the band v4 can express is refused rather than truncated into a
-    /// `uint160`, which would open a pool at a price nobody chose.
+    /// A ratio outside the band v4 can express is refused: truncated into a `uint160`, it would
+    /// open a pool at a price nobody chose.
     function test_priceOutsideTheBandReverts() public {
         vm.expectRevert(V4Math.PriceOutOfRange.selector);
         this.openAt(type(uint128).max, 1);
@@ -154,8 +153,7 @@ contract V4MathTest is Test {
         this.openViaQ96At(type(uint128).max, 1);
     }
 
-    /// Above `2**64` the Q192 route would overflow, so the library takes the Q96 route instead
-    /// and still answers.
+    /// Above `2**64` the Q192 route would overflow, so the library answers by the Q96 route.
     function test_theHighRatioFallbackAnswers() public pure {
         // One raw unit of currency0 against 2**80 raw units of currency1.
         uint160 s = V4Math.initialSqrtPriceX96(1, 1 << 80);
@@ -187,7 +185,7 @@ contract V4MathTest is Test {
 
     /// A range wholly above the price is one-sided in currency0, and one wholly below it is
     /// one-sided in currency1. Both ends of `getLiquidityForAmounts` are reached.
-    function test_oneSidedRanges() public pure {
+    function test_aRangeOffThePriceIsOneSided() public pure {
         // The pool's price, near tick -361500.
         uint160 sqrtPrice = V4Math.initialSqrtPriceX96(BRSR_UNIT, 200);
 
@@ -226,8 +224,7 @@ contract V4MathTest is Test {
         assertEq(V4Math.amount1For(sqrtPrice, sqrtB, sqrtA, l), V4Math.amount1For(sqrtPrice, sqrtA, sqrtB, l));
     }
 
-    /// Liquidity that does not fit the `uint128` the pool manager takes is refused rather than
-    /// truncated.
+    /// Liquidity that does not fit the `uint128` the pool manager takes is refused.
     function test_liquidityOverflowReverts() public {
         // One tick of range at a price of one, where a hundred and twenty-eight bits of
         // currency1 back about three hundred times as much liquidity.

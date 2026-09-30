@@ -336,7 +336,7 @@ contract MandateAccountCoreTest is Test {
         account.spend(_request(merchant, CAPABILITY, 10e6), _noProof());
     }
 
-    function test_aProofCarriedIntoAnAllowlistGateIsRefusedRatherThanIgnored() public {
+    function test_aProofCarriedIntoAnAllowlistGateIsRefused() public {
         bytes32[] memory proof = new bytes32[](1);
         proof[0] = keccak256("stale");
 
@@ -685,7 +685,7 @@ contract MandateAccountCoreTest is Test {
         account.deposit(0);
     }
 
-    function test_aDepositOfAFeeTakingAssetCreditsWhatArrivedRatherThanWhatWasAsked() public {
+    function test_aDepositOfAFeeTakingAssetCreditsWhatArrived() public {
         FeeOnTransferERC20 feeAsset = new FeeOnTransferERC20();
         MandateAccount feeMandate =
             new MandateAccount(principal, agent, address(feeAsset), address(escrow), _baseLimits());
@@ -822,8 +822,8 @@ contract MandateAccountCoreTest is Test {
         (, uint128 daily,) = account.remaining();
         assertEq(daily, DAILY_CAP, "a withdrawal is not a spend");
 
-        // The limit still admits the call. The money is what is missing, and the failure
-        // surfaces from the token, not from the mandate.
+        // The limit still admits the call. The money is what is missing, so the failure
+        // surfaces from the token.
         vm.prank(agent);
         vm.expectRevert(
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, address(account), 0, uint256(10e6))
@@ -989,7 +989,7 @@ contract MandateAccountCoreTest is Test {
         _assertReason(reason, IMandateAccount.Expired.selector, "an expired mandate must quote the expiry");
     }
 
-    function test_aZeroValidUntilIsOpenEndedRatherThanAlreadyExpired() public {
+    function test_aZeroValidUntilIsOpenEnded() public {
         vm.warp(block.timestamp + 3650 days);
 
         vm.prank(agent);

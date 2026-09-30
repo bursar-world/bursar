@@ -177,7 +177,7 @@ contract EscrowDisputeBondsTest is Test {
         _fund(payee, 1_000_000e6);
     }
 
-    function test_PayerWhoWinsTheRulingGetsTheBondBack() public {
+    function test_payerWhoWinsTheRulingGetsTheBondBack() public {
         uint256 id = _lock(payer, payee, AMOUNT);
 
         uint256 payerBefore = asset.balanceOf(payer);
@@ -201,7 +201,7 @@ contract EscrowDisputeBondsTest is Test {
         assertEq(escrow.getLock(id).bond, 0, "bond slot cleared");
     }
 
-    function test_PayerWhoLosesTheRulingForfeitsTheBondIntoTheResolverPot() public {
+    function test_payerWhoLosesTheRulingForfeitsTheBondIntoTheResolverPot() public {
         uint256 id = _lock(payer, payee, AMOUNT);
 
         uint256 payerBefore = asset.balanceOf(payer);
@@ -222,7 +222,7 @@ contract EscrowDisputeBondsTest is Test {
         assertEq(asset.balanceOf(address(escrow)), escrow.feesAccrued(), "nothing stranded in the escrow");
     }
 
-    function test_PayeeWhoWinsTheRulingGetsTheBondBackOnTheSameEvenSplit() public {
+    function test_payeeWhoWinsTheRulingGetsTheBondBackOnTheSameEvenSplit() public {
         uint256 id = _lock(payer, payee, AMOUNT);
 
         uint256 payeeBefore = asset.balanceOf(payee);
@@ -231,8 +231,8 @@ contract EscrowDisputeBondsTest is Test {
 
         assertEq(asset.balanceOf(payee), payeeBefore - BOND, "payee posts the same bond the payer would");
 
-        // The tie goes to whoever opened the dispute, whichever side that was. Half a
-        // contested payment is a result, not a complaint the resolvers had to sit through.
+        // The tie goes to whoever opened the dispute, whichever side that was: half a contested
+        // payment is a result, so the disputer keeps its bond.
         vm.expectEmit(true, true, false, true, address(escrow));
         emit IEscrow.BondReturned(id, payee, BOND);
         stub.rule(id, HALF_BPS);
@@ -242,7 +242,7 @@ contract EscrowDisputeBondsTest is Test {
         assertEq(asset.balanceOf(address(escrow)), escrow.feesAccrued(), "nothing stranded in the escrow");
     }
 
-    function test_PayeeWhoLosesTheRulingForfeitsTheBondIntoTheResolverPot() public {
+    function test_payeeWhoLosesTheRulingForfeitsTheBondIntoTheResolverPot() public {
         uint256 id = _lock(payer, payee, AMOUNT);
 
         uint256 payeeBefore = asset.balanceOf(payee);
@@ -259,7 +259,7 @@ contract EscrowDisputeBondsTest is Test {
         assertEq(asset.balanceOf(address(escrow)), escrow.feesAccrued(), "nothing stranded in the escrow");
     }
 
-    function test_TheSameLockCannotBeDisputedTwiceToStackASecondBond() public {
+    function test_theSameLockCannotBeDisputedTwiceToStackASecondBond() public {
         uint256 id = _lock(payer, payee, AMOUNT);
 
         vm.prank(payer);
@@ -275,7 +275,7 @@ contract EscrowDisputeBondsTest is Test {
         assertEq(escrow.getLock(id).bond, BOND, "one dispute, one bond");
     }
 
-    function test_ResolvingTwiceCannotPayTheBondTwice() public {
+    function test_resolvingTwiceCannotPayTheBondTwice() public {
         uint256 id = _lock(payer, payee, AMOUNT);
 
         vm.prank(payer);
@@ -291,7 +291,7 @@ contract EscrowDisputeBondsTest is Test {
         assertEq(asset.balanceOf(address(escrow)), escrow.feesAccrued(), "escrow holds only its fees");
     }
 
-    function test_AReopenAfterARulingCannotPayTheBondTwice() public {
+    function test_aReopenAfterARulingCannotPayTheBondTwice() public {
         uint256 id = _lock(payer, payee, AMOUNT);
 
         vm.prank(payee);
@@ -307,7 +307,7 @@ contract EscrowDisputeBondsTest is Test {
         assertEq(asset.balanceOf(address(escrow)), escrow.feesAccrued(), "escrow holds only its fees");
     }
 
-    function test_ARulingAfterAReopenCannotPayTheBondTwice() public {
+    function test_aRulingAfterAReopenCannotPayTheBondTwice() public {
         uint256 id = _lock(payer, payee, AMOUNT);
 
         vm.prank(payee);
@@ -323,10 +323,9 @@ contract EscrowDisputeBondsTest is Test {
         assertEq(asset.balanceOf(address(escrow)), AMOUNT, "only the reopened principal stays");
     }
 
-    /// The property the audit asked for: whichever way the dispute closes first, the bond leaves
-    /// the contract once. `reopenFirst` decides the order, `refundBps` decides whether a ruling
-    /// returns the bond or forfeits it.
-    function testFuzz_TheBondLeavesTheEscrowExactlyOnceUnderEitherExitOrder(uint16 rawRefund, bool reopenFirst) public {
+    /// Whichever way the dispute closes first, the bond leaves the contract once. `reopenFirst`
+    /// decides the order, `refundBps` decides whether a ruling returns the bond or forfeits it.
+    function testFuzz_theBondLeavesTheEscrowExactlyOnceUnderEitherExitOrder(uint16 rawRefund, bool reopenFirst) public {
         uint16 refundBps = uint16(bound(uint256(rawRefund), 0, BPS));
         uint256 id = _lock(payer, payee, AMOUNT);
 
@@ -358,10 +357,10 @@ contract EscrowDisputeBondsTest is Test {
         );
     }
 
-    /// The griefing vector the audit named, priced. A payee that locks its counterparty's
-    /// money up by disputing every job now pays a bond to do it, and loses the bond every time
-    /// the ruling says the job was never delivered.
-    function test_LoopingLockAndDisputeCostsTheGrieferTheBondEveryRound() public {
+    /// What disputing every job costs a payee. A payee that locks its counterparty's money up by
+    /// disputing every job pays a bond to do it, and loses the bond every time the ruling says the
+    /// job was never delivered.
+    function test_loopingLockAndDisputeCostsTheGrieferTheBondEveryRound() public {
         uint256 rounds = 10;
 
         uint256 grieferStart = asset.balanceOf(payee);
@@ -393,7 +392,7 @@ contract EscrowDisputeBondsTest is Test {
         assertEq(asset.balanceOf(address(escrow)), escrow.feesAccrued(), "nothing stranded after ten rounds");
     }
 
-    function test_AGrieferRunsOutOfBondBudgetBeforeItsTargetRunsOutOfPrincipal() public {
+    function test_aGrieferRunsOutOfBondBudgetBeforeItsTargetRunsOutOfPrincipal() public {
         address griefer = makeAddr("griefer");
         // Funded for exactly two bonds at this lock size.
         _fund(griefer, 2 * uint256(BOND));
@@ -415,7 +414,7 @@ contract EscrowDisputeBondsTest is Test {
         assertEq(uint8(escrow.getLock(id).status), uint8(IEscrow.LockStatus.Locked), "the lock stays open");
     }
 
-    function test_AnApprovalSizedForTheLockDoesNotCoverTheDisputeBond() public {
+    function test_anApprovalSizedForTheLockDoesNotCoverTheDisputeBond() public {
         address tight = makeAddr("tight");
         asset.mint(tight, AMOUNT);
 
@@ -432,7 +431,7 @@ contract EscrowDisputeBondsTest is Test {
         escrow.dispute(id);
     }
 
-    function test_APayeeWithNoFundsCannotFreezeThePayersMoney() public {
+    function test_aPayeeWithNoFundsCannotFreezeThePayersMoney() public {
         address broke = makeAddr("broke");
         vm.prank(broke);
         asset.approve(address(escrow), type(uint256).max);
@@ -447,7 +446,7 @@ contract EscrowDisputeBondsTest is Test {
         assertEq(asset.balanceOf(address(escrow)), AMOUNT, "escrow holds the principal and no bond");
     }
 
-    function test_NoLockIsTooSmallToCarryABond() public {
+    function test_noLockIsTooSmallToCarryABond() public {
         // 19 units at five percent would be 0.95 of a unit, which truncates away. The escrow
         // does not open a lock that small.
         vm.prank(payer);
@@ -464,7 +463,7 @@ contract EscrowDisputeBondsTest is Test {
         assertEq(asset.balanceOf(payer), payerBefore - _bps(MIN_LOCK, BOND_BPS), "and the bond is pulled");
     }
 
-    function test_AZeroBondRateOpensDisputesWithoutPullingAnything() public {
+    function test_aZeroBondRateOpensDisputesWithoutPullingAnything() public {
         Rig memory rig = _deployRig(FEE_BPS, RESOLVER_FEE_BPS, 0);
 
         uint256 id = _lock(rig.escrow, payer, payee, AMOUNT);
@@ -482,7 +481,7 @@ contract EscrowDisputeBondsTest is Test {
         assertEq(asset.balanceOf(address(rig.escrow)), rig.escrow.feesAccrued(), "nothing stranded");
     }
 
-    function test_DisputingAReleasedLockChargesNoBondAndCannotBeRuledOn() public {
+    function test_disputingAReleasedLockChargesNoBondAndCannotBeRuledOn() public {
         uint256 id = _lock(payer, payee, AMOUNT);
 
         vm.prank(payee);
@@ -505,7 +504,7 @@ contract EscrowDisputeBondsTest is Test {
         stub.reopen(id);
     }
 
-    function test_SweepingFeesCannotReachAPostedBond() public {
+    function test_sweepingFeesCannotReachAPostedBond() public {
         uint256 settled = _lock(payer, payee, AMOUNT);
         vm.prank(payee);
         escrow.release(settled, OUTPUT_COMMIT, "ipfs://out");
@@ -529,7 +528,7 @@ contract EscrowDisputeBondsTest is Test {
         assertEq(asset.balanceOf(address(escrow)), escrow.feesAccrued(), "and the lock still settles whole");
     }
 
-    function test_ARejectedRewardStillMovesTheForfeitedBondOutOfTheEscrow() public {
+    function test_aRejectedRewardStillMovesTheForfeitedBondOutOfTheEscrow() public {
         uint256 id = _lock(payer, payee, AMOUNT);
 
         vm.prank(payee);
@@ -546,7 +545,7 @@ contract EscrowDisputeBondsTest is Test {
         assertEq(asset.balanceOf(address(escrow)), escrow.feesAccrued(), "and the escrow is not holding them");
     }
 
-    function test_TheConstructorRejectsABondRateAboveTheCeiling() public {
+    function test_theConstructorRejectsABondRateAboveTheCeiling() public {
         vm.expectRevert(IEscrow.BadBond.selector);
         new Escrow(
             address(asset),
@@ -571,11 +570,10 @@ contract EscrowDisputeBondsTest is Test {
         assertEq(rig.escrow.getLock(id).bond, 200e6, "and it is charged in full");
     }
 
-    /// The identity from the design note, checked against balances and not against the
-    /// contract's own arithmetic:
+    /// The settlement identity, checked against token balances:
     ///
     ///     refunded + paid + protocolFee + resolverFee + bondLeg == amount + bond
-    function testFuzz_EveryRulingConservesThePrincipalAndTheBond(
+    function testFuzz_everyRulingConservesThePrincipalAndTheBond(
         uint128 rawAmount,
         uint16 rawRefund,
         uint16 rawFee,
@@ -595,7 +593,7 @@ contract EscrowDisputeBondsTest is Test {
         );
     }
 
-    function testFuzz_AReopenReturnsTheBondWholeAndKeepsThePrincipalForThePayee(
+    function testFuzz_aReopenReturnsTheBondWholeAndKeepsThePrincipalForThePayee(
         uint128 rawAmount,
         uint16 rawBond,
         bool payeeDisputes
@@ -626,7 +624,7 @@ contract EscrowDisputeBondsTest is Test {
     /// End to end against the real registry: three resolvers rule that the job was never
     /// delivered, the payee that opened the dispute forfeits, and the bond turns up in what
     /// those three can claim.
-    function test_AForfeitedBondIsClaimableByTheResolversThatRuled() public {
+    function test_aForfeitedBondIsClaimableByTheResolversThatRuled() public {
         Live memory live = _liveSystem();
         uint256 id = _lock(live.escrow, payer, payee, AMOUNT);
 
@@ -666,7 +664,7 @@ contract EscrowDisputeBondsTest is Test {
 
     /// Nobody votes, the dispute fails, and the lock goes back to the payee with the bond back
     /// to whichever side opened it. An unheard dispute is never a refund and never a forfeit.
-    function test_AnUnheardDisputeReturnsTheBondToTheSideThatOpenedIt() public {
+    function test_anUnheardDisputeReturnsTheBondToTheSideThatOpenedIt() public {
         Live memory live = _liveSystem();
 
         for (uint256 side; side < 2; ++side) {
@@ -697,9 +695,9 @@ contract EscrowDisputeBondsTest is Test {
         assertEq(live.oracle.rewardFloat(), 0, "an unheard dispute pays no resolver");
     }
 
-    /// Committers who never reveal lose BRSR. The disputer's bond is in the settlement asset,
-    /// is nobody's penalty for the resolvers' silence, and comes back.
-    function test_AFailedDisputeReturnsTheBondWhileTheSilentCommittersAreSlashed() public {
+    /// Committers who never reveal lose BRSR, and the disputer's bond, which is in the settlement
+    /// asset, comes back.
+    function test_aFailedDisputeReturnsTheBondWhileTheSilentCommittersAreSlashed() public {
         Live memory live = _liveSystem();
         uint256 id = _lock(live.escrow, payer, payee, AMOUNT);
         uint256 payeeBefore = asset.balanceOf(payee);
@@ -725,7 +723,7 @@ contract EscrowDisputeBondsTest is Test {
 
     /// The disputer is frozen by the time the vote fails. The lock still reopens and the vote
     /// still closes; the bond waits in the escrow until the disputer can receive it.
-    function test_AFrozenDisputerCannotHoldAFailedDisputeOpen() public {
+    function test_aFrozenDisputerCannotHoldAFailedDisputeOpen() public {
         Live memory live = _liveSystem();
         uint256 id = _lock(live.escrow, payer, payee, AMOUNT);
 
@@ -831,7 +829,7 @@ contract EscrowDisputeBondsTest is Test {
     }
 
     /// Read the commitment before the prank: a call made while one is armed would spend it, and
-    /// the vote would arrive from this test instead of the resolver.
+    /// the vote would arrive from this test.
     function _commit(Live memory live, uint256 disputeId, address resolver, uint8 score) private {
         bytes32 commitment = live.oracle.commitmentHash(disputeId, resolver, score, SALT);
         vm.prank(resolver);
@@ -925,8 +923,7 @@ contract EscrowDisputeBondsTest is Test {
     }
 }
 
-/// Drives the bonded lifecycle at random so the conservation identity can be checked against
-/// a deep history, not one path at a time.
+/// Drives the bonded lifecycle at random so the conservation identity is checked over long runs.
 contract EscrowDisputeBondsHandler is CommonBase, StdCheats, StdUtils {
     bytes32 internal constant CAPABILITY = keccak256("inference.run");
     bytes32 internal constant INPUT_COMMIT = keccak256("input");
@@ -1051,7 +1048,7 @@ contract EscrowDisputeBondsInvariantTest is Test {
 
     /// A bond paid out twice, or a principal paid out twice, shows up here as an escrow
     /// balance below what its open locks account for.
-    function invariant_EscrowHoldsOpenPrincipalPlusPostedBondsPlusFees() public view {
+    function invariant_escrowHoldsOpenPrincipalPlusPostedBondsPlusFees() public view {
         uint256 expected = escrow.feesAccrued();
 
         uint256 count = handler.idCount();
@@ -1070,7 +1067,7 @@ contract EscrowDisputeBondsInvariantTest is Test {
         assertEq(asset.balanceOf(address(escrow)), expected, "escrow balance drifted from its open positions");
     }
 
-    function invariant_AccruedFeesRemainCoveredByTheEscrowBalance() public view {
+    function invariant_accruedFeesRemainCoveredByTheEscrowBalance() public view {
         assertGe(asset.balanceOf(address(escrow)), escrow.feesAccrued(), "fees are not backed by tokens");
     }
 }

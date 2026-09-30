@@ -45,7 +45,7 @@ contract SolvencyLogTest is Test {
         vm.expectRevert(SolvencyLog.StaleEpoch.selector);
         solvency.post(today - 1, 75_630_000, bytes32(uint256(2)), 10, 20);
 
-        // An asOfBlock far above block.number is fine: it is checked against ArbSys, not L1.
+        // An asOfBlock far above block.number is fine: it is checked against ArbSys's L2 block.
         vm.prank(poster);
         solvency.post(today, 75_630_693, bytes32(uint256(2)), 10, 20);
         assertEq(solvency.latestEpoch(), today);

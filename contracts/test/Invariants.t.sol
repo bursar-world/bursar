@@ -79,15 +79,13 @@ contract InvariantRouter is IStockRouter {
 /// contracts that never asked for them.
 ///
 /// Every action swallows its own revert. A sequence that reaches an illegal transition is still
-/// a sequence worth continuing, and the properties under test are about the states the system
-/// does reach rather than about which calls happen to be admissible at step seventeen.
+/// worth continuing, and the properties under test are about the states the system reaches.
 ///
-/// Counters carry findings out to the invariant functions instead of asserting in place. An
-/// assertion here reverts, and a reverting handler call is discarded by the runner, which would
-/// bury the failure it was meant to surface.
+/// Counters carry findings out to the invariant functions. An assertion here would revert, and the
+/// runner discards a reverting handler call, which would bury the failure it was meant to surface.
 ///
 /// No call is made under a started prank. A call that reverts under `startPrank` leaves the
-/// prank standing, and every step after it then fails on the cheatcode instead of the contract.
+/// prank standing, and every step after it then fails on the cheatcode.
 contract MandateSystemHandler is CommonBase, StdUtils {
     uint64 internal constant MIN_TTL = 1 hours;
     uint64 internal constant MAX_TTL = 30 days;
@@ -127,8 +125,8 @@ contract MandateSystemHandler is CommonBase, StdUtils {
     /// became, so nothing about a lock's state is mirrored here.
     uint256[] public lockIds;
 
-    /// Set for the ids a mandate account paid for, because a dispute on one of those has to be
-    /// routed through the account, not opened by the account's own address.
+    /// Set for the ids a mandate account paid for, because a dispute on one of those goes through
+    /// the account's `disputeSpend`.
     mapping(uint256 id => address account) public mandateLockOf;
 
     /// Who holds each account now. Principals hand accounts back and forth.
@@ -285,8 +283,8 @@ contract MandateSystemHandler is CommonBase, StdUtils {
         } catch {}
     }
 
-    /// Hands the account to the other principal, who accepts at once. Two handovers make the
-    /// round trip that used to bring every signature the first holder had spent back to life.
+    /// Hands the account to the other principal, who accepts at once. Two handovers make a round
+    /// trip, after which every signature the first holder spent has to stay spent.
     function handOver(uint256 accountSeed) external {
         MandateAccount account = MandateAccount(_pick(accounts, accountSeed));
         address from = principalOf[address(account)];
@@ -403,8 +401,7 @@ contract MandateSystemHandler is CommonBase, StdUtils {
         try escrow.sweepFees() {} catch {}
     }
 
-    /// The bond is funded to the disputer first. What this exercises is the accounting around
-    /// a posted bond, not whether a given actor happened to hold one.
+    /// The bond is funded to the disputer first: this exercises the accounting around a bond.
     function openDispute(uint256 idSeed, bool byPayer) external {
         uint256 id = _pickLock(idSeed);
         if (id == 0) return;
@@ -434,8 +431,8 @@ contract MandateSystemHandler is CommonBase, StdUtils {
         uint8 score = uint8(bound(scoreSeed, 0, 100));
         committedScore[disputeId][resolver] = score;
 
-        // Hashed before the prank, not inside the argument list. A prank binds to the next call
-        // the handler makes, and a view call reaching for the hash would spend it.
+        // Hashed before the prank: a prank binds to the next call the handler makes, and a view
+        // call inside the argument list would spend it.
         bytes32 commitment = oracle.commitmentHash(disputeId, resolver, score, _salt(disputeId, resolver));
 
         vm.prank(resolver);
@@ -494,14 +491,12 @@ contract MandateSystemHandler is CommonBase, StdUtils {
     }
 
     /// One lock the whole way through a heard dispute: opened, contested, committed to by every
-    /// resolver, revealed, ruled and paid out. Random traffic lines those steps up so rarely
-    /// that an earlier version of this suite finished whole campaigns without a single ruling,
-    /// and the money paths under test sit at the end of them.
+    /// resolver, revealed, ruled and paid out. Random traffic lines those steps up rarely, and the
+    /// money paths under test sit at the end of them.
     ///
     /// Whatever the run did to the actors first, they are put back where a dispute can be
     /// heard: unpaused, unfrozen, active, bonded above the floor. The step tests that a dispute
-    /// can still be heard, not that a paused registry refuses one, so it is expected never to
-    /// revert.
+    /// can still be heard, so it is expected never to revert.
     function driveDispute(uint256 payerSeed, uint256 payeeSeed, uint256 amountSeed, uint256 scoreSeed, bool byPayer)
         external
     {
@@ -665,7 +660,7 @@ contract MandateSystemHandler is CommonBase, StdUtils {
     }
 
     /// The issuer's per-address freeze, on a payer, a payee or a mandate account. Every exit
-    /// still has to land, with the frozen share booked instead of paid.
+    /// still has to land, with the frozen share booked for later.
     function freeze(uint256 groupSeed, uint256 actorSeed, bool frozen) external {
         uint256 group = bound(groupSeed, 0, 2);
         address who =
@@ -719,7 +714,7 @@ contract MandateSystemHandler is CommonBase, StdUtils {
         total += escrow.owed(address(oracle));
     }
 
-    /// The whole of decision D restated against the figures the escrow keeps:
+    /// The settlement identity, against the figures the escrow keeps:
     ///
     ///     refunded + paid + protocolFee + resolverFee + bondLeg == amount + bond
     ///
@@ -1083,9 +1078,8 @@ contract MandateInvariants is Test {
         oracle.setStaking(address(pool));
         escrow.setRegistry(registry);
 
-        // `AgentRegistry.slasher` is left unset, as the deployment leaves it. The resolver
-        // produces a quality score and has no figure to take off an agent's balance sheet, so
-        // naming it here would assert a capability nothing in this system has.
+        // `AgentRegistry.slasher` stays unset, as the deployment leaves it: the resolver produces
+        // a quality score, and no ruling takes agent collateral.
 
         factory = new MandateAccountFactory(address(escrow), address(asset));
         router = new InvariantRouter(IERC20(address(asset)));
@@ -1183,10 +1177,10 @@ contract MandateInvariants is Test {
         }
     }
 
-    /// Exact, not a floor. The escrow holds the principal of every live lock, the bonds posted
-    /// against them, the fees it has not swept, the payouts it booked to parties it could not
-    /// reach, and whatever was pushed at it by mistake. There is no sixth term, and a stray
-    /// transfer is not reachable by `sweepFees` or `claim`.
+    /// Exact. The escrow holds the principal of every live lock, the bonds posted against them, the
+    /// fees it has not swept, the payouts it booked to parties it could not reach, and whatever was
+    /// pushed at it by mistake. There is no sixth term, and a stray transfer is not reachable by
+    /// `sweepFees` or `claim`.
     function invariant_escrowHoldsItsLiveLocksItsBondsAndTheFeesItOwes() public view {
         (uint256 livePrincipal, uint256 liveBonds) = _liveEscrowExposure();
 
@@ -1206,8 +1200,8 @@ contract MandateInvariants is Test {
         );
     }
 
-    /// Two assets, two ledgers, and neither reaches the other. The settlement asset held here
-    /// is the reward float and nothing else, and the bonds are BRSR.
+    /// The settlement asset held here is the reward float and nothing else, and the bonds are
+    /// BRSR, on a ledger of their own.
     function invariant_oracleRegistryHoldsOnlyBondsAndTheRewardFloat() public view {
         assertEq(
             asset.balanceOf(address(oracle)),
@@ -1312,8 +1306,8 @@ contract MandateInvariants is Test {
     }
 
     /// Every open vote is a commitment on a dispute that has not closed, and every such
-    /// commitment is an open vote. A count that drifts either way either pins a bond for good
-    /// or frees one a live vote still needs.
+    /// commitment is an open vote. A count that drifts either way pins a bond for good or frees
+    /// one a live vote still needs.
     function invariant_openVotesEqualTheCommitmentsOnOpenDisputes() public view {
         uint256 committed;
         uint256 next = oracle.nextDisputeId();
@@ -1354,8 +1348,8 @@ contract MandateInvariants is Test {
         }
     }
 
-    /// One lock, one counter. Every counted lock moved exactly one of the payee's counters, and
-    /// no counter moved for a lock that was not counted.
+    /// Every counted lock moved exactly one of the payee's counters, and no counter moved for a
+    /// lock that was not counted.
     function invariant_eachLockMovesAtMostOneReputationCounter() public view {
         uint256 counted;
         uint256 count = handler.lockCount();
@@ -1385,10 +1379,9 @@ contract MandateInvariants is Test {
         assertGt(handler.finalized(), 0, "no dispute reached a ruling in this run");
     }
 
-    /// Reads the deployed bytecode, not the source, because a comment saying the native view
-    /// is never touched is worth exactly as much as the compiler's opinion of it. BALANCE
-    /// and SELFBALANCE are the only two ways an EVM contract can ask for the eighteen-decimal
-    /// figure, and neither appears in any of these.
+    /// Reads the deployed bytecode, because a comment saying the native view is never touched is
+    /// worth exactly as much as the compiler's opinion of it. BALANCE and SELFBALANCE are the only
+    /// ways an EVM contract can ask for the eighteen-decimal figure, and none of these uses them.
     function test_noContractInTheSystemCanReadTheNativeBalanceView() public view {
         _assertNoBalanceOpcode("Escrow", address(escrow));
         _assertNoBalanceOpcode("OracleRegistry", address(oracle));
@@ -1450,7 +1443,7 @@ contract MandateInvariants is Test {
 
         // A score of 30 is a full refund, and a payer who asked for one and got it keeps the
         // bond. What is left of the principal is the resolver fee, which is now at the oracle,
-        // in the settlement asset and not among the BRSR bonds.
+        // in the settlement asset, apart from the BRSR bonds.
         assertEq(
             asset.balanceOf(address(oracle)), oracle.rewardFloat(), "the resolver fee did not land on the reward ledger"
         );
@@ -1746,9 +1739,8 @@ contract MandateInvariants is Test {
         account.spendApproved(request, new bytes32[](0), approval, "");
     }
 
-    /// What the escrow is still carrying, read from the escrow itself rather than from a ghost
-    /// ledger. A mirror of the contract's own bookkeeping would pass whenever the two agreed on
-    /// being wrong.
+    /// What the escrow is still carrying, read from the escrow itself. A ghost ledger mirroring
+    /// the contract's own bookkeeping would pass whenever the two agreed on being wrong.
     function _liveEscrowExposure() private view returns (uint256 lockedPrincipal, uint256 bonds) {
         uint256 count = handler.lockCount();
         for (uint256 i; i < count; ++i) {
@@ -1771,18 +1763,18 @@ contract MandateInvariants is Test {
         return 5_000e6 - registry.stakeOf(payee);
     }
 
-    /// Walks the runtime as instructions, not as bytes, skipping each PUSH payload. An
-    /// immutable that happens to carry 0x31 in its inlined value is not mistaken for an opcode.
-    /// The CBOR metadata the compiler appends is stripped first for the same reason: it is data,
-    /// its last two bytes give its length, and disassembling it is meaningless.
+    /// Walks the runtime as instructions, skipping each PUSH payload. An immutable that happens to
+    /// carry 0x31 in its inlined value is not mistaken for an opcode. The CBOR metadata the
+    /// compiler appends is stripped first for the same reason: it is data, its last two bytes give
+    /// its length, and disassembling it is meaningless.
     function _assertNoBalanceOpcode(string memory label, address target) private view {
         _assertNoBalanceOpcode(label, target, "");
     }
 
     /// `embedded` is creation code the target carries inside its own runtime, which is what a
-    /// factory is. That blob ends in the child's metadata, and metadata is CBOR, not
-    /// instructions: walking it reports whichever bytes the compiler happened to hash there,
-    /// and a recompile can turn that into a false positive. It is skipped whole.
+    /// factory is. That blob ends in the child's metadata, and metadata is CBOR data: walking it
+    /// reports whichever bytes the compiler happened to hash there, and a recompile can turn that
+    /// into a false positive. It is skipped whole.
     function _assertNoBalanceOpcode(string memory label, address target, bytes memory embedded) private view {
         bytes memory runtime = target.code;
         uint256 end = runtime.length;

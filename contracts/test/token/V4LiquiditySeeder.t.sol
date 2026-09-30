@@ -35,10 +35,9 @@ contract PoolIdentity {
 /// worth testing against: the lock closes only when every currency the caller moved settles to
 /// zero.
 ///
-/// The position math is a constant, not a curve. What is under test here is the settlement, the
-/// guards and the callback binding; the curve is exercised against the real Uniswap deployment
-/// in `TokenRailFork.t.sol`, where a stub could not be made to agree with the contract by
-/// accident.
+/// The position math is a flat constant, so what is under test here is the settlement, the guards
+/// and the callback binding. The curve is exercised against the real Uniswap deployment in
+/// `TokenRailFork.t.sol`, where a stub could not be made to agree with the contract by accident.
 ///
 /// Fees are the one piece of v4 behaviour modelled closely: set with `setFees`, they are credited
 /// into the caller's delta on the next change to the position and reported separately as
@@ -208,8 +207,6 @@ contract V4LiquiditySeederTest is Test {
         vm.stopPrank();
     }
 
-    // ---- what it inherits ---------------------------------------------------------------
-
     function test_itTakesThePoolIdentityFromTheBuyback() public view {
         assertEq(seeder.currency0(), identity.currency0());
         assertEq(seeder.currency1(), identity.currency1());
@@ -243,9 +240,7 @@ contract V4LiquiditySeederTest is Test {
         new V4LiquiditySeeder(address(manager), address(native1), owner);
     }
 
-    // ---- opening the pool ----------------------------------------------------------------
-
-    function test_initializePool() public {
+    function test_initializePool_opensAtTheGivenPriceAndReportsTheTick() public {
         vm.expectEmit(false, false, false, true, address(seeder));
         emit V4LiquiditySeeder.PoolInitialized(1120455419495722798374, -361_501);
         vm.prank(owner);
@@ -268,8 +263,6 @@ contract V4LiquiditySeederTest is Test {
         seeder.initializePool(2000000000000000000000);
         vm.stopPrank();
     }
-
-    // ---- adding ---------------------------------------------------------------------------
 
     function test_addLiquidityPaysBothLegsAndRecordsThePosition() public {
         _open();
@@ -331,11 +324,10 @@ contract V4LiquiditySeederTest is Test {
         seeder.addLiquidity(TICK_LOWER, TICK_UPPER, LIQUIDITY, LIQUIDITY, LIQUIDITY);
     }
 
-    /// v4 credits a position's accrued fees into the same delta as the principal, so an add
-    /// against a position that has already earned can come back in credit on a leg. The callback
-    /// takes that rather than assuming the sign from the direction of the call. The fees are the
-    /// position's, so they stay here for the owner: the adder pays what the liquidity cost and
-    /// gets back the rest of what it offered, never more.
+    /// v4 credits a position's accrued fees into the same delta as the principal, so an add against
+    /// a position that has already earned can come back in credit on a leg. The callback reads the
+    /// sign of each leg from the delta. The fees are the position's, so they stay here for the
+    /// owner: the adder pays what the liquidity cost and gets back the rest of what it offered.
     function test_anAddKeepsTheFeesThePositionEarnedForTheOwner() public {
         _open();
         vm.prank(owner);
@@ -527,8 +519,6 @@ contract V4LiquiditySeederTest is Test {
         seeder.addLiquidity(TICK_LOWER, TICK_UPPER, LIQUIDITY, LIQUIDITY, LIQUIDITY);
     }
 
-    // ---- removing -------------------------------------------------------------------------
-
     function test_removeLiquiditySendsTheProceedsOn() public {
         _open();
         vm.prank(owner);
@@ -592,8 +582,6 @@ contract V4LiquiditySeederTest is Test {
         seeder.removeLiquidity(TICK_LOWER, TICK_UPPER, LIQUIDITY, 0, 0, outsider);
     }
 
-    // ---- the callback ---------------------------------------------------------------------
-
     function test_theCallbackTakesNobodyElse() public {
         vm.expectRevert(V4LiquiditySeeder.NotPoolManager.selector);
         seeder.unlockCallback("");
@@ -606,9 +594,7 @@ contract V4LiquiditySeederTest is Test {
         seeder.unlockCallback(abi.encode(TICK_LOWER, TICK_UPPER, int256(1), uint256(0), uint256(0), address(this)));
     }
 
-    // ---- sweeping ---------------------------------------------------------------------------
-
-    function test_sweep() public {
+    function test_theOwnerSweepsATokenToAnyRecipient() public {
         brsr.mint(address(seeder), 7);
         vm.prank(owner);
         seeder.sweep(address(brsr), outsider, 7);

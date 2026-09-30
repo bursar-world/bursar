@@ -76,11 +76,11 @@ contract StakingExitsTest is Test {
         vm.stopPrank();
     }
 
-    /// The trade a request that never lapsed and kept earning allowed: file an exit a year
+    /// The trade a request that never lapsed and kept earning would allow: file an exit a year
     /// ahead, collect the spread the whole time, and leave in the block a loss is announced
-    /// while the staker who stayed carries all of it. Now the request earns nothing from the
-    /// block it is filed, it has lapsed long before the loss, and the loss lands on it in the
-    /// same proportion as on everyone else.
+    /// while the staker who stayed carries all of it. The request earns nothing from the block
+    /// it is filed, it has lapsed long before the loss, and the loss lands on it in the same
+    /// proportion as on everyone else.
     function test_unbond_requestLapsesAndStopsEarning() public {
         _stake(alice, 1_000_000e18);
         _stake(bob, 1_000_000e18);

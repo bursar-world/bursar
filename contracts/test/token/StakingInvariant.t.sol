@@ -102,8 +102,8 @@ contract StakingHandler is CommonBase, StdUtils {
         try staking.claimRewards() {} catch {}
     }
 
-    /// A third of the time the slash asks for everything but a wei, which is the request that
-    /// used to leave a pool of old shares priced against dust.
+    /// A third of the time the slash asks for everything but a wei, which would leave old shares
+    /// priced against dust if the pool kept them.
     function slash(uint256 amount, uint256 shape) external {
         uint256 pool = staking.totalStaked();
         if (shape % 3 == 0) amount = pool == 0 ? 0 : pool - 1;

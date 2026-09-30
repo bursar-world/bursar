@@ -343,7 +343,7 @@ contract CommittedMandateTest is Test {
         vm.prank(principal);
         account.amend(11, 12, 2, hex"aa");
         assertEq(account.nonce(), 2);
-        // The amendment moves the terms, not the ceiling's count.
+        // The amendment moves the terms and leaves the ceiling's count alone.
         assertEq(account.lockedTotal(), 170_000);
 
         vm.prank(principal);

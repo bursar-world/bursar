@@ -33,8 +33,7 @@ contract MockMandateCaller {
         return escrow.lock(payee, capabilityId, inputCommit, inputURI, amount, deadline);
     }
 
-    /// Owner-gated so a test can prove the escrow honours the payer's identity, not the
-    /// transaction sender's.
+    /// Owner-gated so a test can prove the escrow honours the payer, whoever sends the transaction.
     function dispute(IEscrow escrow, uint256 id) external {
         if (msg.sender != owner) revert NotOwner();
         escrow.dispute(id);

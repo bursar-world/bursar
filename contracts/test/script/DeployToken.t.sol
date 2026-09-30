@@ -128,7 +128,7 @@ contract DeployTokenTest is World {
         _expectMintRefused(abi.encodeWithSelector(BursarScript.NotContract.selector, K.ADMIN_TIMELOCK, nothing));
     }
 
-    /// The RWA, privacy and shielded scripts used to read governance under this name.
+    /// A shell that still sets `BURSAR_TIMELOCK` stops the run and is pointed at the record.
     function _theRetiredTimelockVariableIsRefused() private {
         _restore();
         _set("BURSAR_TIMELOCK", vm.toString(DEPLOYER));
@@ -192,7 +192,7 @@ contract DeployTokenTest is World {
     }
 
     /// A start backdated past the cliff unlocks a quarter of the team allocation in the first
-    /// block. That is a typo, not a term.
+    /// block, so the run treats it as a typo.
     function _aVestingStartOutsideItsRangeIsRefused() private {
         _restore();
         uint64 earliest = uint64(block.timestamp) - 90 days;

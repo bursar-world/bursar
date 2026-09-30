@@ -117,7 +117,7 @@ contract RetireRecordsTest is World {
         assertEq(vm.parseJsonString(vm.readFile(files[1]), K.SUPERSEDED_BY), next);
         assertEq(vm.parseJsonString(vm.readFile(files[2]), K.SUPERSEDED_BY), next);
         assertEq(_status(path), "live");
-        // What the records held is kept: retiring adds, it does not rewrite.
+        // What the records held is kept: retiring only adds fields.
         assertEq(vm.parseJsonAddress(vm.readFile(files[0]), ".contracts.Escrow"), _readAddress(path, K.ESCROW));
     }
 

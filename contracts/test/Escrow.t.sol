@@ -107,8 +107,8 @@ contract EscrowGateStub is IAgentRegistry {
     }
 }
 
-/// Answers the outcome callbacks but refuses the cap. The cap is a control, not a side
-/// effect, so a lock read against this has to fail closed instead of defaulting open.
+/// Answers the outcome callbacks but refuses the cap. The cap is a control, so a lock read
+/// against this has to fail closed.
 contract EscrowCapStub {
     error CapUnavailable();
 
@@ -145,8 +145,7 @@ contract EscrowTest is Test {
     bytes32 internal constant INPUT_COMMIT = keccak256("input");
     bytes32 internal constant OUTPUT_COMMIT = keccak256("output");
 
-    /// The legs of one ruling, held together so the conservation assertion can name each of
-    /// them instead of collapsing them into a single sum.
+    /// The legs of one ruling, held together so the conservation assertion can name each of them.
     struct ResolveCase {
         uint256 id;
         uint128 bond;
@@ -187,7 +186,7 @@ contract EscrowTest is Test {
         (escrow, reputation, resolverStub) = _deploySet(FEE_BPS, RESOLVER_FEE_BPS, BOND_BPS, DISPUTE_WINDOW);
     }
 
-    function test_constructor_records_the_configuration_it_was_given() public view {
+    function test_constructor_recordsTheConfigurationItWasGiven() public view {
         assertEq(escrow.settlementAsset(), address(asset));
         assertEq(escrow.reputation(), address(reputation));
         assertEq(escrow.treasury(), treasury);
@@ -204,7 +203,7 @@ contract EscrowTest is Test {
         assertEq(address(escrow.registry()), address(0));
     }
 
-    function test_constructor_rejects_a_zero_settlement_asset() public {
+    function test_constructor_rejectsAZeroSettlementAsset() public {
         vm.expectRevert(IEscrow.ZeroAddress.selector);
         new Escrow(
             address(0),
@@ -220,7 +219,7 @@ contract EscrowTest is Test {
         );
     }
 
-    function test_constructor_rejects_a_zero_reputation_address() public {
+    function test_constructor_rejectsAZeroReputationAddress() public {
         vm.expectRevert(IEscrow.ZeroAddress.selector);
         new Escrow(
             address(asset),
@@ -236,7 +235,7 @@ contract EscrowTest is Test {
         );
     }
 
-    function test_constructor_rejects_a_zero_treasury() public {
+    function test_constructor_rejectsAZeroTreasury() public {
         vm.expectRevert(IEscrow.ZeroAddress.selector);
         new Escrow(
             address(asset),
@@ -252,7 +251,7 @@ contract EscrowTest is Test {
         );
     }
 
-    function test_constructor_accepts_a_ten_percent_fee_and_rejects_one_unit_more() public {
+    function test_constructor_acceptsATenPercentFeeAndRejectsOneUnitMore() public {
         Escrow atCeiling = _escrowWith(address(asset), address(reputation), 1_000, 1_000, BOND_BPS, DISPUTE_WINDOW);
         assertEq(atCeiling.feeBps(), 1_000);
         assertEq(atCeiling.resolverFeeBps(), 1_000);
@@ -264,7 +263,7 @@ contract EscrowTest is Test {
         _escrowWith(address(asset), address(reputation), 1_000, 1_001, BOND_BPS, DISPUTE_WINDOW);
     }
 
-    function test_constructor_accepts_a_twenty_percent_bond_and_rejects_one_unit_more() public {
+    function test_constructor_acceptsATwentyPercentBondAndRejectsOneUnitMore() public {
         Escrow atCeiling = _escrowWith(address(asset), address(reputation), FEE_BPS, RESOLVER_FEE_BPS, 2_000, 0);
         assertEq(atCeiling.disputeBondBps(), 2_000);
 
@@ -272,7 +271,7 @@ contract EscrowTest is Test {
         _escrowWith(address(asset), address(reputation), FEE_BPS, RESOLVER_FEE_BPS, 2_001, 0);
     }
 
-    function test_constructor_rejects_a_ttl_band_no_deadline_could_satisfy() public {
+    function test_constructor_rejectsATtlBandNoDeadlineCouldSatisfy() public {
         vm.expectRevert(IEscrow.BadTtl.selector);
         new Escrow(
             address(asset),
@@ -302,7 +301,7 @@ contract EscrowTest is Test {
         assertEq(narrowest.maxTtl(), MIN_TTL + 2);
     }
 
-    function test_constructor_rejects_a_minimum_lock_whose_bond_rounds_to_zero() public {
+    function test_constructor_rejectsAMinimumLockWhoseBondRoundsToZero() public {
         // At five percent the smallest lock that carries a bond of one unit is twenty units.
         vm.expectRevert(IEscrow.BadMinLock.selector);
         _escrowWithMinLock(BOND_BPS, 19);
@@ -314,12 +313,12 @@ contract EscrowTest is Test {
         assertEq(_escrowWithMinLock(0, 1).minLock(), 1);
     }
 
-    function test_constructor_accepts_a_zero_dispute_window() public {
+    function test_constructor_acceptsAZeroDisputeWindow() public {
         (Escrow instant,,) = _deploySet(FEE_BPS, RESOLVER_FEE_BPS, BOND_BPS, 0);
         assertEq(instant.disputeWindow(), 0);
     }
 
-    function test_lock_pulls_exactly_the_amount_and_opens_the_entry() public {
+    function test_lock_pullsExactlyTheAmountAndOpensTheEntry() public {
         uint64 deadline = _deadline();
         uint256 payerBefore = asset.balanceOf(payer);
 
@@ -350,7 +349,7 @@ contract EscrowTest is Test {
         _assertStatus(id, IEscrow.LockStatus.Locked);
     }
 
-    function test_lock_numbers_entries_from_one_without_reuse() public {
+    function test_lock_numbersEntriesFromOneWithoutReuse() public {
         assertEq(_lock(AMOUNT), 1);
         assertEq(_lock(AMOUNT), 2);
 
@@ -359,25 +358,25 @@ contract EscrowTest is Test {
         assertEq(_lock(AMOUNT), 3);
     }
 
-    function test_lock_rejects_a_zero_payee() public {
+    function test_lock_rejectsAZeroPayee() public {
         vm.prank(payer);
         vm.expectRevert(IEscrow.ZeroAddress.selector);
         escrow.lock(address(0), CAP_ID, INPUT_COMMIT, "", AMOUNT, _deadline());
     }
 
-    function test_lock_rejects_the_escrow_itself_as_payee() public {
+    function test_lock_rejectsTheEscrowItselfAsPayee() public {
         vm.prank(payer);
         vm.expectRevert(IEscrow.ZeroAddress.selector);
         escrow.lock(address(escrow), CAP_ID, INPUT_COMMIT, "", AMOUNT, _deadline());
     }
 
-    function test_lock_rejects_a_zero_amount() public {
+    function test_lock_rejectsAZeroAmount() public {
         vm.prank(payer);
         vm.expectRevert(IEscrow.ZeroAmount.selector);
         escrow.lock(payee, CAP_ID, INPUT_COMMIT, "", 0, _deadline());
     }
 
-    function test_lock_rejects_a_deadline_at_the_minimum_ttl_and_admits_one_second_past_it() public {
+    function test_lock_rejectsADeadlineAtTheMinimumTtlAndAdmitsOneSecondPastIt() public {
         vm.prank(payer);
         vm.expectRevert(IEscrow.BadTtl.selector);
         escrow.lock(payee, CAP_ID, INPUT_COMMIT, "", AMOUNT, uint64(block.timestamp + MIN_TTL));
@@ -387,7 +386,7 @@ contract EscrowTest is Test {
         assertEq(id, 1);
     }
 
-    function test_lock_rejects_a_deadline_at_the_maximum_ttl_and_admits_one_second_short_of_it() public {
+    function test_lock_rejectsADeadlineAtTheMaximumTtlAndAdmitsOneSecondShortOfIt() public {
         vm.prank(payer);
         vm.expectRevert(IEscrow.BadTtl.selector);
         escrow.lock(payee, CAP_ID, INPUT_COMMIT, "", AMOUNT, uint64(block.timestamp + MAX_TTL));
@@ -397,13 +396,13 @@ contract EscrowTest is Test {
         assertEq(id, 1);
     }
 
-    function test_lock_rejects_a_deadline_already_in_the_past() public {
+    function test_lock_rejectsADeadlineAlreadyInThePast() public {
         vm.prank(payer);
         vm.expectRevert(IEscrow.BadTtl.selector);
         escrow.lock(payee, CAP_ID, INPUT_COMMIT, "", AMOUNT, uint64(block.timestamp - 1));
     }
 
-    function test_lock_admits_the_payee_cap_exactly_and_refuses_one_unit_above_it() public {
+    function test_lock_admitsThePayeeCapExactlyAndRefusesOneUnitAboveIt() public {
         (Escrow capped,,) = _deploySetWithCurve(
             IReputation.CapCurve({baseCap: 100e6, capPerScore: 1e6, maxCap: 200e6}),
             FEE_BPS,
@@ -420,7 +419,7 @@ contract EscrowTest is Test {
         assertEq(capped.getLock(id).amount, 100e6);
     }
 
-    function test_lock_cap_rises_with_the_payees_settlement_history() public {
+    function test_lock_capRisesWithThePayeesSettlementHistory() public {
         (Escrow capped, Reputation rep,) = _deploySetWithCurve(
             IReputation.CapCurve({baseCap: 100e6, capPerScore: 1e6, maxCap: 200e6}),
             FEE_BPS,
@@ -446,7 +445,7 @@ contract EscrowTest is Test {
         assertEq(capped.getLock(id).amount, 200e6);
     }
 
-    function test_lock_falls_closed_when_the_cap_cannot_be_read() public {
+    function test_lock_fallsClosedWhenTheCapCannotBeRead() public {
         EscrowCapStub silent = new EscrowCapStub();
         Escrow blind = _escrowWith(address(asset), address(silent), FEE_BPS, RESOLVER_FEE_BPS, BOND_BPS, 0);
         _approveToken(asset, address(blind));
@@ -456,14 +455,14 @@ contract EscrowTest is Test {
         blind.lock(payee, CAP_ID, INPUT_COMMIT, "", AMOUNT, _deadline());
     }
 
-    function test_lock_admits_any_payee_while_no_registry_is_wired() public {
+    function test_lock_admitsAnyPayeeWhileNoRegistryIsWired() public {
         assertEq(address(escrow.registry()), address(0));
 
         uint256 id = _lock(AMOUNT);
         assertEq(escrow.getLock(id).payee, payee);
     }
 
-    function test_lock_refuses_a_payee_the_registry_has_barred() public {
+    function test_lock_refusesAPayeeTheRegistryHasBarred() public {
         (Escrow gated,,) = _deploySet(FEE_BPS, RESOLVER_FEE_BPS, BOND_BPS, DISPUTE_WINDOW);
         EscrowGateStub gate = new EscrowGateStub();
         gated.setRegistry(IAgentRegistry(address(gate)));
@@ -478,7 +477,7 @@ contract EscrowTest is Test {
         gated.lock(payee, CAP_ID, INPUT_COMMIT, "", AMOUNT, _deadline());
     }
 
-    function test_lock_refuses_a_payee_the_registry_does_not_call_active() public {
+    function test_lock_refusesAPayeeTheRegistryDoesNotCallActive() public {
         (Escrow gated,,) = _deploySet(FEE_BPS, RESOLVER_FEE_BPS, BOND_BPS, DISPUTE_WINDOW);
         EscrowGateStub gate = new EscrowGateStub();
         gated.setRegistry(IAgentRegistry(address(gate)));
@@ -491,7 +490,7 @@ contract EscrowTest is Test {
         assertEq(_lock(gated, payer, payee, AMOUNT), 1);
     }
 
-    function test_lock_gate_reads_the_real_registry_and_follows_it_out_of_the_active_set() public {
+    function test_lock_gateReadsTheRealRegistryAndFollowsItOutOfTheActiveSet() public {
         AgentRegistry registry = new AgentRegistry(IERC20(address(asset)), admin, treasury, 100e6, 500);
         (Escrow gated,,) = _deploySet(FEE_BPS, RESOLVER_FEE_BPS, BOND_BPS, DISPUTE_WINDOW);
         gated.setRegistry(IAgentRegistry(address(registry)));
@@ -512,7 +511,7 @@ contract EscrowTest is Test {
         gated.lock(payee, CAP_ID, INPUT_COMMIT, "", AMOUNT, _deadline());
     }
 
-    function test_setRegistry_is_deployer_only_and_fires_once() public {
+    function test_setRegistry_isDeployerOnlyAndFiresOnce() public {
         (Escrow gated,,) = _deploySet(FEE_BPS, RESOLVER_FEE_BPS, BOND_BPS, DISPUTE_WINDOW);
         EscrowGateStub gate = new EscrowGateStub();
 
@@ -532,7 +531,7 @@ contract EscrowTest is Test {
         gated.setRegistry(IAgentRegistry(address(replacement)));
     }
 
-    function test_setResolver_is_deployer_only_and_fires_once() public {
+    function test_setResolver_isDeployerOnlyAndFiresOnce() public {
         Escrow unpaired = _escrowWith(address(asset), address(reputation), FEE_BPS, RESOLVER_FEE_BPS, BOND_BPS, 0);
         EscrowResolverStub stub = new EscrowResolverStub();
 
@@ -552,7 +551,7 @@ contract EscrowTest is Test {
         unpaired.setResolver(address(replacement));
     }
 
-    function test_release_pays_the_payee_net_of_the_protocol_fee() public {
+    function test_release_paysThePayeeNetOfTheProtocolFee() public {
         uint256 id = _lock(AMOUNT);
         uint256 payeeBefore = asset.balanceOf(payee);
 
@@ -574,7 +573,7 @@ contract EscrowTest is Test {
         _assertStatus(id, IEscrow.LockStatus.Released);
     }
 
-    function test_release_conserves_the_locked_amount_between_payee_and_treasury() public {
+    function test_release_conservesTheLockedAmountBetweenPayeeAndTreasury() public {
         uint256 id = _lock(AMOUNT);
         uint256 payeeBefore = asset.balanceOf(payee);
 
@@ -585,7 +584,7 @@ contract EscrowTest is Test {
         assertEq(asset.balanceOf(address(escrow)), escrow.feesAccrued());
     }
 
-    function test_release_is_the_payees_call_alone() public {
+    function test_release_isThePayeesCallAlone() public {
         uint256 id = _lock(AMOUNT);
 
         vm.prank(payer);
@@ -597,7 +596,7 @@ contract EscrowTest is Test {
         escrow.release(id, OUTPUT_COMMIT, "");
     }
 
-    function test_release_is_accepted_on_the_deadline_and_refused_one_second_later() public {
+    function test_release_isAcceptedOnTheDeadlineAndRefusedOneSecondLater() public {
         uint256 early = _lock(AMOUNT);
         uint256 late = _lock(AMOUNT);
         uint64 deadline = escrow.getLock(early).deadline;
@@ -612,7 +611,7 @@ contract EscrowTest is Test {
         escrow.release(late, OUTPUT_COMMIT, "");
     }
 
-    function test_release_cannot_be_replayed() public {
+    function test_release_cannotBeReplayed() public {
         uint256 id = _lock(AMOUNT);
         _release(escrow, id);
 
@@ -621,13 +620,13 @@ contract EscrowTest is Test {
         escrow.release(id, OUTPUT_COMMIT, "");
     }
 
-    function test_release_on_an_unknown_id_reverts() public {
+    function test_release_onAnUnknownIdReverts() public {
         vm.prank(payee);
         vm.expectRevert(IEscrow.BadStatus.selector);
         escrow.release(42, OUTPUT_COMMIT, "");
     }
 
-    function test_release_counts_reputation_inline_when_there_is_no_dispute_window() public {
+    function test_release_countsReputationInlineWhenThereIsNoDisputeWindow() public {
         (Escrow instant, Reputation rep,) = _deploySet(FEE_BPS, RESOLVER_FEE_BPS, BOND_BPS, 0);
 
         uint256 id = _lock(instant, payer, payee, AMOUNT);
@@ -637,12 +636,12 @@ contract EscrowTest is Test {
         assertEq(released, 1);
         assertTrue(instant.getLock(id).counted);
 
-        // Nothing is left for the finaliser to do, and it says so instead of writing twice.
+        // Nothing is left for the finaliser to do, so a second count reverts.
         vm.expectRevert(IEscrow.BadStatus.selector);
         instant.finalizeRelease(id);
     }
 
-    function test_release_defers_the_reputation_write_until_the_dispute_window_closes() public {
+    function test_release_defersTheReputationWriteUntilTheDisputeWindowCloses() public {
         uint256 id = _lock(AMOUNT);
         _release(escrow, id);
 
@@ -651,7 +650,7 @@ contract EscrowTest is Test {
         assertFalse(escrow.getLock(id).counted);
     }
 
-    function test_release_still_pays_when_the_reputation_registry_reverts() public {
+    function test_release_stillPaysWhenTheReputationRegistryReverts() public {
         RevertingReputation broken = new RevertingReputation();
         Escrow e = _escrowWith(address(asset), address(broken), FEE_BPS, RESOLVER_FEE_BPS, BOND_BPS, 0);
         _approveToken(asset, address(e));
@@ -668,7 +667,7 @@ contract EscrowTest is Test {
         _assertStatus(e, id, IEscrow.LockStatus.Released);
     }
 
-    function test_finalizeRelease_waits_for_the_window_and_then_counts_once() public {
+    function test_finalizeRelease_waitsForTheWindowAndThenCountsOnce() public {
         uint256 id = _lock(AMOUNT);
         _release(escrow, id);
         uint64 releasedAt = escrow.getLock(id).releasedAt;
@@ -695,7 +694,7 @@ contract EscrowTest is Test {
         escrow.finalizeRelease(id);
     }
 
-    function test_finalizeRelease_rejects_a_lock_that_was_never_released() public {
+    function test_finalizeRelease_rejectsALockThatWasNeverReleased() public {
         uint256 id = _lock(AMOUNT);
 
         vm.warp(block.timestamp + DISPUTE_WINDOW + 1);
@@ -703,7 +702,7 @@ contract EscrowTest is Test {
         escrow.finalizeRelease(id);
     }
 
-    function test_finalizeRelease_moves_no_money() public {
+    function test_finalizeRelease_movesNoMoney() public {
         uint256 id = _lock(AMOUNT);
         _release(escrow, id);
 
@@ -717,7 +716,7 @@ contract EscrowTest is Test {
         assertEq(asset.balanceOf(address(escrow)), escrowBefore);
     }
 
-    function test_timeout_refunds_the_payer_in_full_and_charges_nothing() public {
+    function test_timeout_refundsThePayerInFullAndChargesNothing() public {
         uint256 id = _lock(AMOUNT);
         uint256 payerBefore = asset.balanceOf(payer);
 
@@ -741,7 +740,7 @@ contract EscrowTest is Test {
         _assertStatus(id, IEscrow.LockStatus.TimedOut);
     }
 
-    function test_timeout_is_refused_on_the_deadline_and_admitted_one_second_later() public {
+    function test_timeout_isRefusedOnTheDeadlineAndAdmittedOneSecondLater() public {
         uint256 id = _lock(AMOUNT);
         uint64 deadline = escrow.getLock(id).deadline;
 
@@ -754,7 +753,7 @@ contract EscrowTest is Test {
         _assertStatus(id, IEscrow.LockStatus.TimedOut);
     }
 
-    function test_timeout_cannot_be_replayed() public {
+    function test_timeout_cannotBeReplayed() public {
         uint256 id = _lock(AMOUNT);
         vm.warp(uint256(escrow.getLock(id).deadline) + 1);
         escrow.timeout(id);
@@ -763,7 +762,7 @@ contract EscrowTest is Test {
         escrow.timeout(id);
     }
 
-    function test_timeout_cannot_take_a_lock_out_from_under_a_live_dispute() public {
+    function test_timeout_cannotTakeALockOutFromUnderALiveDispute() public {
         uint256 id = _lock(AMOUNT);
 
         vm.prank(payer);
@@ -774,7 +773,7 @@ contract EscrowTest is Test {
         escrow.timeout(id);
     }
 
-    function test_cancel_returns_the_payers_funds_whole_and_writes_no_history() public {
+    function test_cancel_returnsThePayersFundsWholeAndWritesNoHistory() public {
         uint256 id = _lock(AMOUNT);
         uint256 payerBefore = asset.balanceOf(payer);
 
@@ -793,7 +792,7 @@ contract EscrowTest is Test {
         _assertStatus(id, IEscrow.LockStatus.Cancelled);
     }
 
-    function test_cancel_is_the_payees_call_alone() public {
+    function test_cancel_isThePayeesCallAlone() public {
         uint256 id = _lock(AMOUNT);
 
         vm.prank(payer);
@@ -801,7 +800,7 @@ contract EscrowTest is Test {
         escrow.cancel(id);
     }
 
-    function test_cancel_is_refused_once_the_deadline_has_passed() public {
+    function test_cancel_isRefusedOnceTheDeadlineHasPassed() public {
         uint256 id = _lock(AMOUNT);
         vm.warp(uint256(escrow.getLock(id).deadline) + 1);
 
@@ -810,7 +809,7 @@ contract EscrowTest is Test {
         escrow.cancel(id);
     }
 
-    function test_cancel_cannot_be_replayed() public {
+    function test_cancel_cannotBeReplayed() public {
         uint256 id = _lock(AMOUNT);
         _cancel(escrow, id);
 
@@ -819,7 +818,7 @@ contract EscrowTest is Test {
         escrow.cancel(id);
     }
 
-    function test_dispute_on_an_open_lock_posts_the_bond_and_freezes_the_funds() public {
+    function test_dispute_onAnOpenLockPostsTheBondAndFreezesTheFunds() public {
         uint256 id = _lock(AMOUNT);
         uint128 bond = _bps(AMOUNT, BOND_BPS);
         uint256 payerBefore = asset.balanceOf(payer);
@@ -845,7 +844,7 @@ contract EscrowTest is Test {
         _assertStatus(id, IEscrow.LockStatus.Disputed);
     }
 
-    function test_dispute_on_an_open_lock_is_open_to_the_payee_too() public {
+    function test_dispute_onAnOpenLockIsOpenToThePayeeToo() public {
         uint256 id = _lock(AMOUNT);
         uint128 bond = _bps(AMOUNT, BOND_BPS);
         uint256 payeeBefore = asset.balanceOf(payee);
@@ -857,7 +856,7 @@ contract EscrowTest is Test {
         assertEq(escrow.getLock(id).disputer, payee);
     }
 
-    function test_dispute_on_an_open_lock_is_closed_to_everyone_else() public {
+    function test_dispute_onAnOpenLockIsClosedToEveryoneElse() public {
         uint256 id = _lock(AMOUNT);
 
         vm.prank(stranger);
@@ -865,7 +864,7 @@ contract EscrowTest is Test {
         escrow.dispute(id);
     }
 
-    function test_dispute_is_refused_while_no_resolver_can_hear_it() public {
+    function test_dispute_isRefusedWhileNoResolverCanHearIt() public {
         Escrow unpaired = _escrowWith(address(asset), address(reputation), FEE_BPS, RESOLVER_FEE_BPS, BOND_BPS, 0);
         _approveToken(asset, address(unpaired));
         uint256 id = _lock(unpaired, payer, payee, AMOUNT);
@@ -875,7 +874,7 @@ contract EscrowTest is Test {
         unpaired.dispute(id);
     }
 
-    function test_dispute_takes_no_bond_when_the_rate_is_zero() public {
+    function test_dispute_takesNoBondWhenTheRateIsZero() public {
         (Escrow unbonded,, EscrowResolverStub stub) = _deploySet(FEE_BPS, RESOLVER_FEE_BPS, 0, DISPUTE_WINDOW);
         uint256 id = _lock(unbonded, payer, payee, AMOUNT);
         uint256 payerBefore = asset.balanceOf(payer);
@@ -888,7 +887,7 @@ contract EscrowTest is Test {
         assertEq(stub.opened(), 1);
     }
 
-    function test_lock_refuses_an_amount_below_the_minimum_and_the_minimum_carries_a_bond() public {
+    function test_lock_refusesAnAmountBelowTheMinimumAndTheMinimumCarriesABond() public {
         vm.prank(payer);
         vm.expectRevert(IEscrow.BelowMinLock.selector);
         escrow.lock(payee, CAP_ID, INPUT_COMMIT, "", MIN_LOCK - 1, _deadline());
@@ -901,7 +900,7 @@ contract EscrowTest is Test {
         assertGt(escrow.getLock(id).bond, 0, "a dispute on the smallest lock cost nothing");
     }
 
-    function test_dispute_on_an_open_lock_is_refused_once_the_deadline_has_passed() public {
+    function test_dispute_onAnOpenLockIsRefusedOnceTheDeadlineHasPassed() public {
         uint256 onTime = _lock(AMOUNT);
         uint256 late = _lock(AMOUNT);
         uint64 deadline = escrow.getLock(late).deadline;
@@ -926,7 +925,7 @@ contract EscrowTest is Test {
         assertEq(resolverStub.opened(), 1);
     }
 
-    function test_dispute_after_a_release_is_the_payers_alone_and_takes_no_bond() public {
+    function test_dispute_afterAReleaseIsThePayersAloneAndTakesNoBond() public {
         uint256 id = _lock(AMOUNT);
         _release(escrow, id);
 
@@ -945,14 +944,14 @@ contract EscrowTest is Test {
         assertEq(escrow.getLock(id).bond, 0);
         assertEq(resolverStub.opened(), 0);
 
-        // One lock, one counter: the complaint replaces the release in the payee's history.
+        // The complaint replaces the release in the payee's history.
         (uint64 released,, uint64 disputed) = reputation.payeeStats(payee);
         assertEq(released, 0);
         assertEq(disputed, 1);
         assertTrue(escrow.getLock(id).counted);
     }
 
-    function test_dispute_after_a_release_is_refused_once_the_window_has_closed() public {
+    function test_dispute_afterAReleaseIsRefusedOnceTheWindowHasClosed() public {
         uint256 onTime = _lock(AMOUNT);
         uint256 late = _lock(AMOUNT);
         _release(escrow, onTime);
@@ -971,7 +970,7 @@ contract EscrowTest is Test {
         escrow.dispute(late);
     }
 
-    function test_dispute_after_a_release_is_impossible_without_a_window() public {
+    function test_dispute_afterAReleaseIsImpossibleWithoutAWindow() public {
         (Escrow instant,,) = _deploySet(FEE_BPS, RESOLVER_FEE_BPS, BOND_BPS, 0);
         uint256 id = _lock(instant, payer, payee, AMOUNT);
         _release(instant, id);
@@ -981,7 +980,7 @@ contract EscrowTest is Test {
         instant.dispute(id);
     }
 
-    function test_dispute_after_a_release_ends_the_lock_with_no_ruling_to_make() public {
+    function test_dispute_afterAReleaseEndsTheLockWithNoRulingToMake() public {
         uint256 id = _lock(AMOUNT);
         _release(escrow, id);
 
@@ -999,7 +998,7 @@ contract EscrowTest is Test {
         escrow.dispute(id);
     }
 
-    function test_dispute_cannot_reopen_a_settled_lock() public {
+    function test_dispute_cannotReopenASettledLock() public {
         uint256 cancelled = _lock(AMOUNT);
         _cancel(escrow, cancelled);
 
@@ -1016,7 +1015,7 @@ contract EscrowTest is Test {
         escrow.dispute(timedOut);
     }
 
-    function test_resolve_splits_a_contested_lock_into_four_legs_that_add_up() public {
+    function test_resolve_splitsAContestedLockIntoFourLegsThatAddUp() public {
         uint256 id = _lock(AMOUNT);
         uint128 bond = _bps(AMOUNT, BOND_BPS);
 
@@ -1049,7 +1048,7 @@ contract EscrowTest is Test {
         _assertStatus(id, IEscrow.LockStatus.Resolved);
     }
 
-    function test_resolve_returns_the_bond_when_the_ruling_goes_the_disputers_way() public {
+    function test_resolve_returnsTheBondWhenTheRulingGoesTheDisputersWay() public {
         uint256 id = _lock(AMOUNT);
         uint128 bond = _bps(AMOUNT, BOND_BPS);
 
@@ -1069,7 +1068,7 @@ contract EscrowTest is Test {
         assertEq(asset.balanceOf(address(escrow)), 0);
     }
 
-    function test_resolve_treats_an_even_split_as_a_win_for_the_payer_who_opened_it() public {
+    function test_resolve_treatsAnEvenSplitAsAWinForThePayerWhoOpenedIt() public {
         uint256 id = _lock(AMOUNT);
         uint128 bond = _bps(AMOUNT, BOND_BPS);
 
@@ -1082,7 +1081,7 @@ contract EscrowTest is Test {
         assertEq(asset.balanceOf(payer) - payerBefore, 495e6 + bond);
     }
 
-    function test_resolve_forfeits_the_payers_bond_one_basis_point_short_of_an_even_split() public {
+    function test_resolve_forfeitsThePayersBondOneBasisPointShortOfAnEvenSplit() public {
         uint256 id = _lock(AMOUNT);
         uint128 bond = _bps(AMOUNT, BOND_BPS);
 
@@ -1096,7 +1095,7 @@ contract EscrowTest is Test {
         assertEq(asset.balanceOf(address(resolverStub)), 10e6 + bond);
     }
 
-    function test_resolve_treats_an_even_split_as_a_win_for_the_payee_who_opened_it() public {
+    function test_resolve_treatsAnEvenSplitAsAWinForThePayeeWhoOpenedIt() public {
         uint256 id = _lock(AMOUNT);
         uint128 bond = _bps(AMOUNT, BOND_BPS);
 
@@ -1110,7 +1109,7 @@ contract EscrowTest is Test {
         assertEq(asset.balanceOf(payee) - payeeBefore, uint256(awarded) - _bps(awarded, FEE_BPS) + bond);
     }
 
-    function test_resolve_forfeits_the_payees_bond_one_basis_point_past_an_even_split() public {
+    function test_resolve_forfeitsThePayeesBondOneBasisPointPastAnEvenSplit() public {
         uint256 id = _lock(AMOUNT);
         uint128 bond = _bps(AMOUNT, BOND_BPS);
 
@@ -1125,7 +1124,7 @@ contract EscrowTest is Test {
         assertEq(asset.balanceOf(address(resolverStub)), 10e6 + bond);
     }
 
-    function test_resolve_records_a_full_award_to_the_payee_as_a_release() public {
+    function test_resolve_recordsAFullAwardToThePayeeAsARelease() public {
         uint256 id = _lock(AMOUNT);
 
         vm.prank(payer);
@@ -1137,7 +1136,7 @@ contract EscrowTest is Test {
         assertEq(disputed, 0);
     }
 
-    function test_resolve_records_any_refund_against_the_payee() public {
+    function test_resolve_recordsAnyRefundAgainstThePayee() public {
         uint256 id = _lock(AMOUNT);
 
         vm.prank(payer);
@@ -1149,7 +1148,7 @@ contract EscrowTest is Test {
         assertEq(disputed, 1);
     }
 
-    function test_resolve_is_the_resolvers_call_alone() public {
+    function test_resolve_isTheResolversCallAlone() public {
         uint256 id = _lock(AMOUNT);
         vm.prank(payer);
         escrow.dispute(id);
@@ -1163,7 +1162,7 @@ contract EscrowTest is Test {
         escrow.resolve(id, 10_000, 1);
     }
 
-    function test_resolve_rejects_a_refund_share_above_one_hundred_percent() public {
+    function test_resolve_rejectsARefundShareAboveOneHundredPercent() public {
         uint256 id = _lock(AMOUNT);
         vm.prank(payer);
         escrow.dispute(id);
@@ -1175,14 +1174,14 @@ contract EscrowTest is Test {
         _assertStatus(id, IEscrow.LockStatus.Resolved);
     }
 
-    function test_resolve_rejects_a_lock_nobody_contested() public {
+    function test_resolve_rejectsALockNobodyContested() public {
         uint256 id = _lock(AMOUNT);
 
         vm.expectRevert(IEscrow.BadStatus.selector);
         resolverStub.rule(IEscrow(address(escrow)), id, 5_000);
     }
 
-    function test_resolve_cannot_be_replayed() public {
+    function test_resolve_cannotBeReplayed() public {
         uint256 id = _lock(AMOUNT);
         vm.prank(payer);
         escrow.dispute(id);
@@ -1192,7 +1191,7 @@ contract EscrowTest is Test {
         resolverStub.rule(IEscrow(address(escrow)), id, 2_500);
     }
 
-    function test_resolve_settles_even_when_the_resolver_refuses_to_book_its_reward() public {
+    function test_resolve_settlesEvenWhenTheResolverRefusesToBookItsReward() public {
         uint256 id = _lock(AMOUNT);
         uint128 bond = _bps(AMOUNT, BOND_BPS);
 
@@ -1217,7 +1216,7 @@ contract EscrowTest is Test {
         _assertStatus(id, IEscrow.LockStatus.Resolved);
     }
 
-    function test_resolve_pays_no_resolver_reward_when_there_is_nothing_to_pay() public {
+    function test_resolve_paysNoResolverRewardWhenThereIsNothingToPay() public {
         (Escrow free,, EscrowResolverStub stub) = _deploySet(0, 0, 0, DISPUTE_WINDOW);
         uint256 id = _lock(free, payer, payee, AMOUNT);
 
@@ -1233,7 +1232,7 @@ contract EscrowTest is Test {
         assertEq(asset.balanceOf(address(free)), 0);
     }
 
-    function test_timeout_books_a_refund_the_asset_refuses_and_anyone_can_deliver_it_later() public {
+    function test_timeout_booksARefundTheAssetRefusesAndAnyoneCanDeliverItLater() public {
         uint256 id = _lock(AMOUNT);
         asset.setFrozen(payer, true);
         vm.warp(uint256(escrow.getLock(id).deadline) + 1);
@@ -1267,7 +1266,7 @@ contract EscrowTest is Test {
         escrow.claim(payer);
     }
 
-    function test_cancel_books_the_refund_of_a_frozen_payer() public {
+    function test_cancel_booksTheRefundOfAFrozenPayer() public {
         uint256 id = _lock(AMOUNT);
         asset.setFrozen(payer, true);
 
@@ -1279,7 +1278,7 @@ contract EscrowTest is Test {
         assertEq(asset.balanceOf(address(escrow)), AMOUNT);
     }
 
-    function test_resolve_books_only_the_leg_the_asset_refuses() public {
+    function test_resolve_booksOnlyTheLegTheAssetRefuses() public {
         uint256 id = _lock(AMOUNT);
         uint128 bond = _bps(AMOUNT, BOND_BPS);
         vm.prank(payer);
@@ -1297,7 +1296,7 @@ contract EscrowTest is Test {
         assertEq(asset.balanceOf(address(escrow)), paid + escrow.feesAccrued());
     }
 
-    function test_reopen_books_the_bond_of_a_frozen_disputer() public {
+    function test_reopen_booksTheBondOfAFrozenDisputer() public {
         uint256 id = _lock(AMOUNT);
         uint128 bond = _bps(AMOUNT, BOND_BPS);
         vm.prank(payee);
@@ -1311,7 +1310,7 @@ contract EscrowTest is Test {
         assertEq(asset.balanceOf(address(escrow)), uint256(AMOUNT) + bond);
     }
 
-    function test_resolve_books_the_reward_of_a_frozen_resolver_and_does_not_announce_it() public {
+    function test_resolve_booksTheRewardOfAFrozenResolverAndDoesNotAnnounceIt() public {
         uint256 id = _lock(AMOUNT);
         uint128 bond = _bps(AMOUNT, BOND_BPS);
         vm.prank(payer);
@@ -1331,7 +1330,7 @@ contract EscrowTest is Test {
 
     /// A transfer that failed for want of gas is the caller's doing. Every gas limit either
     /// pays the payer or reverts whole, and none of them leaves an IOU behind.
-    function test_no_gas_limit_turns_a_refund_into_an_iou() public {
+    function test_noGasLimitTurnsARefundIntoAnIou() public {
         uint256 id = _lock(AMOUNT);
         vm.warp(uint256(escrow.getLock(id).deadline) + 1);
         uint256 payerBefore = asset.balanceOf(payer);
@@ -1347,7 +1346,7 @@ contract EscrowTest is Test {
         }
     }
 
-    function test_a_payee_that_pays_itself_earns_no_history() public {
+    function test_aPayeeThatPaysItselfEarnsNoHistory() public {
         vm.prank(payee);
         vm.expectRevert(IEscrow.BelowMinLock.selector);
         escrow.lock(payee, CAP_ID, INPUT_COMMIT, "", 1, _deadline());
@@ -1368,7 +1367,7 @@ contract EscrowTest is Test {
         assertTrue(escrow.getLock(timedOut).counted);
     }
 
-    function test_sweepFees_pays_the_treasury_only_what_settlements_accrued() public {
+    function test_sweepFees_paysTheTreasuryOnlyWhatSettlementsAccrued() public {
         uint256 id = _lock(AMOUNT);
         _release(escrow, id);
 
@@ -1391,7 +1390,7 @@ contract EscrowTest is Test {
         escrow.sweepFees();
     }
 
-    function test_sweepFees_cannot_reach_a_live_lock() public {
+    function test_sweepFees_cannotReachALiveLock() public {
         uint256 live = _lock(AMOUNT);
         uint256 settled = _lock(AMOUNT);
         _release(escrow, settled);
@@ -1408,7 +1407,7 @@ contract EscrowTest is Test {
         assertEq(asset.balanceOf(payee) - payeeBefore, AMOUNT - fees);
     }
 
-    function test_sweepFees_cannot_reach_a_posted_bond() public {
+    function test_sweepFees_cannotReachAPostedBond() public {
         uint256 id = _lock(AMOUNT);
         uint128 bond = _bps(AMOUNT, BOND_BPS);
 
@@ -1421,7 +1420,7 @@ contract EscrowTest is Test {
         assertEq(asset.balanceOf(address(escrow)), uint256(AMOUNT) + bond);
     }
 
-    function test_sweepFees_ignores_tokens_sent_to_the_escrow_by_hand() public {
+    function test_sweepFees_ignoresTokensSentToTheEscrowByHand() public {
         uint256 id = _lock(AMOUNT);
         _release(escrow, id);
 
@@ -1431,13 +1430,13 @@ contract EscrowTest is Test {
         uint128 fees = escrow.feesAccrued();
         uint128 swept = escrow.sweepFees();
 
-        // A donation is not a fee. The ledger decides what leaves, never the balance.
+        // The ledger decides what leaves, so the donation stays where it landed.
         assertEq(swept, fees);
         assertEq(asset.balanceOf(treasury), fees);
         assertEq(asset.balanceOf(address(escrow)), 500e6);
     }
 
-    function test_treasury_handover_takes_two_steps() public {
+    function test_treasuryHandoverTakesTwoSteps() public {
         address next = makeAddr("nextTreasury");
 
         vm.prank(stranger);
@@ -1469,11 +1468,10 @@ contract EscrowTest is Test {
         assertEq(asset.balanceOf(treasury), 0);
     }
 
-    /// A consumer holds an `IEscrow`, not an `Escrow`. The fee surface has to be reachable
-    /// through it, or every integration that wants to read what is owed, push it to the
-    /// treasury, or hand the treasury over has to drop to the concrete type and take the whole
-    /// contract with it.
-    function test_the_fee_surface_is_reachable_through_the_interface() public {
+    /// A consumer holds an `IEscrow`. The fee surface has to be reachable through it, or every
+    /// integration that wants to read what is owed, push it to the treasury, or hand the treasury
+    /// over has to drop to the concrete type and take the whole contract with it.
+    function test_theFeeSurfaceIsReachableThroughTheInterface() public {
         IEscrow held = IEscrow(address(escrow));
 
         uint256 id = _lock(AMOUNT);
@@ -1497,7 +1495,7 @@ contract EscrowTest is Test {
         assertEq(held.feesAccrued(), 0);
     }
 
-    function test_a_reentrant_token_cannot_release_a_lock_it_is_still_funding() public {
+    function test_aReentrantTokenCannotReleaseALockItIsStillFunding() public {
         (Escrow e, ReentrantERC20 token) = _reentrantSet();
 
         string memory uri = "ipfs://output";
@@ -1519,7 +1517,7 @@ contract EscrowTest is Test {
         assertEq(uint256(e.getLock(id).status), uint256(IEscrow.LockStatus.Locked));
     }
 
-    function test_a_reentrant_token_cannot_open_a_second_lock_during_a_payout() public {
+    function test_aReentrantTokenCannotOpenASecondLockDuringAPayout() public {
         (Escrow e, ReentrantERC20 token) = _reentrantSet();
 
         vm.prank(payer);
@@ -1540,7 +1538,7 @@ contract EscrowTest is Test {
         assertEq(token.balanceOf(address(e)), _bps(AMOUNT, FEE_BPS));
     }
 
-    function test_a_short_pulling_token_cannot_open_a_lock() public {
+    function test_aShortPullingTokenCannotOpenALock() public {
         FeeOnTransferERC20 token = new FeeOnTransferERC20();
         token.mint(payer, 1e24);
 
@@ -1556,7 +1554,7 @@ contract EscrowTest is Test {
         assertEq(e.nextId(), 1);
     }
 
-    function test_an_over_crediting_token_cannot_open_a_lock() public {
+    function test_anOverCreditingTokenCannotOpenALock() public {
         InflatingERC20 token = new InflatingERC20();
         token.mint(payer, 1e24);
 
@@ -1569,7 +1567,7 @@ contract EscrowTest is Test {
         e.lock(payee, CAP_ID, INPUT_COMMIT, "", AMOUNT, _deadline());
     }
 
-    function test_a_token_that_can_take_the_balance_back_cannot_open_a_lock() public {
+    function test_aTokenThatCanTakeTheBalanceBackCannotOpenALock() public {
         ShrinkingERC20 token = new ShrinkingERC20();
         token.mint(payer, 1e24);
 
@@ -1588,7 +1586,7 @@ contract EscrowTest is Test {
         e.lock(payee, CAP_ID, INPUT_COMMIT, "", AMOUNT, _deadline());
     }
 
-    function test_a_forced_native_balance_changes_nothing_the_escrow_pays() public {
+    function test_aForcedNativeBalanceChangesNothingTheEscrowPays() public {
         uint256 id = _lock(AMOUNT);
 
         // A settlement asset that publishes the same balance again, scaled up by 1e12.
@@ -1605,7 +1603,7 @@ contract EscrowTest is Test {
         assertEq(address(escrow).balance, 100 ether);
     }
 
-    function testFuzz_lock_and_release_conserve_the_locked_amount(uint128 amount) public {
+    function testFuzz_lockAndReleaseConserveTheLockedAmount(uint128 amount) public {
         amount = uint128(bound(amount, MIN_LOCK, 1e18));
 
         uint256 payerBefore = asset.balanceOf(payer);
@@ -1622,7 +1620,7 @@ contract EscrowTest is Test {
         assertEq(asset.balanceOf(address(escrow)), fee);
     }
 
-    function testFuzz_timeout_and_cancel_return_every_unit(uint128 amount, bool byTimeout) public {
+    function testFuzz_timeoutAndCancelReturnEveryUnit(uint128 amount, bool byTimeout) public {
         amount = uint128(bound(amount, MIN_LOCK, 1e18));
 
         uint256 payerBefore = asset.balanceOf(payer);
@@ -1640,7 +1638,7 @@ contract EscrowTest is Test {
         assertEq(asset.balanceOf(address(escrow)), 0);
     }
 
-    function testFuzz_resolve_conserves_the_principal_and_the_bond(uint128 amount, uint16 refundBps, bool payerDisputes)
+    function testFuzz_resolve_conservesThePrincipalAndTheBond(uint128 amount, uint16 refundBps, bool payerDisputes)
         public
     {
         amount = uint128(bound(amount, MIN_LOCK, 1e18));
@@ -1675,7 +1673,7 @@ contract EscrowTest is Test {
         assertEq(asset.balanceOf(address(escrow)), c.feeLeg, "escrow keeps only unswept fees");
     }
 
-    function testFuzz_lock_admits_a_deadline_only_strictly_inside_the_ttl_band(uint64 offset) public {
+    function testFuzz_lock_admitsADeadlineOnlyStrictlyInsideTheTtlBand(uint64 offset) public {
         uint256 deadline = bound(uint256(offset), 0, uint256(MAX_TTL) + 2 hours) + block.timestamp;
         bool admissible = deadline > block.timestamp + MIN_TTL && deadline < block.timestamp + MAX_TTL;
 
@@ -1691,7 +1689,7 @@ contract EscrowTest is Test {
         assertEq(escrow.getLock(id).deadline, uint64(deadline));
     }
 
-    function testFuzz_sweepFees_leaves_every_live_lock_fully_funded(uint128 live, uint128 settled) public {
+    function testFuzz_sweepFees_leavesEveryLiveLockFullyFunded(uint128 live, uint128 settled) public {
         live = uint128(bound(live, MIN_LOCK, 1e18));
         settled = uint128(bound(settled, MIN_LOCK, 1e18));
 
@@ -1836,8 +1834,8 @@ contract EscrowTest is Test {
         return uint128((uint256(amount) * rate) / BPS);
     }
 
-    /// The split is restated from the specification, never read off the contract. The fuzz
-    /// assertions then check the arithmetic as well as the conservation.
+    /// The split is restated from the specification. The fuzz assertions then check the arithmetic
+    /// as well as the conservation.
     function _expectedSplit(uint128 amount, uint16 refundBps)
         private
         view
@@ -1855,8 +1853,8 @@ contract EscrowTest is Test {
 }
 
 /// Drives the escrow through random orderings of the whole lifecycle. Transitions that are
-/// invalid at the moment they are attempted are counted, not bubbled. A run spends its depth
-/// on state changes instead of dying on the first out-of-order call.
+/// invalid at the moment they are attempted are counted and skipped, so a run spends its depth
+/// changing state.
 contract EscrowLifecycleHandler is Test {
     /// Mirrors the band the invariant fixture deploys with.
     uint64 private constant MIN_TTL = 1 hours;
@@ -1962,7 +1960,7 @@ contract EscrowLifecycleHandler is Test {
     }
 
     /// The issuer's freeze, on any side of a settlement. Every exit still has to land, with the
-    /// frozen share booked instead of paid.
+    /// frozen share booked for later.
     function freeze(uint256 actorSeed, bool frozen) external {
         asset.setFrozen(_actor(actorSeed), frozen);
     }
@@ -2052,7 +2050,7 @@ contract EscrowSolvencyInvariantTest is Test {
     /// held, bonds posted against a live ruling, fees booked but not yet swept, and payouts
     /// booked to a frozen party. Anything else in the balance would be value the escrow cannot
     /// pay out, and anything missing would be a lock it can no longer honour.
-    function invariant_escrow_holds_the_live_principal_and_the_unswept_fees() public view {
+    function invariant_escrowHoldsTheLivePrincipalAndTheUnsweptFees() public view {
         uint256 held;
         uint256 last = escrow.nextId();
 
@@ -2069,7 +2067,7 @@ contract EscrowSolvencyInvariantTest is Test {
         assertEq(asset.balanceOf(address(escrow)), held + escrow.feesAccrued() + handler.owedTotal());
     }
 
-    function invariant_a_settled_lock_never_carries_a_bond_forward() public view {
+    function invariant_aSettledLockNeverCarriesABondForward() public view {
         uint256 last = escrow.nextId();
 
         for (uint256 id = 1; id < last; ++id) {

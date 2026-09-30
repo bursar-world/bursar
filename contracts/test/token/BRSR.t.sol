@@ -7,7 +7,7 @@ import {BRSR} from "../../src/token/BRSR.sol";
 import {IBRSR} from "../../src/token/interfaces/IBRSR.sol";
 
 /// Reaches the one internal path that could add supply, which no external caller can. The
-/// guard has to hold there or the fixed supply is a property of the ABI, not of the token.
+/// guard has to hold there, or the fixed supply would be a property of the ABI alone.
 contract MintableBRSR is BRSR {
     constructor(Allocation memory to) BRSR(to) {}
 
@@ -96,9 +96,8 @@ contract BRSRTest is Test {
         assertEq(brsr.nonces(owner), 1);
     }
 
-    /// The supply is fixed by the code path, not by the absence of a function. The
-    /// only mint runs while the total supply is still zero, and nothing here burns, so the
-    /// supply can never return to zero and re-open that door.
+    /// The supply is fixed by the code path itself: the only mint runs while the total supply is
+    /// still zero, and nothing here burns, so the supply never returns to zero to re-open it.
     function test_nothingMintsAfterTheConstructor() public {
         MintableBRSR token = new MintableBRSR(
             IBRSR.Allocation({community: COMMUNITY, team: TEAM, treasury: TREASURY, liquidity: LIQUIDITY})
@@ -110,8 +109,8 @@ contract BRSRTest is Test {
         vm.expectRevert(IBRSR.SupplyIsFixed.selector);
         token.mintAgain(address(token), 1e18);
 
-        // Burning the whole supply is the only way back to zero, and it does not re-open the
-        // mint: the guard reads the supply before the mint, not after the burn.
+        // Burning the whole supply is the only way back to zero, and that re-opens the mint: the
+        // guard reads the supply at each mint. The next test checks the shipped token has no burn.
         token.burn(COMMUNITY, token.balanceOf(COMMUNITY));
         token.burn(TEAM, token.balanceOf(TEAM));
         token.burn(TREASURY, token.balanceOf(TREASURY));
@@ -170,7 +169,7 @@ contract BRSRTest is Test {
     /// Block cadence is not a published constant on every chain, so a forty-eight hour timelock and a
     /// voting period have to be measured the same way. A governor built against this token
     /// must report the same clock.
-    function test_votesAreCountedBySecondsRatherThanByBlocks() public {
+    function test_votesAreCountedBySeconds() public {
         vm.prank(COMMUNITY);
         brsr.delegate(COMMUNITY);
 

@@ -201,7 +201,7 @@ contract RecordTest is ScriptHarness {
         assertTrue(_contains(raw, '"minBond": "1000000000000000000000000000"'));
         assertTrue(_contains(raw, '"ceiling": "25000000"'));
 
-        // A second write replaces the first rather than adding beside it.
+        // A second write replaces the first.
         address replacement = makeAddr("replacement");
         probe.writeAddress(K.CREDIT_POOL, replacement);
         assertEq(probe.recordAddress(K.CREDIT_POOL), replacement);
@@ -279,7 +279,7 @@ contract RecordTest is ScriptHarness {
     }
 
     /// Foundry reads a value it cannot parse as though the variable were unset. The scripts parse
-    /// each one themselves, so a typo is named with what was typed rather than reported missing.
+    /// each one themselves, so a typo is reported with what was typed.
     function _aValueThatDoesNotParseIsNamed() private {
         _fresh();
         _set("BURSAR_FEE_BPS", "1%");
@@ -418,7 +418,7 @@ contract RecordTest is ScriptHarness {
 
     /// The records in `deployments/`: every one on Robinhood Chain, none a rehearsal, each with a
     /// status, and the history between them written in both directions where it is complete.
-    function test_record_theCommittedRecordsDescribeOneHistory() public view {
+    function test_record_committedRecordsSitOn4663AndNameWhatEachReplaced() public view {
         string[4] memory names = ["rhc-mainnet", "rhc-mainnet-token", "rhc-mainnet-v2", "rhc-mainnet-v3"];
         for (uint256 i; i < names.length; ++i) {
             string memory json = vm.readFile(string.concat("deployments/", names[i], ".json"));

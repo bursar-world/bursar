@@ -9,9 +9,9 @@ import {MockUsdg} from "./MockUsdg.sol";
 /// and nothing may take a ledger figure from the larger one: doing either reports a holder's
 /// money a trillion times over. The tests that stand on this assert the property directly and
 /// scan the deployed bytecode for the selector, so a contract that learned to read it would fail
-/// here rather than in an indexer.
+/// in this suite.
 ///
-/// USDG on chain 4663 does not do this, and neither does any token BURSAR settles in today. It
+/// USDG on chain 4663 does not do this, and neither does any token Bursar settles in today. It
 /// sits next to the fee-on-transfer, inflating and shrinking mocks as one more thing a token can
 /// do that accounting has to survive. A USDC precompile that doubles as a chain's gas token does
 /// do it, which is why the property was worth writing down.

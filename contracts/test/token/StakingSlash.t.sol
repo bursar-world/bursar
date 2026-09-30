@@ -158,11 +158,9 @@ contract StakingSlashTest is Test {
         assertEq(staking.slashAllowance(), 0);
     }
 
-    /// A slash that leaves a remainder too small to matter used to keep every old share alive
-    /// against it. The next deposit then minted shares at a price near zero, a distribution of
-    /// a million dollars divided into nothing and sat unclaimable in the residual, and a second
-    /// round overflowed `stake`. A slash that would leave less than a thousandth of the pool now
-    /// takes all of it and starts the pool over.
+    /// A slash that would leave less than a thousandth of the pool takes all of it and starts the
+    /// pool over. Old shares kept alive against dust would let the next deposit mint shares at a
+    /// price near zero.
     function test_slash_dustRemainderWipesThePool() public {
         _liftCap(1 days);
 

@@ -100,10 +100,6 @@ contract ShieldedTest is Test {
         vm.deal(relayer, 1 ether);
     }
 
-    // ----------------------------------------------------------------------------------------
-    // helpers
-    // ----------------------------------------------------------------------------------------
-
     function _depositBoth() internal {
         vm.prank(alice);
         uint256 c1 = entrypoint.deposit(
@@ -165,10 +161,6 @@ contract ShieldedTest is Test {
             )
         });
     }
-
-    // ----------------------------------------------------------------------------------------
-    // deposits and caps
-    // ----------------------------------------------------------------------------------------
 
     function test_depositRecordsLabelAndDepositor() public {
         _depositBoth();
@@ -291,10 +283,6 @@ contract ShieldedTest is Test {
         new ShieldedPool(address(entrypoint), address(1), address(1), USDG, registry, 10, 9);
     }
 
-    // ----------------------------------------------------------------------------------------
-    // relayed withdrawal
-    // ----------------------------------------------------------------------------------------
-
     function test_relayPaysRecipientFeeAndGas() public {
         _depositBoth();
         _postRoot(".relayed");
@@ -413,10 +401,6 @@ contract ShieldedTest is Test {
         entrypoint.relay(w, p, scope);
         assertFalse(pool.nullifierHashes(p.pubSignals[1]));
     }
-
-    // ----------------------------------------------------------------------------------------
-    // ragequit
-    // ----------------------------------------------------------------------------------------
 
     function test_ragequitReturnsDepositToDepositor() public {
         _depositBoth();

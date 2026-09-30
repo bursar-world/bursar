@@ -39,7 +39,7 @@ contract DeployStakingTest is World {
         _save();
     }
 
-    function test_deployStaking_buildsTheEconomicsAndLeavesTheirLeversToGovernance() public {
+    function test_deployStaking_leavesEveryLeverToGovernanceAndRefusesBadInputs() public {
         _everyLeverAnswersToGovernance();
         _theRegistryBondsInBrsrFromTheFirstBlock();
         _aClosedPoolGetsNoSeederAndAnOpenOneDoes();
@@ -241,8 +241,8 @@ contract DeployStakingTest is World {
         _set("BURSAR_BUYBACK_MAX_PRICE_MICRO_USD_PER_BRSR", "240");
     }
 
-    /// The variable this replaced held BRSR wei per whole USDC. Left in a shell it would now read
-    /// as a price of a million million dollars a token.
+    /// The retired variable held BRSR wei per whole USDC. Left in a shell it would read as a price
+    /// of a million million dollars a token.
     function _theRetiredPriceFloorVariableIsRefused() private {
         _restore();
         _set("BURSAR_BUYBACK_MIN_OUT_PER_USDC", "1000000000000000000");

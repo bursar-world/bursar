@@ -111,9 +111,7 @@ contract RwaTest is Test {
         vm.stopPrank();
     }
 
-    // ---- registry ----
-
-    function test_registry_keysOnAddress() public {
+    function test_registry_knowsAnAssetByAddressAndRefusesALookalike() public {
         vm.expectRevert(abi.encodeWithSelector(AssetRegistry.NotRegistered.selector, address(lookalike)));
         reg.get(address(lookalike));
         vm.expectRevert(abi.encodeWithSelector(AssetRegistry.NotRegistered.selector, address(lookalike)));
@@ -122,7 +120,7 @@ contract RwaTest is Test {
         assertEq(reg.get(address(sgov)).decimals, 18);
     }
 
-    function test_registry_onlyAdmin() public {
+    function test_registry_refusesNonAdminsAndIneligibleAssetsCannotTrade() public {
         AssetRegistry.Asset memory c = reg.get(address(spy));
         vm.expectRevert(AssetRegistry.NotAdmin.selector);
         reg.setAsset(address(spy), c);
@@ -178,8 +176,6 @@ contract RwaTest is Test {
         assertApproxEqRel(mid, SGOV_E8, 1e12);
     }
 
-    // ---- stock purchases ----
-
     function test_buy_deliversToMandate() public {
         vm.prank(agent);
         uint256 out = acct.buy(address(spy), 1e6, 0, SPY_E8);
@@ -189,7 +185,7 @@ contract RwaTest is Test {
         assertEq(acct.totalSpent(), 1e6);
     }
 
-    function test_buy_classNotAllowed() public {
+    function test_buy_refusesAMandateWithoutTheRwaClass() public {
         vm.prank(principal);
         acct.setLimits(_limits(3));
         vm.prank(agent);
@@ -197,62 +193,62 @@ contract RwaTest is Test {
         acct.buy(address(spy), 1e6, 0, SPY_E8);
     }
 
-    function test_buy_assetNotOnMandateList() public {
+    function test_buy_refusesAnAssetOffTheMandatesList() public {
         vm.prank(agent);
         vm.expectRevert(abi.encodeWithSelector(StockSpendRouter.AssetNotAllowed.selector, address(sgov)));
         acct.buy(address(sgov), 1e6, 0, SGOV_E8);
     }
 
-    function test_buy_treasuryTokenIsNotAStock() public {
+    function test_buy_refusesTheTreasuryToken() public {
         _allow(address(sgov));
         vm.prank(agent);
         vm.expectRevert(abi.encodeWithSelector(StockSpendRouter.NotAStock.selector, address(sgov)));
         acct.buy(address(sgov), 1e6, 0, SGOV_E8);
     }
 
-    function test_buy_perTradeCap() public {
+    function test_buy_refusesATradeAboveThePerTradeCap() public {
         vm.prank(agent);
         vm.expectRevert(abi.encodeWithSelector(StockSpendRouter.TradeCapExceeded.selector, 26e6, 25e6));
         acct.buy(address(spy), 26e6, 0, SPY_E8);
     }
 
-    function test_buy_stale() public {
+    function test_buy_refusesAStaleFeed() public {
         vm.warp(block.timestamp + H26 + 1);
         vm.prank(agent);
         vm.expectRevert(abi.encodeWithSelector(PriceGuard.StalePrice.selector, address(spy), H26 + 1, H26));
         acct.buy(address(spy), 1e6, 0, SPY_E8);
     }
 
-    function test_buy_oraclePaused() public {
+    function test_buy_refusesWhileTheOracleIsPaused() public {
         spy.setOraclePaused(true);
         vm.prank(agent);
         vm.expectRevert(abi.encodeWithSelector(PriceGuard.OraclePaused.selector, address(spy)));
         acct.buy(address(spy), 1e6, 0, SPY_E8);
     }
 
-    function test_buy_tokenPaused() public {
+    function test_buy_refusesWhileTheTokenIsPaused() public {
         spy.setTokenPaused(true);
         vm.prank(agent);
         vm.expectRevert(abi.encodeWithSelector(PriceGuard.TokenPaused.selector, address(spy)));
         acct.buy(address(spy), 1e6, 0, SPY_E8);
     }
 
-    function test_buy_blocked() public {
+    function test_buy_refusesABlockedAccount() public {
         access.setBlocked(address(acct), true);
         vm.prank(agent);
         vm.expectRevert(abi.encodeWithSelector(PriceGuard.Blocked.selector, address(acct)));
         acct.buy(address(spy), 1e6, 0, SPY_E8);
     }
 
-    function test_buy_accessPaused() public {
+    function test_buy_refusesWhileTheAccessRegistryIsPaused() public {
         access.setPaused(true);
         vm.prank(agent);
         vm.expectRevert(PriceGuard.AccessPaused.selector);
         acct.buy(address(spy), 1e6, 0, SPY_E8);
     }
 
-    /// The 2026-06-23 incident: a fresh round 1e8 too large.
-    function test_buy_misScaledFeed() public {
+    /// A fresh round 1e8 too large, caught against the pool's price.
+    function test_buy_refusesAMisScaledFeed() public {
         spyFeed.set(int256(SPY_E8 * 1e8), block.timestamp);
         uint256 mid = guard.poolPriceE8(address(spy));
         vm.prank(agent);
@@ -260,21 +256,21 @@ contract RwaTest is Test {
         acct.buy(address(spy), 1e6, 0, SPY_E8 * 1e8);
     }
 
-    function test_buy_poolOutOfBand() public {
+    function test_buy_refusesAPoolOutsideTheFeedBand() public {
         spyFeed.set(int256(SPY_E8 * 102 / 100), block.timestamp);
         vm.prank(agent);
         vm.expectPartialRevert(PriceGuard.PoolPriceDeviation.selector);
         acct.buy(address(spy), 1e6, 0, SPY_E8 * 102 / 100);
     }
 
-    function test_buy_quoteOutsideBand() public {
+    function test_buy_refusesAQuoteOutsideTheBand() public {
         uint256 quoted = SPY_E8 * 102 / 100;
         vm.prank(agent);
         vm.expectRevert(abi.encodeWithSelector(PriceGuard.PriceOutsideBand.selector, address(spy), quoted, SPY_E8));
         acct.buy(address(spy), 1e6, 0, quoted);
     }
 
-    function test_buy_fillWorseThanSlippage() public {
+    function test_buy_refusesAFillWorseThanTheSlippageLimit() public {
         v4.setHaircut(150);
         vm.prank(agent);
         vm.expectPartialRevert(V4Swapper.SwapShort.selector);
@@ -312,8 +308,6 @@ contract RwaTest is Test {
         router.setPolicy(address(acct), 0, new address[](0), new bool[](0));
     }
 
-    // ---- treasury lane ----
-
     function test_park_valuesAtRawTimesFeed() public {
         uint256 raw = _park(50e6);
         (uint256 r, uint256 basis, uint256 value,,, bool fresh) = park.position(address(acct), address(sgovAdapter));
@@ -326,7 +320,7 @@ contract RwaTest is Test {
         assertEq(park.spendingPower(address(acct)), 150e6 + Math.mulDiv(value, 9_950, 10_000));
     }
 
-    function test_park_keepsBuffer() public {
+    function test_park_refusesToDipBelowTheBuffer() public {
         vm.prank(principal);
         park.setBuffer(address(acct), 160e6);
         address vault = park.vaultOf(address(acct));
@@ -337,7 +331,7 @@ contract RwaTest is Test {
         park.park(address(acct), address(sgovAdapter), 50e6, 0);
     }
 
-    function test_park_caps() public {
+    function test_park_refusesPastTheMandateCapAndTheSharedCap() public {
         _park(100e6);
         address vault = park.vaultOf(address(acct));
         vm.prank(principal);
@@ -359,7 +353,7 @@ contract RwaTest is Test {
         park.park(address(second), address(sgovAdapter), 1e6, 0);
     }
 
-    function test_park_staleFeed() public {
+    function test_park_staleFeedStopsTradesFirstAndValueLater() public {
         uint256 raw = _park(50e6);
 
         vm.warp(block.timestamp + H26 + 1);
@@ -450,7 +444,7 @@ contract RwaTest is Test {
         assertApproxEqAbs(value, _filled(100e6, address(sgov)) - _cost(15e6, address(sgov)), 10);
     }
 
-    function test_spend_staleParkedDefers() public {
+    function test_spend_cannotDrawOnStaleParkedValue() public {
         _park(100e6);
         vm.prank(principal);
         acct.withdraw(address(usdg), principal, 95e6);
@@ -467,7 +461,7 @@ contract RwaTest is Test {
     }
 
     /// SGOV counts for 100 hours but trades only inside 26, so every Sunday its sale reverts. The
-    /// spend falls through to the USDG reserve instead of failing with it.
+    /// spend falls through to the USDG reserve.
     function test_unparkFor_fallsThroughWhenSgovTradeStale() public {
         uint256 raw = _park(50e6);
         _parkUsdg(50e6);
@@ -532,7 +526,7 @@ contract RwaTest is Test {
         assertEq(park.totalBasis(address(sgovAdapter)), 0);
     }
 
-    function test_park_onlyOperators() public {
+    function test_parkAndAdapterRefuseCallersWithoutTheRole() public {
         vm.expectRevert(TreasuryPark.NotOperator.selector);
         park.park(address(acct), address(sgovAdapter), 1e6, 0);
         vm.expectRevert(TreasuryPark.NotPrincipal.selector);
@@ -570,7 +564,7 @@ contract RwaTest is Test {
         assertEq(raw, 0);
     }
 
-    function test_returnIdle() public {
+    function test_returnIdle_movesIdleUsdgBackToTheMandate() public {
         address vault = park.vaultOf(address(acct));
         vm.prank(principal);
         acct.withdraw(address(usdg), vault, 7e6);
@@ -580,7 +574,7 @@ contract RwaTest is Test {
         assertEq(usdg.balanceOf(address(acct)), 200e6);
     }
 
-    function test_usdgAdapter_roundTrip() public {
+    function test_usdgAdapter_parksAndUnparksAtPar() public {
         address vault = park.vaultOf(address(acct));
         vm.prank(principal);
         acct.withdraw(address(usdg), vault, 30e6);
@@ -592,8 +586,6 @@ contract RwaTest is Test {
         park.unpark(address(acct), address(usdgAdapter), 30e6, 30e6);
         assertEq(usdg.balanceOf(address(acct)), 200e6);
     }
-
-    // ---- helpers ----
 
     /// What the mock pool pays for `atMid` of output at its mid: the LP fee comes off the input
     /// and the fill haircut off the output.

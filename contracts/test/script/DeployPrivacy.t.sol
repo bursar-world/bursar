@@ -85,7 +85,7 @@ contract DeployPrivacyTest is World {
     }
 
     /// A poster the record already names is the one the run uses. A shell that names another is
-    /// a mistake in one of the two, and the run stops rather than pick.
+    /// a mistake in one of the two, and the run stops without picking.
     function _aRecordedPosterOutranksTheShellOnlyWhenTheyAgree() private {
         _restore();
         address recorded = makeAddr("recordedPoster");

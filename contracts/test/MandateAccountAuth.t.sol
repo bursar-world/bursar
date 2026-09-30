@@ -13,10 +13,10 @@ import {IMandateAccount} from "../src/interfaces/IMandateAccount.sol";
 import {MockUsdg} from "./mocks/MockUsdg.sol";
 import {MockReputation} from "./mocks/MockReputation.sol";
 
-/// Rig for the authorisation surface: a live escrow behind the mandate, so an approval that
-/// clears settles for real and not against a stub, and a principal whose key the test
-/// holds. The settlement asset is the USDG stand-in, whose domain is pinned from chain, and the
-/// account's own domain has to be visibly different from it.
+/// Rig for the authorisation surface: a live escrow behind the mandate, so an approval that clears
+/// settles for real, and a principal whose key the test holds. The settlement asset is the USDG
+/// stand-in, whose domain is pinned from chain, and the account's own domain has to be visibly
+/// different from it.
 abstract contract MandateAccountAuthFixture is Test {
     bytes32 internal constant DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
@@ -186,9 +186,8 @@ contract MandateAccountAuthTest is MandateAccountAuthFixture {
         );
     }
 
-    /// The probe's lesson, asserted instead of remembered. The token publishes its own domain
-    /// and the account publishes another, so a payment signature and a mandate signature are
-    /// never interchangeable.
+    /// The token publishes its own domain and the account publishes another, so a payment
+    /// signature and a mandate signature are never interchangeable.
     function test_domainSeparatorIsNotTheSettlementAssetsDomain() public view {
         assertTrue(
             account.DOMAIN_SEPARATOR() != asset.DOMAIN_SEPARATOR(),
@@ -303,9 +302,9 @@ contract MandateAccountAuthTest is MandateAccountAuthFixture {
         assertEq(account.nonce(), 1);
     }
 
-    /// The deadline is read before the nonce, so an expired authorization reports as expired
+    /// The deadline is read before the nonce, so an expired authorisation reports as expired
     /// even when its nonce is also wrong. A relayer needs to know which one to fix.
-    function test_expiredAuthorizationReportsTheDeadlineRatherThanTheNonce() public {
+    function test_expiredAuthorizationReportsTheDeadlineBeforeTheNonce() public {
         IMandateAccount.Limits memory next = _limits(DAILY_CAP * 2);
         uint64 deadline = uint64(block.timestamp + 1 hours);
         bytes memory signature = _sign(principalKey, _setLimitsDigest(account.DOMAIN_SEPARATOR(), next, 7, deadline));
@@ -353,8 +352,7 @@ contract MandateAccountAuthTest is MandateAccountAuthFixture {
         assertEq(account.nonce(), 0);
     }
 
-    /// Signing under the settlement asset's own domain is the failure the probes warned about.
-    /// It has to revert, never pass silently.
+    /// A signature made under the settlement asset's own domain has to revert.
     function test_authorizationSignedUnderTheTokenDomainNameIsRejected() public {
         IMandateAccount.Limits memory next = _limits(DAILY_CAP * 2);
         uint64 deadline = uint64(block.timestamp + 1 hours);
@@ -392,7 +390,7 @@ contract MandateAccountAuthTest is MandateAccountAuthFixture {
             vm.sign(principalKey, _setLimitsDigest(account.DOMAIN_SEPARATOR(), next, 0, deadline));
 
         // The twin recovers to the same address on raw ecrecover, so a checker that skipped
-        // the upper-half-order test would accept a second distinct authorization for one
+        // the upper-half-order test would accept a second distinct authorisation for one
         // signed intent.
         bytes32 flipped = bytes32(SECP256K1N - uint256(s));
         bytes memory malleable = abi.encodePacked(r, flipped, v == 27 ? uint8(28) : uint8(27));
@@ -417,8 +415,8 @@ contract MandateAccountAuthTest is MandateAccountAuthFixture {
         account.setLimitsWithAuthorization(next, 0, deadline, truncated);
     }
 
-    /// A signed authorization cannot be relayed into a mandate whose principal has changed
-    /// hands, because the check reads the live principal and not the one at signing.
+    /// A signed authorisation cannot be relayed into a mandate whose principal has changed
+    /// hands, because the check reads the live principal.
     function test_authorizationFromTheFormerPrincipalIsRejectedAfterHandover() public {
         (address successor,) = makeAddrAndKey("successor");
         IMandateAccount.Limits memory next = _limits(DAILY_CAP * 2);
@@ -430,7 +428,7 @@ contract MandateAccountAuthTest is MandateAccountAuthFixture {
         vm.prank(successor);
         account.acceptPrincipal();
 
-        // The handover moves the nonce, so the held-back authorization is stale twice over:
+        // The handover moves the nonce, so the held-back authorisation is stale twice over:
         // on its nonce, and on its signer once re-signed at the live nonce.
         vm.expectRevert(IMandateAccount.BadNonce.selector);
         account.setLimitsWithAuthorization(next, 0, deadline, signature);
@@ -493,7 +491,7 @@ contract MandateAccountAuthTest is MandateAccountAuthFixture {
         held.setLimitsWithAuthorization(next, 0, deadline, marker);
         assertEq(held.nonce(), 1);
 
-        // Second authorization, approved and then withdrawn before the relayer lands it.
+        // Second authorisation, approved and then withdrawn before the relayer lands it.
         // Contract signatures are revocable, and the account has to honour the withdrawal.
         bytes32 second = _setLimitsDigest(domain, next, 1, deadline);
         safe.approveHash(second);
@@ -530,7 +528,7 @@ contract MandateAccountAuthTest is MandateAccountAuthFixture {
         held.setLimitsWithAuthorization(next, 0, deadline, hex"01");
     }
 
-    function test_signerThatRevertsOnValidationIsRejectedRatherThanBubbled() public {
+    function test_signerThatRevertsOnValidationIsRejectedWithBadSignature() public {
         MandateAccount held = _newAccount(address(new AuthHostileSigner()));
 
         IMandateAccount.Limits memory next = _limits(DAILY_CAP * 2);
@@ -858,9 +856,9 @@ contract MandateAccountAuthTest is MandateAccountAuthFixture {
         account.spendApproved(_request(merchant, 500e6), noProof, approval, signature);
     }
 
-    /// A signature carries no principal period, so a burn that reset with the principal let a
-    /// principal who handed the account away and took it back spend everything it had already
-    /// signed, a second time. Spent and revoked ids now stay burned for the account's life.
+    /// A signature carries no principal period, so a burn that reset with the principal would let
+    /// a principal who handed the account away and took it back spend everything it had already
+    /// signed a second time. Spent and revoked ids stay burned for the account's life.
     function test_aSpentOrRevokedSignatureStaysBurnedAcrossAHandoverAndBack() public {
         (address successor,) = makeAddrAndKey("successor");
         IMandateAccount.SpendApproval memory spent =
@@ -898,8 +896,8 @@ contract MandateAccountAuthTest is MandateAccountAuthFixture {
         account.spendApproved(_request(merchant, 500e6), noProof, revoked, revokedSignature);
     }
 
-    /// A handover to itself only moved the epoch, which revoked nothing the principal had signed
-    /// and read as though it had.
+    /// A handover to itself would only move the epoch, which revokes nothing the principal has
+    /// signed and reads as though it had.
     function test_aPrincipalCannotHandTheAccountToItself() public {
         vm.prank(principal);
         vm.expectRevert(IMandateAccount.AlreadyPrincipal.selector);
@@ -1084,9 +1082,9 @@ contract AuthActor is Test {
     address private merchant;
     bytes32 private capabilityId;
 
-    /// Fixed at construction, never read off the clock, so an approval registered in one call
-    /// and consumed in another hashes to the same digest. A moving expiry would make every
-    /// consume miss and the run would never reach the burn path.
+    /// Fixed at construction, so an approval registered in one call and consumed in another hashes
+    /// to the same digest. A moving expiry would make every consume miss and the run would never
+    /// reach the burn path.
     uint64 private expiry;
 
     uint256 public limitWrites;
@@ -1217,8 +1215,8 @@ contract AuthActor is Test {
         });
     }
 
-    /// A small pool, not the raw fuzz word. A registration and a consume then land on the same
-    /// id often enough for the burn path to be reached at all.
+    /// A small pool of ids, so a registration and a consume land on the same id often enough for
+    /// the burn path to be reached at all.
     function _id(uint256 seed) private pure returns (bytes32) {
         return keccak256(abi.encode(seed % 8));
     }

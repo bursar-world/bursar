@@ -80,7 +80,7 @@ contract ProposeWiringTest is World {
         _propose(signers[0]);
         assertEq(timelock.proposalCount(), before + BATCH);
 
-        // A call that cannot run yet is explained, not printed as the selector `canExecute` returns.
+        // A call that cannot run yet is explained in words.
         ProposeWiringProbe probe = new ProposeWiringProbe();
         (bool due, bytes4 reason) = timelock.canExecute(before);
         assertFalse(due);

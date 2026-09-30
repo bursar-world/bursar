@@ -236,8 +236,8 @@ contract MandateCreditTest is Test {
         assertEq(account.creditable(id), LOCK - refunded);
     }
 
-    /// A dispute nobody heard reopens the lock rather than refunding it, so the allowance stays
-    /// with the lock until the lock itself exits.
+    /// A dispute nobody heard reopens the lock, so the allowance stays with the lock until the
+    /// lock itself exits.
     function test_anUnheardDisputeLeavesTheAllowanceWithTheReopenedLock() public {
         uint256 id = _spend();
 

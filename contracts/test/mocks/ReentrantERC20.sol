@@ -3,10 +3,9 @@ pragma solidity ^0.8.24;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-/// Calls back into a target in the middle of a transfer, the way a hook-bearing token would.
-/// The callback result is recorded, not bubbled: a guard that reverts the reentrant
-/// call must not also revert the outer transfer, or the test cannot tell a working guard
-/// from a token that failed.
+/// Calls back into a target in the middle of a transfer, the way a hook-bearing token would. The
+/// callback result is recorded: a guard that reverts the reentrant call must not also revert the
+/// outer transfer, or the test cannot tell a working guard from a token that failed.
 contract ReentrantERC20 is ERC20 {
     bool public callbackSucceeded;
     bytes4 public callbackError;

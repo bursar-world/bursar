@@ -49,7 +49,7 @@ contract StubEscrow {
     }
 
     /// The dishonest one. Nothing arrives and the figure is large enough to drain the roster's
-    /// bonds if the registry credited what it was told instead of what it holds.
+    /// bonds if the registry credited what it was told.
     function postRewardWithoutPaying(uint256 disputeId, uint256 amount) external {
         REGISTRY.notifyReward(disputeId, amount);
     }
@@ -73,8 +73,8 @@ contract StubEscrow {
 }
 
 /// Opens disputes as a payer contract whose `principal()` answers with whoever sent the
-/// transaction. Read on every vote, that named every resolver voting from its own key as the
-/// payer's principal and barred it.
+/// transaction. Read on every vote, that would name every resolver voting from its own key as the
+/// payer's principal and bar it.
 contract OriginPayer {
     function lock(Escrow escrow, MockUsdg asset, address payee, uint128 amount, uint64 deadline)
         external
@@ -401,7 +401,7 @@ contract OracleRegistryTest is Test {
     }
 
     /// The floor is governance's answer to a bond whose token has fallen, and it binds the
-    /// moment it changes, not on the next registration.
+    /// moment it changes.
     function test_register_followsTheFloorWhenGovernanceRaisesIt() public {
         address who = makeAddr("latecomer");
         bond.mint(who, BOND);
@@ -480,8 +480,8 @@ contract OracleRegistryTest is Test {
         assertEq(usdg.balanceOf(address(registry)), registry.rewardFloat());
     }
 
-    /// Until the token set is deployed there is no pool to price a bond, and the registry says
-    /// so instead of accepting one in the wrong currency.
+    /// Until the token set is deployed there is no pool to price a bond, and the registry refuses
+    /// a bond in the wrong currency.
     function test_bondingIsClosedUntilTheStakingPoolIsNamed() public {
         OracleRegistry fresh = new OracleRegistry(address(usdg), admin, sink, _defaultConfig());
         address who = makeAddr("early");
@@ -1250,14 +1250,14 @@ contract OracleRegistryTest is Test {
         assertEq(stub.lastRefundBps(), 10_000);
 
         // Nobody is slashed: the contract cannot tell which half was honest, so it charges
-        // neither and makes the payer whole instead.
+        // neither and makes the payer whole.
         assertEq(registry.totalBonded(), BOND * 6);
         assertEq(bond.balanceOf(sink), 0);
         assertEq(registry.getResolver(r1).slashes, 0);
         assertEq(registry.getResolver(r3).slashes, 0);
     }
 
-    function test_finalize_treatsAnExactlyEvenSplitAsAResultRatherThanNoise() public {
+    function test_finalize_treatsAnExactlyEvenSplitAsAResult() public {
         uint256 disputeId = _openDispute();
         _commitAll4(disputeId, 40, 50, 60, 70);
 
@@ -1421,7 +1421,7 @@ contract OracleRegistryTest is Test {
         assertEq(registry.totalBonded(), BOND * 6);
         assertEq(bond.balanceOf(sink), 0);
 
-        // The bonds still have to come free, or the fix would trade a bad slash for a lock-up.
+        // The bonds still have to come free, or skipping the slash would lock them up.
         assertEq(registry.openVotes(r1), 0);
         assertEq(registry.openVotes(r2), 0);
 
@@ -1626,7 +1626,7 @@ contract OracleRegistryTest is Test {
         assertEq(registry.rewardsOf(r1), 0);
     }
 
-    function test_notifyReward_sendsSplitDustToTheSinkRatherThanLeavingItStuck() public {
+    function test_notifyReward_sendsSplitDustToTheSink() public {
         uint256 disputeId = _finalizedDispute(40, 42, 45);
 
         stub.postReward(disputeId, 10);
@@ -1819,8 +1819,8 @@ contract OracleRegistryTest is Test {
         registry.slash(makeAddr("stranger"), 1e18);
     }
 
-    /// A slash takes the bond, not the seat. Before eviction existed a resolver slashed to
-    /// nothing held one of the sixty-four seats for good.
+    /// A slash takes the bond and leaves the seat, so a resolver slashed to nothing holds one of
+    /// the sixty-four seats until the admin evicts it.
     function test_slash_toNothingKeepsTheSeatUntilTheAdminEvicts() public {
         uint256 seated = registry.resolverCount();
 
@@ -2355,8 +2355,8 @@ contract OracleRegistryEscrowIntegrationTest is Test {
     }
 
     /// A payer contract that answers `principal()` with `tx.origin` names whoever sends each
-    /// transaction. Read on every vote, that barred every resolver voting from its own key and
-    /// left the payer's own seats to rule alone. Read once at the open, it names the key that
+    /// transaction. Read on every vote, that would bar every resolver voting from its own key and
+    /// leave the payer's own seats to rule alone. Read once at the open, it names the key that
     /// opened the dispute and nobody else.
     function test_integration_aPayerCannotBarTheResolversByNamingEachVoterItsPrincipal() public {
         OriginPayer origin = new OriginPayer();
@@ -2394,9 +2394,9 @@ contract OracleRegistryEscrowIntegrationTest is Test {
         assertGt(registry.rewardsOf(r1), 0);
     }
 
-    /// Five seats used to go to whoever committed first, so three seats bought by the payer and
-    /// filled in the block the dispute opened left room for two honest votes and outvoted them.
-    /// Every seated resolver votes now, and the honest ones are not shut out, slashed or benched.
+    /// Three seats bought by the payer, filled in the block the dispute opens, cannot crowd out
+    /// the honest resolvers. Every seated resolver votes, and none of the honest ones is shut
+    /// out, slashed or benched.
     function test_integration_seatsBoughtByAPartyCannotCrowdTheResolversOut() public {
         uint256 disputeId = _dispute(payer, _lock());
 
@@ -2635,9 +2635,7 @@ contract RegistryHandler is Test {
     }
 
     /// One prank per call, never a started one. A call that reverts under `startPrank` leaves
-    /// the prank standing, and every later step in the run then fails on the cheatcode rather
-    /// than on the contract, which is how an earlier version of this suite never reached a
-    /// single ruling.
+    /// the prank standing, and every later step in the run then fails on the cheatcode.
     function register(uint256 actorSeed, uint128 amount) external {
         address who = _actor(actorSeed);
         amount = uint128(bound(amount, 1, 50_000e18));
@@ -2738,9 +2736,8 @@ contract RegistryHandler is Test {
         vm.warp(block.timestamp + bound(seconds_, 1 minutes, 12 hours));
     }
 
-    /// Jumps to the instant a committed dispute's commit window closes. Warping at random
-    /// almost never lands inside a reveal window, and a campaign that cannot reveal never
-    /// reaches finalisation, the reward split or the slash either.
+    /// Jumps to the instant a committed dispute's commit window closes, since a random warp
+    /// almost never lands inside a reveal window.
     function openRevealWindow(uint256 seed) external {
         IOracleRegistry.Dispute memory dispute = REGISTRY.getDispute(_commitment(seed).disputeId);
         if (dispute.commitEndsAt == 0 || block.timestamp >= dispute.commitEndsAt) return;
@@ -2749,12 +2746,11 @@ contract RegistryHandler is Test {
     }
 
     /// One dispute the whole way: opened, committed by every actor, revealed, finalised, paid
-    /// and claimed. A random walk lines those six steps up so rarely that a campaign of any
-    /// practical length used to finish without a single ruling, and the reward split, the
+    /// and claimed. A random walk lines those six steps up rarely, and the reward split, the
     /// slash and the bond release all sit at the end of them.
     ///
     /// Whatever the run did to the actors first, they are seated again with a bond the floor
-    /// accepts. This step is about whether a vote can still be heard, not about who left.
+    /// accepts. This step is about whether a vote can still be heard.
     function drive(uint256 scoreSeed) external {
         uint8 score = uint8(bound(scoreSeed, 0, 100));
         uint256 disputeId = REGISTRY.openDispute(_nextEscrowId++, address(0xA11CE), address(0xB0B));
@@ -2906,9 +2902,8 @@ contract OracleRegistrySolvencyInvariants is Test {
         assertLe(registry.unallocatedRewards(), registry.rewardFloat());
     }
 
-    /// Every open vote is a commitment on a dispute that has not closed, and every such
-    /// commitment is an open vote. A count that drifts either way either pins a bond for good
-    /// or releases one a live vote still needs.
+    /// Open votes and commitments on open disputes are the same set. A count that drifts either
+    /// way pins a bond for good or releases one a live vote still needs.
     function invariant_openVotesEqualTheCommitmentsOnOpenDisputes() public view {
         uint256[] memory ids = handler.disputeIds();
         uint256 committed;
@@ -2927,9 +2922,8 @@ contract OracleRegistrySolvencyInvariants is Test {
         assertEq(held, committed);
     }
 
-    /// A run that never reached a ruling proved nothing about the money paths. When the random
-    /// walk did not get there, one more dispute is driven from wherever the run left the
-    /// registry, which also proves a vote can still be heard from that state.
+    /// A campaign that never reached a ruling drives one more dispute from wherever it left the
+    /// registry, which also shows a vote can still be heard from there.
     function afterInvariant() public {
         if (handler.finalized() == 0) handler.drive(40);
         assertGt(handler.finalized(), 0, "no dispute reached a ruling in this run");

@@ -16,9 +16,8 @@ import {MockUsdg} from "../mocks/MockUsdg.sol";
 import {ReentrantERC20} from "../mocks/ReentrantERC20.sol";
 import {ShrinkingERC20} from "../mocks/ShrinkingERC20.sol";
 
-/// First loss, taken in the order the design says it is taken: pro rata across everyone in the
-/// pool at that instant, exits included, and down to nothing when the shortfall is larger than
-/// the pool.
+/// First loss: pro rata across everyone in the pool at that instant, exits included, and down to
+/// nothing when the shortfall is larger than the pool.
 contract StakingLossTest is Test {
     event Slashed(uint256 requested, uint256 taken, uint256 remaining);
     event PoolWiped(uint32 indexed epoch, uint256 shares);
@@ -53,7 +52,7 @@ contract StakingLossTest is Test {
         vm.startPrank(admin);
         staking.setCreditManager(credit);
         staking.setSlasher(slasher);
-        // How a loss lands, not how fast one may: the cap is lifted here and tested on its own.
+        // The cap on how fast a loss may land is lifted here and tested on its own.
         staking.setSlashLimit(10_000, 1 days);
         vm.stopPrank();
 
@@ -195,9 +194,9 @@ contract StakingLossTest is Test {
         assertApproxEqAbs(returned, staking.stakedValueOf(bob), 1e6);
     }
 
-    /// The exit is priced when it completes, not when it was requested, which is what closes
-    /// the gap between hearing about a default and the pool measuring it.
-    function test_anExitIsPricedOnCompletionRatherThanOnRequest() public {
+    /// The exit is priced when it completes, which closes the gap between hearing about a
+    /// default and the pool measuring it.
+    function test_anExitIsPricedOnCompletion() public {
         _stake(alice, 1_000e18);
         _stake(bob, 1_000e18);
 
@@ -321,7 +320,7 @@ contract StakingLossTest is Test {
 
     /// The brake holds first-loss capital in place while a shortfall is measured. Spread
     /// already earned is not first-loss capital, so claiming stays open.
-    function test_theBrakeHoldsCapitalAndNotTheSpread() public {
+    function test_theBrakeHoldsCapitalAndLeavesSpreadClaimable() public {
         _stake(alice, 1_000e18);
         _distribute(4_000_000);
 
@@ -441,9 +440,9 @@ contract StakingLossTest is Test {
         staking.stake(0);
     }
 
-    /// The pool books what arrived, not what was asked for. A token that takes a cut on
-    /// transfer cannot leave the books ahead of the balance.
-    function test_thePoolBooksWhatArrivedNotWhatWasNamed() public {
+    /// The pool books what arrived, so a token that takes a cut on transfer cannot leave the
+    /// books ahead of the balance.
+    function test_thePoolBooksWhatArrived() public {
         FeeOnTransferERC20 lossy = new FeeOnTransferERC20();
         Staking odd = new Staking(lossy, usdg, admin, slashSink, treasury, UNBONDING, MIN_BOND);
 
@@ -658,7 +657,7 @@ contract StakingRebateTest is Test {
     }
 
     /// One wei short of a tier is the tier below. The pool prices shares with a virtual offset,
-    /// so the boundary is read against what the shares are worth, not what was deposited.
+    /// so the boundary is read against what the shares are worth.
     function _stakeToExactly(uint256 target) internal {
         vm.prank(alice);
         staking.stake(target);
@@ -805,7 +804,7 @@ contract StakingRebateTest is Test {
 
     /// The live pool's first figures: 25,000 BRSR staked, then the first buyback's compound. A
     /// stake of exactly the tier's amount after that is worth a shade under it once the pool
-    /// keeps the fraction of a share the deposit paid for, and it read as the tier below.
+    /// keeps the fraction of a share the deposit paid for, and it still reads as its tier.
     function test_anExactTierStakeReadsItsTierAfterACompound() public {
         IStaking.Tier[] memory one = new IStaking.Tier[](1);
         one[0] = IStaking.Tier({minStake: 25_000e18, rebateBps: 500});
@@ -966,9 +965,8 @@ contract StakingAdminTest is Test {
         assertEq(usdg.balanceOf(newTreasury), 500_000);
     }
 
-    /// The floor arrives with the pool, not with a later proposal, because the dispute
-    /// layer reads it: a pool deployed at zero would bar every resolver from bonding at all
-    /// until a forty-eight hour proposal landed.
+    /// The floor arrives with the pool because the dispute layer reads it: a pool deployed at zero
+    /// would bar every resolver from bonding at all until a forty-eight hour proposal landed.
     function test_theBondFloorIsSetAtConstructionAndZeroIsRefusedThere() public {
         assertEq(staking.minBond(), MIN_BOND);
         assertEq(staking.minBondOf(alice), MIN_BOND);
@@ -1141,7 +1139,7 @@ contract StakingAdminTest is Test {
     }
 
     /// A claim capped by what has been divided leaves the remainder owed, and the next
-    /// distribution settles it instead of writing it off.
+    /// distribution settles it.
     function test_aCappedClaimStaysOwedAndIsSettledNext() public {
         vm.prank(alice);
         staking.stake(1_000e18);

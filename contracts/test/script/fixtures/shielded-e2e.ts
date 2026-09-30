@@ -12,7 +12,7 @@
  *
  * The deposits carry the deployment's 10 bps vetting fee, so 2.002002 and 1.001001 USDG in leave
  * notes of exactly 2 and 1 USDG. The note keys come from a fixed stand-in for a wallet signature:
- * the proofs need secrets that do not change between runs, not a wallet.
+ * the proofs only need secrets that stay the same between runs.
  */
 import { writeFileSync } from 'node:fs';
 

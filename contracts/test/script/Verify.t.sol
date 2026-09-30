@@ -104,7 +104,7 @@ contract VerifyTest is World {
     }
 
     /// Straight after the deploy scripts, the chain matches the record, and what the wiring
-    /// batch and the lender still have to do is owed, not wrong.
+    /// batch and the lender still have to do is reported as owed.
     function _aNewDeploymentPassesAndListsWhatGovernanceOwes() private {
         _restore();
         _strict(false);
@@ -116,8 +116,7 @@ contract VerifyTest is World {
         assertEq(o.owed, 9);
 
         // Strict is how the last check after the migration runs: anything owed fails it, and the
-        // wiring is held to done, where each of the seven values the batch sets is wrong while
-        // unset.
+        // wiring check counts each of the seven values the batch sets as a mismatch while unset.
         _strict(true);
         o = _verify();
         assertFalse(o.passed);

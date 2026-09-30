@@ -18,11 +18,10 @@ import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/Signa
 /// USDG once the chain id matches, which is what makes these tests worth running without a
 /// network.
 ///
-/// USDG is a diamond proxy, so a selector no facet declares does not return a default, it
-/// reverts `FacetNotFound` (0x800ab12c). `version` is the one that catches callers out, because
-/// most dollar tokens answer it and a signer that reads its domain version off chain gets a
-/// revert with nothing in it to explain why. `isBlacklisted` and `eip712Domain` behave the same
-/// way and are absent here for the same reason.
+/// USDG is a diamond proxy, so a selector no facet declares reverts `FacetNotFound` (0x800ab12c).
+/// `version` is the one that catches callers out, because most dollar tokens answer it and a signer
+/// that reads its domain version off chain gets a revert with nothing in it to explain why.
+/// `isBlacklisted` and `eip712Domain` behave the same way and are absent here for the same reason.
 contract MockUsdg is ERC20, IERC20Permit, EIP712 {
     error InvalidSignature();
     error AuthorizationNotYetValid();
@@ -36,7 +35,7 @@ contract MockUsdg is ERC20, IERC20Permit, EIP712 {
     error FacetNotFound();
 
     /// The token's own refusals. Names follow the control that produced them, so a test asserting
-    /// on one is asserting on the reason and not on a generic transfer failure.
+    /// on one asserts on the reason.
     error TokenPaused();
     error AccountFrozen(address account);
 
@@ -76,8 +75,8 @@ contract MockUsdg is ERC20, IERC20Permit, EIP712 {
     }
 
     /// Reverts, the way the live diamond does. Kept declared so a caller that reaches for it
-    /// fails here rather than against the network, and so the generated ABI can be checked
-    /// against a source that has the selector and refuses it.
+    /// fails in tests too, and so the generated ABI can be checked against a source that has the
+    /// selector and refuses it.
     function version() external pure returns (string memory) {
         revert FacetNotFound();
     }
@@ -108,8 +107,8 @@ contract MockUsdg is ERC20, IERC20Permit, EIP712 {
     }
 
     /// `signature` is 65 bytes from an EOA or an ERC-1271 blob from a contract wallet. Anyone may
-    /// submit it. Authority comes from the signature, not from the sender, which is what makes
-    /// the transfer gasless.
+    /// submit it. Authority comes from the signature, which is what makes the transfer gasless
+    /// for the signer.
     function transferWithAuthorization(
         address from,
         address to,
@@ -186,7 +185,7 @@ contract MockUsdg is ERC20, IERC20Permit, EIP712 {
         receiveWithAuthorization(from, to, value, validAfter, validBefore, nonce, abi.encodePacked(r, s, v));
     }
 
-    /// Burns a nonce the authorizer no longer wants settled. The only way back out of a signature
+    /// Burns a nonce the signer no longer wants settled. The only way back out of a signature
     /// that has been handed to a facilitator and not yet submitted.
     function cancelAuthorization(address authorizer, bytes32 nonce, bytes memory signature) public {
         _requireUnusedAuthorization(authorizer, nonce);

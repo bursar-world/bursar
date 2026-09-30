@@ -153,8 +153,6 @@ contract CollateralTest is Test {
         vm.stopPrank();
     }
 
-    // ---- health math ----
-
     function test_health_isHaircutValueOverDebt() public {
         _deposit(spy, 0.01e18); // 7.7121 USDG
         _deposit(sgov, 0.05e18); // 5.0589 USDG
@@ -171,7 +169,7 @@ contract CollateralTest is Test {
         assertEq(usdg.balanceOf(address(escrow)), 5e6);
     }
 
-    function test_health_maxWithNoDebt_andHeadroom() public {
+    function test_health_isMaxWithNoDebtAndHeadroomTakesTheAfterHoursHaircut() public {
         _deposit(spy, 0.01e18);
         (uint256 value,, uint256 debt, uint256 headroom, uint256 h) = vault.account(address(acct));
         assertEq(debt, 0);
@@ -180,15 +178,13 @@ contract CollateralTest is Test {
         assertEq(headroom, Math.mulDiv(value * 6_500 / 10_000, WAD, 1.25e18));
     }
 
-    function test_value_usesFeedNotMultiplier() public {
+    function test_value_isTheRawAmountTimesTheFeed() public {
         _deposit(sgov, 1e18);
         (uint256 value,,,,) = vault.account(address(acct));
         assertEq(value, Math.mulDiv(1e18, SGOV_E8, 1e20));
     }
 
-    // ---- haircuts ----
-
-    function test_haircut_afterHoursOnWeekend() public {
+    function test_haircut_widensToTheAfterHoursTierAtTheWeekend() public {
         _deposit(spy, 0.01e18);
         _spendOnCredit(4e6);
         uint256 before = vault.health(address(acct));
@@ -245,7 +241,7 @@ contract CollateralTest is Test {
         assertEq(bps, 3_500);
     }
 
-    function test_haircut_registryFloorTightens() public {
+    function test_haircut_followsATighterRegistryFloor() public {
         AssetRegistry.Asset memory c = reg.get(address(spy));
         c.collateralHaircutBps = 4_000;
         vm.prank(admin);
@@ -254,7 +250,7 @@ contract CollateralTest is Test {
         assertEq(bps, 4_000);
     }
 
-    function test_tiers_published() public view {
+    function test_tiers_listsThreeTiersAndPlacesEveryAsset() public view {
         CollateralVault.Tier[] memory t = vault.tiers();
         assertEq(t.length, 3);
         assertEq(t[0].sessionHaircutBps, 500);
@@ -265,7 +261,7 @@ contract CollateralTest is Test {
     }
 
     /// Tiers count from one everywhere, so the tier `tierOf` names is the one `setTier` edits.
-    function test_setTier_editsTheTierTierOfNames() public {
+    function test_setTier_editsTheTierThatTierOfReports() public {
         uint8 tier = vault.tierOf(address(spy));
         vm.prank(admin);
         vault.setTier(tier, CollateralVault.Tier(2_500, 4_000, 26 hours, 100 hours, "Index fund"));
@@ -298,9 +294,7 @@ contract CollateralTest is Test {
         assertEq(bps, 1_000);
     }
 
-    // ---- stale and paused ----
-
-    function test_stalePriceCountsZero_andDefersDraw() public {
+    function test_aStalePriceCountsZeroAndDefersTheDraw() public {
         _deposit(spy, 0.01e18);
         spyFeed.set(int256(SPY_E8), block.timestamp - 101 hours);
         (uint256 value,,,,) = vault.account(address(acct));
@@ -336,8 +330,8 @@ contract CollateralTest is Test {
         assertEq(pool.debtOf(address(acct)), 4e6);
     }
 
-    /// The 2026-06-23 rounds were 1e8 too large and fresh by every timestamp test. With the pool
-    /// at its real mid the position backs nothing: no draw, no withdrawal, no inflated value.
+    /// A feed round 1e8 too large passes every timestamp test. Against the pool at its real mid,
+    /// the position then backs no draw and no withdrawal.
     function test_draw_refusedOnMisScaledFeed() public {
         _deposit(spy, 1e14); // 0.0001 SPY, about 0.077 USDG
         spyFeed.set(int256(SPY_E8 * 1e8), block.timestamp);
@@ -384,8 +378,6 @@ contract CollateralTest is Test {
         vault.liquidate(address(acct), address(spy));
     }
 
-    // ---- borrowing ----
-
     function test_prefundCannotBorrow() public {
         vm.prank(principal);
         vm.expectRevert(abi.encodeWithSelector(CollateralVault.NotCollateralLane.selector, address(prefund), 0));
@@ -419,14 +411,14 @@ contract CollateralTest is Test {
         _spendOnCredit(4e6);
     }
 
-    function test_caps_perMandate() public {
+    function test_caps_refuseADrawPastTheMandateCap() public {
         _deposit(spy, 0.1e18);
         vm.expectRevert(abi.encodeWithSelector(CreditPool.MandateCapExceeded.selector, 11e6, 10e6));
         _spendOnCredit(11e6);
         _spendOnCredit(10e6);
     }
 
-    function test_caps_total() public {
+    function test_caps_refuseADrawPastTheTotalCap() public {
         vm.prank(admin);
         pool.setCaps(12e6, 10e6);
         _deposit(spy, 0.1e18);
@@ -457,9 +449,7 @@ contract CollateralTest is Test {
         pool.bindVault(address(this));
     }
 
-    // ---- repayment and spread ----
-
-    function test_repayReducesDebt_andSpreadReachesStakers() public {
+    function test_repayReducesDebtAndSpreadReachesStakers() public {
         _deposit(spy, 0.01e18);
         _spendOnCredit(4e6);
         vm.warp(block.timestamp + 30 days);
@@ -512,8 +502,6 @@ contract CollateralTest is Test {
         vm.expectRevert(CollateralVault.NotPrincipal.selector);
         vault.withdraw(address(acct), address(spy), 0.001e18, agent);
     }
-
-    // ---- liquidation ----
 
     function test_liquidate_sellsOnlyTheSlice() public {
         _deposit(spy, 0.01e18);
@@ -592,8 +580,8 @@ contract CollateralTest is Test {
         assertGt(pool.badDebt(), 0);
     }
 
-    /// One wei of another asset, posted by anyone, used to hold the write-off open for good while
-    /// the stranded debt kept costing the pool. Dust counts as nothing left to sell.
+    /// One wei of another asset, posted by anyone, cannot hold the write-off open while the
+    /// stranded debt keeps costing the pool: dust counts as nothing left to sell.
     function test_dustDeposit_cannotBlockWriteOff() public {
         _deposit(spy, 0.01e18);
         _spendOnCredit(4e6);
@@ -675,7 +663,7 @@ contract CollateralTest is Test {
 
     /// Governance can take an asset out of its tier with positions still open. It then backs
     /// nothing, and a line it leaves under water can still sell it to pay the debt down.
-    function test_untieredAsset_liquidatable() public {
+    function test_untieredAsset_canStillBeSoldToPayTheDebtDown() public {
         _deposit(spy, 0.005e18);
         _deposit(aapl, 0.02e18);
         _spendOnCredit(4.4e6);
@@ -718,7 +706,7 @@ contract CollateralTest is Test {
         assertEq(pool.badDebt(), 4.4e6);
     }
 
-    function test_adminOnly() public {
+    function test_tierAndCapSettersRefuseNonAdmins() public {
         vm.expectRevert(CollateralVault.NotAdmin.selector);
         vault.setAssetTier(address(spy), 0);
         vm.expectRevert(CreditPool.NotAdmin.selector);
@@ -734,8 +722,6 @@ contract CollateralTest is Test {
         vm.expectRevert(abi.encodeWithSelector(CollateralVault.NoLine.selector, address(prefund)));
         vault.deposit(address(prefund), address(spy), 1);
     }
-
-    // ---- first loss ----
 
     /// The ceiling a write-off converts at has to belong to the Staking it slashes.
     function test_pool_refusesAnotherStakingsBuyback() public {
@@ -867,8 +853,6 @@ contract CollateralTest is Test {
         assertEq(pool.badDebt(), 8e6);
         assertEq(pool.cash(), 22e6);
     }
-
-    // ---- helpers ----
 
     function _deposit(MockStock token, uint256 raw) internal {
         vm.prank(principal);
