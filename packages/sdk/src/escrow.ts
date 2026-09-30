@@ -267,7 +267,11 @@ export class EscrowClient {
         case 'TooLate':
           return new CallRefusedError(
             revert.errorName,
-            'The deadline has passed. The payer can reclaim the funds with timeout().',
+            action === 'dispute'
+              ? 'Too late to contest this lock. A held payment can be contested until its deadline, after ' +
+                  'which the payer reclaims it with timeout(); a released one only inside the dispute window ' +
+                  `(${formatDuration(this.terms.disputeWindow)}) after the release.`
+              : 'The deadline has passed. The payer can reclaim the funds with timeout().',
           );
 
         case 'TooEarly':

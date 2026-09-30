@@ -704,6 +704,12 @@ describe('principal calls', () => {
     ).rejects.toThrow('passed its deadline before it reached the chain');
   });
 
+  it('says a payment past its deadline is refunded, not contested', async () => {
+    const { mandate } = await client({ simulate: reverting(toFunctionSelector('TooLate()')) });
+
+    await expect(mandate.disputeSpend(42n)).rejects.toThrow(/the escrow refunds the mandate through timeout/);
+  });
+
   it('refuses to hand the mandate to the principal it already has', async () => {
     const { mandate } = await client({ simulate: reverting(toFunctionSelector('AlreadyPrincipal()')) });
 

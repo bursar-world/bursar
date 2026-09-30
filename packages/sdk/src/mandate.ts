@@ -1229,6 +1229,8 @@ export class MandateAccountClient {
    * own balance, because it is the payer of record on every lock it opened.
    */
   async disputeSpend(escrowId: bigint): Promise<Sent> {
+    const admin = this.#explainAdmin('disputeSpend');
+
     return this.#send(
       'disputeSpend',
       encodeFunctionData({
@@ -1236,6 +1238,17 @@ export class MandateAccountClient {
         functionName: 'disputeSpend',
         args: [checkEscrowId('escrowId', escrowId)],
       }),
+      async (revert, error) =>
+        revert?.errorName === 'TooLate'
+          ? new CallRefusedError(
+              revert.errorName,
+              'Too late to contest this payment. While the escrow holds it, it can be contested until the ' +
+                "provider's deadline; after that the escrow refunds the mandate through timeout, which " +
+                'anyone can send. Once the provider has been paid, it can be contested only inside the ' +
+                'dispute window after the release.',
+              { mandate: this.address, escrowId: escrowId.toString() },
+            )
+          : admin(revert, error),
     );
   }
 

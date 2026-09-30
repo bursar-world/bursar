@@ -255,6 +255,16 @@ describe('escrow', () => {
     );
   });
 
+  it('says when a lock stops taking disputes, held or released', async () => {
+    const jobs = await escrow(
+      fakeConnection({ read: answers(), simulate: reverting(toFunctionSelector('TooLate()')) }).connection,
+    );
+
+    await expect(jobs.dispute(7n)).rejects.toThrow(
+      /contested until its deadline, after which the payer reclaims it with timeout\(\); a released one only inside the dispute window \(1h\)/,
+    );
+  });
+
   it('quotes the dispute window when a finalize lands too early', async () => {
     const jobs = await escrow(
       fakeConnection({ read: answers(), simulate: reverting(toFunctionSelector('TooEarly()')) })
