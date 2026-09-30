@@ -8,9 +8,10 @@ import { useSignMessage } from 'wagmi';
 import { committedMandateFactoryAbi } from '@bursar/core';
 import type { TermsDocument } from '@bursar/sdk';
 
+import { rhcClient } from '@/chain/client';
 import { randomSalt } from '@/chain/mandates';
-import { EMPTY_PRIVATE_FORM, PERIODS, TERMS_FILE_TYPE, privateContracts, readPrivateForm, termsFileName } from '@/chain/private';
-import type { PrivateForm } from '@/chain/private';
+import { EMPTY_PRIVATE_FORM, PERIODS, PRIVATE_CLASSES, downloadTerms, privateContracts, readPrivateForm } from '@/chain/private';
+import type { PrivateCapability, PrivateForm } from '@/chain/private';
 import { shortAddress } from '@/chain/rhc';
 import { Address as AddressView, TxHash } from '@/components/address';
 import { AddressInput, readAddress } from '@/components/address-input';
@@ -22,6 +23,7 @@ import { useWriteContract } from '@/wallet/write';
 import { useWorkspace } from '@/workspace/context';
 import { newDraft, upsert } from '@/workspace/model';
 import { ChipList } from '../chip-list';
+import { SpendClassFields } from '../spend-class-fields';
 import { StealthCreate, StealthToggle } from './stealth-create';
 
 export const PRIVATE_LIMIT_LINE =
@@ -33,9 +35,9 @@ type Created = { readonly address: Address; readonly hash: Hex; readonly terms: 
  * Creating a private mandate.
  *
  * The owner writes the terms here. At submit the wallet signs one fixed message, the viewing key is
- * derived from that signature in this page, and the terms are sealed to it before anything leaves
- * the browser. The factory receives a commitment, a starting counter and the sealed copy, and no
- * cap, class or provider in the clear.
+ * derived from that signature in this page, and the terms are sealed to it, for the address the
+ * factory will give the account, before anything leaves the browser. The factory receives a
+ * commitment, a starting counter and the sealed copy, and no cap, capability or provider in the clear.
  */
 export function PrivateCreate({ owner }: { readonly owner: Address }) {
   const contracts = privateContracts();
@@ -80,17 +82,21 @@ export function PrivateCreate({ owner }: { readonly owner: Address }) {
   const send = async (): Promise<Hex> => {
     if (!reading.terms || !agent) throw new Error('Fill in the agent and the terms first.');
     // The commitment code carries the Poseidon constants, so it loads only when a private mandate is sent.
-    const { commit, createArgs, deriveViewingKey, sealTerms, viewingKeyMessage, writeTerms } = await import('@bursar/sdk');
+    const { commit, createArgs, deriveViewingKey, predictAccount, sealTerms, viewingKeyMessage, writeTerms } = await import('@bursar/sdk');
     const signature = await signMessageAsync({ message: viewingKeyMessage(owner) });
     const key = deriveViewingKey(signature);
     const terms = writeTerms({ ...reading.terms, ...(name.trim() ? { label: name.trim() } : {}) });
-    const sealedTerms = await sealTerms(key.termsKey, owner, terms);
+    const salt = randomSalt();
+    const commitment = commit(terms);
+    const factory = contracts.CommittedMandateFactory;
+    const account = await predictAccount(rhcClient(), factory, { principal: owner, agent, salt, commitment });
+    const sealedTerms = await sealTerms(key.termsKey, { account, version: 1 }, terms);
     prepared.current = terms;
     return writeContractAsync({
-      address: contracts.CommittedMandateFactory,
+      address: factory,
       abi: committedMandateFactoryAbi,
       functionName: 'create',
-      args: createArgs({ principal: owner, agent, salt: randomSalt(), commitment: commit(terms), sealedTerms }),
+      args: createArgs({ principal: owner, agent, salt, commitment, sealedTerms }),
     });
   };
 
@@ -166,21 +172,16 @@ export function PrivateCreate({ owner }: { readonly owner: Address }) {
                 onChange={(event) => set({ expiry: event.target.value })}
               />
             </Field>
-            <Field label="Allowed payments">
-              <div className="flex gap-4 text-sm">
-                {(['service', 'hire'] as const).map((id) => (
-                  <label key={id} className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={form.classes[id]}
-                      onChange={(event) => set({ classes: { ...form.classes, [id]: event.target.checked } })}
-                    />
-                    {id === 'service' ? 'Services' : 'Agent hires'}
-                  </label>
-                ))}
-              </div>
-            </Field>
           </FieldGrid>
+        </Card>
+      </Section>
+
+      <Section
+        title="What it may pay for"
+        description="Each payment proves its capability is on this list, and the escrow lock carries exactly that capability."
+      >
+        <Card>
+          <PrivateCapabilities form={form} onChange={set} />
         </Card>
       </Section>
 
@@ -217,15 +218,16 @@ export function PrivateCreate({ owner }: { readonly owner: Address }) {
         title="Review"
         description={
           stealth
-            ? 'Your wallet signs once. The owner address then sends the announcements and the create itself, once it holds a little gas.'
+            ? 'Your wallet signs twice: once for the viewing key, which opens the terms, and once for the funds key, which controls the new owner and agent addresses. The owner address then sends the announcements and the create itself, once it holds a little gas.'
             : 'Creating it asks your wallet for two things: a signature that derives your viewing key, then the transaction.'
         }
       >
         <Card>
           <div className="space-y-4">
             <p className="text-detail text-[color:var(--color-muted)]">
-              The signature costs nothing and moves nothing. Sign the same message from the same wallet later and the terms
-              open again on any device.
+              {stealth
+                ? 'Neither signature costs anything. The viewing key only reads. Your wallet shows the funds key as controlling funds, because it does, so sign it only here. Signing both again from the same wallet finds the mandate on any device.'
+                : 'The signature costs nothing and moves nothing. Sign the same message from the same wallet later and the terms open again on any device.'}
             </p>
             {workspace.view.status !== 'unlocked' && (
               <p className="text-detail text-[color:var(--color-muted)]">
@@ -253,15 +255,7 @@ export function PrivateCreate({ owner }: { readonly owner: Address }) {
 }
 
 function PrivateCreated({ created }: { readonly created: Created }) {
-  const download = () => {
-    const blob = new Blob([JSON.stringify(created.terms, null, 2)], { type: TERMS_FILE_TYPE });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = termsFileName(created.address);
-    link.click();
-    URL.revokeObjectURL(url);
-  };
+  const download = () => downloadTerms(created.address, created.terms);
 
   return (
     <Section title="The private mandate exists" description="Fund it with USDG and hand the terms to your agent.">
@@ -293,6 +287,36 @@ function PrivateCreated({ created }: { readonly created: Created }) {
   );
 }
 
+/** The service and hire capabilities a private mandate commits to, edited class by class. */
+export function PrivateCapabilities({
+  form,
+  onChange,
+}: {
+  readonly form: Pick<PrivateForm, 'classes' | 'capabilities'>;
+  readonly onChange: (patch: Pick<PrivateForm, 'classes' | 'capabilities'>) => void;
+}) {
+  return (
+    <SpendClassFields
+      only={PRIVATE_CLASSES}
+      classes={{ ...form.classes, rwa: false }}
+      capabilities={form.capabilities}
+      onChange={(classes, capabilities) =>
+        onChange({
+          classes: { service: classes.service, hire: classes.hire },
+          capabilities: capabilities.filter((entry): entry is PrivateCapability => entry.spendClass !== 'rwa'),
+        })
+      }
+      note={
+        <>
+          The list is sealed with the terms, as the hash of each class and name, such as{' '}
+          <code className="font-mono">service:gpu.render:1</code>. A mandate that lists only services cannot pay for an agent
+          hire, and no payment can name a capability that is not here.
+        </>
+      }
+    />
+  );
+}
+
 /** The switch between public limits and private terms, at the top of the create screen. */
 export function PrivateToggle({
   on,
@@ -309,7 +333,7 @@ export function PrivateToggle({
       <span>
         <span className="font-medium">Private terms.</span>
         <span className="block text-[color:var(--color-muted)]">
-          The caps, the allowed payments and the provider list stay off chain. Each payment carries a proof that it fits them.
+          The caps, the capabilities and the provider list stay off chain. Each payment carries a proof that it fits them.
         </span>
       </span>
     </label>

@@ -1,5 +1,6 @@
 import { classLabel, classOfLabel, committedMandateAccountAbi, micro, settlementAssetAbi } from '@bursar/core';
 import type { Micro, RhcPublicClient } from '@bursar/core';
+import { classesOf } from '@bursar/sdk';
 import type { AgentHandoff, CommittedClass, JobSpec } from '@bursar/sdk';
 import type { PrivatePayment, PrivatePaymentReceipt } from '@bursar/sdk/agent';
 import { formatEther } from 'viem';
@@ -40,6 +41,8 @@ export type PrivateMandateView = {
     readonly period: string;
     readonly total: MoneyView;
     readonly allowed: readonly CommittedClass[];
+    /** The only capabilities a payment can carry. The proof binds the one the escrow lock names. */
+    readonly capabilities: readonly string[];
     readonly providers: readonly Address[];
     readonly endsAt: string;
   };
@@ -119,7 +122,8 @@ export function createPrivateGateway(options: {
           perPeriod: money(micro(BigInt(terms.periodCap))),
           period: duration(terms.periodLen),
           total: money(micro(BigInt(terms.totalCap))),
-          allowed: terms.classes,
+          allowed: classesOf(terms),
+          capabilities: terms.capabilities,
           providers: terms.counterparties,
           endsAt: instant(terms.expiry),
         },
@@ -147,11 +151,11 @@ export function createPrivateGateway(options: {
           { agent: handoff.agent },
         );
       }
-      const fits = checkTerms(handoff, input, now());
+      const label = classOfLabel(input.capability) === undefined ? classLabel(input.spendClass, input.capability) : input.capability;
+      const fits = checkTerms(handoff, input, label, now());
       if (fits !== null) throw fits;
 
       agent ??= Promise.resolve((options.agentOf ?? loadAgent)(handoff, client));
-      const label = classOfLabel(input.capability) === undefined ? classLabel(input.spendClass, input.capability) : input.capability;
       const receipt = await (await agent).pay({
         payee: input.payee,
         amount: input.amount,
@@ -178,11 +182,17 @@ export function createPrivateGateway(options: {
  * period and total caps depend on the counters, which the prover rebuilds; those refusals come
  * back from the prover.
  */
-function checkTerms(handoff: AgentHandoff, input: PrivatePayInput, now: number): ToolError | null {
+function checkTerms(handoff: AgentHandoff, input: PrivatePayInput, label: string, now: number): ToolError | null {
   const terms = handoff.terms;
   if (terms.expiry <= now) return new ToolError('mandate_ended', `This mandate ended at ${instant(terms.expiry)}.`);
-  if (!terms.classes.includes(input.spendClass)) {
-    return new ToolError('class_not_allowed', `This mandate does not allow ${input.spendClass === 'hire' ? 'agent hires' : 'service payments'}.`);
+  const spendClass = classOfLabel(label);
+  if (spendClass === undefined || !classesOf(terms).includes(spendClass as CommittedClass)) {
+    return new ToolError('class_not_allowed', `This mandate does not allow ${spendClass === 'hire' ? 'agent hires' : 'service payments'}.`);
+  }
+  if (!terms.capabilities.includes(label)) {
+    return new ToolError('capability_not_allowed', `${label} is not one of the capabilities this mandate may pay for.`, {
+      capabilities: terms.capabilities,
+    });
   }
   if (!terms.counterparties.some((entry) => entry.toLowerCase() === input.payee.toLowerCase())) {
     return new ToolError('provider_not_allowed', `${input.payee} is not one of the providers this mandate may pay.`, {

@@ -7,7 +7,7 @@ import { useState } from 'react';
 import type { ShieldedDeployment } from '@bursar/core';
 import type { AssociationSet, OwnedNote, ShieldedKeys } from '@bursar/sdk';
 import type { Address, Hex } from 'viem';
-import { useSignMessage } from 'wagmi';
+import { useSignTypedData } from 'wagmi';
 
 import { rhcClient } from '@/chain/client';
 import { sameAddress } from '@/chain/rhc';
@@ -15,6 +15,7 @@ import {
   PURPOSES,
   depositPrecommitment,
   depositProblem,
+  fundsKeyContext,
   intentFromQuery,
   labelInSet,
   ownNotes,
@@ -81,10 +82,11 @@ type Unlocked = { readonly keys: ShieldedKeys };
 /**
  * The shielded USDG pool.
  *
- * One signature, the same one that opens private mandates, derives the keys behind every deposit
- * this wallet made. The page finds those deposits in the pool's public events, shows what each still
- * holds, and proves withdrawals in the browser. The relayer submits them, so the connected wallet
- * never appears on a payout.
+ * One signature derives the keys behind every deposit this wallet made: the funds key, a typed-data
+ * request bound to this chain and pool that says in the wallet it controls funds. The viewing key
+ * never reaches a deposit. The page finds the deposits in the pool's public events, shows what each
+ * still holds, and proves withdrawals in the browser. The relayer submits them, so the connected
+ * wallet never appears on a payout.
  */
 export function ShieldedView() {
   const contracts = shieldedContracts();
@@ -186,7 +188,7 @@ function PoolPanel({ contracts }: { readonly contracts: ShieldedDeployment }) {
 }
 
 function Connected({ contracts, wallet }: { readonly contracts: ShieldedDeployment; readonly wallet: Address }) {
-  const { signMessageAsync } = useSignMessage();
+  const { signTypedDataAsync } = useSignTypedData();
   const [unlocked, setUnlocked] = useState<Unlocked | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | undefined>(undefined);
@@ -202,10 +204,15 @@ function Connected({ contracts, wallet }: { readonly contracts: ShieldedDeployme
     setBusy(true);
     setProblem(undefined);
     try {
-      const { viewingKeyMessage } = await import('@bursar/sdk');
-      setUnlocked({ keys: await shieldedKeysFrom(await signMessageAsync({ message: viewingKeyMessage(wallet) })) });
-    } catch {
-      setProblem('The signature was declined, so your deposits stay locked.');
+      const { fundsKeyTypedData } = await import('@bursar/sdk');
+      const context = fundsKeyContext(wallet, contracts);
+      setUnlocked({ keys: await shieldedKeysFrom(await signTypedDataAsync(fundsKeyTypedData(context)), context) });
+    } catch (error) {
+      setProblem(
+        error instanceof Error && error.name === 'FundsKeySignatureError'
+          ? 'That signature did not come from this wallet for this pool, so no key was derived. Smart-contract wallets cannot unlock deposits here.'
+          : 'The signature was declined, so your deposits stay locked.',
+      );
     } finally {
       setBusy(false);
     }
@@ -218,7 +225,7 @@ function Connected({ contracts, wallet }: { readonly contracts: ShieldedDeployme
       <PoolPanel contracts={contracts} />
       <Section
         title="Your deposits"
-        description="Your wallet signs a fixed message and the keys are derived in this page. Signing costs nothing and moves nothing."
+        description="Your wallet signs a request that says it controls funds, and the keys behind your deposits are derived from it in this page. Signing costs nothing. Sign it only here: whoever holds that signature can spend your deposits."
       >
         <Card>
           <div className="space-y-4">
@@ -474,7 +481,7 @@ function WithdrawForm({
 }) {
   const params = useSearchParams();
   const intent = intentFromQuery(params);
-  const { relayer } = shieldedServices();
+  const { relayer, asp } = shieldedServices();
   const [purpose, setPurpose] = useState<WithdrawPurpose>(intent.purpose);
   const [recipientText, setRecipientText] = useState(intent.recipient ?? '');
   const [text, setText] = useState('');
@@ -506,6 +513,7 @@ function WithdrawForm({
         recipient: recipient.value,
         gasDrop: PURPOSES[purpose].gasDrop,
         relayerUrl: relayer,
+        aspUrl: asp,
         quote: quote.data,
         events: reading.events,
         set,

@@ -29,7 +29,7 @@ const terms = writeTerms({
   periodCap: 30_000n,
   periodLen: 86_400,
   totalCap: 50_000n,
-  classes: ['service'],
+  capabilities: ['service:gpu.render:1'],
   counterparties: [PAYEE],
   expiry: NOW + 30 * 86_400,
   label: 'render budget',
@@ -207,6 +207,7 @@ describe('the private mandate tools', () => {
     expect(parse(await pay({ provider: STRANGER }))['error']).toBe('provider_not_allowed');
     expect(parse(await pay({ amount: '20001' }))['error']).toBe('over_per_payment_cap');
     expect(parse(await pay({ spendClass: 'hire' }))['error']).toBe('class_not_allowed');
+    expect(parse(await pay({ capability: 'gpu.upscale:1' }))['error']).toBe('capability_not_allowed');
     expect(payments).toHaveLength(0);
   });
 

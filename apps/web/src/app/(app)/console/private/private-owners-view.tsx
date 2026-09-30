@@ -4,13 +4,13 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useState } from 'react';
 import type { Address } from 'viem';
-import { useSignMessage } from 'wagmi';
+import { useSignMessage, useSignTypedData } from 'wagmi';
 import { committedMandateAccountAbi, micro } from '@bursar/core';
 import type { TermsDocument } from '@bursar/sdk';
 
 import { rhcClient } from '@/chain/client';
-import { committedFactories, privateContracts } from '@/chain/private';
-import { shieldedContracts, shieldedHref } from '@/chain/shielded';
+import { committedFactories, privateContracts, termsProblem } from '@/chain/private';
+import { fundsKeyContext, shieldedContracts, shieldedHref } from '@/chain/shielded';
 import { SHIELDED_TIMING_LINE, STEALTH_LIMIT_LINE, agentKeyFile, downloadFile, formatEth, ownerKeysFrom, scanOwnedMandates, sendFromStealth } from '@/chain/stealth';
 import type { OwnedPrivateMandate, OwnerKeys } from '@/chain/stealth';
 import { Address as AddressView } from '@/components/address';
@@ -20,23 +20,28 @@ import { Card, EmptyState, Field, FieldGrid, Section } from '@/components/layout
 import { usd } from '@/money';
 import { useWalletAccount } from '@/wallet/account';
 import { ConnectButton } from '@/wallet/connect-button';
+import type { OpenedTerms } from '../[mandate]/committed-view';
 
 // The terms view lives with the mandate page, which pulls in the SDK at load; this page loads it on demand.
 const TermsView = dynamic(() => import('../[mandate]/committed-view').then((module) => module.TermsView));
+const AmendTerms = dynamic(() => import('../[mandate]/committed-view').then((module) => module.AmendTerms));
 
 type Found = { readonly keys: OwnerKeys; readonly mandates: readonly OwnedPrivateMandate[] };
 
 /**
  * The owner's private mandates, recovered from public announcements.
  *
- * The wallet signs the viewing-key message; the page derives the owner's stealth keys, reads every
- * scheme-1 announcement since the privacy contracts were deployed, and keeps the ones those keys
- * can open. The factories' lists then give the mandates each owner address holds.
+ * The wallet signs the viewing-key message and the funds-key request; the page derives the owner's
+ * stealth keys, reads every scheme-1 announcement since the privacy contracts were deployed, and
+ * keeps the ones those keys can open. The factories' lists then give the mandates each owner
+ * address holds.
  */
 export function PrivateOwnersView() {
   const { address: owner, isConnected } = useWalletAccount();
   const { signMessageAsync } = useSignMessage();
+  const { signTypedDataAsync } = useSignTypedData();
   const contracts = privateContracts();
+  const shielded = shieldedContracts();
   const [found, setFound] = useState<Found | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | undefined>(undefined);
@@ -55,7 +60,7 @@ export function PrivateOwnersView() {
     </div>
   );
 
-  if (contracts === undefined) {
+  if (contracts === undefined || shielded === undefined) {
     return (
       <div className="space-y-8">
         {header}
@@ -81,13 +86,19 @@ export function PrivateOwnersView() {
     try {
       let current = keys;
       if (!current) {
-        const { viewingKeyMessage } = await import('@bursar/sdk');
-        current = await ownerKeysFrom(await signMessageAsync({ message: viewingKeyMessage(owner) }));
+        const { fundsKeyTypedData, viewingKeyMessage } = await import('@bursar/sdk');
+        const context = fundsKeyContext(owner, shielded);
+        const viewing = await signMessageAsync({ message: viewingKeyMessage(owner) });
+        current = await ownerKeysFrom(viewing, await signTypedDataAsync(fundsKeyTypedData(context)), context);
       }
       const mandates = await scanOwnedMandates({ keys: current.stealth, factories: committedFactories(contracts), fromBlock: BigInt(contracts.fromBlock) });
       setFound({ keys: current, mandates });
-    } catch {
-      setProblem('The search did not finish. The signature was declined or the network did not answer.');
+    } catch (error) {
+      setProblem(
+        error instanceof Error && error.name === 'FundsKeySignatureError'
+          ? 'The funds-key signature did not come from this wallet, so nothing could be found. Smart-contract wallets cannot hold hidden owners.'
+          : 'The search did not finish. A signature was declined or the network did not answer.',
+      );
     } finally {
       setBusy(false);
     }
@@ -96,7 +107,10 @@ export function PrivateOwnersView() {
   return (
     <div className="space-y-8">
       {header}
-      <Section title="Find them" description="Your wallet signs a fixed message and the keys are derived in this page. Signing costs nothing and moves nothing.">
+      <Section
+        title="Find them"
+        description="Your wallet signs twice: a fixed message for the viewing key, which finds the addresses and opens the terms, and a request your wallet shows as controlling funds, which gives the keys that act for them. The keys are derived in this page. Signing costs nothing; sign the second only here."
+      >
         <Card>
           <div className="space-y-3">
             <div className="flex flex-wrap gap-3">
@@ -153,10 +167,11 @@ function OwnedMandate({
   readonly fromBlock: bigint;
   readonly onChange: () => void;
 }) {
-  const [terms, setTerms] = useState<TermsDocument | undefined>(undefined);
+  const [opened, setOpened] = useState<OpenedTerms | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | undefined>(undefined);
   const ownerKey = entry.principal.privateKey;
+  const terms = opened?.terms;
 
   const act = (work: () => Promise<void>) => async () => {
     setBusy(true);
@@ -175,9 +190,18 @@ function OwnedMandate({
     const { latestSealedTerms, openTerms } = await import('@bursar/sdk');
     const sealed = await latestSealedTerms(rhcClient(), entry.mandate, fromBlock);
     if (!sealed) throw new Error('No sealed terms were found for this mandate.');
-    const opened = await openTerms(keys.termsKey, entry.principal.stealthAddress, sealed.ciphertext);
-    setTerms(opened);
-    return opened;
+    try {
+      const doc = await openTerms(keys.termsKey, {
+        account: entry.mandate,
+        version: sealed.version,
+        termsCommitment: entry.termsCommitment,
+        ciphertext: sealed.ciphertext,
+      });
+      setOpened({ terms: doc, termsKey: keys.termsKey });
+      return doc;
+    } catch (error) {
+      throw new Error(termsProblem(error));
+    }
   };
 
   const downloadKey = act(async () => {
@@ -219,7 +243,22 @@ function OwnedMandate({
             <AddressView value={entry.agent} />
           </Field>
         </FieldGrid>
-        {terms && <TermsView terms={terms} onLock={() => setTerms(undefined)} />}
+        {opened && <TermsView terms={opened.terms} onLock={() => setOpened(undefined)} />}
+        {opened && ownerKey && !entry.revoked && (
+          <AmendTerms
+            mandate={entry.mandate}
+            opened={opened}
+            version={entry.version}
+            fromBlock={fromBlock}
+            send={async (args) => {
+              await sendFromStealth(ownerKey, { address: entry.mandate, abi: committedMandateAccountAbi, functionName: 'amend', args });
+            }}
+            onAmended={(next) => {
+              setOpened({ terms: next, termsKey: opened.termsKey });
+              onChange();
+            }}
+          />
+        )}
         <div className="flex flex-wrap gap-3">
           {!terms && (
             <Button size="sm" onClick={act(async () => void (await readTerms()))} disabled={busy}>

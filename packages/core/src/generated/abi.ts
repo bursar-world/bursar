@@ -12690,6 +12690,11 @@ export const committedMandateAccountAbi = [
         "name": "counter_",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "ceiling_",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "nonpayable"
@@ -12747,6 +12752,19 @@ export const committedMandateAccountAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "ceiling",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -12820,31 +12838,16 @@ export const committedMandateAccountAbi = [
   },
   {
     "type": "function",
-    "name": "grantDisclosure",
-    "inputs": [
+    "name": "lockedTotal",
+    "inputs": [],
+    "outputs": [
       {
-        "name": "escrowId",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
-      },
-      {
-        "name": "resolver",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "sliceCommit",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "ciphertext",
-        "type": "bytes",
-        "internalType": "bytes"
       }
     ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -13016,11 +13019,6 @@ export const committedMandateAccountAbi = [
             "internalType": "uint64"
           },
           {
-            "name": "classId",
-            "type": "uint8",
-            "internalType": "uint8"
-          },
-          {
             "name": "provenAt",
             "type": "uint64",
             "internalType": "uint64"
@@ -13186,6 +13184,18 @@ export const committedMandateAccountAbi = [
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
+      },
+      {
+        "name": "provenAt",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "version",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
       }
     ],
     "anonymous": false
@@ -13241,11 +13251,6 @@ export const committedMandateAccountAbi = [
   },
   {
     "type": "error",
-    "name": "BadClass",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "BadProof",
     "inputs": []
   },
@@ -13253,6 +13258,22 @@ export const committedMandateAccountAbi = [
     "type": "error",
     "name": "BadTime",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NonceBehind",
+    "inputs": [
+      {
+        "name": "nonce",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "current",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ]
   },
   {
     "type": "error",
@@ -13278,6 +13299,22 @@ export const committedMandateAccountAbi = [
     "type": "error",
     "name": "NullifierUsed",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OverCeiling",
+    "inputs": [
+      {
+        "name": "lockedTotal",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "ceiling",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
@@ -13335,6 +13372,11 @@ export const committedMandateFactoryAbi = [
         "name": "verifier_",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "ceiling_",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "nonpayable"
@@ -13354,6 +13396,19 @@ export const committedMandateFactoryAbi = [
         "name": "",
         "type": "address[]",
         "internalType": "address[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "ceiling",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -13550,6 +13605,11 @@ export const committedMandateFactoryAbi = [
   {
     "type": "error",
     "name": "ZeroAddress",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroCeiling",
     "inputs": []
   }
 ] as const;
@@ -13907,6 +13967,16 @@ export const solvencyLogAbi = [
   },
   {
     "type": "error",
+    "name": "FutureBlock",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "FutureEpoch",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NotAdmin",
     "inputs": []
   },
@@ -13918,6 +13988,11 @@ export const solvencyLogAbi = [
   {
     "type": "error",
     "name": "NotPoster",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "StaleBlock",
     "inputs": []
   },
   {
@@ -13954,8 +14029,8 @@ export const withinMandateVerifierAbi = [
       },
       {
         "name": "_pubSignals",
-        "type": "uint256[10]",
-        "internalType": "uint256[10]"
+        "type": "uint256[11]",
+        "internalType": "uint256[11]"
       }
     ],
     "outputs": [

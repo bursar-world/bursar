@@ -4,15 +4,35 @@ import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useState } from 'react';
 import { erc20Abi } from 'viem';
-import type { Address } from 'viem';
+import type { Address, Hex } from 'viem';
 import { useSignMessage } from 'wagmi';
 import { committedMandateAccountAbi, micro } from '@bursar/core';
-import { LockStatus, TermsLockedError, deriveViewingKey, latestSealedTerms, openTerms, viewingKeyMessage } from '@bursar/sdk';
+import {
+  LockStatus,
+  amendArgs,
+  carriedState,
+  deriveViewingKey,
+  latestSealedTerms,
+  openTerms,
+  recoverState,
+  sealTerms,
+  viewingKeyMessage,
+  writeTerms,
+} from '@bursar/sdk';
 import type { TermsDocument } from '@bursar/sdk';
 
 import { rhcClient } from '@/chain/client';
-import { PERIODS, privateContracts, readProvenPayments } from '@/chain/private';
-import type { CommittedRead } from '@/chain/private';
+import {
+  PERIODS,
+  PRIVATE_CLASSES,
+  downloadTerms,
+  formFromTerms,
+  privateContracts,
+  readPrivateForm,
+  readProvenPayments,
+  termsProblem,
+} from '@/chain/private';
+import type { CommittedRead, PrivateForm } from '@/chain/private';
 import { ADDRESSES, sameAddress, shortAddress } from '@/chain/rhc';
 import { AmountInput } from '@/components/amount-input';
 import { Address as AddressView, TxHash } from '@/components/address';
@@ -41,11 +61,16 @@ export function periodLabel(seconds: number): string {
   return PERIODS.find((period) => period.seconds === seconds)?.label.toLowerCase() ?? `${seconds} seconds`;
 }
 
+/** Terms the viewing key opened and checked against the commitment, with the key that sealed them. */
+export type OpenedTerms = { readonly terms: TermsDocument; readonly termsKey: Uint8Array };
+
 /** A private mandate: what the chain shows, and the terms once the owner's viewing key opens them. */
 export function CommittedMandateView({ mandate, onRefresh }: { readonly mandate: CommittedRead; readonly onRefresh: () => void }) {
   const { address: connected } = useWalletAccount();
   const isOwner = sameAddress(connected, mandate.principal);
-  const [terms, setTerms] = useState<TermsDocument | undefined>(undefined);
+  const [opened, setOpened] = useState<OpenedTerms | undefined>(undefined);
+  const { writeContractAsync } = useWriteContract();
+  const terms = opened?.terms;
   const fromBlock = BigInt(privateContracts()?.fromBlock ?? 0);
 
   const payments = useQuery({
@@ -102,7 +127,37 @@ export function CommittedMandateView({ mandate, onRefresh }: { readonly mandate:
 
       <Section title="Terms" description="Readable only with the viewing key of the wallet that created this mandate.">
         <Card>
-          {terms ? <TermsView terms={terms} onLock={() => setTerms(undefined)} /> : <Unlock mandate={mandate} fromBlock={fromBlock} onOpen={setTerms} />}
+          {opened ? (
+            <div className="space-y-4">
+              <TermsView terms={opened.terms} onLock={() => setOpened(undefined)} />
+              {isOwner && (
+                <>
+                  <Button size="sm" onClick={() => downloadTerms(mandate.address, opened.terms)}>
+                    Download the terms for your agent
+                  </Button>
+                  {!mandate.revoked && (
+                    <AmendTerms
+                      mandate={mandate.address}
+                      opened={opened}
+                      version={mandate.version}
+                      fromBlock={fromBlock}
+                      send={async (args) => {
+                        const hash = await writeContractAsync({ address: mandate.address, abi: committedMandateAccountAbi, functionName: 'amend', args });
+                        const receipt = await rhcClient().waitForTransactionReceipt({ hash });
+                        if (receipt.status !== 'success') throw new Error(`The amendment reverted: ${hash}`);
+                      }}
+                      onAmended={(next) => {
+                        setOpened({ terms: next, termsKey: opened.termsKey });
+                        onRefresh();
+                      }}
+                    />
+                  )}
+                </>
+              )}
+            </div>
+          ) : (
+            <Unlock mandate={mandate} fromBlock={fromBlock} onOpen={setOpened} />
+          )}
         </Card>
       </Section>
 
@@ -184,7 +239,7 @@ function Unlock({
 }: {
   readonly mandate: CommittedRead;
   readonly fromBlock: bigint;
-  readonly onOpen: (terms: TermsDocument) => void;
+  readonly onOpen: (opened: OpenedTerms) => void;
 }) {
   const { address: connected, isConnected } = useWalletAccount();
   const { signMessageAsync } = useSignMessage();
@@ -209,13 +264,15 @@ function Unlock({
         return;
       }
       const key = deriveViewingKey(await signMessageAsync({ message: viewingKeyMessage(connected) }));
-      onOpen(await openTerms(key.termsKey, mandate.principal, sealed.ciphertext));
+      const terms = await openTerms(key.termsKey, {
+        account: mandate.address,
+        version: sealed.version,
+        termsCommitment: mandate.termsCommitment,
+        ciphertext: sealed.ciphertext,
+      });
+      onOpen({ terms, termsKey: key.termsKey });
     } catch (error) {
-      setProblem(
-        error instanceof TermsLockedError
-          ? 'This wallet’s viewing key does not open these terms. Connect the wallet that created the mandate.'
-          : 'The terms could not be opened. The signature was declined or the network did not answer.',
-      );
+      setProblem(termsProblem(error));
     } finally {
       setBusy(false);
     }
@@ -251,7 +308,9 @@ function Unlock({
 }
 
 export function TermsView({ terms, onLock }: { readonly terms: TermsDocument; readonly onLock?: () => void }) {
-  const classes = terms.classes.map((id) => (id === 'service' ? 'Services' : 'Agent hires')).join(' and ');
+  const classes = PRIVATE_CLASSES.filter((id) => terms.capabilities.some((label) => label.startsWith(`${id}:`)))
+    .map((id) => (id === 'service' ? 'Services' : 'Agent hires'))
+    .join(' and ');
   return (
     <div className="space-y-4">
       {terms.label && <p className="text-sm font-medium">{terms.label}</p>}
@@ -267,6 +326,15 @@ export function TermsView({ terms, onLock }: { readonly terms: TermsDocument; re
         </Field>
         <Field label="Ends on">{new Date(terms.expiry * 1000).toISOString().slice(0, 10)}</Field>
         <Field label="Allowed payments">{classes}</Field>
+        <Field label="Capabilities" hint="Each payment proves its capability is one of these.">
+          <ul className="space-y-1">
+            {terms.capabilities.map((label) => (
+              <li key={label}>
+                <code className="font-mono text-detail">{label}</code>
+              </li>
+            ))}
+          </ul>
+        </Field>
         <Field label="Providers">
           <ul className="space-y-1">
             {terms.counterparties.map((entry: Address) => (
@@ -282,6 +350,89 @@ export function TermsView({ terms, onLock }: { readonly terms: TermsDocument; re
           Hide the terms
         </Button>
       )}
+    </div>
+  );
+}
+
+/**
+ * Replaces the caps and the end date of terms that are open. The capabilities and providers stay.
+ *
+ * The counters carry over, read back from the chain against the terms in force, so the new caps
+ * count what the agent has already spent. The new copy is sealed for the next version and the
+ * amendment sets the counter it starts from. The agent proves against its own copy of the terms,
+ * so it cannot pay again until it has the new one.
+ */
+export function AmendTerms({
+  mandate,
+  opened,
+  version,
+  fromBlock,
+  send,
+  onAmended,
+}: {
+  readonly mandate: Address;
+  readonly opened: OpenedTerms;
+  readonly version: bigint;
+  readonly fromBlock: bigint;
+  readonly send: (args: readonly [bigint, bigint, bigint, Hex]) => Promise<void>;
+  readonly onAmended: (terms: TermsDocument) => void;
+}) {
+  const [form, setForm] = useState<PrivateForm>(() => formFromTerms(opened.terms));
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | undefined>(undefined);
+  const [done, setDone] = useState(false);
+  const reading = readPrivateForm(form);
+  const set = (patch: Partial<PrivateForm>) => setForm({ ...form, ...patch });
+
+  const amend = async () => {
+    if (!reading.terms) return;
+    setBusy(true);
+    setProblem(undefined);
+    try {
+      const state = await recoverState(rhcClient(), mandate, opened.terms, fromBlock);
+      const next = writeTerms(
+        { ...reading.terms, ...(opened.terms.label ? { label: opened.terms.label } : {}) },
+        carriedState(state, opened.terms, reading.terms.periodLen),
+      );
+      await send(amendArgs(next, await sealTerms(opened.termsKey, { account: mandate, version: version + 1n }, next)));
+      setDone(true);
+      onAmended(next);
+    } catch (error) {
+      setProblem(`The terms were not amended: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3 border-t border-[color:var(--color-line)] pt-4">
+      <p className="text-sm font-medium">Amend the terms</p>
+      <p className="text-detail text-[color:var(--color-muted)]">
+        New caps and a new end date apply from the next payment, and what the agent has already spent counts against them.
+        Your agent proves against its own copy of the terms, so hand it the new ones once this is confirmed.
+      </p>
+      <FieldGrid columns={2}>
+        <AmountInput asset="USDG" label="Per payment" value={form.perCall} onChange={(perCall) => set({ perCall })} />
+        <AmountInput asset="USDG" label="Total budget" value={form.total} onChange={(total) => set({ total })} />
+        <AmountInput asset="USDG" label={`Per ${periodLabel(form.periodLen)}`} value={form.periodCap} onChange={(periodCap) => set({ periodCap })} />
+        <Field label="Ends on">
+          <input
+            type="date"
+            className="w-full rounded-md border border-[color:var(--color-line)] bg-transparent px-3 py-2 text-sm"
+            value={form.expiry}
+            onChange={(event) => set({ expiry: event.target.value })}
+          />
+        </Field>
+      </FieldGrid>
+      <Button onClick={() => void amend()} disabled={busy || reading.terms === undefined}>
+        {busy ? 'Amending' : 'Amend the terms'}
+      </Button>
+      {done && <p className="text-detail">The new terms are in force. Give your agent the new copy.</p>}
+      {[...reading.problems, ...(problem ? [problem] : [])].map((line) => (
+        <p key={line} className="text-detail" style={{ color: 'var(--color-state-blocked)' }}>
+          {line}
+        </p>
+      ))}
     </div>
   );
 }

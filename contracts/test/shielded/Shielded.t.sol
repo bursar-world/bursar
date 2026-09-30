@@ -46,6 +46,7 @@ contract ShieldedTest is Test {
     address internal constant RELAY_DEPLOYER = address(0xe0003);
     address internal constant RECIPIENT = address(0xe0010);
     address internal constant FEE_RECIPIENT = address(0xe0011);
+    address internal constant DIRECT = address(0xe0012);
 
     address internal owner = address(0x0A11);
     address internal postman = address(0x9057);
@@ -451,11 +452,31 @@ contract ShieldedTest is Test {
         assertFalse(pool.nullifierHashes(p.pubSignals[1]));
     }
 
-    function test_directWithdrawToBlockedProcessooorRefused() public {
-        // A withdrawal that names the relay as processooor can only be executed by the relay.
+    function test_aWithdrawalNamingTheRelayCannotBeTakenDirectly() public {
         _depositBoth();
         _postRoot(".relayed");
         vm.expectRevert(IPrivacyPool.InvalidProcessooor.selector);
         pool.withdraw(_relayWithdrawal(), _withdrawProof(".relayed"));
+    }
+
+    function test_aBlockedDirectWithdrawalIsRefusedWithoutBurningTheNote() public {
+        // The fixture proves a withdrawal whose processooor is DIRECT itself, taken straight from
+        // the pool with no relay in between. The pool is the only screen on this path.
+        _depositBoth();
+        _postRoot(".direct");
+        ProofLib.WithdrawProof memory p = _withdrawProof(".direct");
+        IPrivacyPool.Withdrawal memory w = IPrivacyPool.Withdrawal({processooor: DIRECT, data: ""});
+        registry.setBlocked(DIRECT, true);
+
+        vm.prank(DIRECT);
+        vm.expectRevert(abi.encodeWithSelector(ShieldedPool.RecipientBlocked.selector, DIRECT));
+        pool.withdraw(w, p);
+        assertFalse(pool.nullifierHashes(p.pubSignals[1]), "a refusal must not spend the note");
+
+        registry.setBlocked(DIRECT, false);
+        vm.prank(DIRECT);
+        pool.withdraw(w, p);
+        assertEq(usdg.balanceOf(DIRECT), 400_000);
+        assertEq(pool.poolValue(), 900_000);
     }
 }

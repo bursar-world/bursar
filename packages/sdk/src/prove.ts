@@ -8,15 +8,16 @@
 
 import { readFileSync } from 'node:fs';
 
-import { counterCommitment, spendInput } from '@bursar/circuits';
+import { spendInput } from '@bursar/circuits';
 import { artifacts } from '@bursar/circuits/artifacts';
-import { committedMandateAccountAbi, escrowAbi } from '@bursar/core';
+import { toCapabilityId } from '@bursar/core';
 import * as snarkjs from 'snarkjs';
-import { decodeFunctionData, parseEventLogs, type Address, type Hex, type PublicClient } from 'viem';
+import type { Address, Hex } from 'viem';
 
-import { COMMITTED_CLASSES, circuitTerms, type CommittedClass, type TermsDocument } from './committed.js';
+import { capabilityIdsOf, circuitTerms, type CounterState, type TermsDocument } from './committed.js';
 
-export type CounterState = { period: bigint; spent: bigint; total: bigint; nonce: bigint };
+export { FRESH_STATE, recoverState } from './committed.js';
+export type { CounterState } from './committed.js';
 
 export type Groth16Proof = {
   a: readonly [bigint, bigint];
@@ -24,7 +25,11 @@ export type Groth16Proof = {
   c: readonly [bigint, bigint];
 };
 
+/** A proof and the public facts it was made for, which the account call has to repeat exactly. */
 export type ProvenSpend = {
+  payee: Address;
+  amount: bigint;
+  capabilityId: Hex;
   provenAt: bigint;
   newCounter: bigint;
   nullifier: bigint;
@@ -33,12 +38,11 @@ export type ProvenSpend = {
   next: CounterState;
 };
 
-export const FRESH_STATE: CounterState = { period: 0n, spent: 0n, total: 0n, nonce: 0n };
-
 /**
- * Proves one spend. `provenAt` is the time the proof speaks for; the account accepts it only
- * while `block.timestamp <= provenAt <= block.timestamp + 15 minutes`, so aim a little ahead of
- * the latest block.
+ * Proves one spend. `capability` is a label from the terms, such as `service:gpu.render:1`, or its
+ * 32-byte id; the escrow lock will carry exactly that id. `provenAt` is the time the proof speaks
+ * for; the account accepts it only while `block.timestamp <= provenAt <= block.timestamp + 15
+ * minutes`, so aim a little ahead of the latest block.
  */
 export async function proveSpend(args: {
   terms: TermsDocument;
@@ -46,22 +50,27 @@ export async function proveSpend(args: {
   mandate: Address;
   payee: Address;
   amount: bigint;
-  spendClass: CommittedClass;
+  capability: string;
   provenAt: bigint;
 }): Promise<ProvenSpend> {
+  const capabilityId = toCapabilityId(args.capability);
   const { input, next } = spendInput({
     terms: circuitTerms(args.terms),
     counterparties: args.terms.counterparties,
+    capabilities: capabilityIdsOf(args.terms),
     state: args.state,
     mandate: args.mandate,
     payee: args.payee,
     amount: args.amount,
-    classId: COMMITTED_CLASSES[args.spendClass],
+    capabilityId,
     now: args.provenAt,
   });
   const { proof, publicSignals } = await snarkjs.groth16.fullProve(input, artifacts.wasm, artifacts.zkey);
   const n = (v: string | undefined) => BigInt(v ?? 0);
   return {
+    payee: args.payee,
+    amount: args.amount,
+    capabilityId,
     provenAt: args.provenAt,
     newCounter: n(publicSignals[3]),
     nullifier: n(publicSignals[4]),
@@ -86,74 +95,23 @@ export async function verifySpendProof(publicSignals: string[], proof: snarkjs.G
   return snarkjs.groth16.verify(vkey, publicSignals, proof);
 }
 
-/** Arguments for `CommittedMandateAccount.spend`. */
-export function spendArgs(
-  proven: ProvenSpend,
-  lock: {
-    payee: Address;
-    capabilityId: Hex;
-    inputCommit: Hex;
-    inputURI: string;
-    amount: bigint;
-    deadline: bigint;
-    spendClass: CommittedClass;
-  },
-) {
+/**
+ * Arguments for `CommittedMandateAccount.spend`. The payee, the amount and the capability come from
+ * the proof, so the call cannot drift from what was proven.
+ */
+export function spendArgs(proven: ProvenSpend, lock: { inputCommit: Hex; inputURI: string; deadline: bigint }) {
   return [
     {
-      payee: lock.payee,
-      capabilityId: lock.capabilityId,
+      payee: proven.payee,
+      capabilityId: proven.capabilityId,
       inputCommit: lock.inputCommit,
       inputURI: lock.inputURI,
-      amount: lock.amount,
+      amount: proven.amount,
       deadline: lock.deadline,
-      classId: COMMITTED_CLASSES[lock.spendClass],
       provenAt: proven.provenAt,
       newCounter: proven.newCounter,
       nullifier: proven.nullifier,
     },
     proven.proof,
   ] as const;
-}
-
-/**
- * Rebuilds the confidential counters from the chain and the terms. Amounts come from the escrow
- * locks and each proof's time from its transaction, and the result is checked against the
- * account's stored counter commitment, so an agent needs no local state to keep proving.
- */
-export async function recoverState(
-  client: Pick<PublicClient, 'getLogs' | 'readContract' | 'getTransaction'>,
-  account: Address,
-  terms: TermsDocument,
-  fromBlock: bigint = 0n,
-): Promise<CounterState> {
-  const [escrow, nonce, stored, version] = await Promise.all([
-    client.readContract({ address: account, abi: committedMandateAccountAbi, functionName: 'escrow' }),
-    client.readContract({ address: account, abi: committedMandateAccountAbi, functionName: 'nonce' }),
-    client.readContract({ address: account, abi: committedMandateAccountAbi, functionName: 'counter' }),
-    client.readContract({ address: account, abi: committedMandateAccountAbi, functionName: 'version' }),
-  ]);
-  if (version > 1n) throw new Error('This mandate was amended; recover from the amended counter instead.');
-
-  const logs = await client.getLogs({ address: account, fromBlock, toBlock: 'latest' });
-  const spends = parseEventLogs({ abi: committedMandateAccountAbi, logs, eventName: 'ProvenSpend' });
-
-  const periodLen = BigInt(terms.periodLen);
-  let state = FRESH_STATE;
-  for (const log of spends) {
-    const [lock, tx] = await Promise.all([
-      client.readContract({ address: escrow, abi: escrowAbi, functionName: 'getLock', args: [log.args.escrowId] }),
-      client.getTransaction({ hash: log.transactionHash }),
-    ]);
-    const call = decodeFunctionData({ abi: committedMandateAccountAbi, data: tx.input });
-    if (call.functionName !== 'spend') throw new Error(`Spend ${log.transactionHash} did not call spend directly.`);
-    const period = call.args[0].provenAt / periodLen;
-    const carried = period === state.period ? state.spent : 0n;
-    state = { period, spent: carried + lock.amount, total: state.total + lock.amount, nonce: state.nonce + 1n };
-  }
-
-  if (state.nonce !== BigInt(nonce) || counterCommitment(state, terms.salt) !== stored) {
-    throw new Error('The recovered counters do not match the account. Are these the right terms?');
-  }
-  return state;
 }

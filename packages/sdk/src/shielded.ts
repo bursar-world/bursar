@@ -10,8 +10,9 @@
  * the recipient carries no trace of the depositor's wallet. Whatever is not withdrawn stays in the
  * pool as a new note owned by the same secrets.
  *
- * The note secrets are derived from the same wallet signature as the viewing key, with separate
- * HKDF labels, so a wallet that signs deterministically recovers every note from chain data alone.
+ * The note secrets are derived from the funds-key signature (EIP-712, bound to this chain and pool;
+ * see `viewing-key.ts`), never from the viewing key, so a wallet that signs deterministically
+ * recovers every note from chain data alone and a shared viewing key opens no note.
  *
  * This module has no Node dependency and no prover. Proving lives in `@bursar/sdk/shielded-prove`
  * so the 17 MB proving key is only loaded where a proof is actually made.
@@ -34,6 +35,8 @@ import {
   type Hex,
   type PublicClient,
 } from 'viem';
+
+import { FUNDS_SALT, fundsKeyMaterial, type FundsKeyContext } from './viewing-key.js';
 
 export const SNARK_SCALAR_FIELD = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
 /** The withdrawal circuit is compiled for trees up to this depth; proofs pad their siblings to it. */
@@ -173,6 +176,7 @@ export const shieldedPoolAbi = [
   { type: 'function', name: 'MAX_DEPOSIT', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'MAX_TOTAL', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'ACCESS_REGISTRY', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
+  { type: 'function', name: 'poolValue', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'currentRoot', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'currentTreeSize', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'currentTreeDepth', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
@@ -263,6 +267,7 @@ export const shieldedPoolAbi = [
 
 export const shieldedRelayAbi = [
   { type: 'function', name: 'POOL', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
+  { type: 'function', name: 'ENTRYPOINT', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
   { type: 'function', name: 'MAX_FEE_BPS', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   {
     type: 'function',
@@ -283,6 +288,7 @@ export const shieldedRelayAbi = [
     ],
   },
   { type: 'error', name: 'RecipientBlocked', inputs: [{ name: 'recipient', type: 'address' }] },
+  { type: 'error', name: 'InvalidRecipient', inputs: [{ name: 'recipient', type: 'address' }] },
   { type: 'error', name: 'FeeAboveMax', inputs: [{ type: 'uint256' }, { type: 'uint256' }] },
   { type: 'error', name: 'InvalidProcessooor', inputs: [] },
   { type: 'error', name: 'InvalidWithdrawalAmount', inputs: [] },
@@ -310,23 +316,39 @@ export const ASP_POSTMAN_ROLE: Hex = '0xfc84ade01695dae2ade01aa4226dc40bdceaf9d5
 
 export type ShieldedKeys = { readonly masterNullifier: bigint; readonly masterSecret: bigint };
 
-const SALT = new TextEncoder().encode('bursar.viewing-key.v1');
-
-function fieldKey(ikm: Uint8Array, info: string): bigint {
+function fieldKey(ikm: Uint8Array, salt: Uint8Array, info: string): bigint {
   // 48 bytes reduced mod p leaves a bias of about 2^-130; hashing once more matches upstream,
   // which keeps its master keys as Poseidon images of a wallet-derived scalar.
-  const wide = BigInt(bytesToHex(hkdf(sha256, ikm, SALT, info, 48)));
+  const wide = BigInt(bytesToHex(hkdf(sha256, ikm, salt, info, 48)));
   return poseidon1([wide % SNARK_SCALAR_FIELD]);
 }
 
 /**
- * The note master keys, from the viewing-key signature (`viewingKeyMessage`). They are separate
- * HKDF outputs from the viewing and spending keys, so sharing the viewing key shares no note.
+ * The note master keys, from the funds-key signature (`fundsKeyTypedData`). A signature that does
+ * not recover to `context.account` over that typed data is refused, the viewing-key signature
+ * included. They are separate HKDF outputs from the stealth spending key.
  */
-export function deriveShieldedKeys(signature: Hex): ShieldedKeys {
-  const ikm = hexToBytes(signature);
+export function deriveShieldedKeys(signature: Hex, context: FundsKeyContext): ShieldedKeys {
+  const ikm = fundsKeyMaterial(signature, context);
+  return {
+    masterNullifier: fieldKey(ikm, FUNDS_SALT, 'shielded-nullifier'),
+    masterSecret: fieldKey(ikm, FUNDS_SALT, 'shielded-secret'),
+  };
+}
+
+const LEGACY_SALT = new TextEncoder().encode('bursar.viewing-key.v1');
+
+/**
+ * The note keys of the first pool, which came from the viewing-key signature. Only for taking
+ * those notes back out (scripts/migrate-shielded-notes.ts); nothing new is deposited under them.
+ */
+export function deriveLegacyShieldedKeys(viewingSignature: Hex): ShieldedKeys {
+  const ikm = hexToBytes(viewingSignature);
   if (ikm.length < 64) throw new Error('Shielded keys need a full wallet signature.');
-  return { masterNullifier: fieldKey(ikm, 'shielded-nullifier'), masterSecret: fieldKey(ikm, 'shielded-secret') };
+  return {
+    masterNullifier: fieldKey(ikm, LEGACY_SALT, 'shielded-nullifier'),
+    masterSecret: fieldKey(ikm, LEGACY_SALT, 'shielded-secret'),
+  };
 }
 
 export type NoteSecrets = { readonly nullifier: bigint; readonly secret: bigint };
@@ -884,10 +906,35 @@ export type RelayRequest = {
 
 export type RelayResult = { readonly transactionHash: Hex; readonly gasDropWei: string };
 
+/** A refusal from the relayer or the association-set provider, with the code it answered with. */
+export class ShieldedServiceError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ShieldedServiceError';
+  }
+}
+
 async function json<T>(response: Response): Promise<T> {
   const body = (await response.json().catch(() => ({}))) as { error?: string; detail?: string };
-  if (!response.ok) throw new Error(body.detail ?? body.error ?? `HTTP ${response.status}`);
+  if (!response.ok) {
+    throw new ShieldedServiceError(response.status, body.error ?? 'http_error', body.detail ?? body.error ?? `HTTP ${response.status}`);
+  }
   return body as T;
+}
+
+/**
+ * Whether a relayer turned a withdrawal away because the association set moved after its proof was
+ * made. The pool only accepts proofs against the newest root, so the proof has to be made again.
+ */
+export function isStaleSetRefusal(error: unknown): boolean {
+  return (
+    error instanceof ShieldedServiceError &&
+    (error.code === 'stale_association_set' || (error.code === 'would_revert' && error.message.includes('IncorrectASPRoot')))
+  );
 }
 
 export async function fetchRelayQuote(relayerUrl: string, init?: RequestInit): Promise<RelayQuote> {
@@ -906,6 +953,34 @@ export async function submitRelay(relayerUrl: string, request: RelayRequest): Pr
 
 export async function fetchAssociationSet(aspUrl: string): Promise<AssociationSet & { cid: string }> {
   return json(await fetch(new URL('/v1/association-set', aspUrl)));
+}
+
+/**
+ * Proves a withdrawal and hands it to the relayer. The provider posts new roots on its own cadence,
+ * and one that lands between the proof and the submission makes the pool refuse the proof, so on
+ * that refusal `prove` runs again (it should read the set afresh) and the new proof is submitted,
+ * up to `attempts` times in all. Nothing is spent by a refused submission.
+ */
+export async function relayWithFreshProof(args: {
+  readonly relayerUrl: string;
+  readonly withdrawal: Withdrawal;
+  readonly gasDrop?: boolean;
+  readonly prove: (attempt: number) => Promise<SolidityProof>;
+  readonly attempts?: number;
+}): Promise<RelayResult> {
+  const attempts = args.attempts ?? 3;
+  for (let attempt = 1; ; attempt++) {
+    const proof = await args.prove(attempt);
+    try {
+      return await submitRelay(args.relayerUrl, {
+        withdrawal: args.withdrawal,
+        proof: proofToWire(proof),
+        ...(args.gasDrop === undefined ? {} : { gasDrop: args.gasDrop }),
+      });
+    } catch (error) {
+      if (!isStaleSetRefusal(error) || attempt >= attempts) throw error;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------------------------

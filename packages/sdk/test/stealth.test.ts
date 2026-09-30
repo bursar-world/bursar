@@ -5,15 +5,18 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ERC5564_ANNOUNCER,
+  FundsKeySignatureError,
   InvalidArgumentError,
   announceArgs,
   agentHandoff,
   checkStealthAddress,
   computeStealthKey,
+  deriveSpendingKey,
   deriveStealthKeys,
   deriveViewingKey,
   erc5564AnnouncerAbi,
   fetchAnnouncements,
+  fundsKeyTypedData,
   generateStealthAddress,
   parseMetaAddress,
   planStealthMandate,
@@ -58,9 +61,20 @@ const owner = privateKeyToAccount('0x59c6995e998f97a5a0044966f0945389dc9e86dae88
 const stranger = privateKeyToAccount('0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a');
 const FACTORY = '0xdbB3bD6172132d9049b2825C5deA18d0Bb2A30D1' as const;
 const MANDATE = '0x1A118049d8a039e58BC5DC1e692c16Fa45037aBc' as const;
+const POOL = '0x9F9914dd397a9e9462Dd7cB6891Ab835119297C7' as const;
+
+const contextOf = (account: typeof owner) => ({ account: account.address, chainId: 4663, pool: POOL });
+
+async function signaturesOf(account: typeof owner) {
+  return {
+    viewing: await account.signMessage({ message: viewingKeyMessage(account.address) }),
+    funds: await account.signTypedData(fundsKeyTypedData(contextOf(account))),
+  };
+}
 
 async function keysOf(account: typeof owner) {
-  return deriveStealthKeys(await account.signMessage({ message: viewingKeyMessage(account.address) }));
+  const { viewing, funds } = await signaturesOf(account);
+  return deriveStealthKeys(viewing, funds, contextOf(account));
 }
 
 function announced(generated: GeneratedStealthAddress, role: StealthRole, caller: Address, blockNumber = 1n): Announcement {
@@ -112,15 +126,45 @@ describe('ERC-5564 scheme 1 against the reference implementation', () => {
 });
 
 describe('the owner’s stealth keys', () => {
-  it('come from the viewing-key signature, keep the published viewing key, and add a distinct spending key', async () => {
-    const signature = await owner.signMessage({ message: viewingKeyMessage(owner.address) });
-    const keys = deriveStealthKeys(signature);
-    expect(keys).toEqual(deriveStealthKeys(signature));
-    expect(keys.viewingPrivateKey).toBe(deriveViewingKey(signature).privateKey);
+  it('take the viewing half from the viewing-key signature and the spending half from the funds key', async () => {
+    const { viewing, funds } = await signaturesOf(owner);
+    const keys = deriveStealthKeys(viewing, funds, contextOf(owner));
+    expect(keys).toEqual(deriveStealthKeys(viewing, funds, contextOf(owner)));
+    expect(keys.viewingPrivateKey).toBe(deriveViewingKey(viewing).privateKey);
+    expect(keys.spendingPrivateKey).toBe(deriveSpendingKey(funds, contextOf(owner)).privateKey);
     expect(keys.spendingPrivateKey).not.toBe(keys.viewingPrivateKey);
     expect(viewingKeyOfMetaAddress(keys.metaAddress)).toBe(keys.viewingPublicKey);
     expect(registerKeysArgs(keys.metaAddress)).toEqual([1n, keys.metaAddress]);
     expect((await keysOf(stranger)).metaAddress).not.toBe(keys.metaAddress);
+  });
+
+  it('refuse a spending key from any signature that is not this wallet’s funds key for this chain and pool', async () => {
+    const context = contextOf(owner);
+    const { viewing } = await signaturesOf(owner);
+    const refusals = [
+      // The viewing-key signature: it reads, it must never spend.
+      viewing,
+      // Another wallet signing the owner's request.
+      await stranger.signTypedData(fundsKeyTypedData(context)),
+      // The owner's funds key for another pool, and for another chain.
+      await owner.signTypedData(fundsKeyTypedData({ ...context, pool: MANDATE })),
+      await owner.signTypedData(fundsKeyTypedData({ ...context, chainId: 1 })),
+      // Bytes that are not a signature.
+      `0x${'ab'.repeat(65)}` as Hex,
+      '0x1234' as Hex,
+    ];
+    for (const signature of refusals) {
+      expect(() => deriveSpendingKey(signature, context)).toThrow(FundsKeySignatureError);
+      expect(() => deriveStealthKeys(viewing, signature, context)).toThrow(FundsKeySignatureError);
+    }
+  });
+
+  it('say in the typed data itself that the signature controls funds', () => {
+    const request = fundsKeyTypedData(contextOf(owner));
+    expect(request.primaryType).toBe('KeyThatControlsFunds');
+    expect(request.message.warning).toMatch(/^This signature controls funds\./);
+    expect(request.domain).toEqual({ name: 'Bursar', version: '1', chainId: 4663, verifyingContract: POOL });
+    expect(request.message.wallet).toBe(owner.address);
   });
 });
 
@@ -233,7 +277,7 @@ describe('agent key hand-off', () => {
     periodCap: 20_000n,
     periodLen: 86_400,
     totalCap: 20_000n,
-    classes: ['service'],
+    capabilities: ['service:gpu.render:1'],
     counterparties: ['0x5210D8df060A9D5ce4c1305045ED5c9548fca374'],
     expiry: 1_893_456_000,
   });
@@ -253,6 +297,8 @@ describe('agent key hand-off', () => {
     expect(() => readAgentHandoff({ ...handoff, agent: plan.principal.address })).toThrow(/not the agent/);
     expect(() => readAgentHandoff({ ...handoff, kind: 'other' })).toThrow(InvalidArgumentError);
     expect(() => readAgentHandoff('{')).toThrow(InvalidArgumentError);
-    expect(() => readAgentHandoff({ ...handoff, terms: {} })).toThrow(/no terms/);
+    expect(() => readAgentHandoff({ ...handoff, terms: {} })).toThrow(/no usable terms/);
+    expect(() => readAgentHandoff({ ...handoff, terms: { ...terms, v: 1 } })).toThrow(/no usable terms/);
+    expect(() => readAgentHandoff({ ...handoff, terms: { ...terms, capabilities: ['rwa:SPY'] } })).toThrow(/no usable terms/);
   });
 });

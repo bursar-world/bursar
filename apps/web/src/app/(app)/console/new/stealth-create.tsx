@@ -6,7 +6,7 @@ import { useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { parseEventLogs } from 'viem';
 import type { Address, Hex } from 'viem';
-import { useSendTransaction, useSignMessage } from 'wagmi';
+import { useSendTransaction, useSignMessage, useSignTypedData } from 'wagmi';
 import { committedMandateFactoryAbi } from '@bursar/core';
 import type { StealthMandatePlan, TermsDocument, TermsInput } from '@bursar/sdk';
 
@@ -14,7 +14,7 @@ import { rhcClient } from '@/chain/client';
 import { randomSalt } from '@/chain/mandates';
 import { privateContracts } from '@/chain/private';
 import { CHAIN_ID } from '@/chain/rhc';
-import { shieldedContracts, shieldedHref } from '@/chain/shielded';
+import { fundsKeyContext, shieldedContracts, shieldedHref } from '@/chain/shielded';
 import {
   SHIELDED_TIMING_LINE,
   STEALTH_LIMIT_LINE,
@@ -51,7 +51,7 @@ export function StealthToggle({ on, onChange, disabled = false }: { readonly on:
         <span className="font-medium">Hide the owner and the agent.</span>
         <span className="block text-[color:var(--color-muted)]">
           The mandate is owned by a new address drawn from your wallet’s keys, and the agent gets one too. Neither address names
-          your wallet, and your console finds them again from one signature. How you fund them decides what can still be linked.
+          your wallet, and your console finds them again from two signatures. How you fund them decides what can still be linked.
         </span>
         <span className="block text-[color:var(--color-muted)]">{STEALTH_LIMIT_LINE}</span>
       </span>
@@ -62,9 +62,10 @@ export function StealthToggle({ on, onChange, disabled = false }: { readonly on:
 /**
  * Creating a private mandate with a stealth owner and agent.
  *
- * One signature from the connected wallet derives the owner's keys. Two fresh stealth addresses are
- * drawn from them: the owner side sends the announcements and the create itself, signed in this
- * page, so the connected wallet never appears in those transactions. It needs gas first.
+ * Two signatures from the connected wallet derive the owner's keys: the viewing key, which opens the
+ * terms and finds the addresses again, and the funds key, which spends from them. Two fresh stealth
+ * addresses are drawn from those keys: the owner side sends the announcements and the create itself,
+ * signed in this page, so the connected wallet never appears in those transactions. It needs gas first.
  */
 export function StealthCreate({
   owner,
@@ -76,7 +77,9 @@ export function StealthCreate({
   readonly label: string;
 }) {
   const factory = privateContracts()?.CommittedMandateFactory;
+  const shielded = shieldedContracts();
   const { signMessageAsync } = useSignMessage();
+  const { signTypedDataAsync } = useSignTypedData();
   const [prepared, setPrepared] = useState<Prepared | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | undefined>(undefined);
@@ -87,17 +90,26 @@ export function StealthCreate({
   const sealed = useRef<{ terms: TermsDocument; ciphertext: Hex; salt: Hex } | undefined>(undefined);
 
   if (factory === undefined) return null;
+  if (shielded === undefined) {
+    return <Problem text="Hidden owners take their keys from a funds key bound to the shielded pool, and this network records no pool." />;
+  }
   if (created && prepared) return <StealthCreated created={created} prepared={prepared} />;
 
   const prepare = async () => {
     setBusy(true);
     setProblem(undefined);
     try {
-      const { planStealthMandate, viewingKeyMessage } = await import('@bursar/sdk');
-      const keys = await ownerKeysFrom(await signMessageAsync({ message: viewingKeyMessage(owner) }));
+      const { fundsKeyTypedData, planStealthMandate, viewingKeyMessage } = await import('@bursar/sdk');
+      const context = fundsKeyContext(owner, shielded);
+      const viewing = await signMessageAsync({ message: viewingKeyMessage(owner) });
+      const keys = await ownerKeysFrom(viewing, await signTypedDataAsync(fundsKeyTypedData(context)), context);
       setPrepared({ keys, plan: planStealthMandate(keys.stealth) });
-    } catch {
-      setProblem('The signature was declined, so no address was drawn.');
+    } catch (error) {
+      setProblem(
+        error instanceof Error && error.name === 'FundsKeySignatureError'
+          ? 'The funds-key signature did not come from this wallet, so no address was drawn. Smart-contract wallets cannot hold hidden owners.'
+          : 'A signature was declined, so no address was drawn.',
+      );
     } finally {
       setBusy(false);
     }
@@ -107,7 +119,8 @@ export function StealthCreate({
     if (!terms) return;
     setBusy(true);
     setProblem(undefined);
-    const { announceArgs, commit, createArgs, ERC5564_ANNOUNCER, erc5564AnnouncerAbi, sealTerms, writeTerms } = await import('@bursar/sdk');
+    const { announceArgs, commit, createArgs, ERC5564_ANNOUNCER, erc5564AnnouncerAbi, predictAccount, sealTerms, writeTerms } =
+      await import('@bursar/sdk');
     const { principal, agent } = current.plan;
     const finished = new Set(done);
     let step: StealthStep | undefined;
@@ -116,7 +129,14 @@ export function StealthCreate({
         if (step === 'create') {
           if (!sealed.current) {
             const doc = writeTerms({ ...terms, ...(label ? { label } : {}) });
-            sealed.current = { terms: doc, ciphertext: await sealTerms(current.keys.termsKey, principal.address, doc), salt: randomSalt() };
+            const salt = randomSalt();
+            const account = await predictAccount(rhcClient(), factory, {
+              principal: principal.address,
+              agent: agent.address,
+              salt,
+              commitment: commit(doc),
+            });
+            sealed.current = { terms: doc, ciphertext: await sealTerms(current.keys.termsKey, { account, version: 1 }, doc), salt };
           }
           const { terms: doc, ciphertext, salt } = sealed.current;
           const receipt = await sendFromStealth(principal.privateKey, {
@@ -153,11 +173,12 @@ export function StealthCreate({
     return (
       <div className="space-y-3">
         <p className="text-detail text-[color:var(--color-muted)]">
-          Your wallet signs one fixed message. The owner and agent addresses are drawn from the keys derived from it, in this
-          page. Signing costs nothing and moves nothing.
+          Your wallet signs twice. The first signature derives your viewing key, which opens the terms and only reads. The second
+          is shown in your wallet as controlling funds, because it does: the owner and agent addresses are drawn from the keys
+          derived from it, in this page. Neither costs anything. Sign the second one only here.
         </p>
         <Button tone="primary" onClick={() => void prepare()} disabled={busy || terms === undefined}>
-          {busy ? 'Waiting for the signature' : 'Draw the private addresses'}
+          {busy ? 'Waiting for the signatures' : 'Draw the private addresses'}
         </Button>
         {problem && <Problem text={problem} />}
       </div>

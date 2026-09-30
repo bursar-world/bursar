@@ -1,5 +1,5 @@
 import type { ShieldedDeployment } from '@bursar/core';
-import type { AssociationSet, OwnedNote, PoolEvents, RelayQuote, ShieldedKeys } from '@bursar/sdk';
+import type { AssociationSet, FundsKeyContext, OwnedNote, PoolEvents, RelayQuote, ShieldedKeys } from '@bursar/sdk';
 import { getAddress, isAddress } from 'viem';
 import type { Address, Hex } from 'viem';
 
@@ -18,6 +18,14 @@ import { CHAIN_ID } from './rhc';
 
 export function shieldedContracts(): ShieldedDeployment | undefined {
   return privateContracts()?.shielded;
+}
+
+/**
+ * What a funds-key signature is bound to: the wallet, this chain and the shielded pool. Without a
+ * pool on record there is no funds key, so no deposit keys and no hidden owners either.
+ */
+export function fundsKeyContext(account: Address, contracts: ShieldedDeployment): FundsKeyContext {
+  return { account, chainId: CHAIN_ID, pool: contracts.ShieldedPool };
 }
 
 /** Service endpoints, set at build time. Empty means not configured. */
@@ -195,9 +203,9 @@ export async function readAssociationSet(contracts: ShieldedDeployment, reading:
   });
 }
 
-export async function shieldedKeysFrom(signature: Hex): Promise<ShieldedKeys> {
+export async function shieldedKeysFrom(signature: Hex, context: FundsKeyContext): Promise<ShieldedKeys> {
   const { deriveShieldedKeys } = await import('@bursar/sdk');
-  return deriveShieldedKeys(signature);
+  return deriveShieldedKeys(signature, context);
 }
 
 export async function ownNotes(keys: ShieldedKeys, contracts: ShieldedDeployment, events: PoolEvents) {
@@ -213,6 +221,10 @@ export async function depositPrecommitment(keys: ShieldedKeys, contracts: Shield
 /**
  * Proves a withdrawal in this page and hands it to the relayer. The proof binds the recipient, the
  * fee and the relay contract, so the relayer can submit it and nothing else.
+ *
+ * The provider posts a new approved set every few minutes and the pool takes proofs against the
+ * newest only. When one lands between the proof and the submission, the pool and the set are read
+ * again and the withdrawal is proved again, a couple of times at most.
  */
 export async function withdrawThroughRelayer(args: {
   keys: ShieldedKeys;
@@ -222,6 +234,7 @@ export async function withdrawThroughRelayer(args: {
   recipient: Address;
   gasDrop: boolean;
   relayerUrl: string;
+  aspUrl: string | undefined;
   quote: RelayQuote;
   events: PoolEvents;
   set: AssociationSet;
@@ -237,16 +250,33 @@ export async function withdrawThroughRelayer(args: {
     processooor: contracts.ShieldedRelay,
     data: sdk.encodeRelayData({ recipient: args.recipient, feeRecipient: quote.feeRecipient, relayFeeBPS: BigInt(quote.feeBps) }),
   };
-  const { proof } = await proveWithdrawal({
-    note: args.note,
-    amount: args.amount,
-    change: sdk.changeSecrets(args.keys, args.note.label, BigInt(args.note.withdrawals)),
-    stateLeaves: args.events.leaves,
-    aspLabels: args.set.labels.map((label) => BigInt(label)),
-    context: sdk.withdrawalContext(withdrawal, scope),
-    artifacts: SHIELDED_ARTIFACT_URLS.withdraw,
+  const fresh = async (attempt: number): Promise<{ events: PoolEvents; set: AssociationSet }> => {
+    if (attempt === 1) return { events: args.events, set: args.set };
+    const reading = await readPool(contracts);
+    const set = await readAssociationSet(contracts, reading, args.aspUrl);
+    if (!setMatchesChain(set, reading.latestRoot)) {
+      throw new Error('The approved set changed and its replacement is not posted yet. Try again in a few minutes.');
+    }
+    return { events: reading.events, set };
+  };
+  return sdk.relayWithFreshProof({
+    relayerUrl: args.relayerUrl,
+    withdrawal,
+    gasDrop: args.gasDrop,
+    prove: async (attempt) => {
+      const { events, set } = await fresh(attempt);
+      const { proof } = await proveWithdrawal({
+        note: args.note,
+        amount: args.amount,
+        change: sdk.changeSecrets(args.keys, args.note.label, BigInt(args.note.withdrawals)),
+        stateLeaves: events.leaves,
+        aspLabels: set.labels.map((label) => BigInt(label)),
+        context: sdk.withdrawalContext(withdrawal, scope),
+        artifacts: SHIELDED_ARTIFACT_URLS.withdraw,
+      });
+      return proof;
+    },
   });
-  return sdk.submitRelay(args.relayerUrl, { withdrawal, proof: sdk.proofToWire(proof), gasDrop: args.gasDrop });
 }
 
 export async function ragequitProof(note: OwnedNote) {

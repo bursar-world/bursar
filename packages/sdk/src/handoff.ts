@@ -12,7 +12,7 @@
 import { getAddress, isAddress, isHex, type Address, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
-import type { TermsDocument } from './committed.js';
+import { readTermsDocument, type TermsDocument } from './committed.js';
 import { InvalidArgumentError } from './errors.js';
 
 export const AGENT_HANDOFF_KIND = 'bursar.agent-key';
@@ -77,8 +77,12 @@ export function readAgentHandoff(input: string | unknown): AgentHandoff {
   if (typeof agent !== 'string' || !isAddress(agent, { strict: false })) fail('The file names no agent.');
   if (typeof privateKey !== 'string' || !isHex(privateKey) || privateKey.length !== 66) fail('The file holds no private key.');
   if (typeof fromBlock !== 'number' || !Number.isInteger(fromBlock) || fromBlock < 0) fail('The file names no start block.');
-  const t = terms as Partial<TermsDocument> | undefined;
-  if (!t || t.v !== 1 || typeof t.salt !== 'string' || !Array.isArray(t.counterparties)) fail('The file holds no terms.');
+  let t: TermsDocument;
+  try {
+    t = readTermsDocument(terms);
+  } catch (error) {
+    return fail(`The file holds no usable terms: ${error instanceof Error ? error.message : String(error)}`);
+  }
   const derived = privateKeyToAccount(privateKey as Hex).address;
   if (derived.toLowerCase() !== (agent as string).toLowerCase()) fail('The private key in the file is not the agent it names.');
   return {
@@ -88,7 +92,7 @@ export function readAgentHandoff(input: string | unknown): AgentHandoff {
     mandate: getAddress(mandate as string),
     agent: derived,
     privateKey: privateKey as Hex,
-    terms: t as TermsDocument,
+    terms: t,
     fromBlock: fromBlock as number,
   };
 }

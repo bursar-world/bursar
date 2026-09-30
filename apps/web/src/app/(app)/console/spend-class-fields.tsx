@@ -1,6 +1,7 @@
 'use client';
 
 import { useId, useState } from 'react';
+import type { ReactNode } from 'react';
 
 import { SPEND_CLASSES, SPEND_CLASS_INFO, bareLabel, classLabel } from '@/chain/capabilities';
 import type { SpendClass } from '@/chain/capabilities';
@@ -27,21 +28,29 @@ export function classCapabilities(classes: ClassSelection, capabilities: readonl
   return capabilities.filter((entry) => classes[entry.spendClass]);
 }
 
-/** The three spend classes, as toggles, each with the capabilities allowed under it. */
+/**
+ * The spend classes, as toggles, each with the capabilities allowed under it. `only` narrows the
+ * classes offered, and `note` replaces the closing line where the capabilities are not written on
+ * chain one by one.
+ */
 export function SpendClassFields({
   classes,
   capabilities,
   onChange,
   disabled = false,
+  only = SPEND_CLASSES,
+  note,
 }: {
   readonly classes: ClassSelection;
   readonly capabilities: readonly ClassedCapability[];
   readonly onChange: (classes: ClassSelection, capabilities: readonly ClassedCapability[]) => void;
   readonly disabled?: boolean;
+  readonly only?: readonly SpendClass[];
+  readonly note?: ReactNode;
 }) {
   return (
     <div className="space-y-4">
-      {SPEND_CLASSES.map((id) => (
+      {only.map((id) => (
         <ClassRow
           key={id}
           spendClass={id}
@@ -57,9 +66,13 @@ export function SpendClassFields({
         />
       ))}
       <p className="text-note text-[color:var(--color-muted)]">
-        Each capability is written on chain as the hash of its class and name, such as{' '}
-        <code className="font-mono">service:gpu.render:1</code>. The contract checks that exact id, so a mandate that allows
-        only services refuses every agent hire.
+        {note ?? (
+          <>
+            Each capability is written on chain as the hash of its class and name, such as{' '}
+            <code className="font-mono">service:gpu.render:1</code>. The contract checks that exact id, so a mandate that
+            allows only services refuses every agent hire.
+          </>
+        )}
       </p>
     </div>
   );

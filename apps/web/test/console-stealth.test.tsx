@@ -3,6 +3,7 @@ import {
   ERC5564_ANNOUNCER,
   announceArgs,
   erc5564AnnouncerAbi,
+  fundsKeyTypedData,
   planStealthMandate,
   readAgentHandoff,
   viewingKeyMessage,
@@ -25,6 +26,7 @@ import {
   scanOwnedMandates,
   spareForAgent,
 } from '@/chain/stealth';
+import { fundsKeyContext, shieldedContracts } from '@/chain/shielded';
 import { addressSegment, ADDRESS_ROUTES } from '@/lib/path';
 
 const owner = privateKeyToAccount('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d');
@@ -33,9 +35,13 @@ const MANDATE = '0x1A118049d8a039e58BC5DC1e692c16Fa45037aBc' as Address;
 const USDG = '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168' as Address;
 const GWEI = 1_000_000_000n;
 
-async function ownerKeys() {
-  return ownerKeysFrom(await owner.signMessage({ message: viewingKeyMessage(owner.address) }));
+async function keysOf(account: typeof owner) {
+  const context = fundsKeyContext(account.address, shieldedContracts()!);
+  const viewing = await account.signMessage({ message: viewingKeyMessage(account.address) });
+  return ownerKeysFrom(viewing, await account.signTypedData(fundsKeyTypedData(context)), context);
 }
+
+const ownerKeys = () => keysOf(owner);
 
 function announcementLog(plan: ReturnType<typeof planStealthMandate>, role: 'principal' | 'agent', block: bigint): Log {
   const identity = plan[role];
@@ -96,7 +102,7 @@ describe('recovering private mandates', () => {
   it('finds the owner’s mandate and agent from announcements and reads its state', async () => {
     const keys = await ownerKeys();
     const plan = planStealthMandate(keys.stealth);
-    const stranger = planStealthMandate((await ownerKeysFrom(await privateKeyToAccount('0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a').signMessage({ message: 'x'.repeat(10) }))).stealth);
+    const stranger = planStealthMandate((await keysOf(privateKeyToAccount('0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a'))).stealth);
     const logs = [announcementLog(stranger, 'principal', 10n), announcementLog(plan, 'principal', 20n), announcementLog(plan, 'agent', 21n)];
 
     const client = {
@@ -115,6 +121,10 @@ describe('recovering private mandates', () => {
             return true;
           case 'revoked':
             return false;
+          case 'version':
+            return 2n;
+          case 'termsCommitment':
+            return 99n;
           case 'balanceOf':
             return 20_000n;
           default:
@@ -125,7 +135,7 @@ describe('recovering private mandates', () => {
 
     const found = await scanOwnedMandates({ keys: keys.stealth, factories: [FACTORY], fromBlock: 0n, client: client as never });
     expect(found).toHaveLength(1);
-    expect(found[0]).toMatchObject({ mandate: MANDATE, balance: 20_000n, paused: true, revoked: false, ownerGas: 7n, agentGas: 3n });
+    expect(found[0]).toMatchObject({ mandate: MANDATE, balance: 20_000n, paused: true, revoked: false, version: 2n, termsCommitment: 99n, ownerGas: 7n, agentGas: 3n });
     expect(found[0]?.principal.privateKey).toBe(plan.principal.privateKey);
     expect(found[0]?.agentMatch?.privateKey).toBe(plan.agent.privateKey);
   });
@@ -137,7 +147,7 @@ describe('recovering private mandates', () => {
       periodCap: 20_000n,
       periodLen: 86_400,
       totalCap: 20_000n,
-      classes: ['service'],
+      capabilities: ['service:gpu.render:1'],
       counterparties: ['0x5210D8df060A9D5ce4c1305045ED5c9548fca374'],
       expiry: 1_893_456_000,
     });
@@ -145,5 +155,15 @@ describe('recovering private mandates', () => {
     expect(file.name).toBe('bursar-agent-key-1a118049.json');
     const read = readAgentHandoff(file.body);
     expect(read).toMatchObject({ chainId: 4663, mandate: MANDATE, agent: plan.agent.address, fromBlock: 75_627_494 });
+  });
+});
+
+describe('the funds key', () => {
+  it('is bound to this chain and the recorded pool, and refuses the viewing-key signature', async () => {
+    const shielded = shieldedContracts()!;
+    const context = fundsKeyContext(owner.address, shielded);
+    expect(context).toEqual({ account: owner.address, chainId: 4663, pool: shielded.ShieldedPool });
+    const viewing = await owner.signMessage({ message: viewingKeyMessage(owner.address) });
+    await expect(ownerKeysFrom(viewing, viewing, context)).rejects.toThrow(/funds-key signature/);
   });
 });

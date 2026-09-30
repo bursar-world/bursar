@@ -8,7 +8,8 @@
 import { writeFileSync } from 'node:fs';
 
 import { shieldedArtifacts } from '@bursar/circuits/privacy-pools';
-import { getContractAddress, type Address, type Hex } from 'viem';
+import { getContractAddress, type Address } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 
 import {
   changeSecrets,
@@ -22,6 +23,7 @@ import {
   withdrawalContext,
 } from '../src/shielded.js';
 import { proveRagequit, proveWithdrawal } from '../src/shielded-prove.js';
+import { fundsKeyTypedData } from '../src/viewing-key.js';
 
 const CHAIN_ID = 4663;
 const ASSET: Address = '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168';
@@ -31,9 +33,13 @@ const POOL = getContractAddress({ from: '0x00000000000000000000000000000000000e0
 const RELAY = getContractAddress({ from: '0x00000000000000000000000000000000000e0003', nonce: 0n });
 const RECIPIENT: Address = '0x00000000000000000000000000000000000e0010';
 const FEE_RECIPIENT: Address = '0x00000000000000000000000000000000000e0011';
-const SIGNATURE: Hex = `0x${'ab'.repeat(32)}${'cd'.repeat(32)}1b`;
+// Withdraws straight from the pool as its own processooor; the test blocks it.
+const DIRECT: Address = '0x00000000000000000000000000000000000e0012';
+// The depositor's funds key: a real EIP-712 signature by a throwaway test wallet.
+const WALLET = privateKeyToAccount('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d');
+const context = { account: WALLET.address, chainId: CHAIN_ID, pool: POOL };
 
-const keys = deriveShieldedKeys(SIGNATURE);
+const keys = deriveShieldedKeys(await WALLET.signTypedData(fundsKeyTypedData(context)), context);
 const scope = scopeOf(POOL, CHAIN_ID, ASSET);
 const s1 = depositSecrets(keys, scope, 0n);
 const s2 = depositSecrets(keys, scope, 1n);
@@ -43,8 +49,8 @@ const stateLeaves = [note1.commitment, note2.commitment];
 const aspLabels = [note1.label, note2.label];
 const data = encodeRelayData({ recipient: RECIPIENT, feeRecipient: FEE_RECIPIENT, relayFeeBPS: 100n });
 
-async function withdrawVia(processooor: Address) {
-  const withdrawal = { processooor, data };
+async function withdrawVia(processooor: Address, withdrawalData = data) {
+  const withdrawal = { processooor, data: withdrawalData };
   return proveWithdrawal({
     note: note1,
     amount: 400_000n,
@@ -60,6 +66,7 @@ console.time('withdraw');
 const relayed = await withdrawVia(RELAY);
 console.timeEnd('withdraw');
 const viaEntrypoint = await withdrawVia(ENTRYPOINT);
+const direct = await withdrawVia(DIRECT, '0x');
 const ragequit = await proveRagequit(note2, shieldedArtifacts.commitment);
 
 const s = (v: bigint) => v.toString();
@@ -79,6 +86,7 @@ const fixture = {
   relayData: data,
   relayed: proofJson(relayed.proof),
   viaEntrypoint: proofJson(viaEntrypoint.proof),
+  direct: proofJson(direct.proof),
   ragequit: proofJson(ragequit),
 };
 // Foundry's JSON parser reads large numbers as strings only when quoted; keep every value a string.

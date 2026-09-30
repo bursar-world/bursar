@@ -7,7 +7,7 @@
  * little ETH first.
  */
 
-import { canonicalStringify, committedMandateAccountAbi, toCapabilityId } from '@bursar/core';
+import { canonicalStringify, classLabel, classOfLabel, committedMandateAccountAbi } from '@bursar/core';
 import { createWalletClient, custom, type Address, type Hex, type PublicClient, type TransactionReceipt } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
@@ -20,7 +20,10 @@ import { publishedViewingKey, sealedURI } from './seal.js';
 export type PrivatePayment = {
   readonly payee: Address;
   readonly amount: bigint;
-  /** A class-prefixed capability label such as `service:gpu.render:1`, or its 32-byte id. */
+  /**
+   * A capability from the terms, such as `service:gpu.render:1`. A bare label (`gpu.render:1`) is
+   * placed in `spendClass`. The proof binds it, and the escrow lock carries exactly its id.
+   */
   readonly capability: string;
   readonly spec: JobSpec;
   readonly spendClass?: CommittedClass;
@@ -37,7 +40,7 @@ export type PrivatePaymentReceipt = {
 
 type Client = Pick<
   PublicClient,
-  'getLogs' | 'readContract' | 'getTransaction' | 'getBlock' | 'simulateContract' | 'estimateContractGas' | 'waitForTransactionReceipt' | 'request' | 'chain'
+  'getLogs' | 'readContract' | 'getBlock' | 'simulateContract' | 'estimateContractGas' | 'waitForTransactionReceipt' | 'request' | 'chain'
 >;
 
 export function privateAgent(handoff: AgentHandoff, client: Client) {
@@ -45,7 +48,8 @@ export function privateAgent(handoff: AgentHandoff, client: Client) {
   const wallet = createWalletClient({ account, chain: client.chain, transport: custom({ request: client.request }) });
 
   async function pay(payment: PrivatePayment): Promise<PrivatePaymentReceipt> {
-    const spendClass = payment.spendClass ?? 'service';
+    const capability =
+      classOfLabel(payment.capability) === undefined ? classLabel(payment.spendClass ?? 'service', payment.capability) : payment.capability;
     const state = await recoverState(client, handoff.mandate, handoff.terms, BigInt(handoff.fromBlock));
     const document = canonicalStringify(jobDocument(payment.spec), 'spec');
     const viewingKey = await publishedViewingKey(client, payment.payee);
@@ -58,17 +62,13 @@ export function privateAgent(handoff: AgentHandoff, client: Client) {
       mandate: handoff.mandate,
       payee: payment.payee,
       amount: payment.amount,
-      spendClass,
+      capability,
       provenAt: latest.timestamp + 90n,
     });
     const args = spendArgs(proven, {
-      payee: payment.payee,
-      capabilityId: toCapabilityId(payment.capability),
       inputCommit: jobCommit(payment.spec),
       inputURI,
-      amount: payment.amount,
       deadline: latest.timestamp + BigInt(payment.deliverWithin ?? 6 * 3600),
-      spendClass,
     });
     const { result, request } = await client.simulateContract({
       address: handoff.mandate,

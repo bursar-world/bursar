@@ -1,5 +1,5 @@
 import { committedMandateAccountAbi, settlementAssetAbi } from '@bursar/core';
-import type { AgentHandoff, RecoveredMandate, StealthKeys, TermsDocument } from '@bursar/sdk';
+import type { AgentHandoff, FundsKeyContext, RecoveredMandate, StealthKeys, TermsDocument } from '@bursar/sdk';
 import { createWalletClient, custom } from 'viem';
 import type { Abi, Address, ContractFunctionArgs, ContractFunctionName, Hex, PublicClient, TransactionReceipt } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -10,7 +10,7 @@ import { CHAIN, CHAIN_ID } from './rhc';
 /**
  * Private owners: a mandate whose owner and agent are fresh stealth addresses drawn from the
  * connected wallet's keys. The stealth keys live in this page's memory for as long as it is open and
- * are derived again from the same wallet signature next time; nothing here is stored.
+ * are derived again from the same two wallet signatures next time; nothing here is stored.
  */
 
 export const STEALTH_LIMIT_LINE =
@@ -116,6 +116,9 @@ export type OwnedPrivateMandate = RecoveredMandate & {
   readonly balance: bigint;
   readonly paused: boolean;
   readonly revoked: boolean;
+  /** The terms in force: their version and the commitment every proof is checked against. */
+  readonly version: bigint;
+  readonly termsCommitment: bigint;
   /** ETH on the owner-side address, which pays for pause and resume. */
   readonly ownerGas: bigint;
   readonly agentGas: bigint;
@@ -142,25 +145,33 @@ export async function scanOwnedMandates(args: {
   return Promise.all(
     recovered.map(async (entry) => {
       const abi = committedMandateAccountAbi;
-      const [asset, paused, revoked, ownerGas, agentGas] = await Promise.all([
+      const [asset, paused, revoked, version, termsCommitment, ownerGas, agentGas] = await Promise.all([
         client.readContract({ address: entry.mandate, abi, functionName: 'settlementAsset' }),
         client.readContract({ address: entry.mandate, abi, functionName: 'paused' }),
         client.readContract({ address: entry.mandate, abi, functionName: 'revoked' }),
+        client.readContract({ address: entry.mandate, abi, functionName: 'version' }),
+        client.readContract({ address: entry.mandate, abi, functionName: 'termsCommitment' }),
         client.getBalance({ address: entry.principal.stealthAddress }),
         client.getBalance({ address: entry.agent }),
       ]);
       const balance = await client.readContract({ address: asset, abi: settlementAssetAbi, functionName: 'balanceOf', args: [entry.mandate] });
-      return { ...entry, balance, paused, revoked, ownerGas, agentGas };
+      return { ...entry, balance, paused, revoked, version, termsCommitment, ownerGas, agentGas };
     }),
   );
 }
 
 export type OwnerKeys = { readonly stealth: StealthKeys; readonly termsKey: Uint8Array };
 
-/** The owner's stealth keys and terms key, from the one viewing-key signature. */
-export async function ownerKeysFrom(signature: Hex): Promise<OwnerKeys> {
+/**
+ * The owner's stealth keys and terms key. The viewing-key signature gives the terms key and the
+ * viewing half; the funds-key signature, checked against the wallet, gives the spending half.
+ */
+export async function ownerKeysFrom(viewingSignature: Hex, fundsSignature: Hex, context: FundsKeyContext): Promise<OwnerKeys> {
   const { deriveStealthKeys, deriveViewingKey } = await import('@bursar/sdk');
-  return { stealth: deriveStealthKeys(signature), termsKey: deriveViewingKey(signature).termsKey };
+  return {
+    stealth: deriveStealthKeys(viewingSignature, fundsSignature, context),
+    termsKey: deriveViewingKey(viewingSignature).termsKey,
+  };
 }
 
 /** ETH to three significant figures, enough for the gas amounts this chain charges. */

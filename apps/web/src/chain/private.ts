@@ -1,6 +1,6 @@
 import { committedMandateAccountAbi, committedMandateFactoryAbi, escrowAbi, privacyDeployment, settlementAssetAbi } from '@bursar/core';
 import type { PrivacyDeployment } from '@bursar/core';
-import type { CommittedClass, TermsInput } from '@bursar/sdk';
+import type { CommittedClass, TermsDocument, TermsInput } from '@bursar/sdk';
 import { getAddress, isAddress, parseEventLogs } from 'viem';
 import type { Address } from 'viem';
 
@@ -30,6 +30,12 @@ export const PERIODS = [
   { seconds: 2_592_000, label: '30 days' },
 ] as const;
 
+/** The classes a private mandate can pay, because its escrow locks carry them. Kept here so the form never loads the SDK. */
+export const PRIVATE_CLASSES: readonly CommittedClass[] = ['service', 'hire'];
+
+/** One capability in the form, named without its class namespace. */
+export type PrivateCapability = { readonly spendClass: CommittedClass; readonly label: string };
+
 /** The private terms as a person types them. */
 export type PrivateForm = {
   readonly perCall: string;
@@ -37,6 +43,8 @@ export type PrivateForm = {
   readonly periodLen: number;
   readonly total: string;
   readonly classes: Readonly<Record<CommittedClass, boolean>>;
+  /** Only the capabilities of a class that is on are committed. */
+  readonly capabilities: readonly PrivateCapability[];
   readonly counterparties: readonly Address[];
   /** ISO date. Required: a private mandate always ends. */
   readonly expiry: string;
@@ -48,9 +56,34 @@ export const EMPTY_PRIVATE_FORM: PrivateForm = {
   periodLen: 86_400,
   total: '',
   classes: { service: true, hire: false },
+  capabilities: [],
   counterparties: [],
   expiry: '',
 };
+
+const decimalUsdg = (atomic: string): string => {
+  const value = BigInt(atomic);
+  const fraction = (value % 1_000_000n).toString().padStart(6, '0').replace(/0+$/, '');
+  return fraction === '' ? (value / 1_000_000n).toString() : `${value / 1_000_000n}.${fraction}`;
+};
+
+/** A document's terms back in the form, for an amendment that starts from what is in force. */
+export function formFromTerms(terms: TermsDocument): PrivateForm {
+  const capabilities = terms.capabilities.flatMap((label): PrivateCapability[] => {
+    const spendClass = PRIVATE_CLASSES.find((c) => label.startsWith(`${c}:`));
+    return spendClass ? [{ spendClass, label: label.slice(spendClass.length + 1) }] : [];
+  });
+  return {
+    perCall: decimalUsdg(terms.perCallCap),
+    periodCap: decimalUsdg(terms.periodCap),
+    periodLen: terms.periodLen,
+    total: decimalUsdg(terms.totalCap),
+    classes: { service: capabilities.some((c) => c.spendClass === 'service'), hire: capabilities.some((c) => c.spendClass === 'hire') },
+    capabilities,
+    counterparties: terms.counterparties,
+    expiry: new Date(terms.expiry * 1000).toISOString().slice(0, 10),
+  };
+}
 
 export type PrivateReading = { readonly terms: TermsInput | undefined; readonly problems: readonly string[] };
 
@@ -81,8 +114,9 @@ export function readPrivateForm(form: PrivateForm, now: number = Date.now()): Pr
   if (totalCap !== undefined && totalCap > PRIVATE_TOTAL_CEILING) {
     problems.push('A private mandate can have a total budget of at most $25.00 for now.');
   }
-  const classes = (Object.keys(form.classes) as CommittedClass[]).filter((id) => form.classes[id]);
-  if (classes.length === 0) problems.push('Allow services, agent hires, or both.');
+  const capabilities = form.capabilities.filter((entry) => form.classes[entry.spendClass]).map((entry) => `${entry.spendClass}:${entry.label}`);
+  if (!PRIVATE_CLASSES.some((id) => form.classes[id])) problems.push('Allow services, agent hires, or both.');
+  else if (capabilities.length === 0) problems.push('Name at least one capability this mandate may pay for.');
   if (form.counterparties.length === 0) problems.push('Name at least one provider this mandate may pay.');
 
   const expiryMs = Date.parse(form.expiry);
@@ -95,7 +129,7 @@ export function readPrivateForm(form: PrivateForm, now: number = Date.now()): Pr
     return { terms: undefined, problems };
   }
   return {
-    terms: { perCallCap, periodCap, periodLen: form.periodLen, totalCap, classes, counterparties: form.counterparties, expiry },
+    terms: { perCallCap, periodCap, periodLen: form.periodLen, totalCap, capabilities, counterparties: form.counterparties, expiry },
     problems: [],
   };
 }
@@ -219,8 +253,32 @@ export function readAddressList(text: string): { readonly addresses: readonly Ad
   return { addresses, rejected };
 }
 
+/**
+ * What a failed opening of the terms means to the owner. Read by name, so the pages that call it do
+ * not have to load the SDK first.
+ */
+export function termsProblem(error: unknown): string {
+  const name = error instanceof Error ? error.name : '';
+  if (name === 'TermsLockedError') return 'This wallet’s viewing key does not open these terms. Connect the wallet that created the mandate.';
+  if (name === 'TermsMismatchError') {
+    return 'The published terms open, but they are not the terms this mandate committed to, so they are not shown. Every payment is still held to the committed terms.';
+  }
+  return 'The terms could not be opened. The signature was declined or the network did not answer.';
+}
+
 export const TERMS_FILE_TYPE = 'application/json';
 
 export function termsFileName(address: Address): string {
   return `bursar-private-terms-${address.slice(2, 10).toLowerCase()}.json`;
+}
+
+/** Saves the readable terms as the file the agent proves against. */
+export function downloadTerms(address: Address, terms: TermsDocument): void {
+  const blob = new Blob([JSON.stringify(terms, null, 2)], { type: TERMS_FILE_TYPE });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = termsFileName(address);
+  link.click();
+  URL.revokeObjectURL(url);
 }

@@ -2,12 +2,12 @@
  * Stealth principals and agents: ERC-5564 scheme 1 (secp256k1 with view tags).
  *
  * A private mandate is controlled by an address nobody can tie to the owner's wallet. The owner's
- * meta-address is a spending key and a viewing key, both derived from one wallet signature (see
- * `viewing-key.ts`). For each mandate the console draws two fresh stealth addresses from it, one
- * for the owner side and one for the agent, and announces both through the ERC-5564 Announcer.
- * The announcement carries an ephemeral public key and a one-byte view tag; only the holder of the
- * viewing key can tell which announcements are its own, and only the holder of the spending key
- * can compute the private key of the address.
+ * meta-address is a spending key, from the funds-key signature, and a viewing key, from the
+ * viewing-key signature (see `viewing-key.ts`). For each mandate the console draws two fresh
+ * stealth addresses from it, one for the owner side and one for the agent, and announces both
+ * through the ERC-5564 Announcer. The announcement carries an ephemeral public key and a one-byte
+ * view tag; only the holder of the viewing key can tell which announcements are its own, and only
+ * the holder of the spending key can compute the private key of the address.
  *
  * The derivation follows the scheme-1 reference implementation (ScopeLift stealth-address-sdk):
  * the shared secret is the compressed ECDH point, hashed with keccak256; the view tag is its first
@@ -33,7 +33,7 @@ import { publicKeyToAddress } from 'viem/accounts';
 
 import { InvalidArgumentError } from './errors.js';
 import { ERC5564_SCHEME_SECP256K1, ERC6538_REGISTRY, encodeMetaAddress, erc6538Abi } from './seal.js';
-import { deriveSpendingKey, deriveViewingKey } from './viewing-key.js';
+import { deriveSpendingKey, deriveViewingKey, type FundsKeyContext } from './viewing-key.js';
 
 /** The singleton ERC-5564 Announcer, at the same address on every chain that has it (4663 does). */
 export const ERC5564_ANNOUNCER: Address = '0x55649E01B5Df198D18D95b5cc5051630cfD45564';
@@ -179,7 +179,7 @@ export function computeStealthKey(args: {
   return scalarHex(key);
 }
 
-/** The owner's ERC-5564 keys, all from the one viewing-key signature. */
+/** The owner's ERC-5564 keys: the viewing half from the viewing-key signature, the spending half from the funds key. */
 export type StealthKeys = {
   readonly spendingPrivateKey: Hex;
   readonly spendingPublicKey: Hex;
@@ -189,9 +189,9 @@ export type StealthKeys = {
   readonly metaAddress: Hex;
 };
 
-export function deriveStealthKeys(signature: Hex): StealthKeys {
-  const viewing = deriveViewingKey(signature);
-  const spending = deriveSpendingKey(signature);
+export function deriveStealthKeys(viewingSignature: Hex, fundsSignature: Hex, context: FundsKeyContext): StealthKeys {
+  const viewing = deriveViewingKey(viewingSignature);
+  const spending = deriveSpendingKey(fundsSignature, context);
   return {
     spendingPrivateKey: spending.privateKey,
     spendingPublicKey: spending.publicKey,

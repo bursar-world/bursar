@@ -242,24 +242,52 @@ export {
   viewingKeyOfMetaAddress,
 } from './seal.js';
 
-export { VIEWING_KEY_VERSION, deriveSpendingKey, deriveViewingKey, viewingKeyMessage } from './viewing-key.js';
-export type { ViewingKey } from './viewing-key.js';
+export {
+  FUNDS_KEY_VERSION,
+  FUNDS_KEY_WARNING,
+  FundsKeySignatureError,
+  VIEWING_KEY_VERSION,
+  deriveSpendingKey,
+  deriveViewingKey,
+  fundsKeyMaterial,
+  fundsKeyTypedData,
+  viewingKeyMessage,
+} from './viewing-key.js';
+export type { FundsKeyContext, ViewingKey } from './viewing-key.js';
 
 export {
   COMMITTED_CLASSES,
+  FRESH_STATE,
   TermsLockedError,
+  TermsMismatchError,
+  amendArgs,
+  capabilityIdsOf,
+  carriedState,
   circuitTerms,
-  classMaskOf,
+  classesOf,
   commit,
+  committedCapability,
   committedMandateAccountAbi,
   committedMandateFactoryAbi,
   createArgs,
   latestSealedTerms,
   openTerms,
+  predictAccount,
+  readTermsDocument,
+  recoverState,
   sealTerms,
+  startOf,
   writeTerms,
 } from './committed.js';
-export type { CommittedClass, Commitment, SealedTermsRecord, TermsDocument, TermsInput } from './committed.js';
+export type {
+  CommittedClass,
+  Commitment,
+  CounterState,
+  SealedFor,
+  SealedTermsRecord,
+  TermsDocument,
+  TermsInput,
+} from './committed.js';
 
 export { disclosureSlice, openDisclosure } from './disclosure.js';
 export type { DisclosureSlice, OpenedDisclosure } from './disclosure.js';
@@ -311,12 +339,14 @@ export {
   changeSecrets,
   commitmentOf,
   decodeRelayData,
+  deriveLegacyShieldedKeys,
   deriveShieldedKeys,
   depositSecrets,
   encodeRelayData,
   fetchAssociationSet,
   fetchPoolEvents,
   fetchRelayQuote,
+  isStaleSetRefusal,
   labelOf,
   leanProof,
   leanRoot,
@@ -329,7 +359,9 @@ export {
   ragequitInput,
   randomShieldedKeys,
   recoverNotes,
+  relayWithFreshProof,
   scopeOf,
+  ShieldedServiceError,
   shieldedEntrypointAbi,
   shieldedKeyFile,
   shieldedPoolAbi,

@@ -6,7 +6,6 @@ import { isBursarError, privacyDeployment } from '@bursar/core';
 import {
   decodeRelayData,
   depositSecrets,
-  deriveShieldedKeys,
   labelOf,
   leanRoot,
   noteOf,
@@ -28,7 +27,10 @@ const deployment = privacyDeployment(4663)?.shielded;
 if (deployment === undefined) throw new Error('the 4663 record has no shielded pool');
 const D = deployment;
 
-const keys = deriveShieldedKeys(`0x${'ab'.repeat(32)}${'cd'.repeat(32)}1b`);
+const keys: ShieldedKeys = {
+  masterNullifier: 6968148174701025591958108559111589585022819118975213753984376136686489770738n,
+  masterSecret: 2453207523900687570215845775606449979013423318585098943477694010259938415376n,
+};
 const scope = BigInt(D.scope);
 const DEPOSITOR: Address = '0x877c349EFb5926082C413833E8055F0991185c61';
 const BLOCKED: Address = '0x000000000000000000000000000000000000dEaD';

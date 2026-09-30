@@ -16,7 +16,7 @@ import { circuitTerms, type TermsDocument } from './committed.js';
 import { openText, seal } from './seal.js';
 
 export type DisclosureSlice = {
-  readonly v: 1;
+  readonly v: 2;
   readonly escrow: Address;
   readonly lockId: string;
   readonly input: unknown;
@@ -26,7 +26,7 @@ export type DisclosureSlice = {
     readonly periodCap: string;
     readonly periodLen: string;
     readonly totalCap: string;
-    readonly classMask: string;
+    readonly capabilityRoot: string;
     readonly counterpartyRoot: string;
     readonly expiry: string;
     readonly salt: string;
@@ -56,7 +56,7 @@ export async function disclosureSlice(args: {
       periodCap: t.periodCap.toString(),
       periodLen: t.periodLen.toString(),
       totalCap: t.totalCap.toString(),
-      classMask: t.classMask.toString(),
+      capabilityRoot: t.capabilityRoot.toString(),
       counterpartyRoot: t.counterpartyRoot.toString(),
       expiry: t.expiry.toString(),
       salt: t.salt.toString(),
@@ -66,7 +66,7 @@ export async function disclosureSlice(args: {
     };
   }
   const slice: DisclosureSlice = {
-    v: 1,
+    v: 2,
     escrow: args.escrow,
     lockId: args.lockId.toString(),
     input: args.input,
