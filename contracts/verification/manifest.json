@@ -400,7 +400,7 @@
   },
   "v3-AdminTimelock": {
     "address": "0xD91A6577828424E386900D0bB41596c6eF3BF8DF",
-    "commit": "ff24cb1",
+    "commit": "eeaa75d",
     "contract": "src/AdminTimelock.sol:AdminTimelock",
     "compiler": "v0.8.24+commit.e11b9ed9",
     "optimizer": "enabled, 200 runs",
@@ -412,7 +412,7 @@
   },
   "v3-Reputation": {
     "address": "0xF2510fB02BaE866fD307CE5f48BBe1B1C2E17238",
-    "commit": "ff24cb1",
+    "commit": "eeaa75d",
     "contract": "src/Reputation.sol:Reputation",
     "compiler": "v0.8.24+commit.e11b9ed9",
     "optimizer": "enabled, 200 runs",
@@ -424,7 +424,7 @@
   },
   "v3-Escrow": {
     "address": "0x68D4aD683b5519C785Dde9F0ee0eE09dB2D40919",
-    "commit": "ff24cb1",
+    "commit": "eeaa75d",
     "contract": "src/Escrow.sol:Escrow",
     "compiler": "v0.8.24+commit.e11b9ed9",
     "optimizer": "enabled, 200 runs",
@@ -436,7 +436,7 @@
   },
   "v3-OracleRegistry": {
     "address": "0x20E75139996fFf7B3158DF28Bf133b326DCD2BdF",
-    "commit": "ff24cb1",
+    "commit": "eeaa75d",
     "contract": "src/OracleRegistry.sol:OracleRegistry",
     "compiler": "v0.8.24+commit.e11b9ed9",
     "optimizer": "enabled, 200 runs",
@@ -448,7 +448,7 @@
   },
   "v3-AgentRegistry": {
     "address": "0xCa7b01237a43a515FbFBB5BA3e0Fed7e953139c9",
-    "commit": "ff24cb1",
+    "commit": "eeaa75d",
     "contract": "src/AgentRegistry.sol:AgentRegistry",
     "compiler": "v0.8.24+commit.e11b9ed9",
     "optimizer": "enabled, 200 runs",
@@ -460,7 +460,7 @@
   },
   "v3-MandateAccountFactory": {
     "address": "0x946FFE695eCc8Ceb201Cf3Dd07dBd302e289Fd07",
-    "commit": "ff24cb1",
+    "commit": "eeaa75d",
     "contract": "src/MandateAccountFactory.sol:MandateAccountFactory",
     "compiler": "v0.8.24+commit.e11b9ed9",
     "optimizer": "enabled, 200 runs",
@@ -472,7 +472,7 @@
   },
   "v3-Staking": {
     "address": "0x31CbD06003089B00897F0d7e3c283C66a1768d9A",
-    "commit": "ff24cb1",
+    "commit": "eeaa75d",
     "contract": "src/token/Staking.sol:Staking",
     "compiler": "v0.8.24+commit.e11b9ed9",
     "optimizer": "enabled, 200 runs",
@@ -484,7 +484,7 @@
   },
   "v3-Buyback": {
     "address": "0x51a88fb749738CB31ddb1F35A426ab2189F45eab",
-    "commit": "ff24cb1",
+    "commit": "eeaa75d",
     "contract": "src/token/Buyback.sol:Buyback",
     "compiler": "v0.8.24+commit.e11b9ed9",
     "optimizer": "enabled, 200 runs",
@@ -496,7 +496,7 @@
   },
   "v3-V4LiquiditySeeder": {
     "address": "0x2cD0c0f114A4E7A20EF7967355E0986D0F82e125",
-    "commit": "ff24cb1",
+    "commit": "eeaa75d",
     "contract": "src/token/V4LiquiditySeeder.sol:V4LiquiditySeeder",
     "compiler": "v0.8.24+commit.e11b9ed9",
     "optimizer": "enabled, 200 runs",
@@ -508,7 +508,7 @@
   },
   "v3-AssetRegistry": {
     "address": "0x91BbeFa8d36aFE097D7579053efEd2EA7ebb6F0E",
-    "commit": "ff24cb1",
+    "commit": "eeaa75d",
     "contract": "src/rwa/AssetRegistry.sol:AssetRegistry",
     "compiler": "v0.8.24+commit.e11b9ed9",
     "optimizer": "enabled, 200 runs",
@@ -520,7 +520,7 @@
   },
   "v3-PriceGuard": {
     "address": "0xEcCDd1cBb5474cBe98f3038A864182F2766dFd8b",
-    "commit": "ff24cb1",
+    "commit": "eeaa75d",
     "contract": "src/rwa/PriceGuard.sol:PriceGuard",
     "compiler": "v0.8.24+commit.e11b9ed9",
     "optimizer": "enabled, 200 runs",
@@ -532,7 +532,7 @@
   },
   "v3-StockSpendRouter": {
     "address": "0x6419E4aD018ca61775C4dc98AdfcB214425F43B4",
-    "commit": "ff24cb1",
+    "commit": "eeaa75d",
     "contract": "src/rwa/StockSpendRouter.sol:StockSpendRouter",
     "compiler": "v0.8.24+commit.e11b9ed9",
     "optimizer": "enabled, 200 runs",
@@ -544,7 +544,7 @@
   },
   "v3-TreasuryPark": {
     "address": "0x2c49571a26bb090BAEa3D295B64D7230287e7459",
-    "commit": "ff24cb1",
+    "commit": "eeaa75d",
     "contract": "src/rwa/TreasuryPark.sol:TreasuryPark",
     "compiler": "v0.8.24+commit.e11b9ed9",
     "optimizer": "enabled, 200 runs",
@@ -556,7 +556,7 @@
   },
   "v3-adapters-SGOV": {
     "address": "0xF757F9c79d4C737Eb6D132c43527949B58Ce5fBA",
-    "commit": "ff24cb1",
+    "commit": "eeaa75d",
     "contract": "src/rwa/adapters/RobinhoodStockAdapter.sol:RobinhoodStockAdapter",
     "compiler": "v0.8.24+commit.e11b9ed9",
     "optimizer": "enabled, 200 runs",
@@ -568,7 +568,7 @@
   },
   "v3-adapters-USDG": {
     "address": "0x8c824083F77d7d8A57d5Ca4fA9554b4688a7793d",
-    "commit": "ff24cb1",
+    "commit": "eeaa75d",
     "contract": "src/rwa/adapters/UsdgAdapter.sol:UsdgAdapter",
     "compiler": "v0.8.24+commit.e11b9ed9",
     "optimizer": "enabled, 200 runs",
@@ -580,7 +580,7 @@
   },
   "v3-CreditPool": {
     "address": "0x60736a2395F3333BB7f822CaBE5ed893F85AA15D",
-    "commit": "ff24cb1",
+    "commit": "eeaa75d",
     "contract": "src/rwa/CreditPool.sol:CreditPool",
     "compiler": "v0.8.24+commit.e11b9ed9",
     "optimizer": "enabled, 200 runs",
@@ -592,7 +592,7 @@
   },
   "v3-CollateralVault": {
     "address": "0xc1F22f29cB72d5b5CC58277E5F9c2EC2BC311b6C",
-    "commit": "ff24cb1",
+    "commit": "eeaa75d",
     "contract": "src/rwa/CollateralVault.sol:CollateralVault",
     "compiler": "v0.8.24+commit.e11b9ed9",
     "optimizer": "enabled, 200 runs",
@@ -604,7 +604,7 @@
   },
   "v3-WithinMandateVerifier": {
     "address": "0x26B780AfF35Db0C371A2c33B8E48AA1c61962Ac3",
-    "commit": "ff24cb1",
+    "commit": "eeaa75d",
     "contract": "src/zk/WithinMandateVerifier.sol:WithinMandateVerifier",
     "compiler": "v0.8.24+commit.e11b9ed9",
     "optimizer": "enabled, 200 runs",
@@ -616,7 +616,7 @@
   },
   "v3-CommittedMandateFactory": {
     "address": "0xBF48A1e16203401432caE992F3355A4Cc3a0D9cd",
-    "commit": "ff24cb1",
+    "commit": "eeaa75d",
     "contract": "src/privacy/CommittedMandateFactory.sol:CommittedMandateFactory",
     "compiler": "v0.8.24+commit.e11b9ed9",
     "optimizer": "enabled, 200 runs",
@@ -628,7 +628,7 @@
   },
   "v3-DisclosureRegistry": {
     "address": "0x3F805111312Eed1076278f515D3fD2cA9370345a",
-    "commit": "ff24cb1",
+    "commit": "eeaa75d",
     "contract": "src/privacy/DisclosureRegistry.sol:DisclosureRegistry",
     "compiler": "v0.8.24+commit.e11b9ed9",
     "optimizer": "enabled, 200 runs",
@@ -640,7 +640,7 @@
   },
   "v3-SolvencyLog": {
     "address": "0x21811Ce7994fB6E49D71502b8ad13c22771B1aF3",
-    "commit": "ff24cb1",
+    "commit": "eeaa75d",
     "contract": "src/privacy/SolvencyLog.sol:SolvencyLog",
     "compiler": "v0.8.24+commit.e11b9ed9",
     "optimizer": "enabled, 200 runs",
@@ -652,7 +652,7 @@
   },
   "v3-WithdrawalVerifier": {
     "address": "0xD9869A7a4b8C878558D09aF705D9F81da0f864FE",
-    "commit": "ff24cb1",
+    "commit": "eeaa75d",
     "contract": "vendor/privacy-pools-core/src/contracts/verifiers/WithdrawalVerifier.sol:WithdrawalVerifier",
     "compiler": "v0.8.28+commit.7893614a",
     "optimizer": "enabled, 200 runs",
@@ -667,7 +667,7 @@
   },
   "v3-CommitmentVerifier": {
     "address": "0x0A36E95bAc3C354E27223c4033842Eec786690e3",
-    "commit": "ff24cb1",
+    "commit": "eeaa75d",
     "contract": "vendor/privacy-pools-core/src/contracts/verifiers/CommitmentVerifier.sol:CommitmentVerifier",
     "compiler": "v0.8.28+commit.7893614a",
     "optimizer": "enabled, 200 runs",
@@ -682,7 +682,7 @@
   },
   "v3-EntrypointImplementation": {
     "address": "0xe3d710744971B17bBC05228d66579338D4d0B12b",
-    "commit": "ff24cb1",
+    "commit": "eeaa75d",
     "contract": "vendor/privacy-pools-core/src/contracts/Entrypoint.sol:Entrypoint",
     "compiler": "v0.8.28+commit.7893614a",
     "optimizer": "enabled, 200 runs",
@@ -697,7 +697,7 @@
   },
   "v3-Entrypoint": {
     "address": "0x8baf2B9fB7D779651c2Dfd59C71ba0D2de3135F0",
-    "commit": "ff24cb1",
+    "commit": "eeaa75d",
     "contract": "lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy",
     "compiler": "v0.8.28+commit.7893614a",
     "optimizer": "enabled, 200 runs",
@@ -712,7 +712,7 @@
   },
   "v3-ShieldedPool": {
     "address": "0x91F91bD9584D5fB57e9d2761728452c95b7b11A4",
-    "commit": "ff24cb1",
+    "commit": "eeaa75d",
     "contract": "src/shielded/ShieldedPool.sol:ShieldedPool",
     "compiler": "v0.8.28+commit.7893614a",
     "optimizer": "enabled, 200 runs",
@@ -727,7 +727,7 @@
   },
   "v3-ShieldedRelay": {
     "address": "0xc82CdEba05915F65E58a975dFb01dC9FD9CEfECc",
-    "commit": "ff24cb1",
+    "commit": "eeaa75d",
     "contract": "src/shielded/ShieldedRelay.sol:ShieldedRelay",
     "compiler": "v0.8.28+commit.7893614a",
     "optimizer": "enabled, 200 runs",
@@ -739,5 +739,41 @@
     "constructorArgs": "00000000000000000000000091f91bd9584d5fb57e9d2761728452c95b7b11a4000000000000000000000000e10b6f6b275de231345c20d14ab812db62151b0000000000000000000000000000000000000000000000000000000000000001f4",
     "match": "exact",
     "standardJsonBytes": 69546
+  },
+  "v3-exampleMandate": {
+    "address": "0x4a373BFCc5bb36dc6cA10C407189c45eb40058E5",
+    "commit": "eeaa75d",
+    "contract": "src/MandateAccount.sol:MandateAccount",
+    "compiler": "v0.8.24+commit.e11b9ed9",
+    "optimizer": "enabled, 200 runs",
+    "evmVersion": "cancun",
+    "libraries": {},
+    "constructorArgs": "000000000000000000000000877c349efb5926082c413833e8055f0991185c61000000000000000000000000877c349efb5926082c413833e8055f0991185c610000000000000000000000005fc5360d0400a0fd4f2af552add042d716f1d16800000000000000000000000068d4ad683b5519c785dde9f0ee0ee09db2d4091900000000000000000000000000000000000000000000000000000000000186a0000000000000000000000000000000000000000000000000000000000007a12000000000000000000000000000000000000000000000000000000000001e848000000000000000000000000000000000000000000000000000000000000151800000000000000000000000000000000000000000000000000000000000278d0000000000000000000000000000000000000000000000000000000000000186a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000f42400000000000000000000000000000000000000000000000000000000000000000",
+    "match": "exact",
+    "standardJsonBytes": 222765
+  },
+  "v3-exampleCollateralMandate": {
+    "address": "0x6CE1bF2833C8790e7D63E988FA308727a04dFDDA",
+    "commit": "eeaa75d",
+    "contract": "src/MandateAccount.sol:MandateAccount",
+    "compiler": "v0.8.24+commit.e11b9ed9",
+    "optimizer": "enabled, 200 runs",
+    "evmVersion": "cancun",
+    "libraries": {},
+    "constructorArgs": "000000000000000000000000877c349efb5926082c413833e8055f0991185c61000000000000000000000000877c349efb5926082c413833e8055f0991185c610000000000000000000000005fc5360d0400a0fd4f2af552add042d716f1d16800000000000000000000000068d4ad683b5519c785dde9f0ee0ee09db2d4091900000000000000000000000000000000000000000000000000000000000186a0000000000000000000000000000000000000000000000000000000000007a12000000000000000000000000000000000000000000000000000000000001e848000000000000000000000000000000000000000000000000000000000000151800000000000000000000000000000000000000000000000000000000000278d0000000000000000000000000000000000000000000000000000000000000186a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000000000000000000000000000000000f42400000000000000000000000000000000000000000000000000000000000000001",
+    "match": "exact",
+    "standardJsonBytes": 222765
+  },
+  "v3-exampleCommittedMandate": {
+    "address": "0x322b062E4B7989B9C80FCfeBed61A721Ebf3c633",
+    "commit": "eeaa75d",
+    "contract": "src/privacy/CommittedMandateAccount.sol:CommittedMandateAccount",
+    "compiler": "v0.8.24+commit.e11b9ed9",
+    "optimizer": "enabled, 200 runs",
+    "evmVersion": "cancun",
+    "libraries": {},
+    "constructorArgs": "000000000000000000000000877c349efb5926082c413833e8055f0991185c61000000000000000000000000877c349efb5926082c413833e8055f0991185c610000000000000000000000005fc5360d0400a0fd4f2af552add042d716f1d16800000000000000000000000068d4ad683b5519c785dde9f0ee0ee09db2d4091900000000000000000000000026b780aff35db0c371a2c33b8e48aa1c61962ac30f0771152427ec87ed43c6143558a81580a0ced0475e34c1427307e8091f466a104801db04b2f0c324ff931dd28954616a75cf986f3952ba386fce08bc60eb1500000000000000000000000000000000000000000000000000000000017d7840",
+    "match": "exact",
+    "standardJsonBytes": 52210
   }
 }

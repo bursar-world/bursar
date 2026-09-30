@@ -1,7 +1,7 @@
 {
   "network": "rhc-mainnet",
   "chainId": 4663,
-  "status": "live",
+  "status": "superseded",
   "rpc": "https://rpc.mainnet.chain.robinhood.com",
   "rpcUsedForThisRun": "https://rpc.mainnet.chain.robinhood.com",
   "explorer": "https://robinhoodchain.blockscout.com",
@@ -221,5 +221,6 @@
     "At block 69575881 the buyback's price ceiling was zero and every call reverted with PriceCeilingUnset. Governance sets a real one through Buyback.setParams now that the pool has a price, and that proposal has to land before the buyback is funded.",
     "At block 69575881 the staking pool held no shares, so a buyback would have reverted with NoStakeToDistributeTo before it traded, even with a ceiling and a seeded pool."
   ],
-  "audit": "No external review has been performed on any of these contracts."
+  "audit": "No external review has been performed on any of these contracts.",
+  "supersededBy": "rhc-mainnet-v3"
 }

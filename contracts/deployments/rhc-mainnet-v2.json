@@ -1,7 +1,7 @@
 {
   "network": "rhc-mainnet-v2",
   "chainId": 4663,
-  "status": "live",
+  "status": "superseded",
   "dev": true,
   "rpc": "https://rpc.mainnet.chain.robinhood.com",
   "rpcUsedForThisRun": "https://rpc.mainnet.chain.robinhood.com",
@@ -675,7 +675,7 @@
       "escrow": "0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4",
       "principal": "0x877c349EFb5926082C413833E8055F0991185c61",
       "agent": "0x877c349EFb5926082C413833E8055F0991185c61",
-      "why v1 escrow": "The only registered payee (0x5210\u2026a374) is active on the v1 AgentRegistry. v2 registration needs a 5 USDG stake and the v1 stake unbonds over 7 days.",
+      "why v1 escrow": "The only registered payee (0x5210…a374) is active on the v1 AgentRegistry. v2 registration needs a 5 USDG stake and the v1 stake unbonds over 7 days.",
       "createdTx": "0x31fd88783d0f38428e1c048862af0c8b2e14b2a0732d4a88bfa14120f50cb19a",
       "createdBlock": 75627698,
       "fundedTx": "0x0daad5b9a77c85ed73a204e9c442b83f34a41203ac0850844e6c15e3c56548e5",
@@ -817,5 +817,6 @@
         "linkCheck": "Starting from the mandate: the payer's address and its ERC-6538 meta-address appear in 0 of the 5 transactions on the mandate, its principal and its agent. The payer's only pool touches are its two deposits and the ragequit. At the time of the run the pool had one depositor, so the payout is attributable by elimination and timing; unlinkability grows with independent deposits."
       }
     }
-  }
+  },
+  "supersededBy": "rhc-mainnet-v3"
 }

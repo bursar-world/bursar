@@ -2,7 +2,7 @@
   "$schema": "./schema.json",
   "network": "rhc-mainnet-v3",
   "chainId": 4663,
-  "status": "planned",
+  "status": "live",
   "dev": true,
   "rpc": "https://rpc.mainnet.chain.robinhood.com",
   "explorer": "https://robinhoodchain.blockscout.com",
@@ -210,5 +210,26 @@
       "relayer": "0xc8FB46218bA6750EBF8cE7Cc8f7a56D7C7F99630",
       "fromBlock": 26089867
     }
+  },
+  "exampleMandate": {
+    "address": "0x4a373BFCc5bb36dc6cA10C407189c45eb40058E5",
+    "principal": "0x877c349EFb5926082C413833E8055F0991185c61",
+    "agent": "0x877c349EFb5926082C413833E8055F0991185c61",
+    "factory": "0x946FFE695eCc8Ceb201Cf3Dd07dBd302e289Fd07",
+    "salt": "0x2eaf23ef1068d7ab2de0d480c8177360eb423b35f2ab03349ecd5833ba5ff61e"
+  },
+  "exampleCollateralMandate": {
+    "address": "0x6CE1bF2833C8790e7D63E988FA308727a04dFDDA",
+    "principal": "0x877c349EFb5926082C413833E8055F0991185c61",
+    "agent": "0x877c349EFb5926082C413833E8055F0991185c61",
+    "factory": "0x946FFE695eCc8Ceb201Cf3Dd07dBd302e289Fd07",
+    "salt": "0x28c9d1c55ce032e87125bb67b84d0abcf828d7259e41038dcb1d853598542fba"
+  },
+  "exampleCommittedMandate": {
+    "address": "0x322b062E4B7989B9C80FCfeBed61A721Ebf3c633",
+    "principal": "0x877c349EFb5926082C413833E8055F0991185c61",
+    "agent": "0x877c349EFb5926082C413833E8055F0991185c61",
+    "factory": "0xBF48A1e16203401432caE992F3355A4Cc3a0D9cd",
+    "salt": "0x5499e3f19b86ebe4a39c131be4b058a395bda0fbefaa0dc0faa84a732ede8f10"
   }
 }

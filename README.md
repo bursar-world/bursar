@@ -299,19 +299,21 @@ Mandate accounts are created per principal by a factory and are not listed here.
 
 ### An example mandate to read
 
-[`0x420BeB507F72173E7d78e0f956968f64fb508356`](https://app.bursar.world/console/0x420BeB507F72173E7d78e0f956968f64fb508356)
-is a live mandate account created by the v2 factory, and it is the one to point at while you
-learn the system. It settles through the v2 escrow and has no expiry. It allows up to 0.10
-USDG per payment, 0.50 USDG a day and 2.00 USDG a month, with a lifetime total of 1.00 USDG. Its
-approval threshold is also 0.10 USDG: payments below 0.10 go through on the agent's signature, and
-a payment of exactly 0.10 waits for the principal to approve it. It may pay for services and hire
-agents, and it may not buy stock. One address, `0x877c349EFb5926082C413833E8055F0991185c61`, is
-both its principal and its agent. That suits a demonstration; a mandate in use gives its agent a
-key of its own. Open it in the
-[console](https://app.bursar.world/console/0x420BeB507F72173E7d78e0f956968f64fb508356) to see its
-limits and history.
+[`0x4a373BFCc5bb36dc6cA10C407189c45eb40058E5`](https://app.bursar.world/console/0x4a373BFCc5bb36dc6cA10C407189c45eb40058E5)
+is a live mandate account created by the current factory, and it is the one to point at while you
+learn the system. It settles through the current escrow, holds 0.20 USDG and has no expiry. It
+allows up to 0.10 USDG per payment, 0.50 USDG a day and 2.00 USDG a month, with a lifetime total
+of 1.00 USDG. Its approval threshold is also 0.10 USDG: payments below 0.10 go through on the
+agent's signature, and a payment of exactly 0.10 waits for the principal to approve it. It may
+pay for services, hire agents and buy SPY, NVDA or AAPL through the stock router. One address,
+`0x877c349EFb5926082C413833E8055F0991185c61`, is both its principal and its agent. That suits a
+demonstration; a mandate in use gives its agent a key of its own. Open it in the
+[console](https://app.bursar.world/console/0x4a373BFCc5bb36dc6cA10C407189c45eb40058E5) to see its
+limits and history. The same principal also runs a collateral-lane example,
+[`0x6CE1bF2833C8790e7D63E988FA308727a04dFDDA`](https://app.bursar.world/console/0x6CE1bF2833C8790e7D63E988FA308727a04dFDDA),
+which holds no USDG and borrows each spend against the SPY it has posted.
 
-Reading it needs no key. With the SDK, `mandateAccount('0x420BeB507F72173E7d78e0f956968f64fb508356')`
+Reading it needs no key. With the SDK, `mandateAccount('0x4a373BFCc5bb36dc6cA10C407189c45eb40058E5')`
 opens a read-only client (see [`packages/sdk/README.md`](packages/sdk/README.md)). With the MCP
 server, set `MANDATE_ACCOUNT` to that address and no signer, and it serves only the tools that read
 (see [`packages/mcp/README.md`](packages/mcp/README.md)). Paying through it takes its agent key,
