@@ -208,6 +208,7 @@ function OwnerForms({ state, onChange }: { readonly state: CollateralAccount; re
         />
         {needsApproval ? (
           <TxButton
+            key="approve"
             label={`Approve ${symbol}`}
             tone="secondary"
             disabled={target === undefined}
@@ -218,6 +219,7 @@ function OwnerForms({ state, onChange }: { readonly state: CollateralAccount; re
           />
         ) : (
           <TxButton
+            key="post"
             label="Post collateral"
             disabled={raw === undefined || raw === 0n || target === undefined}
             blockedBy={callGates(system)}
@@ -267,6 +269,7 @@ function RepayForm({ state, onChange }: { readonly state: CollateralAccount; rea
         />
         {needsApproval ? (
           <TxButton
+            key="approve"
             label="Approve USDG"
             tone="secondary"
             blockedBy={callGates(system)}
@@ -284,6 +287,7 @@ function RepayForm({ state, onChange }: { readonly state: CollateralAccount; rea
           />
         ) : (
           <TxButton
+            key="repay"
             label="Repay"
             disabled={amount.value === undefined}
             blockedBy={callGates(system)}
