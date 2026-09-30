@@ -275,6 +275,13 @@ function BrakeGroup({
       <p className="text-detail text-[color:var(--color-muted)]">
         {tag.name}, stopped through <AddressLabel value={tag.address} />
       </p>
+      {tag.brake !== undefined && (
+        <p className="text-detail text-[color:var(--color-muted)]">
+          {tag.brake === 'each-target'
+            ? 'Each contract is stopped on its own. One that refuses, because it is already stopped or does not answer the brake, is skipped and the rest still stop; it keeps showing as running below.'
+            : 'On this delay the brake is all or nothing: if one of the chosen contracts refuses the pause, none of them stop. Choose only contracts that are running.'}
+        </p>
+      )}
       {targets.map((target) => {
         const stopped = target.paused;
         const checked = chosen.some((entry) => sameAddress(entry, target.address));

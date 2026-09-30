@@ -107,13 +107,15 @@ describe('the address a rotation has been named to', () => {
 });
 
 describe('every action names the key it needs and whether it waits', () => {
-  it('covers the four the surface offers plus the second half of the rotation', () => {
+  it('covers what the surface offers, the second half of the rotation included', () => {
     expect(NEEDS.map((entry) => entry.id)).toEqual([
       'sweep-fees',
       'transfer-treasury',
       'accept-treasury',
       'staking-tiers',
+      'staking-slasher',
       'buyback-ceiling',
+      'buyback-keeper',
     ]);
   });
 
@@ -122,7 +124,9 @@ describe('every action names the key it needs and whether it waits', () => {
     expect(needFor('transfer-treasury').call).toBe('Escrow.transferTreasury');
     expect(needFor('accept-treasury').call).toBe('Escrow.acceptTreasury');
     expect(needFor('staking-tiers').call).toBe('Staking.setTiers');
+    expect(needFor('staking-slasher').call).toBe('Staking.setSlasher');
     expect(needFor('buyback-ceiling').call).toBe('Buyback.setParams');
+    expect(needFor('buyback-keeper').call).toBe('Buyback.setKeeper');
   });
 
   it('says the sweep is permissionless and still pays the treasury', () => {
@@ -134,9 +138,10 @@ describe('every action names the key it needs and whether it waits', () => {
     expect(needFor('transfer-treasury').needs).toContain('timelock cannot make this call');
   });
 
-  it('routes both administered parameters through governance rather than a direct call', () => {
-    expect(needFor('staking-tiers').route).toBe('proposal');
-    expect(needFor('buyback-ceiling').route).toBe('proposal');
+  it('routes every administered setting through governance rather than a direct call', () => {
+    for (const id of ['staking-tiers', 'staking-slasher', 'buyback-ceiling', 'buyback-keeper'] as const) {
+      expect(needFor(id).route).toBe('proposal');
+    }
   });
 });
 

@@ -33,11 +33,11 @@ const NOT_READ = <span className="text-[color:var(--color-muted)]">Not read</spa
  * The operator surface.
  *
  * Four things live here that live nowhere else: the escrow's fees, the escrow's treasury, the
- * staking rebate table and the buyback's limits. The first two are direct calls, because the
- * escrow has no admin role and never had one. The last two are proposals, because the timelock
+ * staking pool's settings and the buyback's. The first two are direct calls, because the escrow
+ * has no admin role and never had one. The last two are proposals, because the timelock
  * administers both contracts. Mixing them on one page is deliberate: the operator's job is the
- * same in all four cases, and which of them waits two days is exactly the thing the page has to
- * say out loud.
+ * same in all four cases, and which of them waits out a delay is exactly the thing the page has
+ * to say out loud.
  */
 export function OpsView() {
   const ops = useOps();
@@ -101,7 +101,7 @@ export function OpsView() {
           <p className="mt-5 max-w-3xl text-detail text-[color:var(--color-muted)]">{CUSTODY_LINE}</p>
         </Card>
 
-        <Card title="What each action needs" description="Two of these go straight to the contract. Two wait out the governance delay.">
+        <Card title="What each action needs" description="Three of these go straight to the contract. The rest wait out the governance delay.">
           <Table
             rows={[...NEEDS]}
             rowKey={(row) => row.id}
@@ -391,17 +391,26 @@ function ParameterSections({
 
   return (
     <>
-      <Section title="Staking and the buyback" description="The timelock administers both contracts, so both parameters below go through governance.">
+      <Section title="Staking and the buyback" description="The timelock administers both contracts, so every setting below goes through governance.">
         <Card title="Where these two stand today" description="Read from the contracts, not from a plan.">
           <FieldGrid columns={3}>
             <Field label="Fee rebate tiers" hint="An empty table means every rebate reads zero, whatever anyone has staked.">
               {tiers === undefined ? unread : tiers.length === 0 ? 'Empty' : `${tiers.length} rungs`}
             </Field>
-            <Field label="Credit lane" hint="The only address that can take stake. Nothing can be slashed until one is named.">
+            <Field label="Credit lane" hint="The address the staking pool takes spread from. It cannot take stake.">
               {data?.staking.creditManager === undefined ? unread : isZeroAddress(data.staking.creditManager) ? 'Not named' : <AddressLabel value={data.staking.creditManager} />}
+            </Field>
+            <Field label="Slasher" hint="The only address that can take stake, up to the slash cap. Nothing can be slashed while none is named.">
+              {data?.staking.slasher === undefined ? unread : isZeroAddress(data.staking.slasher) ? 'Not named' : <AddressLabel value={data.staking.slasher} />}
+            </Field>
+            <Field label="Buyback keeper" hint="The only address that can trigger a buy. None named means no buy runs.">
+              {data?.buyback.keeper === undefined ? unread : isZeroAddress(data.buyback.keeper) ? 'Not named' : <AddressLabel value={data.buyback.keeper} />}
             </Field>
             <Field label="Buyback price ceiling" hint="The most it will pay for one whole BRSR. Zero refuses every trade.">
               {params === undefined ? unread : params.maxPricePerBrsr === 0n ? 'Unset, so every buy is refused' : formatUsdg(params.maxPricePerBrsr)}
+            </Field>
+            <Field label="Ceiling usable until" hint="Every change to the buyback's limits restates the ceiling. Past this date every buy is refused.">
+              {data?.buyback.ceilingStaleAt === undefined ? unread : <Instant at={data.buyback.ceilingStaleAt} />}
             </Field>
           </FieldGrid>
 
@@ -431,8 +440,9 @@ function ParameterSections({
           )}
 
           <p className="mt-4 max-w-3xl text-detail text-[color:var(--color-muted)]">
-            A ceiling is the most a buyback will pay for one whole BRSR, and there is no price to set it against until the
-            BRSR/USDG pool holds liquidity. Set it after the pool exists, never before. Everything pending is listed on{' '}
+            A ceiling is the most the buyback will pay for one whole BRSR. Set it against the pool&rsquo;s price, and set it
+            again before the date above: past it every buy is refused until governance restates it. Everything pending is
+            listed on{' '}
             <Link href="/governance" className="underline underline-offset-2">
               the governance page
             </Link>
@@ -447,15 +457,22 @@ function ParameterSections({
           delaySeconds={undefined}
           blockedBy={blockedBy}
           onProposed={onDone}
-          only={['staking.setTiers', 'staking.setCreditManager', 'buyback.setParams']}
+          only={[
+            'staking.setTiers',
+            'staking.setCreditManager',
+            'staking.setSlasher',
+            'buyback.setParams',
+            'buyback.setKeeper',
+            'buyback.setMaxCeilingAge',
+          ]}
           title="Propose one of these"
           description="The same builder the governance page uses, narrowed to the two contracts on this surface. It needs one of the three signer keys and then the full delay."
         />
       ) : (
         <Card title="Propose one of these">
           <p className="max-w-3xl text-sm">
-            Setting the tiers or the buyback ceiling is a proposal, so it needs one of the three signer keys, a second
-            signer and the full delay. Connect a signer key here, or build the proposal on{' '}
+            Setting the tiers, the slasher, the keeper or the buyback ceiling is a proposal, so it needs one of the three
+            signer keys, a second signer and the full delay. Connect a signer key here, or build the proposal on{' '}
             <Link href="/governance" className="underline underline-offset-2">
               the governance page
             </Link>

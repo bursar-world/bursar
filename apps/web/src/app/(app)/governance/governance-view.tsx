@@ -70,9 +70,10 @@ export function GovernanceView() {
               before it lands, because blocking a change should cost less than making one.
             </p>
             <p>
-              Two governance delay contracts are live. One administers the payment, dispute and credit contracts with a
-              one-hour delay. The other administers the token, staking, the buyback and the first payment contracts with a
-              48-hour delay. A change goes to the one that administers its target, and every proposal below says which.
+              More than one governance delay contract is live. Each set of payment contracts deployed on this chain brought
+              its own, and the token, staking and the buyback answer to one of them. A change goes to the one that
+              administers its target, and every proposal below says which. Each delay, and what it administers, is listed
+              below.
             </p>
             <p>
               The pause is the exception, and it has to be. A brake that takes hours is not a brake, so the guardian

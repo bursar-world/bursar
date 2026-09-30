@@ -8,7 +8,9 @@ import { ADDRESSES } from '@/chain';
 import { buildCall, actionById } from '@/chain/admin-actions';
 import type { AdminAction } from '@/chain/admin-actions';
 import { CallPreview } from '@/app/(app)/governance/builder';
-import { statusOf } from '@/app/(app)/governance/read';
+import { governanceTimelocks, statusOf } from '@/app/(app)/governance/read';
+import { TOKEN_ROLES } from '@/chain';
+import { contractSetOf, deploymentForChain } from '@bursar/core';
 import { CUSTODY_LINE, answerInList, answerIs, governanceNotice, permits } from '@/app/(app)/governance/roles';
 import type { Roles } from '@/app/(app)/governance/roles';
 
@@ -142,6 +144,32 @@ describe('the status of a proposal', () => {
   it('still reports what is on the record that was read', () => {
     expect(statusOf({ ...base, approvals: undefined, raw: { ...base.raw, executed: true } })).toBe('executed');
     expect(statusOf({ ...base, required: undefined, raw: { ...base.raw, cancelled: true } })).toBe('cancelled');
+  });
+});
+
+/**
+ * Every set of payment contracts brought its own governance delay, and the token contracts answer to
+ * the one their record names. Written to hold before and after a newer set lands: the delay that
+ * answers for the chain comes first, and the token's delay is named for what it administers.
+ */
+describe('the governance delays on this chain', () => {
+  const tags = governanceTimelocks();
+
+  it('lists the current delay first, once, named for the contracts it administers', () => {
+    expect(tags[0]?.current).toBe(true);
+    expect(tags[0]?.name).toBe('Payment, dispute and credit contracts');
+    expect(new Set(tags.map((tag) => tag.address.toLowerCase())).size).toBe(tags.length);
+  });
+
+  it('names the token contracts under the delay the token record names', () => {
+    const token = tags.find((tag) => tag.address.toLowerCase() === TOKEN_ROLES.adminTimelock.toLowerCase());
+    expect(token?.name.startsWith('Token, staking and buyback')).toBe(true);
+  });
+
+  it('says a brake stops each target on its own only where the delay runs the current build', () => {
+    const current = contractSetOf(deploymentForChain(4663));
+    expect(tags[0]?.brake).toBe(current === 'v3' ? 'each-target' : 'all-or-nothing');
+    expect(tags.slice(1).every((tag) => tag.brake === 'all-or-nothing')).toBe(true);
   });
 });
 

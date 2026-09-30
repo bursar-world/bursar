@@ -80,7 +80,7 @@ export function opsAccess(roles: OpsRoles): OpsAccess {
     accepting: permits(roles.incomingTreasury),
     headline: 'This wallet holds none of the roles this surface is for.',
     detail:
-      'Sweeping escrow fees needs any funded key and pays the treasury either way. Rotating the treasury needs the treasury key itself, and completing that rotation needs the address it named. Setting staking tiers or the buyback ceiling needs one of the three signer keys, because the timelock administers both. Connect one of those to act here.',
+      'Sweeping escrow fees needs any funded key and pays the treasury either way. Rotating the treasury needs the treasury key itself, and completing that rotation needs the address it named. Changing a staking or buyback setting needs one of the three signer keys, because a governance delay administers both contracts. Connect one of those to act here.',
   };
 }
 
@@ -97,7 +97,14 @@ function roleLine(roles: OpsRoles): string {
 }
 
 export type ActionNeed = {
-  readonly id: 'sweep-fees' | 'transfer-treasury' | 'accept-treasury' | 'staking-tiers' | 'buyback-ceiling';
+  readonly id:
+    | 'sweep-fees'
+    | 'transfer-treasury'
+    | 'accept-treasury'
+    | 'staking-tiers'
+    | 'staking-slasher'
+    | 'buyback-ceiling'
+    | 'buyback-keeper';
   readonly title: string;
   /** The call behind the control, spelled the way the contract spells it. */
   readonly call: string;
@@ -137,9 +144,23 @@ export const NEEDS: readonly ActionNeed[] = [
     route: 'proposal',
   },
   {
+    id: 'staking-slasher',
+    title: 'Name the slasher on the staking pool',
+    call: 'Staking.setSlasher',
+    needs: 'one of the three signer keys. The timelock administers the pool, so this is a proposal.',
+    route: 'proposal',
+  },
+  {
     id: 'buyback-ceiling',
     title: 'Set the buyback limits and price ceiling',
     call: 'Buyback.setParams',
+    needs: 'one of the three signer keys. The timelock administers the buyback, so this is a proposal.',
+    route: 'proposal',
+  },
+  {
+    id: 'buyback-keeper',
+    title: 'Name the buyback keeper',
+    call: 'Buyback.setKeeper',
     needs: 'one of the three signer keys. The timelock administers the buyback, so this is a proposal.',
     route: 'proposal',
   },

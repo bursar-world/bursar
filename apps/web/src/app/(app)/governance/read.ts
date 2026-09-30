@@ -1,7 +1,8 @@
 import { toFunctionSelector } from 'viem';
 import type { Address, Hex } from 'viem';
 
-import { deploymentsForChain } from '@bursar/core';
+import { contractSetOf, deploymentByContract, deploymentsForChain } from '@bursar/core';
+import type { Deployment } from '@bursar/core';
 
 import { ADDRESSES, CHAIN_ID, ReadBatch, TOKEN_ROLES, addBlockNumber, addChainTime, adminTimelockAbi, rhcClient, runBatch, sameAddress } from '@/chain';
 import { PAUSABLE, governedByKey, pauseControllerOf } from '@/chain/admin-actions';
@@ -18,26 +19,64 @@ export type ProposalStatus =
   | 'not-read';
 
 /**
- * One governance delay contract. The chain carries two: the current one administers the payment,
- * dispute and credit contracts; the earlier one still administers the token, staking, the buyback
- * and the first payment contracts. A proposal only executes on the delay that administers its
- * target, so every proposal and every control on the page names which one it belongs to.
+ * One governance delay contract. Every set of payment contracts deployed on this chain brought its
+ * own, and the token contracts answer to the one their record names. A proposal only executes on
+ * the delay that administers its target, so every proposal and every control on the page names
+ * which one it belongs to.
  */
 export type TimelockTag = {
   readonly address: Address;
   readonly current: boolean;
   /** What it governs, in the reader's words. */
   readonly name: string;
+  /**
+   * How its brake treats a target that refuses the pause. The current build skips that one and
+   * stops the rest; earlier builds stop none of them. Undefined for a delay no record names.
+   */
+  readonly brake: 'each-target' | 'all-or-nothing' | undefined;
 };
 
 export function governanceTimelocks(): readonly TimelockTag[] {
-  const out: TimelockTag[] = [{ address: ADDRESSES.adminTimelock, current: true, name: 'Payment, dispute and credit contracts' }];
-  const older = [...deploymentsForChain(CHAIN_ID).map((d) => d.contracts.AdminTimelock), TOKEN_ROLES.adminTimelock];
-  for (const address of older) {
+  const records = deploymentsForChain(CHAIN_ID);
+  const out: TimelockTag[] = [];
+  for (const address of [ADDRESSES.adminTimelock, ...records.map((d) => d.contracts.AdminTimelock), TOKEN_ROLES.adminTimelock]) {
     if (out.some((entry) => sameAddress(entry.address, address))) continue;
-    out.push({ address, current: false, name: 'Token, staking and buyback, and the first payment contracts' });
+    out.push({
+      address,
+      current: sameAddress(address, ADDRESSES.adminTimelock),
+      name: governedBy(address, records),
+      brake: brakeOf(address),
+    });
   }
   return out;
+}
+
+function brakeOf(address: Address): TimelockTag['brake'] {
+  const record = deploymentByContract('AdminTimelock', address);
+  if (record === undefined) return undefined;
+  return contractSetOf(record) === 'v3' ? 'each-target' : 'all-or-nothing';
+}
+
+/**
+ * What one delay administers, named from the records that list it and the token record. A delay
+ * neither the current set nor an earlier one names is the token record's alone.
+ */
+function governedBy(address: Address, records: readonly Deployment[]): string {
+  const record = records.find((d) => sameAddress(d.contracts.AdminTimelock, address));
+  const payments = sameAddress(address, ADDRESSES.adminTimelock)
+    ? 'payment, dispute and credit contracts'
+    : record === undefined
+      ? undefined
+      : contractSetOf(record) === 'v1'
+        ? 'first payment contracts'
+        : 'earlier payment, dispute and credit contracts';
+
+  if (payments === undefined) return 'Token, staking and buyback';
+  return sameAddress(address, TOKEN_ROLES.adminTimelock) ? `Token, staking and buyback, and the ${payments}` : capitalised(payments);
+}
+
+function capitalised(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 export type Proposal = {

@@ -65,11 +65,17 @@ export type OpsRead = {
     readonly address: Address;
     readonly tiers: readonly StakingTier[] | undefined;
     readonly creditManager: Address | undefined;
+    /** The one address that can take stake. The zero address means nobody can. */
+    readonly slasher: Address | undefined;
     readonly paused: boolean | undefined;
   };
   readonly buyback: {
     readonly address: Address;
     readonly params: BuybackParams | undefined;
+    /** The one address that can trigger a buy. The zero address means nobody can. */
+    readonly keeper: Address | undefined;
+    /** When the ceiling stops being usable, unless governance sets it again first. */
+    readonly ceilingStaleAt: Date | undefined;
     readonly paused: boolean | undefined;
   };
 };
@@ -128,6 +134,11 @@ export async function readOps(): Promise<OpsRead> {
       abi: stakingAbi as never,
       functionName: 'creditManager',
     }),
+    slasher: batch.add<Address>('staking.slasher', {
+      address: TOKEN_ADDRESSES.Staking,
+      abi: stakingAbi as never,
+      functionName: 'slasher',
+    }),
     stakingPaused: batch.add<boolean>('staking.paused', {
       address: TOKEN_ADDRESSES.Staking,
       abi: stakingAbi as never,
@@ -142,6 +153,21 @@ export async function readOps(): Promise<OpsRead> {
       address: TOKEN_ADDRESSES.Buyback,
       abi: buybackAbi as never,
       functionName: 'paused',
+    }),
+    keeper: batch.add<Address>('buyback.keeper', {
+      address: TOKEN_ADDRESSES.Buyback,
+      abi: buybackAbi as never,
+      functionName: 'keeper',
+    }),
+    ceilingSetAt: batch.add<bigint>('buyback.ceilingSetAt', {
+      address: TOKEN_ADDRESSES.Buyback,
+      abi: buybackAbi as never,
+      functionName: 'ceilingSetAt',
+    }),
+    maxCeilingAge: batch.add<bigint>('buyback.maxCeilingAge', {
+      address: TOKEN_ADDRESSES.Buyback,
+      abi: buybackAbi as never,
+      functionName: 'maxCeilingAge',
     }),
   };
 
@@ -168,6 +194,8 @@ export async function readOps(): Promise<OpsRead> {
   const chainTimeSeconds = first.get(slots.chainTime);
   const rawTiers = first.get(slots.tiers);
   const rawParams = first.get(slots.params);
+  const ceilingSetAt = first.get(slots.ceilingSetAt);
+  const maxCeilingAge = first.get(slots.maxCeilingAge);
 
   return {
     blockNumber,
@@ -190,6 +218,7 @@ export async function readOps(): Promise<OpsRead> {
       address: TOKEN_ADDRESSES.Staking,
       tiers: rawTiers?.map((tier) => ({ minStake: brsr(tier.minStake), rebateBps: Number(tier.rebateBps) })),
       creditManager: first.get(slots.creditManager),
+      slasher: first.get(slots.slasher),
       paused: first.get(slots.stakingPaused),
     },
     buyback: {
@@ -205,6 +234,9 @@ export async function readOps(): Promise<OpsRead> {
               window: rawParams.window,
               minInterval: rawParams.minInterval,
             },
+      keeper: first.get(slots.keeper),
+      ceilingStaleAt:
+        ceilingSetAt === undefined || maxCeilingAge === undefined ? undefined : new Date(Number(ceilingSetAt + maxCeilingAge) * 1000),
       paused: first.get(slots.buybackPaused),
     },
   };
