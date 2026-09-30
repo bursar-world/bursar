@@ -13,10 +13,11 @@ import {IStaking} from "./token/interfaces/IStaking.sol";
 
 /// Bonded resolvers, commit-reveal voting, and the slashing that makes both mean something.
 ///
-/// A dispute has three permissionless exits: `finalize` when the vote produced a result,
-/// `failDispute` when it did not, and the escrow's own timeout when this contract never
-/// answers at all. Every one of them moves the lock on, which is the property that matters
-/// most here. A resolver quorum that can strand a payer's funds is worse than no quorum.
+/// A dispute has two permissionless exits: `finalize` when the vote produced a result and
+/// `failDispute` when it did not. Once the reveal window closes one of them is always open,
+/// and neither can be blocked by a party to the lock: the escrow books a payout it cannot
+/// deliver instead of reverting on it. That is the property that matters most here. A
+/// resolver quorum that can strand a payer's funds is worse than no quorum.
 ///
 /// A failed vote reopens the lock rather than refunding it. Otherwise a payer facing a thin
 /// bench could dispute, wait out an empty vote, and take back money for work it received.
@@ -515,7 +516,6 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
 
     function setConfig(Config calldata config_) external onlyAdmin {
         _validateConfig(config_);
-        _requireTimeoutOutlastsVote(escrow, config_);
         // Live disputes carry their own window ends, so a change here cannot move a clock that
         // resolvers are already voting against. Quorum and deviation are read at finalisation.
         _config = config_;
@@ -532,7 +532,6 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
         if (msg.sender != deployer) revert NotDeployer();
         if (escrow != address(0)) revert AlreadySet();
         if (escrow_ == address(0)) revert ZeroAddress();
-        _requireTimeoutOutlastsVote(escrow_, _config);
 
         escrow = escrow_;
         emit EscrowSet(escrow_);
@@ -610,11 +609,6 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
         return 0;
     }
 
-    function rulable(uint256 escrowId) external view returns (bool) {
-        DisputeStatus status = _disputes[disputeIdOf[escrowId]].status;
-        return status == DisputeStatus.Committing || status == DisputeStatus.Revealing;
-    }
-
     function partiesOf(uint256 disputeId) external view returns (address payer, address payee, address principal) {
         Parties storage parties = _parties[disputeId];
         return (parties.payer, parties.payee, parties.principal);
@@ -655,14 +649,6 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
 
     function scoreMax() external pure returns (uint8) {
         return SCORE_MAX;
-    }
-
-    /// The escrow's `disputeTimeoutPeriod` has to exceed this, or a lock can be timed out from
-    /// under a vote that is still running and the resolvers slash each other over an outcome
-    /// nobody can act on. The sum cannot overflow: `_validateConfig` holds it below
-    /// `unbondingPeriod`, which is itself a uint64.
-    function votingPeriod() external view returns (uint64) {
-        return _config.commitWindow + _config.revealWindow;
     }
 
     /// Credits what arrived, not what was asked for. The bond asset is fixed, but a token that
@@ -791,14 +777,6 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
         // Held to the address range on the same line, so the cast cannot truncate.
         // forge-lint: disable-next-line(unsafe-typecast)
         return word > type(uint160).max ? address(0) : address(uint160(word));
-    }
-
-    /// The escrow's timeout is the payer's exit from a registry that never answers. Inside the
-    /// voting windows it would refund a dispute the resolvers are still hearing.
-    function _requireTimeoutOutlastsVote(address escrow_, Config memory cfg) private view {
-        if (escrow_ == address(0)) return;
-        uint256 voting = uint256(cfg.commitWindow) + cfg.revealWindow;
-        if (IEscrow(escrow_).disputeTimeoutPeriod() <= voting) revert BadConfig();
     }
 
     function _deviation(uint8 score, uint8 median) private pure returns (uint8) {

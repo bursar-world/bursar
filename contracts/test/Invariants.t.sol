@@ -318,8 +318,8 @@ contract MandateSystemHandler is CommonBase, StdUtils {
             ruled = true;
         } catch {}
 
-        // The ruling reaches the escrow through a try/catch of its own, so a vote can finalise
-        // without the lock moving. Only measure the paths where it did.
+        // `finalize` calls the escrow without a try of its own, so a ruling that returns moved
+        // the lock with it. Only a lock that still held its payment has a split to measure.
         if (!ruled || !holdsFunds) return;
         if (escrow.getLock(id).status != IEscrow.LockStatus.Resolved) return;
 
@@ -332,25 +332,6 @@ contract MandateSystemHandler is CommonBase, StdUtils {
         if (disputeId == 0) return;
 
         try oracle.failDispute(disputeId) {} catch {}
-    }
-
-    function timeoutDispute(uint256 idSeed) external {
-        uint256 id = _pickLock(idSeed);
-        if (id == 0) return;
-
-        IEscrow.Lock memory entry = escrow.getLock(id);
-        if (entry.status != IEscrow.LockStatus.Disputed || entry.releasedAt != 0) return;
-
-        uint256 matures = uint256(entry.disputedAt) + escrow.disputeTimeoutPeriod() + 1;
-        if (block.timestamp < matures) vm.warp(matures);
-
-        uint256 heldBefore = asset.balanceOf(address(escrow));
-        uint256 feesBefore = escrow.feesAccrued();
-
-        try escrow.disputeTimeout(id) {
-            _checkConservation(heldBefore, feesBefore, entry.amount, entry.bond);
-            settlements += 1;
-        } catch {}
     }
 
     function claimRewards(uint256 resolverSeed) external {
@@ -507,7 +488,7 @@ contract MandateInvariants is Test {
     uint64 internal constant MIN_TTL = 1 hours;
     uint64 internal constant MAX_TTL = 30 days;
     uint64 internal constant DISPUTE_WINDOW = 1 days;
-    uint64 internal constant DISPUTE_TIMEOUT = 5 days;
+    uint128 internal constant MIN_LOCK = 10_000;
     uint64 internal constant TIMELOCK_PERIOD = 48 hours;
 
     uint128 internal constant BASE_CAP = 20_000e6;
@@ -587,7 +568,7 @@ contract MandateInvariants is Test {
             MIN_TTL,
             MAX_TTL,
             DISPUTE_WINDOW,
-            DISPUTE_TIMEOUT
+            MIN_LOCK
         );
 
         // Quorum of one keeps a single honest resolver enough to settle a dispute. The reward
@@ -649,7 +630,7 @@ contract MandateInvariants is Test {
         );
         holders.push(address(handler));
 
-        bytes4[] memory selectors = new bytes4[](20);
+        bytes4[] memory selectors = new bytes4[](19);
         selectors[0] = MandateSystemHandler.lockFromPayer.selector;
         selectors[1] = MandateSystemHandler.spendFromMandate.selector;
         selectors[2] = MandateSystemHandler.withdrawFromMandate.selector;
@@ -663,13 +644,12 @@ contract MandateInvariants is Test {
         selectors[10] = MandateSystemHandler.revealVotes.selector;
         selectors[11] = MandateSystemHandler.finalizeDispute.selector;
         selectors[12] = MandateSystemHandler.failDispute.selector;
-        selectors[13] = MandateSystemHandler.timeoutDispute.selector;
-        selectors[14] = MandateSystemHandler.claimRewards.selector;
-        selectors[15] = MandateSystemHandler.resolverChurn.selector;
-        selectors[16] = MandateSystemHandler.agentChurn.selector;
-        selectors[17] = MandateSystemHandler.sweepUnallocated.selector;
-        selectors[18] = MandateSystemHandler.donate.selector;
-        selectors[19] = MandateSystemHandler.warpForward.selector;
+        selectors[13] = MandateSystemHandler.claimRewards.selector;
+        selectors[14] = MandateSystemHandler.resolverChurn.selector;
+        selectors[15] = MandateSystemHandler.agentChurn.selector;
+        selectors[16] = MandateSystemHandler.sweepUnallocated.selector;
+        selectors[17] = MandateSystemHandler.donate.selector;
+        selectors[18] = MandateSystemHandler.warpForward.selector;
 
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
         targetContract(address(handler));

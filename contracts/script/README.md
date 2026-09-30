@@ -169,7 +169,11 @@ not do that for you.
 | `BURSAR_MIN_TTL` | Shortest job deadline a lock may carry. |
 | `BURSAR_MAX_TTL` | Longest job deadline a lock may carry. Must exceed `MIN_TTL` by more than one second. |
 | `BURSAR_DISPUTE_WINDOW` | How long after a release the payer may still dispute. The money is gone by then, so a late dispute records against the payee's history and settles nothing. |
-| `BURSAR_DISPUTE_TIMEOUT` | How long a disputed lock waits for a ruling before anyone may refund the payer. Must be longer than the commit and reveal windows combined. |
+| `BURSAR_MIN_LOCK` | Smallest amount a lock may carry. The dispute bond on it has to come to at least one unit, so contesting a lock is never free; the escrow refuses a smaller floor at construction. |
+
+`BURSAR_DISPUTE_TIMEOUT` is retired. A disputed lock leaves through the resolver registry, which
+always has one exit open once the reveal window closes, and a run that finds the variable still
+set stops with `RetiredEnv`.
 
 Both fees come out of the same locked principal, so their sum has to stay below 100%.
 
@@ -183,7 +187,7 @@ rejects every first job on the network. The script stops if you set one.
 |---|---|
 | `BURSAR_CAP_BASE` | Cap for a payee with no settlement history. Must be non-zero. |
 | `BURSAR_CAP_PER_SCORE` | Extra cap per score point earned. |
-| `BURSAR_CAP_MAX` | Ceiling the curve never exceeds. Must be at least `BURSAR_CAP_BASE`. |
+| `BURSAR_CAP_MAX` | Ceiling the curve never exceeds. Must be at least `BURSAR_CAP_BASE` and no more than `BURSAR_CAP_BASE + 100 * BURSAR_CAP_PER_SCORE`, the cap a perfect score reaches. |
 
 ### Resolvers
 
@@ -201,11 +205,11 @@ dispute can be voted on. The core run prints the pending call and leaves it to t
 
 | Variable | Meaning |
 |---|---|
-| `BURSAR_COMMIT_WINDOW` | How long resolvers have to commit to a sealed score. |
-| `BURSAR_REVEAL_WINDOW` | How long they then have to reveal it. |
+| `BURSAR_COMMIT_WINDOW` | How long resolvers have to commit to a sealed score. At least ten minutes. |
+| `BURSAR_REVEAL_WINDOW` | How long they then have to reveal it. At least ten minutes. |
 | `BURSAR_UNBONDING_PERIOD` | Cooldown between asking to withdraw a bond and collecting it. Must be at least the commit and reveal windows combined, so a bond cannot mature before the dispute it voted on settles. |
-| `BURSAR_RESOLVER_QUORUM` | Reveals needed for a vote to count. Below it the dispute fails and the payer is refunded. |
-| `BURSAR_MAX_VOTERS` | Commitments admitted per dispute. At most 64. |
+| `BURSAR_RESOLVER_QUORUM` | Reveals needed for a vote to count. Below it the dispute fails and the lock goes back to the payee with a fresh deadline; nobody is refunded. |
+| `BURSAR_MAX_VOTERS` | Commitments admitted per dispute. At least 64, the size of the roster, so every seated resolver can vote and none can be crowded out. |
 | `BURSAR_MAX_DEVIATION` | How far a revealed score may sit from the median, in score points, before it is treated as an outlier. Outliers are slashed and earn no reward. |
 | `BURSAR_RESOLVER_SLASH_BPS` | Share of a resolver's bond taken for staying silent after committing, or for ruling outside the deviation band. Must be non-zero: a slash of zero still emits a slashing event, which reads as enforcement to anyone watching the logs. |
 
@@ -251,17 +255,17 @@ export BURSAR_DISPUTE_BOND_BPS=500          # 5% of the locked amount
 export BURSAR_MIN_TTL=300                   # 5m
 export BURSAR_MAX_TTL=604800                # 7d
 export BURSAR_DISPUTE_WINDOW=3600           # 1h after release
-export BURSAR_DISPUTE_TIMEOUT=172800        # 48h, well clear of 12h of voting
+export BURSAR_MIN_LOCK=10000                # 0.01 USDG, a bond of 0.0005 at 5%
 
 export BURSAR_CAP_BASE=25000000             # 25 USDG for an unproven payee
-export BURSAR_CAP_PER_SCORE=1000000         # +1 USDG per score point
+export BURSAR_CAP_PER_SCORE=2250000         # +2.25 USDG per score point
 export BURSAR_CAP_MAX=250000000             # 250 USDG
 
 export BURSAR_COMMIT_WINDOW=21600           # 6h
 export BURSAR_REVEAL_WINDOW=21600           # 6h
 export BURSAR_UNBONDING_PERIOD=604800       # 7d
 export BURSAR_RESOLVER_QUORUM=2
-export BURSAR_MAX_VOTERS=5
+export BURSAR_MAX_VOTERS=64
 export BURSAR_MAX_DEVIATION=20
 export BURSAR_RESOLVER_SLASH_BPS=1000       # 10% of the bond
 
@@ -358,7 +362,6 @@ with a named error.
 | `SettlementBalanceTooLow` | The deploy key holds less than 1 USDG. The run spends none, so this is the check that the address in the parameter file is the asset the system settles in. |
 | `FeeSplitTooLarge` | Protocol fee plus resolver fee reaches 100%. There would be nothing left to pay the payee from. |
 | `DisputeBondTooLarge` | A bond at or above the locked amount cannot be posted. |
-| `DisputeTimeoutTooShort` | The escrow would refund every dispute before the resolvers finished voting, which makes the quorum decorative and hands any payer a free clawback. |
 | `TimelockPeriodZero` | A timelock that executes immediately is a multisig with extra steps. |
 | `TimelockNotContract` | `BURSAR_ADMIN_TIMELOCK` names an address with no code. Every admin call in the deployment would revert. |
 | `BaseCapZero` | Every payee with no history would be capped at zero, so no first job could ever be locked. |
@@ -367,13 +370,13 @@ with a named error.
 | `GovernanceHasNoMultisig` | None of the three signers is a contract, and `BURSAR_ALLOW_EOA_GOVERNANCE` is unset. Three hot keys hold a treasury no better than one. |
 | `EoaGovernanceNotAcknowledged` | `BURSAR_ALLOW_EOA_GOVERNANCE` is set to something other than `i-accept-eoa-governance`. The error prints what was given and what is required. |
 | `MissingEnv`, `EnvOutOfRange`, `EnvNotBoolean` | A variable is unset, too large for its field, or not spelled `true` or `false`. |
-| `RetiredEnv` | A variable from an older parameter set is still in the shell. Its value is in a unit nothing reads any more, so the run names it and the variable that replaced it. |
+| `RetiredEnv` | A variable from an older parameter set is still in the shell. Its value is in a unit nothing reads any more, so the run names it and what replaced it, if anything did. |
 | `WiringFailed`, `ParameterNotApplied` | A setter or constructor argument did not take effect on chain. The run stops with the value expected and the value found. |
 
 After the transactions land, the script reads all of it back off chain: the three pairings,
 the registry gate, the asset on every contract, both admins, the treasury, the slash sink, the
-fee rates, the bond rate, the cap curve, and the timelock period. A deployment that reaches
-the end of the run is wired.
+fee rates, the bond rate, the minimum lock, the cap curve, and the timelock period. A
+deployment that reaches the end of the run is wired.
 
 ## 6. After the deploy
 

@@ -20,8 +20,8 @@ import {MockUsdg} from "./mocks/MockUsdg.sol";
 
 /// Stands in for the oracle registry on the paths where the escrow only needs an adjudicator
 /// to exist. It records the dispute id it handed out and accepts a reward without opinion, so
-/// a reputation test can reach `resolve` and `disputeTimeout` without dragging commit-reveal
-/// voting into the fixture.
+/// a reputation test can reach `resolve` and `reopen` without dragging commit-reveal voting
+/// into the fixture.
 contract RepRegResolverStub {
     mapping(uint256 escrowId => uint256 disputeId) public disputeIdOf;
 
@@ -434,7 +434,7 @@ contract ReputationEscrowCountingTest is Test {
     uint64 internal constant MIN_TTL = 1 hours;
     uint64 internal constant MAX_TTL = 30 days;
     uint64 internal constant DISPUTE_WINDOW = 2 days;
-    uint64 internal constant DISPUTE_TIMEOUT = 5 days;
+    uint128 internal constant MIN_LOCK = 10_000;
 
     uint128 internal constant LOCK_AMOUNT = 100e6;
 
@@ -454,16 +454,7 @@ contract ReputationEscrowCountingTest is Test {
         asset = new MockUsdg();
         reputation = new Reputation(admin, IReputation.CapCurve({baseCap: 1_000e6, capPerScore: 10e6, maxCap: 2_000e6}));
         escrow = new Escrow(
-            address(asset),
-            address(reputation),
-            treasury,
-            FEE_BPS,
-            0,
-            0,
-            MIN_TTL,
-            MAX_TTL,
-            DISPUTE_WINDOW,
-            DISPUTE_TIMEOUT
+            address(asset), address(reputation), treasury, FEE_BPS, 0, 0, MIN_TTL, MAX_TTL, DISPUTE_WINDOW, MIN_LOCK
         );
         reputation.setEscrow(address(escrow));
 
@@ -617,17 +608,23 @@ contract ReputationEscrowCountingTest is Test {
         assertEq(disputed, 1);
     }
 
-    function test_anUnheardDisputeStillCountsOnce() public {
+    /// An unheard dispute reopens the lock and counts nothing. The exit that finally ends the
+    /// lock is the one its history records.
+    function test_anUnheardDisputeCountsOnlyTheExitThatEndsTheLock() public {
         uint256 id = _lock(LOCK_AMOUNT);
 
         vm.prank(payee);
         escrow.dispute(id);
 
-        vm.warp(block.timestamp + DISPUTE_TIMEOUT + 1);
-        escrow.disputeTimeout(id);
+        vm.prank(address(resolverStub));
+        escrow.reopen(id);
+        assertEq(_total(), 0, "a reopen is not an outcome");
 
-        (,, uint64 disputed) = reputation.payeeStats(payee);
-        assertEq(disputed, 1);
+        vm.warp(escrow.getLock(id).deadline + 1);
+        escrow.timeout(id);
+
+        (, uint64 timedOut,) = reputation.payeeStats(payee);
+        assertEq(timedOut, 1);
         assertEq(_total(), 1);
     }
 
@@ -706,8 +703,10 @@ contract ReputationEscrowCountingTest is Test {
         } else {
             vm.prank(payer);
             escrow.dispute(id);
-            vm.warp(block.timestamp + DISPUTE_TIMEOUT + 1);
-            escrow.disputeTimeout(id);
+            vm.prank(address(resolverStub));
+            escrow.reopen(id);
+            vm.warp(escrow.getLock(id).deadline + 1);
+            escrow.timeout(id);
         }
 
         uint256 expected = path == 2 ? 0 : 1;
@@ -733,7 +732,7 @@ contract ReputationEscrowCountingTest is Test {
         Reputation freshReputation =
             new Reputation(admin, IReputation.CapCurve({baseCap: 1_000e6, capPerScore: 10e6, maxCap: 2_000e6}));
         Escrow freshEscrow = new Escrow(
-            address(asset), address(freshReputation), treasury, FEE_BPS, 0, 0, MIN_TTL, MAX_TTL, window, DISPUTE_TIMEOUT
+            address(asset), address(freshReputation), treasury, FEE_BPS, 0, 0, MIN_TTL, MAX_TTL, window, MIN_LOCK
         );
         freshReputation.setEscrow(address(freshEscrow));
         return (freshReputation, freshEscrow);

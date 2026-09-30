@@ -89,6 +89,10 @@ contract MandateAccountCoreTest is Test {
     uint64 private constant MIN_TTL = 1 minutes;
     uint64 private constant MAX_TTL = 30 days;
 
+    /// The smallest lock the escrow opens at a five percent bond. What the escrow refuses on
+    /// its own terms is not a decision of the mandate's.
+    uint128 private constant MIN_LOCK = 20;
+
     bytes32 private constant CAPABILITY = keccak256("mandate.core.inference");
     bytes32 private constant OTHER_CAPABILITY = keccak256("mandate.core.storage");
 
@@ -298,7 +302,7 @@ contract MandateAccountCoreTest is Test {
     }
 
     function testFuzz_everyAmountAboveThePerCallCapIsRefusedAndEveryAmountAtOrBelowItClears(uint128 amount) public {
-        amount = uint128(bound(amount, 1, PER_CALL_CAP * 4));
+        amount = uint128(bound(amount, MIN_LOCK, PER_CALL_CAP * 4));
 
         if (amount > PER_CALL_CAP) {
             vm.prank(agent);
@@ -1041,7 +1045,7 @@ contract MandateAccountCoreTest is Test {
         bool capabilityAllowed,
         bool pausedNow
     ) public {
-        amount = uint128(bound(amount, 0, uint256(PER_CALL_CAP) * 2));
+        amount = uint128(bound(amount, MIN_LOCK, uint256(PER_CALL_CAP) * 2));
 
         vm.startPrank(principal);
         account.setMerchant(merchant, merchantAllowed);
@@ -1087,7 +1091,7 @@ contract MandateAccountCoreTest is Test {
             MIN_TTL,
             MAX_TTL,
             1 days,
-            7 days
+            MIN_LOCK
         );
     }
 

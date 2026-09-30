@@ -27,10 +27,9 @@ import {IReputation} from "../src/interfaces/IReputation.sol";
 /// contracts, in the same run. Miss one and the deployment is stuck: the setters take no second
 /// call and the constructors are already spent.
 ///
-/// The invariants asserted here are the ones no single constructor can see. A dispute timeout
-/// shorter than the voting windows would refund every payer before a resolver could rule; a fee
-/// plus a resolver fee at or above a whole settlement would leave nothing to split; a zero base
-/// cap would reject every payee that has no history, which is every payee on day one.
+/// The invariants asserted here are the ones no single constructor can see. A fee plus a
+/// resolver fee at or above a whole settlement would leave nothing to split; a zero base cap
+/// would reject every payee that has no history, which is every payee on day one.
 ///
 /// Gas on Robinhood Chain is ETH and settlement is USDG, two different assets held at two
 /// different scales. On a chain that pays gas in the same USDC it settles in, every reader has
@@ -85,7 +84,6 @@ contract Deploy is Script {
     error SettlementBalanceTooLow(address account, uint256 held, uint256 floor);
     error FeeSplitTooLarge(uint16 feeBps, uint16 resolverFeeBps);
     error DisputeBondTooLarge(uint16 disputeBondBps);
-    error DisputeTimeoutTooShort(uint64 disputeTimeoutPeriod, uint64 votingWindow);
     error TimelockPeriodZero();
     error TimelockNotContract(address timelock);
     error DeployerIsTimelockSigner(address deployer);
@@ -124,7 +122,7 @@ contract Deploy is Script {
     uint64 private minTtl;
     uint64 private maxTtl;
     uint64 private disputeWindow;
-    uint64 private disputeTimeoutPeriod;
+    uint128 private minLock;
 
     IReputation.CapCurve private curve;
     IOracleRegistry.Config private oracleConfig;
@@ -202,7 +200,12 @@ contract Deploy is Script {
         minTtl = _envUint64("BURSAR_MIN_TTL");
         maxTtl = _envUint64("BURSAR_MAX_TTL");
         disputeWindow = _envUint64("BURSAR_DISPUTE_WINDOW");
-        disputeTimeoutPeriod = _envUint64("BURSAR_DISPUTE_TIMEOUT");
+        minLock = _envUint128("BURSAR_MIN_LOCK");
+
+        // The escrow no longer has a dispute timeout of its own. A disputed lock leaves through
+        // the resolver registry, whose two exits cannot both be closed, and a value left over
+        // from an older parameter file would read as though a third one existed.
+        _refuseRetired("BURSAR_DISPUTE_TIMEOUT", "nothing: disputes exit through OracleRegistry");
 
         curve = IReputation.CapCurve({
             baseCap: _envUint128("BURSAR_CAP_BASE"),
@@ -258,12 +261,6 @@ contract Deploy is Script {
         // The bond is a share of the disputed amount pulled from the disputer. A rate at or above
         // par cannot be posted at all, whatever ceiling the escrow sets below it.
         if (disputeBondBps >= BPS) revert DisputeBondTooLarge(disputeBondBps);
-
-        // The escrow's own timeout is the payer's escape from a resolver that never rules. Set it
-        // inside the voting windows and every dispute refunds before the votes can be counted,
-        // which makes the quorum decorative and hands any payer a free clawback.
-        uint64 votingWindow = oracleConfig.commitWindow + oracleConfig.revealWindow;
-        if (disputeTimeoutPeriod <= votingWindow) revert DisputeTimeoutTooShort(disputeTimeoutPeriod, votingWindow);
 
         if (timelockPeriod == 0) revert TimelockPeriodZero();
 
@@ -388,7 +385,7 @@ contract Deploy is Script {
             minTtl,
             maxTtl,
             disputeWindow,
-            disputeTimeoutPeriod
+            minLock
         );
 
         oracleRegistry = new OracleRegistry(asset, address(timelock), slashSink, oracleConfig);
@@ -485,11 +482,7 @@ contract Deploy is Script {
         _expectUint("escrow.feeBps", feeBps, fee);
         _expectUint("escrow.resolverFeeBps", resolverFeeBps, resolverFee);
         _expectUint("escrow.disputeBondBps", disputeBondBps, escrow.disputeBondBps());
-
-        IOracleRegistry.Config memory cfg = oracleRegistry.config();
-        uint64 votingWindow = cfg.commitWindow + cfg.revealWindow;
-        uint64 timeout = escrow.disputeTimeoutPeriod();
-        if (timeout <= votingWindow) revert DisputeTimeoutTooShort(timeout, votingWindow);
+        _expectUint("escrow.minLock", minLock, escrow.minLock());
 
         IReputation.CapCurve memory onChainCurve = reputation.curve();
         if (onChainCurve.baseCap == 0) revert BaseCapZero();

@@ -55,7 +55,7 @@ abstract contract MandateAccountAuthFixture is Test {
         asset = new MockUsdg();
         reputation = new MockReputation();
         escrow = new Escrow(
-            address(asset), address(reputation), makeAddr("treasury"), 100, 50, 500, 1 hours, 30 days, 1 days, 3 days
+            address(asset), address(reputation), makeAddr("treasury"), 100, 50, 500, 1 hours, 30 days, 1 days, 10_000
         );
         reputation.setEscrow(address(escrow));
 

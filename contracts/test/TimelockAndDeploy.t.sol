@@ -823,7 +823,7 @@ contract MandateWiringTest is Test {
     uint64 internal constant MIN_TTL = 5 minutes;
     uint64 internal constant MAX_TTL = 7 days;
     uint64 internal constant DISPUTE_WINDOW = 1 days;
-    uint64 internal constant DISPUTE_TIMEOUT = 2 days;
+    uint128 internal constant MIN_LOCK = 10_000;
     uint64 internal constant COMMIT_WINDOW = 1 hours;
     uint64 internal constant REVEAL_WINDOW = 1 hours;
     uint64 internal constant PERIOD = 3 days;
@@ -871,7 +871,7 @@ contract MandateWiringTest is Test {
             MIN_TTL,
             MAX_TTL,
             DISPUTE_WINDOW,
-            DISPUTE_TIMEOUT
+            MIN_LOCK
         );
         oracleRegistry = new OracleRegistry(address(settlement), address(timelock), slashSink, _oracleConfig());
         agentRegistry = new AgentRegistry(IERC20(address(settlement)), address(this), slashSink, 100e6, 1_000);
@@ -942,7 +942,7 @@ contract MandateWiringTest is Test {
         assertEq(escrow.minTtl(), MIN_TTL);
         assertEq(escrow.maxTtl(), MAX_TTL);
         assertEq(escrow.disputeWindow(), DISPUTE_WINDOW);
-        assertEq(escrow.disputeTimeoutPeriod(), DISPUTE_TIMEOUT);
+        assertEq(escrow.minLock(), MIN_LOCK);
 
         IReputation.CapCurve memory curve = reputation.curve();
         assertEq(curve.baseCap, 100e6);
@@ -953,7 +953,7 @@ contract MandateWiringTest is Test {
         assertEq(cfg.commitWindow, COMMIT_WINDOW);
         assertEq(cfg.revealWindow, REVEAL_WINDOW);
         assertEq(cfg.slashBps, 2_000);
-        assertEq(oracleRegistry.votingPeriod(), COMMIT_WINDOW + REVEAL_WINDOW);
+        assertEq(cfg.maxVoters, 64);
 
         assertEq(address(agentRegistry.settlementAsset()), address(settlement));
         assertEq(agentRegistry.minStake(), 100e6);
@@ -961,9 +961,8 @@ contract MandateWiringTest is Test {
         assertEq(agentRegistry.slashSink(), slashSink);
     }
 
-    /// The three invariants no constructor can see on its own.
+    /// The invariants no constructor can see on its own.
     function test_wiring_holdsTheCrossContractInvariants() public view {
-        assertGt(escrow.disputeTimeoutPeriod(), oracleRegistry.votingPeriod());
         assertGt(uint256(10_000), uint256(escrow.feeBps()) + escrow.resolverFeeBps());
         assertGt(reputation.curve().baseCap, 0);
         assertGt(timelock.timelockPeriod(), 0);
@@ -1012,7 +1011,7 @@ contract MandateWiringTest is Test {
             MIN_TTL,
             MAX_TTL,
             DISPUTE_WINDOW,
-            DISPUTE_TIMEOUT
+            MIN_LOCK
         );
 
         assertEq(address(bare.registry()), address(0), "address zero means the gate is off");
@@ -1197,7 +1196,11 @@ contract MandateDeployScriptTest is Test {
         _caseFeesConsumeAWholeSettlement();
         _caseEscrowsTighterFeeCeiling();
         _caseDisputeBondAtPar();
-        _caseDisputeTimeoutEqualsTheVotingWindow();
+        _caseTheRetiredDisputeTimeoutVariableIsRefused();
+        _caseAMinimumLockTooSmallToCarryABond();
+        _caseACapCeilingNoScoreReaches();
+        _caseAVoterCapBelowTheRoster();
+        _caseAVoteWindowUnderTenMinutes();
         _caseZeroTimelockPeriod();
         _casePeriodBelowTheTimelocksOwnFloor();
         _caseZeroBaseCap();
@@ -1425,14 +1428,61 @@ contract MandateDeployScriptTest is Test {
         script.run();
     }
 
-    /// A timeout inside the voting windows refunds every payer before a resolver can rule, so
-    /// equal is rejected. One second longer is accepted, in the last case below.
-    function _caseDisputeTimeoutEqualsTheVotingWindow() private {
+    /// The escrow has no dispute timeout of its own now. An operator's file that still carries
+    /// one would read as though a third exit existed, so the run refuses it by name.
+    function _caseTheRetiredDisputeTimeoutVariableIsRefused() private {
         _setBaseEnv();
-        _set("BURSAR_DISPUTE_TIMEOUT", "7200");
+        _set("BURSAR_DISPUTE_TIMEOUT", "172800");
 
-        vm.expectRevert(abi.encodeWithSelector(Deploy.DisputeTimeoutTooShort.selector, uint64(7_200), uint64(7_200)));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Deploy.RetiredEnv.selector,
+                _key("BURSAR_DISPUTE_TIMEOUT"),
+                "nothing: disputes exit through OracleRegistry"
+            )
+        );
         script.run();
+    }
+
+    /// Nineteen units at five percent is a bond of nothing.
+    function _caseAMinimumLockTooSmallToCarryABond() private {
+        _setBaseEnv();
+        _set("BURSAR_MIN_LOCK", "19");
+
+        vm.expectRevert(IEscrow.BadMinLock.selector);
+        script.run();
+        vm.stopBroadcast();
+    }
+
+    /// The live v2 curve: 25 plus 1 per point never reaches 250.
+    function _caseACapCeilingNoScoreReaches() private {
+        _setBaseEnv();
+        _set("BURSAR_CAP_BASE", "25000000");
+        _set("BURSAR_CAP_PER_SCORE", "1000000");
+        _set("BURSAR_CAP_MAX", "250000000");
+
+        vm.expectRevert(IReputation.BadCurve.selector);
+        script.run();
+        vm.stopBroadcast();
+    }
+
+    /// The live v2 cap of five voters let whoever committed first fill the panel.
+    function _caseAVoterCapBelowTheRoster() private {
+        _setBaseEnv();
+        _set("BURSAR_MAX_VOTERS", "5");
+
+        vm.expectRevert(IOracleRegistry.BadConfig.selector);
+        script.run();
+        vm.stopBroadcast();
+    }
+
+    function _caseAVoteWindowUnderTenMinutes() private {
+        _setBaseEnv();
+        _set("BURSAR_REVEAL_WINDOW", "599");
+
+        vm.expectRevert(IOracleRegistry.BadConfig.selector);
+        script.run();
+        vm.stopBroadcast();
     }
 
     function _caseZeroTimelockPeriod() private {
@@ -1554,14 +1604,14 @@ contract MandateDeployScriptTest is Test {
         assertEq(out.agentRegistry, address(0));
     }
 
-    /// The whole set constructs and wires with a dispute timeout one second past the voting
-    /// window, and the run reads every pairing back before it returns. Anything the readback
-    /// disagrees with stops the run, so reaching the end is the assertion.
+    /// The whole set constructs and wires, and the run reads every pairing back before it
+    /// returns. Anything the readback disagrees with stops the run, so reaching the end is the
+    /// assertion.
     function _caseDeploysTheSetThenReadsItsOwnWiringBack() private {
         _setBaseEnv();
-        _set("BURSAR_DISPUTE_TIMEOUT", "7201");
 
         Deploy.Deployment memory out = _runAsDeployKey();
+        assertEq(Escrow(out.escrow).minLock(), 10_000);
 
         assertEq(Escrow(out.escrow).deployer(), DEFAULT_SENDER);
         assertEq(Escrow(out.escrow).resolver(), out.oracleRegistry);
@@ -1659,8 +1709,9 @@ contract MandateDeployScriptTest is Test {
     }
 
     function _setBaseEnv() private {
-        // Cleared, not assumed absent, because one case sets it to prove the run rejects it.
+        // Cleared, not assumed absent, because a case sets each to prove the run rejects it.
         _set("BURSAR_RESOLVER_MIN_BOND", "");
+        _set("BURSAR_DISPUTE_TIMEOUT", "");
         // Same, and this one matters more: a value left over from the case that acknowledges
         // an EOA signer set would silence the refusal in every case after it.
         _set("BURSAR_ALLOW_EOA_GOVERNANCE", "");
@@ -1685,7 +1736,7 @@ contract MandateDeployScriptTest is Test {
         _set("BURSAR_MIN_TTL", vm.toString(uint256(5 minutes)));
         _set("BURSAR_MAX_TTL", vm.toString(uint256(7 days)));
         _set("BURSAR_DISPUTE_WINDOW", vm.toString(uint256(1 days)));
-        _set("BURSAR_DISPUTE_TIMEOUT", vm.toString(uint256(2 days)));
+        _set("BURSAR_MIN_LOCK", "10000");
 
         _set("BURSAR_CAP_BASE", "100000000");
         _set("BURSAR_CAP_PER_SCORE", "10000000");

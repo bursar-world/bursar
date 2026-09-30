@@ -70,10 +70,6 @@ contract StubEscrow {
         reopenCount += 1;
         lastReopenedId = id;
     }
-
-    function disputeTimeoutPeriod() external pure returns (uint64) {
-        return 30 days;
-    }
 }
 
 /// Opens disputes as a payer contract whose `principal()` answers with whoever sent the
@@ -2236,7 +2232,7 @@ contract OracleRegistryEscrowIntegrationTest is Test {
             1 hours,
             30 days,
             1 days,
-            7 days
+            10_000
         );
         registry = new OracleRegistry(
             address(token),
@@ -2260,10 +2256,6 @@ contract OracleRegistryEscrowIntegrationTest is Test {
         escrow.setResolver(address(registry));
         registry.setEscrow(address(escrow));
         registry.setStaking(address(pool));
-
-        // The escrow's dispute timeout has to outlast a whole vote, or a lock can be refunded
-        // from under resolvers who are still voting on it.
-        assertGt(escrow.disputeTimeoutPeriod(), registry.votingPeriod());
 
         r1 = _bond("r1");
         r2 = _bond("r2");
@@ -2438,30 +2430,75 @@ contract OracleRegistryEscrowIntegrationTest is Test {
         assertEq(registry.getDispute(next).commitCount, 1);
     }
 
-    function test_integration_escrowDisputeTimeoutWaitsForAVoteThatCanStillClose() public {
+    /// The issuer freezes the payee while the vote runs. The ruling still lands, the payee's
+    /// leg is booked for later, and the voters' bonds come free.
+    function test_integration_aFrozenPayeeCannotHoldARulingOrTheVotersBonds() public {
         uint256 lockId = _lock();
+        uint256 disputeId = _dispute(payer, lockId);
+        _vote(disputeId, 70, 70, 70);
 
-        token.mint(payer, DISPUTE_BOND);
-        vm.startPrank(payer);
-        token.approve(address(escrow), DISPUTE_BOND);
-        escrow.dispute(lockId);
-        vm.stopPrank();
-
-        uint256 disputeId = registry.disputeIdOf(lockId);
-        _vote(disputeId, 40, 42, 45);
-
-        vm.warp(block.timestamp + escrow.disputeTimeoutPeriod() + 1);
-        vm.expectRevert(IEscrow.DisputeRulable.selector);
-        escrow.disputeTimeout(lockId);
-
+        token.setFrozen(payee, true);
         registry.finalize(disputeId);
 
-        assertEq(uint8(registry.getDispute(disputeId).status), uint8(IOracleRegistry.DisputeStatus.Finalized));
+        (uint128 refunded, uint128 paid) = _legs();
         assertEq(uint8(escrow.getLock(lockId).status), uint8(IEscrow.LockStatus.Resolved));
+        assertEq(token.balanceOf(payer), refunded, "the payer's leg landed");
+        assertEq(escrow.owed(payee), paid, "the frozen payee's leg was booked");
         assertEq(registry.openVotes(r1), 0);
         assertEq(registry.openVotes(r2), 0);
         assertEq(registry.openVotes(r3), 0);
-        assertEq(token.balanceOf(address(escrow)), 0);
+
+        vm.prank(r1);
+        registry.requestUnbond();
+        vm.warp(block.timestamp + 7 days);
+        vm.prank(r1);
+        registry.completeUnbond();
+        assertEq(bond.balanceOf(r1), BOND, "a voter left with its bond");
+
+        token.setFrozen(payee, false);
+        escrow.claim(payee);
+        assertEq(token.balanceOf(payee), paid);
+        assertEq(token.balanceOf(address(escrow)), escrow.feesAccrued());
+    }
+
+    function test_integration_aFrozenPayerCannotHoldARulingOpen() public {
+        uint256 lockId = _lock();
+        uint256 disputeId = _dispute(payee, lockId);
+        _vote(disputeId, 70, 70, 70);
+
+        token.setFrozen(payer, true);
+        registry.finalize(disputeId);
+
+        (uint128 refunded, uint128 paid) = _legs();
+        assertEq(uint8(escrow.getLock(lockId).status), uint8(IEscrow.LockStatus.Resolved));
+        assertEq(escrow.owed(payer), refunded, "the frozen payer's refund was booked");
+        assertEq(token.balanceOf(payee), paid + DISPUTE_BOND, "the payee was paid and vindicated");
+        assertEq(registry.openVotes(r1), 0);
+
+        token.setFrozen(payer, false);
+        escrow.claim(payer);
+        assertEq(token.balanceOf(payer), refunded);
+    }
+
+    function test_integration_aFrozenDisputerCannotHoldAFailedVoteOpen() public {
+        uint256 lockId = _lock();
+        uint256 disputeId = _dispute(payee, lockId);
+        _commitAsItself(r1, disputeId, 70);
+
+        token.setFrozen(payee, true);
+        vm.warp(registry.getDispute(disputeId).revealEndsAt);
+        registry.failDispute(disputeId);
+
+        assertEq(uint8(escrow.getLock(lockId).status), uint8(IEscrow.LockStatus.Locked), "the lock reopened");
+        assertEq(escrow.owed(payee), DISPUTE_BOND, "the frozen disputer's bond was booked");
+        assertEq(registry.openVotes(r1), 0);
+
+        vm.prank(r1);
+        registry.requestUnbond();
+        vm.warp(block.timestamp + 7 days);
+        vm.prank(r1);
+        registry.completeUnbond();
+        assertEq(uint8(registry.getResolver(r1).status), uint8(IOracleRegistry.ResolverStatus.Exited));
     }
 
     function _bond(string memory label) private returns (address who) {
@@ -2539,6 +2576,14 @@ contract OracleRegistryEscrowIntegrationTest is Test {
         vm.label(address(sybil), label);
         bond.mint(address(sybil), MIN_BOND);
         sybil.register(registry, bond, MIN_BOND);
+    }
+
+    /// 35% refund on a thousand: both legs are non-zero.
+    function _legs() private pure returns (uint128 refunded, uint128 paid) {
+        uint128 divisible = AMOUNT - RESOLVER_FEE;
+        refunded = (divisible * 3_500) / 10_000;
+        uint128 awarded = divisible - refunded;
+        paid = awarded - (awarded * FEE_BPS) / 10_000;
     }
 }
 
@@ -2701,10 +2746,6 @@ contract RegistryHandler is Test {
     function resolve(uint256, uint16, uint8) external {}
 
     function reopen(uint256) external {}
-
-    function disputeTimeoutPeriod() external pure returns (uint64) {
-        return 30 days;
-    }
 
     function _actor(uint256 seed) private view returns (address) {
         return _actors[seed % _actors.length];

@@ -4,11 +4,12 @@ pragma solidity ^0.8.24;
 /// Counts how escrow locks ended, per payee and per payer-payee edge, and turns the payee
 /// aggregate into a spending cap.
 ///
-/// The escrow makes the aggregate poisonable: an expired dust lock refunds the payer in full,
-/// so anyone can charge a payee a timeout for the price of gas. A lock whose payer is its own
-/// payee moves no counter, so a payee cannot vouch for itself. A consumer that needs an
-/// unpoisoned view reads the edges of payers it already recognises. The cap curve is therefore
-/// a floor-plus-slope, never the only control on an account.
+/// The escrow makes the aggregate poisonable: an expired lock refunds the payer in full, so
+/// anyone can charge a payee a timeout for the price of gas and the escrow's minimum lock held
+/// to the deadline. A lock whose payer is its own payee moves no counter, so a payee cannot
+/// vouch for itself. A consumer that needs an unpoisoned view reads the edges of payers it
+/// already recognises. The cap curve is therefore a floor-plus-slope, never the only control
+/// on an account.
 interface IReputation {
     error AlreadySet();
     error NotDeployer();

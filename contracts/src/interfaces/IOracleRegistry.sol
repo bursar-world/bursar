@@ -166,10 +166,6 @@ interface IOracleRegistry {
     /// at this moment, so none of them can vote on its own dispute.
     function openDispute(uint256 escrowId, address payer, address payee) external returns (uint256 disputeId);
 
-    /// True while the dispute on `escrowId` is still open here, so `finalize` or `failDispute`
-    /// can settle it. The escrow reads this before letting its own timeout refund the payer.
-    function rulable(uint256 escrowId) external view returns (bool);
-
     /// The payer, the payee and the payer's principal as it read when the dispute opened, all
     /// three barred from voting on it. `principal` is zero for a payer that did not answer.
     function partiesOf(uint256 disputeId) external view returns (address payer, address payee, address principal);
@@ -292,11 +288,6 @@ interface IOracleRegistry {
     /// counted by `totalBonded` and held in a different token, so the two cannot overlap.
     function rewardFloat() external view returns (uint256);
     function unallocatedRewards() external view returns (uint256);
-
-    /// `commitWindow + revealWindow`. The escrow's dispute timeout has to exceed this or a
-    /// lock can be timed out from under a vote that is still running. Neither constructor can
-    /// read the other's parameters, so the deploy script asserts the relation across them.
-    function votingPeriod() external view returns (uint64);
 
     function scoreMax() external pure returns (uint8);
 }

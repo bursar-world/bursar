@@ -61,6 +61,11 @@ contract BondResolverStub {
         _escrow.resolve(id, refundBps, 1);
     }
 
+    /// What the registry does when the vote missed quorum.
+    function reopen(uint256 id) external {
+        _escrow.reopen(id);
+    }
+
     function setRejectRewards(bool reject) external {
         rejectRewards = reject;
     }
@@ -83,7 +88,10 @@ contract EscrowDisputeBondsTest is Test {
     uint64 internal constant MIN_TTL = 1 hours;
     uint64 internal constant MAX_TTL = 30 days;
     uint64 internal constant DISPUTE_WINDOW = 1 days;
-    uint64 internal constant DISPUTE_TIMEOUT = 3 days;
+
+    /// The deployment's floor, one cent of USDG. It carries a bond at every rate the escrow
+    /// accepts, down to one basis point.
+    uint128 internal constant MIN_LOCK = 10_000;
 
     uint128 internal constant AMOUNT = 1_000e6;
     uint128 internal constant BOND = 50e6;
@@ -92,6 +100,7 @@ contract EscrowDisputeBondsTest is Test {
     bytes32 internal constant CAPABILITY = keccak256("inference.run");
     bytes32 internal constant INPUT_COMMIT = keccak256("input");
     bytes32 internal constant OUTPUT_COMMIT = keccak256("output");
+    bytes32 internal constant SALT = keccak256("salt");
 
     MockUsdg internal asset;
     MockReputation internal reputation;
@@ -133,6 +142,14 @@ contract EscrowDisputeBondsTest is Test {
         uint128 bond;
     }
 
+    /// The escrow paired with the real registry, for the paths a stub would only restate.
+    struct Live {
+        Escrow escrow;
+        OracleRegistry oracle;
+        BRSR bondToken;
+        address[3] resolvers;
+    }
+
     function setUp() public {
         // Timestamps start at 1, which leaves no room behind the clock for a dispute window.
         vm.warp(1_700_000_000);
@@ -149,7 +166,7 @@ contract EscrowDisputeBondsTest is Test {
             MIN_TTL,
             MAX_TTL,
             DISPUTE_WINDOW,
-            DISPUTE_TIMEOUT
+            MIN_LOCK
         );
         stub = new BondResolverStub(IEscrow(address(escrow)));
 
@@ -242,46 +259,6 @@ contract EscrowDisputeBondsTest is Test {
         assertEq(asset.balanceOf(address(escrow)), escrow.feesAccrued(), "nothing stranded in the escrow");
     }
 
-    function test_DisputeTimeoutReturnsTheBondWholeAndRefundsThePayer() public {
-        uint256 id = _lock(payer, payee, AMOUNT);
-
-        uint256 payeeBefore = asset.balanceOf(payee);
-        uint256 payerBefore = asset.balanceOf(payer);
-        vm.prank(payee);
-        escrow.dispute(id);
-
-        vm.warp(block.timestamp + DISPUTE_TIMEOUT + 1);
-
-        vm.expectEmit(true, true, false, true, address(escrow));
-        emit IEscrow.BondReturned(id, payee, BOND);
-        escrow.disputeTimeout(id);
-
-        // A resolver that never ruled is not the disputer's fault, and the protocol charges
-        // nothing for a settlement it did not make.
-        assertEq(asset.balanceOf(payee), payeeBefore, "payee is whole, bond and all");
-        assertEq(asset.balanceOf(payer), payerBefore + AMOUNT, "payer refunded in full");
-        assertEq(asset.balanceOf(address(stub)), 0, "no resolver fee for a vote that never happened");
-        assertEq(escrow.feesAccrued(), 0, "no protocol fee either");
-        assertEq(asset.balanceOf(address(escrow)), 0, "escrow empty");
-    }
-
-    function test_DisputeTimeoutIsTooEarlyOnTheDeadlineAndOpensOneSecondLater() public {
-        uint256 id = _lock(payer, payee, AMOUNT);
-
-        vm.prank(payer);
-        escrow.dispute(id);
-        uint256 openedAt = block.timestamp;
-
-        vm.warp(openedAt + DISPUTE_TIMEOUT);
-        vm.expectRevert(IEscrow.TooEarly.selector);
-        escrow.disputeTimeout(id);
-
-        vm.warp(openedAt + DISPUTE_TIMEOUT + 1);
-        escrow.disputeTimeout(id);
-
-        assertEq(uint8(escrow.getLock(id).status), uint8(IEscrow.LockStatus.Resolved), "dispute closed");
-    }
-
     function test_TheSameLockCannotBeDisputedTwiceToStackASecondBond() public {
         uint256 id = _lock(payer, payee, AMOUNT);
 
@@ -314,7 +291,7 @@ contract EscrowDisputeBondsTest is Test {
         assertEq(asset.balanceOf(address(escrow)), escrow.feesAccrued(), "escrow holds only its fees");
     }
 
-    function test_DisputeTimeoutAfterAResolveCannotPayTheBondTwice() public {
+    function test_AReopenAfterARulingCannotPayTheBondTwice() public {
         uint256 id = _lock(payer, payee, AMOUNT);
 
         vm.prank(payee);
@@ -323,22 +300,19 @@ contract EscrowDisputeBondsTest is Test {
 
         uint256 payeeAfter = asset.balanceOf(payee);
 
-        vm.warp(block.timestamp + DISPUTE_TIMEOUT + 1);
         vm.expectRevert(IEscrow.BadStatus.selector);
-        escrow.disputeTimeout(id);
+        stub.reopen(id);
 
         assertEq(asset.balanceOf(payee), payeeAfter, "bond stays returned exactly once");
         assertEq(asset.balanceOf(address(escrow)), escrow.feesAccrued(), "escrow holds only its fees");
     }
 
-    function test_ResolvingAfterADisputeTimeoutCannotPayTheBondTwice() public {
+    function test_ARulingAfterAReopenCannotPayTheBondTwice() public {
         uint256 id = _lock(payer, payee, AMOUNT);
 
         vm.prank(payee);
         escrow.dispute(id);
-
-        vm.warp(block.timestamp + DISPUTE_TIMEOUT + 1);
-        escrow.disputeTimeout(id);
+        stub.reopen(id);
 
         uint256 payeeAfter = asset.balanceOf(payee);
 
@@ -346,15 +320,13 @@ contract EscrowDisputeBondsTest is Test {
         stub.rule(id, BPS);
 
         assertEq(asset.balanceOf(payee), payeeAfter, "a late ruling cannot re-pay the bond");
-        assertEq(asset.balanceOf(address(escrow)), 0, "escrow empty");
+        assertEq(asset.balanceOf(address(escrow)), AMOUNT, "only the reopened principal stays");
     }
 
-    /// The property the audit asked for: whichever exit fires first closes the lock, and the
-    /// bond leaves the contract once. `timeoutFirst` decides the order, `refundBps` decides
-    /// whether the first exit returns the bond or forfeits it.
-    function testFuzz_TheBondLeavesTheEscrowExactlyOnceUnderEitherExitOrder(uint16 rawRefund, bool timeoutFirst)
-        public
-    {
+    /// The property the audit asked for: whichever way the dispute closes first, the bond leaves
+    /// the contract once. `reopenFirst` decides the order, `refundBps` decides whether a ruling
+    /// returns the bond or forfeits it.
+    function testFuzz_TheBondLeavesTheEscrowExactlyOnceUnderEitherExitOrder(uint16 rawRefund, bool reopenFirst) public {
         uint16 refundBps = uint16(bound(uint256(rawRefund), 0, BPS));
         uint256 id = _lock(payer, payee, AMOUNT);
 
@@ -365,26 +337,24 @@ contract EscrowDisputeBondsTest is Test {
         uint256 payerBefore = asset.balanceOf(payer);
         uint256 payeeBefore = asset.balanceOf(payee);
 
-        vm.warp(block.timestamp + DISPUTE_TIMEOUT + 1);
-
-        if (timeoutFirst) {
-            escrow.disputeTimeout(id);
+        if (reopenFirst) {
+            stub.reopen(id);
             vm.expectRevert(IEscrow.BadStatus.selector);
             stub.rule(id, refundBps);
         } else {
             stub.rule(id, refundBps);
             vm.expectRevert(IEscrow.BadStatus.selector);
-            escrow.disputeTimeout(id);
+            stub.reopen(id);
         }
 
         uint256 moved = (asset.balanceOf(payer) - payerBefore) + (asset.balanceOf(payee) - payeeBefore)
             + asset.balanceOf(address(stub));
+        uint256 held = reopenFirst ? AMOUNT : 0;
 
-        assertEq(uint8(escrow.getLock(id).status), uint8(IEscrow.LockStatus.Resolved), "lock is closed");
         assertEq(escrow.getLock(id).bond, 0, "bond slot cleared");
-        assertEq(asset.balanceOf(address(escrow)), escrow.feesAccrued(), "escrow holds only its fees");
+        assertEq(asset.balanceOf(address(escrow)), held + escrow.feesAccrued(), "escrow holds only what it owes");
         assertEq(
-            moved + escrow.feesAccrued(), uint256(AMOUNT) + BOND, "principal and bond leave the escrow exactly once"
+            moved + held + escrow.feesAccrued(), uint256(AMOUNT) + BOND, "principal and bond leave the escrow once"
         );
     }
 
@@ -477,26 +447,21 @@ contract EscrowDisputeBondsTest is Test {
         assertEq(asset.balanceOf(address(escrow)), AMOUNT, "escrow holds the principal and no bond");
     }
 
-    function test_TheBondRoundsDownAndADustLockPostsNone() public {
-        // 19 units at five percent is 0.95 of a unit, which truncates away.
-        uint256 dust = _lock(payer, payee, 19);
-        uint256 payerBefore = asset.balanceOf(payer);
-
+    function test_NoLockIsTooSmallToCarryABond() public {
+        // 19 units at five percent would be 0.95 of a unit, which truncates away. The escrow
+        // does not open a lock that small.
         vm.prank(payer);
-        escrow.dispute(dust);
+        vm.expectRevert(IEscrow.BelowMinLock.selector);
+        escrow.lock(payee, CAPABILITY, INPUT_COMMIT, "ipfs://in", 19, _deadline());
 
-        assertEq(escrow.getLock(dust).bond, 0, "no bond on a lock too small to price one");
-        assertEq(asset.balanceOf(payer), payerBefore, "and nothing pulled from the disputer");
-
-        // One unit above the boundary the rounding starts to bite.
-        uint256 smallest = _lock(payer, payee, 20);
-        payerBefore = asset.balanceOf(payer);
+        uint256 smallest = _lock(payer, payee, MIN_LOCK);
+        uint256 payerBefore = asset.balanceOf(payer);
 
         vm.prank(payer);
         escrow.dispute(smallest);
 
-        assertEq(escrow.getLock(smallest).bond, 1, "the first unit of bond appears at 20");
-        assertEq(asset.balanceOf(payer), payerBefore - 1, "and the unit is pulled");
+        assertEq(escrow.getLock(smallest).bond, _bps(MIN_LOCK, BOND_BPS), "the smallest lock prices its dispute");
+        assertEq(asset.balanceOf(payer), payerBefore - _bps(MIN_LOCK, BOND_BPS), "and the bond is pulled");
     }
 
     function test_AZeroBondRateOpensDisputesWithoutPullingAnything() public {
@@ -536,9 +501,8 @@ contract EscrowDisputeBondsTest is Test {
         vm.expectRevert(IEscrow.BadStatus.selector);
         stub.rule(id, BPS);
 
-        vm.warp(block.timestamp + DISPUTE_TIMEOUT + 1);
         vm.expectRevert(IEscrow.BadStatus.selector);
-        escrow.disputeTimeout(id);
+        stub.reopen(id);
     }
 
     function test_SweepingFeesCannotReachAPostedBond() public {
@@ -594,7 +558,7 @@ contract EscrowDisputeBondsTest is Test {
             MIN_TTL,
             MAX_TTL,
             DISPUTE_WINDOW,
-            DISPUTE_TIMEOUT
+            MIN_LOCK
         );
 
         Rig memory rig = _deployRig(FEE_BPS, RESOLVER_FEE_BPS, 2_000);
@@ -621,7 +585,7 @@ contract EscrowDisputeBondsTest is Test {
     ) public {
         _ruleAndConserve(
             Case({
-                amount: uint128(bound(uint256(rawAmount), 1, 1e15)),
+                amount: uint128(bound(uint256(rawAmount), MIN_LOCK, 1e15)),
                 refundBps: uint16(bound(uint256(rawRefund), 0, BPS)),
                 feeBps: uint16(bound(uint256(rawFee), 0, 1_000)),
                 resolverFeeBps: uint16(bound(uint256(rawResolverFee), 0, 1_000)),
@@ -631,12 +595,12 @@ contract EscrowDisputeBondsTest is Test {
         );
     }
 
-    function testFuzz_ADisputeTimeoutAlwaysReturnsThePrincipalAndTheBondWhole(
+    function testFuzz_AReopenReturnsTheBondWholeAndKeepsThePrincipalForThePayee(
         uint128 rawAmount,
         uint16 rawBond,
         bool payeeDisputes
     ) public {
-        uint128 amount = uint128(bound(uint256(rawAmount), 1, 1e15));
+        uint128 amount = uint128(bound(uint256(rawAmount), MIN_LOCK, 1e15));
         uint16 bondBps = uint16(bound(uint256(rawBond), 0, 2_000));
 
         Rig memory rig = _deployRig(FEE_BPS, RESOLVER_FEE_BPS, bondBps);
@@ -647,124 +611,143 @@ contract EscrowDisputeBondsTest is Test {
 
         address disputer = payeeDisputes ? payee : payer;
         uint256 disputerBefore = asset.balanceOf(disputer);
-        uint256 payerBefore = asset.balanceOf(payer);
 
         vm.prank(disputer);
         rig.escrow.dispute(id);
+        rig.stub.reopen(id);
 
-        vm.warp(block.timestamp + DISPUTE_TIMEOUT + 1);
-        rig.escrow.disputeTimeout(id);
-
-        assertEq(asset.balanceOf(payer), payerBefore + amount, "payer refunded in full");
-        assertEq(asset.balanceOf(disputer), disputerBefore + (payeeDisputes ? 0 : amount), "bond returned whole");
+        assertEq(asset.balanceOf(disputer), disputerBefore, "bond returned whole");
+        assertEq(uint8(rig.escrow.getLock(id).status), uint8(IEscrow.LockStatus.Locked), "the lock is open again");
         assertEq(rig.escrow.feesAccrued(), 0, "an unheard dispute earns the protocol nothing");
         assertEq(asset.balanceOf(address(rig.stub)), 0, "and the resolvers nothing");
-        assertEq(asset.balanceOf(address(rig.escrow)), 0, "escrow empty");
+        assertEq(asset.balanceOf(address(rig.escrow)), amount, "the principal waits for the payee");
     }
 
     /// End to end against the real registry: three resolvers rule that the job was never
     /// delivered, the payee that opened the dispute forfeits, and the bond turns up in what
     /// those three can claim.
     function test_AForfeitedBondIsClaimableByTheResolversThatRuled() public {
-        address admin = makeAddr("oracleAdmin");
-        address sink = makeAddr("slashSink");
-
-        MockReputation rep = new MockReputation();
-        Escrow bonded = new Escrow(
-            address(asset),
-            address(rep),
-            treasury,
-            FEE_BPS,
-            RESOLVER_FEE_BPS,
-            BOND_BPS,
-            MIN_TTL,
-            MAX_TTL,
-            DISPUTE_WINDOW,
-            DISPUTE_TIMEOUT
-        );
-        OracleRegistry oracle = new OracleRegistry(
-            address(asset),
-            admin,
-            sink,
-            IOracleRegistry.Config({
-                commitWindow: 1 hours,
-                revealWindow: 1 hours,
-                unbondingPeriod: 7 days,
-                quorum: 3,
-                maxVoters: 64,
-                maxDeviation: 10,
-                slashBps: 500
-            })
-        );
-
-        // Bonds are BRSR and the floor that admits one is the staking pool's. The rewards
-        // below are still USDG: the two are different tokens throughout.
-        BRSR bondToken = new BRSR(
-            IBRSR.Allocation({
-                community: address(this), team: makeAddr("brsrTeam"), treasury: treasury, liquidity: makeAddr("brsrLp")
-            })
-        );
-        Staking pool = new Staking(bondToken, asset, admin, sink, treasury, 7 days, 100e18);
-
-        rep.setEscrow(address(bonded));
-        bonded.setResolver(address(oracle));
-        oracle.setEscrow(address(bonded));
-        oracle.setStaking(address(pool));
-
-        address[3] memory resolvers = [makeAddr("resolverA"), makeAddr("resolverB"), makeAddr("resolverC")];
-        for (uint256 i; i < resolvers.length; ++i) {
-            bondToken.transfer(resolvers[i], 100e18);
-            vm.startPrank(resolvers[i]);
-            bondToken.approve(address(oracle), type(uint256).max);
-            oracle.register(100e18);
-            vm.stopPrank();
-        }
-
-        vm.prank(payer);
-        asset.approve(address(bonded), type(uint256).max);
-        vm.prank(payee);
-        asset.approve(address(bonded), type(uint256).max);
-
-        uint256 id = _lock(bonded, payer, payee, AMOUNT);
+        Live memory live = _liveSystem();
+        uint256 id = _lock(live.escrow, payer, payee, AMOUNT);
 
         vm.prank(payee);
-        bonded.dispute(id);
+        live.escrow.dispute(id);
 
-        uint256 disputeId = oracle.disputeIdOf(id);
-        bytes32 salt = keccak256("salt");
-        for (uint256 i; i < resolvers.length; ++i) {
-            // Read the commitment before the prank: a call made while one is armed would spend
-            // it, and the vote would arrive from this test instead of the resolver.
-            bytes32 commitment = oracle.commitmentHash(disputeId, resolvers[i], 10, salt);
-
-            vm.prank(resolvers[i]);
-            oracle.commitVote(disputeId, commitment);
+        uint256 disputeId = live.oracle.disputeIdOf(id);
+        for (uint256 i; i < live.resolvers.length; ++i) {
+            _commit(live, disputeId, live.resolvers[i], 10);
         }
 
-        vm.warp(oracle.getDispute(disputeId).commitEndsAt);
-        for (uint256 i; i < resolvers.length; ++i) {
-            vm.prank(resolvers[i]);
-            oracle.revealVote(disputeId, 10, salt);
+        vm.warp(live.oracle.getDispute(disputeId).commitEndsAt);
+        for (uint256 i; i < live.resolvers.length; ++i) {
+            vm.prank(live.resolvers[i]);
+            live.oracle.revealVote(disputeId, 10, SALT);
         }
 
-        oracle.finalize(disputeId);
+        live.oracle.finalize(disputeId);
 
         // A median of 10 is a full refund, so the payee that opened the dispute lost it.
-        assertEq(uint8(bonded.getLock(id).status), uint8(IEscrow.LockStatus.Resolved), "lock settled");
-        assertEq(asset.balanceOf(address(bonded)), 0, "escrow empty");
+        assertEq(uint8(live.escrow.getLock(id).status), uint8(IEscrow.LockStatus.Resolved), "lock settled");
+        assertEq(asset.balanceOf(address(live.escrow)), 0, "escrow empty");
 
         uint256 claimed;
-        for (uint256 i; i < resolvers.length; ++i) {
-            vm.prank(resolvers[i]);
-            claimed += oracle.claimRewards();
+        for (uint256 i; i < live.resolvers.length; ++i) {
+            vm.prank(live.resolvers[i]);
+            claimed += live.oracle.claimRewards();
         }
-        uint256 dust = oracle.sweepUnallocated();
+        uint256 dust = live.oracle.sweepUnallocated();
 
         assertEq(claimed + dust, uint256(RESOLVER_FEE) + BOND, "the fee and the forfeited bond, to the unit");
-        assertEq(oracle.rewardFloat(), 0, "nothing left over in the reward float");
-        assertEq(oracle.totalBonded(), 300e18, "and no resolver bond was touched to pay it");
-        assertEq(asset.balanceOf(address(oracle)), 0, "the registry keeps no settlement asset of its own");
-        assertEq(bondToken.balanceOf(address(oracle)), 300e18, "the bonds are held in BRSR and untouched");
+        assertEq(live.oracle.rewardFloat(), 0, "nothing left over in the reward float");
+        assertEq(live.oracle.totalBonded(), 300e18, "and no resolver bond was touched to pay it");
+        assertEq(asset.balanceOf(address(live.oracle)), 0, "the registry keeps no settlement asset of its own");
+        assertEq(live.bondToken.balanceOf(address(live.oracle)), 300e18, "the bonds are held in BRSR and untouched");
+    }
+
+    /// Nobody votes, the dispute fails, and the lock goes back to the payee with the bond back
+    /// to whichever side opened it. An unheard dispute is never a refund and never a forfeit.
+    function test_AnUnheardDisputeReturnsTheBondToTheSideThatOpenedIt() public {
+        Live memory live = _liveSystem();
+
+        for (uint256 side; side < 2; ++side) {
+            address disputer = side == 0 ? payer : payee;
+            uint256 id = _lock(live.escrow, payer, payee, AMOUNT);
+            uint64 deadline = live.escrow.getLock(id).deadline;
+            uint256 before = asset.balanceOf(disputer);
+
+            vm.prank(disputer);
+            live.escrow.dispute(id);
+            assertEq(asset.balanceOf(disputer), before - BOND, "the bond left with the dispute");
+
+            uint256 disputeId = live.oracle.disputeIdOf(id);
+            vm.warp(live.oracle.getDispute(disputeId).commitEndsAt);
+
+            vm.expectEmit(true, true, false, true, address(live.escrow));
+            emit IEscrow.BondReturned(id, disputer, BOND);
+            live.oracle.failDispute(disputeId);
+
+            IEscrow.Lock memory reopened = live.escrow.getLock(id);
+            assertEq(asset.balanceOf(disputer), before, "the bond came back whole");
+            assertEq(uint8(reopened.status), uint8(IEscrow.LockStatus.Locked), "the lock reopened");
+            assertEq(reopened.bond, 0, "no bond is carried into the reopened lock");
+            assertEq(reopened.deadline, deadline + MIN_TTL, "and the payee has its time back");
+        }
+
+        assertEq(asset.balanceOf(address(live.escrow)), 2 * uint256(AMOUNT), "only the two principals stay");
+        assertEq(live.oracle.rewardFloat(), 0, "an unheard dispute pays no resolver");
+    }
+
+    /// Committers who never reveal lose BRSR. The disputer's bond is in the settlement asset,
+    /// is nobody's penalty for the resolvers' silence, and comes back.
+    function test_AFailedDisputeReturnsTheBondWhileTheSilentCommittersAreSlashed() public {
+        Live memory live = _liveSystem();
+        uint256 id = _lock(live.escrow, payer, payee, AMOUNT);
+        uint256 payeeBefore = asset.balanceOf(payee);
+
+        vm.prank(payee);
+        live.escrow.dispute(id);
+
+        // Two of three commit, short of the quorum, and neither reveals.
+        uint256 disputeId = live.oracle.disputeIdOf(id);
+        _commit(live, disputeId, live.resolvers[0], 90);
+        _commit(live, disputeId, live.resolvers[1], 90);
+
+        vm.warp(live.oracle.getDispute(disputeId).revealEndsAt);
+        live.oracle.failDispute(disputeId);
+
+        assertEq(asset.balanceOf(payee), payeeBefore, "the disputer's bond came back");
+        assertEq(live.oracle.getResolver(live.resolvers[0]).slashes, 1, "silence was slashed");
+        assertEq(live.oracle.getResolver(live.resolvers[1]).slashes, 1, "silence was slashed");
+        assertEq(live.oracle.openVotes(live.resolvers[0]), 0, "and the bonds are free to leave");
+        assertEq(asset.balanceOf(address(live.oracle)), 0, "no settlement asset reached the registry");
+        assertEq(asset.balanceOf(address(live.escrow)), AMOUNT, "the principal stays with the reopened lock");
+    }
+
+    /// The disputer is frozen by the time the vote fails. The lock still reopens and the vote
+    /// still closes; the bond waits in the escrow until the disputer can receive it.
+    function test_AFrozenDisputerCannotHoldAFailedDisputeOpen() public {
+        Live memory live = _liveSystem();
+        uint256 id = _lock(live.escrow, payer, payee, AMOUNT);
+
+        vm.prank(payee);
+        live.escrow.dispute(id);
+
+        uint256 disputeId = live.oracle.disputeIdOf(id);
+        _commit(live, disputeId, live.resolvers[0], 90);
+
+        asset.setFrozen(payee, true);
+        vm.warp(live.oracle.getDispute(disputeId).revealEndsAt);
+        live.oracle.failDispute(disputeId);
+
+        assertEq(uint8(live.escrow.getLock(id).status), uint8(IEscrow.LockStatus.Locked), "the lock reopened");
+        assertEq(live.escrow.owed(payee), BOND, "the bond was booked, not lost");
+        assertEq(live.oracle.openVotes(live.resolvers[0]), 0, "the committer's bond is free again");
+
+        asset.setFrozen(payee, false);
+        uint256 payeeBefore = asset.balanceOf(payee);
+        live.escrow.claim(payee);
+        assertEq(asset.balanceOf(payee) - payeeBefore, BOND);
+        assertEq(asset.balanceOf(address(live.escrow)), AMOUNT);
     }
 
     function _fund(address account, uint256 amount) private {
@@ -786,6 +769,75 @@ contract EscrowDisputeBondsTest is Test {
         id = target.lock(to, CAPABILITY, INPUT_COMMIT, "ipfs://in", amount, _deadline());
     }
 
+    function _liveSystem() private returns (Live memory live) {
+        address admin = makeAddr("oracleAdmin");
+        address sink = makeAddr("slashSink");
+
+        MockReputation rep = new MockReputation();
+        live.escrow = new Escrow(
+            address(asset),
+            address(rep),
+            treasury,
+            FEE_BPS,
+            RESOLVER_FEE_BPS,
+            BOND_BPS,
+            MIN_TTL,
+            MAX_TTL,
+            DISPUTE_WINDOW,
+            MIN_LOCK
+        );
+        live.oracle = new OracleRegistry(
+            address(asset),
+            admin,
+            sink,
+            IOracleRegistry.Config({
+                commitWindow: 1 hours,
+                revealWindow: 1 hours,
+                unbondingPeriod: 7 days,
+                quorum: 3,
+                maxVoters: 64,
+                maxDeviation: 10,
+                slashBps: 500
+            })
+        );
+
+        // Bonds are BRSR and the floor that admits one is the staking pool's. The rewards are
+        // still USDG: the two are different tokens throughout.
+        live.bondToken = new BRSR(
+            IBRSR.Allocation({
+                community: address(this), team: makeAddr("brsrTeam"), treasury: treasury, liquidity: makeAddr("brsrLp")
+            })
+        );
+        Staking pool = new Staking(live.bondToken, asset, admin, sink, treasury, 7 days, 100e18);
+
+        rep.setEscrow(address(live.escrow));
+        live.escrow.setResolver(address(live.oracle));
+        live.oracle.setEscrow(address(live.escrow));
+        live.oracle.setStaking(address(pool));
+
+        live.resolvers = [makeAddr("resolverA"), makeAddr("resolverB"), makeAddr("resolverC")];
+        for (uint256 i; i < live.resolvers.length; ++i) {
+            live.bondToken.transfer(live.resolvers[i], 100e18);
+            vm.startPrank(live.resolvers[i]);
+            live.bondToken.approve(address(live.oracle), type(uint256).max);
+            live.oracle.register(100e18);
+            vm.stopPrank();
+        }
+
+        vm.prank(payer);
+        asset.approve(address(live.escrow), type(uint256).max);
+        vm.prank(payee);
+        asset.approve(address(live.escrow), type(uint256).max);
+    }
+
+    /// Read the commitment before the prank: a call made while one is armed would spend it, and
+    /// the vote would arrive from this test instead of the resolver.
+    function _commit(Live memory live, uint256 disputeId, address resolver, uint8 score) private {
+        bytes32 commitment = live.oracle.commitmentHash(disputeId, resolver, score, SALT);
+        vm.prank(resolver);
+        live.oracle.commitVote(disputeId, commitment);
+    }
+
     function _deployRig(uint16 feeBps, uint16 resolverFeeBps, uint16 bondBps) private returns (Rig memory rig) {
         rig.reputation = new MockReputation();
         rig.escrow = new Escrow(
@@ -798,7 +850,7 @@ contract EscrowDisputeBondsTest is Test {
             MIN_TTL,
             MAX_TTL,
             DISPUTE_WINDOW,
-            DISPUTE_TIMEOUT
+            MIN_LOCK
         );
         rig.stub = new BondResolverStub(IEscrow(address(rig.escrow)));
 
@@ -906,7 +958,7 @@ contract EscrowDisputeBondsHandler is CommonBase, StdCheats, StdUtils {
     function openLock(uint256 actorSeed, uint128 rawAmount, uint8 action) external {
         address payer = payers[actorSeed % 2];
         address payee = payees[actorSeed % 2];
-        uint128 amount = uint128(bound(uint256(rawAmount), 1, 10_000e6));
+        uint128 amount = uint128(bound(uint256(rawAmount), escrow.minLock(), 10_000e6));
 
         // Timestamps have three hundred billion years of headroom in uint64.
         // forge-lint: disable-next-line(unsafe-typecast)
@@ -930,9 +982,9 @@ contract EscrowDisputeBondsHandler is CommonBase, StdCheats, StdUtils {
         stub.rule(ids[idSeed % ids.length], uint16(bound(uint256(rawRefund), 0, 10_000)));
     }
 
-    function letTheResolverGoSilent(uint256 idSeed) external {
+    function letTheVoteFail(uint256 idSeed) external {
         if (ids.length == 0) return;
-        escrow.disputeTimeout(ids[idSeed % ids.length]);
+        stub.reopen(ids[idSeed % ids.length]);
     }
 
     function releaseLock(uint256 idSeed) external {
@@ -976,7 +1028,7 @@ contract EscrowDisputeBondsInvariantTest is Test {
         asset = new MockUsdg();
         reputation = new MockReputation();
         escrow = new Escrow(
-            address(asset), address(reputation), makeAddr("treasury"), 100, 200, 500, 1 hours, 30 days, 1 days, 3 days
+            address(asset), address(reputation), makeAddr("treasury"), 100, 200, 500, 1 hours, 30 days, 1 days, 10_000
         );
         stub = new BondResolverStub(IEscrow(address(escrow)));
 
@@ -988,7 +1040,7 @@ contract EscrowDisputeBondsInvariantTest is Test {
         bytes4[] memory selectors = new bytes4[](6);
         selectors[0] = EscrowDisputeBondsHandler.openLock.selector;
         selectors[1] = EscrowDisputeBondsHandler.rule.selector;
-        selectors[2] = EscrowDisputeBondsHandler.letTheResolverGoSilent.selector;
+        selectors[2] = EscrowDisputeBondsHandler.letTheVoteFail.selector;
         selectors[3] = EscrowDisputeBondsHandler.releaseLock.selector;
         selectors[4] = EscrowDisputeBondsHandler.timeoutLock.selector;
         selectors[5] = EscrowDisputeBondsHandler.letTheClockRun.selector;
