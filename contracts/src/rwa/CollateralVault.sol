@@ -243,12 +243,20 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
 
     /// Sells the slice of `asset` that brings the position back to `liquidationTarget`, repays
     /// the pool with the proceeds less the caller's bounty, and writes off any remainder once
-    /// the position holds nothing more.
+    /// the line holds nothing more to sell.
     function liquidate(address mandate, address asset) external nonReentrant returns (uint256 rawSold) {
         uint256 h = health(mandate);
         if (h >= WAD) revert Healthy(h);
         uint256 held = collateralOf[mandate][asset];
         if (held == 0) revert PositionEmpty(mandate, asset);
+
+        // Dust, left over or posted by anyone, can never be sold for anything. Once nothing else
+        // is left the debt is written off here, where a sale could only revert.
+        if (_exhausted(mandate)) {
+            pool.writeOff(mandate);
+            emit Liquidated(mandate, asset, msg.sender, 0, 0, 0, 0, health(mandate));
+            return 0;
+        }
 
         // Fresh, unpaused, inside the pool band; reverts otherwise, which defers the sale.
         uint256 priceE8 = guard.exitPrice(asset, address(this));
@@ -492,13 +500,19 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         uint256 surplus = toRepay - repaid;
         if (surplus > 0) usdg.safeTransfer(mandate, surplus);
         if (bounty > 0) usdg.safeTransfer(msg.sender, bounty);
-        if (pool.debtOf(mandate) > 0 && _isEmpty(mandate)) pool.writeOff(mandate);
+        if (pool.debtOf(mandate) > 0 && _exhausted(mandate)) pool.writeOff(mandate);
     }
 
-    function _isEmpty(address mandate) private view returns (bool) {
+    /// Nothing is left that a sale could turn into USDG: every position is empty, or its band
+    /// floor at a price the vault trusts rounds to nothing. A position without a trusted price
+    /// holds the write-off open, since the price may come back.
+    function _exhausted(address mandate) private view returns (bool) {
         uint256 n = _assets.length;
         for (uint256 i; i < n; ++i) {
-            if (collateralOf[mandate][_assets[i]] != 0) return false;
+            address asset = _assets[i];
+            if (collateralOf[mandate][asset] == 0) continue;
+            (PositionView memory p,,) = _position(mandate, asset);
+            if (!p.fresh || Math.mulDiv(p.value, BPS - registry.get(asset).bandBps, BPS) != 0) return false;
         }
         return true;
     }

@@ -460,6 +460,12 @@ contract CollateralTest is Test {
         _deposit(spy, 0.01e18);
         _spendOnCredit(4e6);
         vm.warp(block.timestamp + 1 days);
+        usdg.mint(principal, 5e6);
+        vm.startPrank(principal);
+        usdg.approve(address(pool), type(uint256).max);
+        pool.repay(address(acct), 5e6);
+        vm.stopPrank();
+        assertGt(pool.reserves(), 0);
         vm.expectRevert("NotCreditManager");
         pool.sweepSpread();
     }
@@ -532,6 +538,87 @@ contract CollateralTest is Test {
         assertEq(vault.collateralOf(address(acct), address(spy)), 0);
         assertEq(pool.debtOf(address(acct)), 0);
         assertGt(pool.badDebt(), 0);
+    }
+
+    /// One wei of another asset, posted by anyone, used to hold the write-off open for good while
+    /// the stranded debt kept costing the pool. Dust counts as nothing left to sell.
+    function test_dustDeposit_cannotBlockWriteOff() public {
+        _deposit(spy, 0.01e18);
+        _spendOnCredit(4e6);
+        address griefer = makeAddr("griefer");
+        sgov.mint(griefer, 1);
+        vm.startPrank(griefer);
+        sgov.approve(address(vault), 1);
+        vault.deposit(address(acct), address(sgov), 1);
+        vm.stopPrank();
+
+        _movePrice(spy, spyFeed, SPY_E8 / 4);
+        vault.liquidate(address(acct), address(spy));
+        assertEq(vault.collateralOf(address(acct), address(spy)), 0);
+        assertEq(pool.debtOf(address(acct)), 0);
+        assertGt(pool.badDebt(), 0);
+
+        // With nothing owed the dust is the principal's to take back.
+        vm.prank(principal);
+        vault.withdraw(address(acct), address(sgov), 1, principal);
+        assertEq(sgov.balanceOf(principal), 10e18 + 1);
+    }
+
+    /// A line whose collateral a sale could get nothing for is written off by the liquidation
+    /// call itself; trying to sell dust could only revert.
+    function test_liquidate_writesOffLineHoldingOnlyDust() public {
+        _deposit(spy, 0.01e18);
+        _spendOnCredit(4e6);
+        _movePrice(spy, spyFeed, 1e3); // $0.00001: the whole position is worth under a micro-USDG
+        vm.prank(keeper);
+        assertEq(vault.liquidate(address(acct), address(spy)), 0);
+        assertEq(pool.debtOf(address(acct)), 0);
+        assertEq(pool.badDebt(), 4e6);
+        assertEq(vault.collateralOf(address(acct), address(spy)), 0.01e18);
+    }
+
+    /// A year of spread on a line that never pays reaches no one. Only spread a borrower pays is
+    /// booked for stakers, so the lender loses the principal it lent and nothing more, and the
+    /// written-off debt stops growing.
+    function test_writeOff_reversesUnpaidSpread() public {
+        _deposit(spy, 0.01e18);
+        _spendOnCredit(4e6);
+        vm.warp(block.timestamp + 365 days);
+        assertGt(pool.debtOf(address(acct)), 4e6);
+        vm.expectRevert(CreditPool.NothingToSweep.selector);
+        pool.sweepSpread();
+
+        _movePrice(spy, spyFeed, 1e3);
+        vault.liquidate(address(acct), address(spy));
+        assertEq(pool.debtOf(address(acct)), 0);
+        assertEq(pool.principalOf(address(acct)), 0);
+        assertEq(pool.reserves(), 0);
+        assertEq(pool.cash(), 26e6); // 30 funded, 4 lent and lost
+        vm.expectRevert(CreditPool.NothingToSweep.selector);
+        pool.sweepSpread();
+
+        vm.warp(block.timestamp + 365 days);
+        assertEq(pool.debtOf(address(acct)), 0);
+        assertEq(pool.totalDebt(), 0);
+    }
+
+    /// A liquidation that falls short pays the spread first, and stakers get exactly that.
+    function test_shortLiquidation_paysSpreadBeforePrincipal() public {
+        _deposit(spy, 0.01e18);
+        _spendOnCredit(4e6);
+        vm.warp(block.timestamp + 365 days);
+        uint256 spread = pool.debtOf(address(acct)) - 4e6;
+
+        _movePrice(spy, spyFeed, SPY_E8 / 4);
+        vm.prank(keeper);
+        vault.liquidate(address(acct), address(spy));
+        assertEq(pool.debtOf(address(acct)), 0);
+        assertApproxEqAbs(pool.reserves(), spread, 1);
+        // What was written off is principal alone, and it is all the lender is down.
+        assertApproxEqAbs(pool.cash(), 30e6 - pool.badDebt(), 2);
+        pool.sweepSpread();
+        assertApproxEqAbs(staking.distributed(), spread, 1);
+        assertApproxEqAbs(pool.cash(), 30e6 - pool.badDebt(), 2);
     }
 
     function test_adminOnly() public {

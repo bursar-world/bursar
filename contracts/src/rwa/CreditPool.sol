@@ -20,9 +20,12 @@ interface ICreditStaking {
 /// debt costs `scaled × index`. Nothing else in the protocol borrows, and the only address that
 /// can open or close debt is the vault.
 ///
-/// Spread. The rate is `baseRateBps + slopeBps × utilisation`, a year's rate in basis points.
-/// All of it is booked to `reserves` and swept to Staking as USDG rewards. The lender earns
-/// principal back, not the spread, while the lane runs on operator capital.
+/// Spread. The rate is `baseRateBps + slopeBps × utilisation`, a year's rate in basis points,
+/// and it accrues on the debt. A repayment meets accrued spread before principal, and only
+/// spread that has been paid is booked to `reserves` and swept to Staking as USDG rewards. Spread
+/// on a debt that ends in a write-off was never paid, so it never reaches stakers out of the
+/// lender's cash. The lender earns principal back, not the spread, while the lane runs on
+/// operator capital.
 ///
 /// Caps. `totalDebtCap` across all mandates and `perMandateCap` for one, both in USDG.
 contract CreditPool is ReentrancyGuard {
@@ -51,13 +54,15 @@ contract CreditPool is ReentrancyGuard {
     uint256 public borrowIndex = WAD;
     uint64 public lastAccrual;
     uint256 public totalScaled;
-    /// Spread earned and not yet swept to Staking.
+    /// Spread borrowers have paid that is not yet swept to Staking.
     uint256 public reserves;
     /// Debt written off after a position ran out of collateral.
     uint256 public badDebt;
     uint256 public spreadPaid;
 
     mapping(address mandate => uint256) public scaledDebtOf;
+    /// What each mandate borrowed and has not paid back.
+    mapping(address mandate => uint256) public principalOf;
 
     event VaultBound(address indexed vault);
     event Funded(address indexed from, uint256 amount);
@@ -164,6 +169,7 @@ contract CreditPool is ReentrancyGuard {
         uint256 scaled = Math.mulDiv(amount, WAD, borrowIndex, Math.Rounding.Ceil);
         scaledDebtOf[mandate] += scaled;
         totalScaled += scaled;
+        principalOf[mandate] += amount;
 
         debt = debtOf(mandate);
         if (debt > perMandateCap) revert MandateCapExceeded(debt, perMandateCap);
@@ -175,12 +181,14 @@ contract CreditPool is ReentrancyGuard {
     }
 
     /// Clears what a liquidation could not cover once the position holds nothing more to sell.
+    /// The debt stops accruing here. The spread in it was never paid, so none of it was booked.
     function writeOff(address mandate) external onlyVault returns (uint256 amount) {
         _accrue();
         uint256 scaled = scaledDebtOf[mandate];
         if (scaled == 0) return 0;
         amount = Math.mulDiv(scaled, borrowIndex, WAD, Math.Rounding.Ceil);
         scaledDebtOf[mandate] = 0;
+        principalOf[mandate] = 0;
         totalScaled -= scaled;
         badDebt += amount;
         emit WrittenOff(mandate, amount);
@@ -197,15 +205,25 @@ contract CreditPool is ReentrancyGuard {
         uint256 owed = Math.mulDiv(scaled, borrowIndex, WAD, Math.Rounding.Ceil);
 
         uint256 burn;
+        uint256 principal = principalOf[mandate];
+        uint256 toPrincipal;
         if (amount >= owed) {
             paid = owed;
             burn = scaled;
+            toPrincipal = principal;
         } else {
             paid = amount;
             burn = Math.mulDiv(amount, WAD, borrowIndex);
+            // Spread first. Measured against the debt rounded down, principal never reads above
+            // what is owed.
+            uint256 debt = Math.mulDiv(scaled, borrowIndex, WAD);
+            uint256 spread = debt > principal ? debt - principal : 0;
+            toPrincipal = paid > spread ? paid - spread : 0;
         }
         scaledDebtOf[mandate] = scaled - burn;
         totalScaled -= burn;
+        principalOf[mandate] = principal - toPrincipal;
+        reserves += paid - toPrincipal;
 
         usdg.safeTransferFrom(msg.sender, address(this), paid);
         emit Repaid(mandate, msg.sender, paid, debtOf(mandate));
@@ -274,8 +292,7 @@ contract CreditPool is ReentrancyGuard {
     /// USDG that can be lent: the balance less the spread owed to stakers.
     function cash() public view returns (uint256) {
         uint256 held = usdg.balanceOf(address(this));
-        uint256 r = reserves + _pendingInterest();
-        return held > r ? held - r : 0;
+        return held > reserves ? held - reserves : 0;
     }
 
     /// Debt over debt plus cash, in basis points.
@@ -310,19 +327,9 @@ contract CreditPool is ReentrancyGuard {
 
     // --- internals ---
 
-    function _pendingInterest() private view returns (uint256) {
-        if (totalScaled == 0) return 0;
-        uint256 idx = currentIndex();
-        return Math.mulDiv(totalScaled, idx - borrowIndex, WAD);
-    }
-
     function _accrue() private {
         if (block.timestamp == lastAccrual) return;
-        if (totalScaled != 0) {
-            uint256 idx = currentIndex();
-            reserves += Math.mulDiv(totalScaled, idx - borrowIndex, WAD);
-            borrowIndex = idx;
-        }
+        if (totalScaled != 0) borrowIndex = currentIndex();
         lastAccrual = uint64(block.timestamp);
     }
 
