@@ -742,6 +742,12 @@ contract DeployScriptTest is ScriptHarness {
         Deploy.Deployment memory out = _runAsDeployKey();
         assertEq(Escrow(out.escrow).settlementAsset(), RHC_USDG);
 
+        // A second run says it ran before, whatever the deploy key has spent since the first.
+        vm.prank(DEFAULT_SENDER);
+        usdg.transfer(treasury, MIN_SETTLEMENT_BALANCE);
+        vm.expectRevert(abi.encodeWithSelector(BursarScript.AlreadyRecorded.selector, K.REPUTATION, out.reputation));
+        _as(DEFAULT_SENDER, address(script), abi.encodeCall(Deploy.run, ()));
+
         vm.chainId(homeChain);
     }
 

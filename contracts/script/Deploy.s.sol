@@ -218,6 +218,15 @@ contract Deploy is BursarScript {
     /// Everything checkable before a single transaction is sent. A deployment that fails halfway
     /// leaves live contracts nobody can finish wiring, so the expensive checks run first.
     function _preflight(address deployer) private view {
+        // The record says what is already there, and each of these refuses a second copy. Asked
+        // first, so a second run says it ran before, whatever the deploy key holds by then.
+        if (existingTimelock == address(0)) _requireUnrecorded(K.ADMIN_TIMELOCK);
+        _requireUnrecorded(K.REPUTATION);
+        _requireUnrecorded(K.ESCROW);
+        _requireUnrecorded(K.ORACLE_REGISTRY);
+        if (withAgentRegistry) _requireUnrecorded(K.AGENT_REGISTRY);
+        _requireUnrecorded(K.FACTORY);
+
         if (asset.code.length == 0) revert AssetNotContract(asset);
         // Wrapped, because an address holding code that does not answer `decimals` fails here
         // with a decode error that tells an operator nothing.
@@ -262,14 +271,6 @@ contract Deploy is BursarScript {
                 if (liveSigners[i] != signers[i]) revert WiringFailed("timelock.signer", signers[i], liveSigners[i]);
             }
         }
-
-        // The record says what is already there, and each of these refuses a second copy.
-        if (existingTimelock == address(0)) _requireUnrecorded(K.ADMIN_TIMELOCK);
-        _requireUnrecorded(K.REPUTATION);
-        _requireUnrecorded(K.ESCROW);
-        _requireUnrecorded(K.ORACLE_REGISTRY);
-        if (withAgentRegistry) _requireUnrecorded(K.AGENT_REGISTRY);
-        _requireUnrecorded(K.FACTORY);
 
         // The registry reads the bond token off the pool, so the pool has to be one this
         // deployment settles against.
