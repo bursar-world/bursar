@@ -77,20 +77,32 @@ contract RwaForkTest is Test {
         assertEq(USDG.balanceOf(address(acct)), 0);
     }
 
+    /// Past the trade bound nothing trades while parked SGOV still counts; past its valuation
+    /// bound it stops counting toward what the mandate can spend.
     function test_fork_staleRefuses() public {
         IMandateAccount acct = _newMandate();
-        vm.warp(block.timestamp + 5 days);
+        _park(address(acct), 2e6);
+
+        vm.warp(block.timestamp + 30 hours);
         vm.prank(agent);
         vm.expectPartialRevert(PriceGuard.StalePrice.selector);
         acct.buy(RwaConfig.SPY, 1e6, 0, 1);
         (uint256 total,) = d.park.parkedValue(address(acct));
+        assertGt(total, 0);
+
+        vm.warp(block.timestamp + 4 days);
+        (total,) = d.park.parkedValue(address(acct));
         assertEq(total, 0);
+        assertEq(d.park.spendingPower(address(acct)), USDG.balanceOf(address(acct)));
     }
 
-    /// The live proof, rehearsed on the example v2 mandate before it is sent.
+    /// The live proof, rehearsed on the example v2 mandate before it is sent. The example has
+    /// spent down since, so the fork tops it up rather than depend on what it holds today.
     function test_fork_exampleMandateProof() public {
         IMandateAccount acct = IMandateAccount(EXAMPLE);
         address owner = acct.principal();
+        vm.prank(USDG_HOLDER);
+        USDG.transfer(EXAMPLE, 100_000);
         IMandateAccount.Limits memory l = acct.limits();
         l.classMask = 7;
 
