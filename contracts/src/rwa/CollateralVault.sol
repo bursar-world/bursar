@@ -103,9 +103,10 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
     address public pendingAdmin;
     Params public params;
 
+    /// Tier n is `_tiers[n - 1]`: every tier number this contract takes or returns counts from one,
+    /// and zero means the asset is not accepted as collateral.
     Tier[] private _tiers;
     address[] private _assets;
-    /// Tier index plus one; zero means the asset is not accepted as collateral.
     mapping(address asset => uint8) private _tierOf;
 
     mapping(address mandate => bool) public isLine;
@@ -179,7 +180,7 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         _setParams(params_);
         for (uint256 i; i < tiers_.length; ++i) {
             _tiers.push();
-            _setTier(uint8(i), tiers_[i]);
+            _setTier(uint8(i + 1), tiers_[i]);
         }
         if (assets_.length != assetTiers_.length) revert BadTier();
         for (uint256 i; i < assets_.length; ++i) {
@@ -282,11 +283,13 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         _setParams(p);
     }
 
+    /// Replaces tier `tier`, the number `tierOf` answers. One past the last tier adds a tier.
     function setTier(uint8 tier, Tier calldata t) external onlyAdmin {
-        if (tier == _tiers.length) _tiers.push();
+        if (tier == _tiers.length + 1) _tiers.push();
         _setTier(tier, t);
     }
 
+    /// Moves `asset` into tier `tier`. Zero takes it out of its tier.
     function setAssetTier(address asset, uint8 tier) external onlyAdmin {
         _setAssetTier(asset, tier);
     }
@@ -322,7 +325,7 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         return _assets;
     }
 
-    /// Zero when the asset is not accepted; otherwise the tier index plus one.
+    /// Zero when the asset is not accepted; otherwise its tier, which is `tiers()[tier - 1]`.
     function tierOf(address asset) external view returns (uint8) {
         return _tierOf[asset];
     }
@@ -555,13 +558,14 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         emit ParamsSet(p.minBorrowHealth, p.liquidationTarget, p.bountyBps);
     }
 
-    function _setTier(uint8 index, Tier memory t) private {
+    function _setTier(uint8 tier, Tier memory t) private {
+        if (tier == 0 || tier > _tiers.length) revert BadTier();
         if (
             t.sessionHaircutBps >= BPS || t.afterHoursHaircutBps >= BPS || t.afterHoursHaircutBps < t.sessionHaircutBps
                 || t.sessionStaleness == 0 || t.valuationStaleness < t.sessionStaleness
         ) revert BadTier();
-        _tiers[index] = t;
-        emit TierSet(index, t.name, t.sessionHaircutBps, t.afterHoursHaircutBps);
+        _tiers[tier - 1] = t;
+        emit TierSet(tier, t.name, t.sessionHaircutBps, t.afterHoursHaircutBps);
     }
 
     function _setAssetTier(address asset, uint8 tier) private {

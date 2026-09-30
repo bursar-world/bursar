@@ -115,11 +115,9 @@ contract CollateralForkTest is ForkWorld {
         acct.spend(_request(3.5e6), new bytes32[](0));
 
         CollateralVault.Tier memory tight = CollateralVault.Tier(6_000, 6_500, 93_600, 360_000, "Index fund");
-        // `tierOf` counts from one, zero meaning not collateral; `setTier` takes the position in
-        // the tier list, which counts from zero.
-        uint8 index = vault.tierOf(spy) - 1;
+        uint8 tier = vault.tierOf(spy);
         vm.prank(_readAddress(path, K.ADMIN_TIMELOCK));
-        vault.setTier(index, tight);
+        vault.setTier(tier, tight);
         uint256 under = vault.health(address(acct));
         console2.log("health before liquidation", under);
         assertLt(under, 1e18);

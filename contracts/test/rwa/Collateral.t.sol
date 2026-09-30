@@ -264,6 +264,40 @@ contract CollateralTest is Test {
         assertEq(vault.collateralAssets().length, 3);
     }
 
+    /// Tiers count from one everywhere, so the tier `tierOf` names is the one `setTier` edits.
+    function test_setTier_editsTheTierTierOfNames() public {
+        uint8 tier = vault.tierOf(address(spy));
+        vm.prank(admin);
+        vault.setTier(tier, CollateralVault.Tier(2_500, 4_000, 26 hours, 100 hours, "Index fund"));
+
+        (uint16 bps,) = vault.haircutOf(address(spy));
+        assertEq(bps, 2_500);
+        assertEq(vault.tiers()[tier - 1].sessionHaircutBps, 2_500);
+        (bps,) = vault.haircutOf(address(aapl));
+        assertEq(bps, 3_000);
+    }
+
+    /// Zero is what `tierOf` answers for an asset that is not collateral, so there is no tier zero
+    /// to edit. One past the last tier adds a tier; anything further is refused.
+    function test_setTier_refusesTierZeroAndGaps() public {
+        CollateralVault.Tier memory t = CollateralVault.Tier(1_000, 2_000, 26 hours, 100 hours, "Fund");
+        vm.startPrank(admin);
+        vm.expectRevert(CollateralVault.BadTier.selector);
+        vault.setTier(0, t);
+        vm.expectRevert(CollateralVault.BadTier.selector);
+        vault.setTier(5, t);
+
+        vm.expectEmit(address(vault));
+        emit CollateralVault.TierSet(4, "Fund", 1_000, 2_000);
+        vault.setTier(4, t);
+        vault.setAssetTier(address(aapl), 4);
+        vm.stopPrank();
+
+        assertEq(vault.tiers().length, 4);
+        (uint16 bps,) = vault.haircutOf(address(aapl));
+        assertEq(bps, 1_000);
+    }
+
     // ---- stale and paused ----
 
     function test_stalePriceCountsZero_andDefersDraw() public {
