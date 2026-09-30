@@ -132,6 +132,8 @@ interface IOracleRegistry {
     event RewardsPosted(uint256 indexed disputeId, uint256 amount, uint8 shares, uint256 perShare);
     event RewardsClaimed(address indexed resolver, uint256 amount);
     event UnallocatedSwept(address indexed slashSink, uint256 amount);
+    event SurplusSwept(address indexed slashSink, uint256 amount);
+    event ResolverEvicted(address indexed resolver, uint128 returned);
     event ConfigUpdated(Config config);
     event EscrowSet(address indexed escrow);
     event StakingSet(address indexed staking, address indexed bondAsset);
@@ -216,7 +218,15 @@ interface IOracleRegistry {
     /// because nothing here is discretionary.
     function sweepUnallocated() external returns (uint256 amount);
 
+    /// Sends settlement asset held beyond `rewardFloat` to the slash sink. Only a transfer
+    /// made outside `notifyReward` leaves any. Permissionless for the same reason.
+    function sweepSurplus() external returns (uint256 amount);
+
     function slash(address resolver, uint128 amount) external;
+
+    /// Unseats a resolver with no open vote and returns its bond, so a seat slashed to nothing
+    /// or left idle does not hold the capped roster for good. Admin only.
+    function evict(address resolver) external;
     function setConfig(Config calldata config) external;
     function setSlashSink(address slashSink) external;
 

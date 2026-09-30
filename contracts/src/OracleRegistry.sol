@@ -459,6 +459,21 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
         emit UnallocatedSwept(sink, amount);
     }
 
+    /// Settlement asset held beyond the reward ledger. Only a transfer made outside
+    /// `notifyReward` leaves any, it is nobody's reward, and it goes where orphaned fees go.
+    function sweepSurplus() external nonReentrant returns (uint256 amount) {
+        IERC20 asset = IERC20(settlementAsset);
+        uint256 held = asset.balanceOf(address(this));
+        uint256 floated = rewardFloat;
+        if (held <= floated) revert NothingToClaim();
+        amount = held - floated;
+
+        address sink = slashSink;
+        asset.safeTransfer(sink, amount);
+
+        emit SurplusSwept(sink, amount);
+    }
+
     function slash(address resolver, uint128 amount) external onlyAdmin nonReentrant {
         if (resolver == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
@@ -475,6 +490,27 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
 
         // Dispute id zero: this is a governance ruling, not the outcome of a vote.
         emit ResolverSlashed(resolver, 0, taken);
+    }
+
+    /// Unseats a resolver and returns what is left of its bond. The roster is capped, and a
+    /// seat held by a bond slashed to nothing, or by a resolver that stopped answering, would
+    /// otherwise be held for good. Refused while a vote the bond backs is still open.
+    function evict(address resolver) external onlyAdmin nonReentrant {
+        Resolver storage record = _resolvers[resolver];
+        _requireRegistered(record);
+        if (openVotes[resolver] != 0) revert BondLocked();
+
+        uint128 returned = record.bond;
+        record.bond = 0;
+        record.unbondingAt = 0;
+        record.status = ResolverStatus.Exited;
+
+        resolverCount -= 1;
+        totalBonded -= returned;
+
+        if (returned != 0) bondAsset.safeTransfer(resolver, returned);
+
+        emit ResolverEvicted(resolver, returned);
     }
 
     function setConfig(Config calldata config_) external onlyAdmin {

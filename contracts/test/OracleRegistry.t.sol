@@ -1823,6 +1823,104 @@ contract OracleRegistryTest is Test {
         registry.slash(makeAddr("stranger"), 1e18);
     }
 
+    /// A slash takes the bond, not the seat. Before eviction existed a resolver slashed to
+    /// nothing held one of the sixty-four seats for good.
+    function test_slash_toNothingKeepsTheSeatUntilTheAdminEvicts() public {
+        uint256 seated = registry.resolverCount();
+
+        vm.prank(admin);
+        registry.slash(r1, type(uint128).max);
+
+        assertEq(registry.getResolver(r1).bond, 0);
+        assertEq(uint8(registry.getResolver(r1).status), uint8(IOracleRegistry.ResolverStatus.Active));
+        assertEq(registry.resolverCount(), seated, "the slash freed the seat by itself");
+
+        vm.prank(admin);
+        registry.evict(r1);
+        assertEq(registry.resolverCount(), seated - 1);
+    }
+
+    function test_evict_freesASeatOnAFullRosterAndReturnsTheBond() public {
+        uint256 open = 64 - registry.resolverCount();
+        for (uint256 i; i < open; ++i) {
+            _bond(string.concat("filler", vm.toString(i)), MIN_BOND);
+        }
+        assertEq(registry.resolverCount(), 64);
+
+        address newcomer = makeAddr("newcomer");
+        bond.mint(newcomer, MIN_BOND);
+        vm.startPrank(newcomer);
+        bond.approve(address(registry), MIN_BOND);
+        vm.expectRevert(IOracleRegistry.RosterFull.selector);
+        registry.register(MIN_BOND);
+        vm.stopPrank();
+
+        uint256 bondedBefore = registry.totalBonded();
+
+        vm.prank(admin);
+        vm.expectEmit(true, false, false, true, address(registry));
+        emit IOracleRegistry.ResolverEvicted(r2, BOND);
+        registry.evict(r2);
+
+        assertEq(uint8(registry.getResolver(r2).status), uint8(IOracleRegistry.ResolverStatus.Exited));
+        assertEq(registry.getResolver(r2).bond, 0);
+        assertEq(bond.balanceOf(r2), BOND, "the bond went back to the resolver it belonged to");
+        assertEq(registry.totalBonded(), bondedBefore - BOND);
+        assertEq(registry.resolverCount(), 63);
+
+        vm.prank(newcomer);
+        registry.register(MIN_BOND);
+        assertEq(registry.resolverCount(), 64);
+    }
+
+    function test_evict_waitsForEveryVoteTheBondBacks() public {
+        uint256 disputeId = _openDispute();
+        _commit(r1, disputeId, 40, SALT);
+
+        vm.prank(admin);
+        vm.expectRevert(IOracleRegistry.BondLocked.selector);
+        registry.evict(r1);
+
+        vm.warp(registry.getDispute(disputeId).commitEndsAt);
+        registry.failDispute(disputeId);
+
+        vm.prank(admin);
+        registry.evict(r1);
+        assertEq(uint8(registry.getResolver(r1).status), uint8(IOracleRegistry.ResolverStatus.Exited));
+    }
+
+    function test_evict_isTheAdminsCallAndOnlyForASeatedResolver() public {
+        vm.prank(r2);
+        vm.expectRevert(IOracleRegistry.NotAdmin.selector);
+        registry.evict(r1);
+
+        vm.prank(admin);
+        vm.expectRevert(IOracleRegistry.NotRegistered.selector);
+        registry.evict(makeAddr("stranger"));
+    }
+
+    function test_sweepSurplus_sendsAStrayTransferToTheSinkAndLeavesRewardsAlone() public {
+        uint256 disputeId = _finalizedDispute(40, 42, 45);
+        stub.postReward(disputeId, 30e6);
+        uint256 floated = registry.rewardFloat();
+
+        vm.expectRevert(IOracleRegistry.NothingToClaim.selector);
+        registry.sweepSurplus();
+
+        usdg.mint(address(registry), 7e6);
+
+        vm.expectEmit(true, false, false, true, address(registry));
+        emit IOracleRegistry.SurplusSwept(sink, 7e6);
+        assertEq(registry.sweepSurplus(), 7e6);
+
+        assertEq(usdg.balanceOf(sink), 7e6);
+        assertEq(registry.rewardFloat(), floated, "the sweep reached the reward ledger");
+        assertEq(usdg.balanceOf(address(registry)), floated);
+
+        vm.prank(r1);
+        assertEq(registry.claimRewards(), 10e6, "a resolver lost what it had earned");
+    }
+
     /// The payer's principal is read once, when the dispute opens, and stored with the parties.
     /// No vote calls back into the payer.
     function test_openDispute_recordsThePrincipalOnceAndNeverAsksAgain() public {
