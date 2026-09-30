@@ -10,7 +10,7 @@
   "settlementDecimals": 6,
   "supersedes": "rhc-mainnet-v2",
   "deployer": "0x6B6fC40Ed9652728A9B620C4e1B05fBF4F9712a4",
-  "note": "Robinhood Chain mainnet, contract set v3: the hardened set, deployed as a development build with a one-hour timelock. BRSR and Vesting carry over from rhc-mainnet-token and the Poseidon libraries from rhc-mainnet-v2; every other contract is new. Each deploy script writes its own section as it runs, and status turns live when the migration's last step retires the records this one replaces.",
+  "note": "Third contract set on Robinhood Chain mainnet, planned, with a one-hour timelock. BRSR and Vesting carry over from rhc-mainnet-token and the Poseidon libraries from rhc-mainnet-v2; every other contract will be new. Each deploy script writes its own section as it runs, and the status turns live when the last migration step retires the records this one replaces.",
   "external": {
     "PoolManager": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
     "StateView": "0xF3334192D15450CdD385c8B70e03f9A6bD9E673b",

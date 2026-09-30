@@ -31,7 +31,7 @@
     "keystores": {
       "liquidity": "brsr-liquidity",
       "vestingBeneficiary": "brsr-team-1",
-      "note": "Separate keys for the liquidity and team roles. Neither holds ETH: the liquidity address has to send transactions before it can seed the pool and will need gas then."
+      "note": "Separate keys for the liquidity and team roles. At deployment neither held ETH, and the liquidity address needed gas before it could seed the pool."
     }
   },
   "supply": {
@@ -43,19 +43,19 @@
     "treasury": "50000000000000000000000000",
     "liquidity": "50000000000000000000000000",
     "communityHolder": "The community and ecosystem share is held by AdminTimelock, so every release is a two-of-three proposal with the same 172800-second delay as any other change.",
-    "teamHolder": "The team share is held by the Vesting contract, not by a wallet. One grant, four-year term, one-year cliff, and the deploy key finished the run holding no BRSR at all."
+    "teamHolder": "The team share is held by the Vesting contract. One grant, four-year term, one-year cliff, and the deploy key finished the run holding no BRSR at all."
   },
   "parameters": {
     "source": "contracts/script/TOKEN-README.md",
     "staking.unbondingPeriod": "604800 seconds, the contract's own seven-day floor.",
-    "staking.minBondWei": "25000000000000000000000, which is 25,000 BRSR per resolver. Set at construction rather than by proposal, because the dispute layer reads it from the first block and a pool deployed at zero would ship a dispute layer no resolver could join until a forty-eight hour proposal landed. Governance can raise it globally or per resolver and OracleRegistry reads it live on every vote.",
+    "staking.minBondWei": "25000000000000000000000, which is 25,000 BRSR per resolver. Set at construction because the dispute layer reads it from the first block, and a pool deployed at zero would ship a dispute layer no resolver could join until a forty-eight hour proposal landed. Governance can raise it globally or per resolver and OracleRegistry reads it live on every vote.",
     "buyback.spendPerCallMicroUsd": "500000",
     "buyback.maxSpendPerWindowMicroUsd": "5000000",
     "buyback.minSpendMicroUsd": "100000",
-    "buyback.maxPriceMicroUsdPerBrsr": "0, deployed from an unset variable on purpose. It is the most a buyback will pay for one whole BRSR and the pool has never been initialised, so there is no price to read. Zero refuses every trade: buyback() reverts with PriceCeilingUnset and available() reports nothing.",
+    "buyback.maxPriceMicroUsdPerBrsr": "0, deployed from an unset variable on purpose. It is the most a buyback will pay for one whole BRSR, and the pool was not initialised at deployment, so there was no price to read. Zero refuses every trade: buyback() reverts with PriceCeilingUnset and available() reports nothing.",
     "buyback.window": 86400,
     "buyback.minInterval": 3600,
-    "why these figures": "Sized to the float Release 1 actually has rather than to the round numbers in contracts/script/TOKEN-README.md. The buyback can only spend what has been transferred to it, the pool will be seeded with single-digit USDG, and a per-call target above the balance would never be the binding constraint. All six move on a Buyback.setParams proposal; only the pool identity is frozen."
+    "why these figures": "Sized to the float Release 1 had at deployment, below the round numbers in contracts/script/TOKEN-README.md. The buyback can only spend what has been transferred to it, and a per-call target above the balance would never be the binding constraint. All six move on a Buyback.setParams proposal; only the pool identity is frozen."
   },
   "pool": {
     "state": "seeded on 2026-09-29 at 200 micro-USD per BRSR: 25 USDG against about 125,000 BRSR over the full range, through contracts.V4LiquiditySeeder, which the liquidity key owns",
@@ -69,10 +69,10 @@
       "hooks": "0x0000000000000000000000000000000000000000"
     },
     "sortOrder": "This BRSR sorts below USDG, so it is currency0 and settlementIsCurrency0 is false.",
-    "poolManager": "Uniswap v4's canonical PoolManager on Robinhood Chain, not one of ours. A native ETH/USDG pool at the 0.05% tier already has depth there, which is not the pair this buyback trades.",
-    "verified": "PoolManager.extsload of the pool's slot0 returns zero at block 69575881, which is what an uninitialised pool reads.",
-    "consequence": "The buyback is deployed and cannot execute. It holds no USDG, the staking pool holds no shares, the venue it is pointed at has no pool behind that key, and its price ceiling is zero. Nothing about it has been exercised on chain.",
-    "toMakeItLive": "Initialise the pool, add liquidity from the liquidity address, stake, have governance set a real price ceiling through Buyback.setParams against a market that now exists, and only then fund the buyback by transferring USDG to it from the treasury. Adding liquidity needs a contract that implements the v4 unlock callback; none is deployed here."
+    "poolManager": "Uniswap v4's canonical PoolManager on Robinhood Chain. A native ETH/USDG pool at the 0.05% tier has depth there; this buyback trades a different pair.",
+    "verified": "Before the seed, at block 69575881, PoolManager.extsload of the pool's slot0 returned zero, which is what an uninitialised pool reads.",
+    "consequence": "As of block 69575881, before the seed, the buyback was deployed and could not execute: it held no USDG, the staking pool held no shares, the pool behind its key was not open, and its price ceiling was zero. Nothing about it had been exercised on chain.",
+    "toMakeItLive": "The pool was seeded on 2026-09-29 through contracts.V4LiquiditySeeder. The rest of the order stands: stake, have governance set a real price ceiling through Buyback.setParams against that market, and only then fund the buyback by transferring USDG to it from the treasury."
   },
   "transactions": {
     "Vesting": {
@@ -146,7 +146,7 @@
     "staking.creditManager": "0x0000000000000000000000000000000000000000",
     "staking.minBond": "25000000000000000000000",
     "staking.unbondingPeriod": 604800,
-    "staking.tiers": "empty, so rebateBpsOf returns zero for everyone. Proposal 1 writes four rungs.",
+    "staking.tiers": "empty at block 69575881, so rebateBpsOf returned zero for everyone. Proposal 1 wrote four rungs when it executed on 2026-09-24.",
     "staking.totalShares": "0",
     "staking.totalStaked": "0",
     "staking.wipeEpoch": "0",
@@ -178,9 +178,9 @@
     "buyback.paused": "false",
     "buyback.balanceOfSettlementAsset": "0",
     "poolManager.owner": "0x2BAD8182C09F50c8318d769245beA52C32Be46CD",
-    "pool.slot0": "zero, which is what an uninitialised pool reads",
+    "pool.slot0": "zero at block 69575881, before the seed, which is what an uninitialised pool reads",
     "readBackAtBlock": 69575881,
-    "bytecode": "The deployed runtime of BRSR, Vesting, Staking and Buyback matches the contracts/out build byte for byte once the immutable words each constructor writes are masked out, which read as zero in the artifact. Checked at block 69566482 by reading eth_getCode and masking the immutableReferences spans in both copies. PoolManager is Uniswap's, not ours, and was not compared. Source comments naming the previous chain were corrected after this check. Solidity hashes the source into a metadata word at the end of the runtime, so the current build no longer reproduces those trailing bytes. That match was made against the source as it stood at deployment; later changes to these contracts ship as a new deployment. Every byte of executable code is unchanged, verified by rebuilding with the metadata suffix stripped and comparing: BRSR 7,533 bytes, Buyback 9,530, Staking 9,786, Vesting 5,238, AgentRegistry 11,374, all identical."
+    "bytecode": "The deployed runtime of BRSR, Vesting, Staking and Buyback matches the contracts/out build byte for byte once the immutable words each constructor writes are masked out, which read as zero in the artifact. Checked at block 69566482 by reading eth_getCode and masking the immutableReferences spans in both copies. PoolManager is Uniswap's and was not compared. Source comments naming the previous chain were corrected after this check. Solidity hashes the source into a metadata word at the end of the runtime, so the current build no longer reproduces those trailing bytes. That match was made against the source as it stood at deployment; later changes to these contracts ship as a new deployment. Every byte of executable code is unchanged, verified by rebuilding with the metadata suffix stripped and comparing: BRSR 7,533 bytes, Buyback 9,530, Staking 9,786, Vesting 5,238, AgentRegistry 11,374, all identical."
   },
   "governance": {
     "adminTimelock": "0x5a32Eab02454f97a39857E85b536F83EE0f844Bf",
@@ -217,11 +217,9 @@
     }
   },
   "pending": [
-    "Proposal 1 against Staking.setTiers is approved to the threshold and executable from 2026-09-24T10:07:51Z. Until it lands the rebate table is empty and rebateBpsOf returns zero for everyone.",
-    "Staking.creditManager is unset and Staking.slash and Staking.distribute refuse every caller. The contract that would charge the credit-lane spread is not built, so leaving the slot unset is the accurate state rather than an oversight. An address that cannot charge a spread is worse there than nothing.",
-    "The buyback's price ceiling is zero and every call reverts with PriceCeilingUnset. Governance sets a real one through Buyback.setParams once the pool has a price, and that proposal has to land before the buyback is funded.",
-    "The BRSR/USDG pool is not initialised and holds no liquidity. Seeding it needs a contract that implements the Uniswap v4 unlock callback; none is deployed here.",
-    "The staking pool holds no shares, so a buyback would revert with NoStakeToDistributeTo before it traded, even with a ceiling and a seeded pool."
+    "At block 69575881 Staking.creditManager was unset, and Staking.slash and Staking.distribute refused every caller. The credit pool that charges the spread arrived with the second contract set, and naming it is a v1 timelock proposal recorded in rhc-mainnet-v2.json.",
+    "At block 69575881 the buyback's price ceiling was zero and every call reverted with PriceCeilingUnset. Governance sets a real one through Buyback.setParams now that the pool has a price, and that proposal has to land before the buyback is funded.",
+    "At block 69575881 the staking pool held no shares, so a buyback would have reverted with NoStakeToDistributeTo before it traded, even with a ceiling and a seeded pool."
   ],
   "audit": "No external review has been performed on any of these contracts."
 }

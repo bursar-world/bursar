@@ -167,7 +167,7 @@
     "usdg.isFrozen.escrow": "false",
     "usdg.decimals": 6,
     "readBackAtBlock": 69566482,
-    "bytecode": "The deployed runtime of AdminTimelock, Reputation, Escrow, OracleRegistry, AgentRegistry and MandateAccountFactory matches the contracts/out build byte for byte once the immutable words each constructor writes are masked out, which read as zero in the artifact. Checked at block 69566482 by reading eth_getCode and masking the immutableReferences spans in both copies. Source comments naming the previous chain were corrected after this check. Solidity hashes the source into a metadata word at the end of the runtime, so the current build no longer reproduces those trailing bytes. That match was made against the source as it stood at deployment; later changes to these contracts ship as a new deployment. Every byte of executable code is unchanged, verified by rebuilding with the metadata suffix stripped and comparing: BRSR 7,533 bytes, Buyback 9,530, Staking 9,786, Vesting 5,238, AgentRegistry 11,374, all identical."
+    "bytecode": "The deployed runtime of AdminTimelock, Reputation, Escrow, OracleRegistry, AgentRegistry and MandateAccountFactory matches the contracts/out build byte for byte once the immutable words each constructor writes are masked out, which read as zero in the artifact. Checked at block 69566482 by reading eth_getCode and masking the immutableReferences spans in both copies. Source comments naming the previous chain were corrected after this check. Solidity hashes the source into a metadata word at the end of the runtime, so the current build no longer reproduces those trailing bytes. That match was made against the source as it stood at deployment; later changes to these contracts ship as a new deployment. The comparison with the metadata suffix stripped, made after that change, is recorded in rhc-mainnet-token.json; of the six contracts above it covered AgentRegistry, whose 11,374 bytes of executable code are identical."
   },
   "governance": {
     "model": "Two of three signers with a forty-eight hour delay and a fourteen-day grace period after it. Proposing counts as the proposer's approval, so a change needs one more signer and not two, and any single signer can cancel a pending one. The guardian is the one exception to the delay: it can pause an administered contract in the same block and can do nothing else.",
@@ -175,7 +175,7 @@
     "adminOf": {
       "Reputation": "AdminTimelock, from construction.",
       "OracleRegistry": "AdminTimelock, from construction.",
-      "AgentRegistry": "The deploy key, with AdminTimelock as pendingAdmin. Proposal 0 closes it.",
+      "AgentRegistry": "AdminTimelock, since proposal 0 executed on 2026-09-24.",
       "Escrow": "No admin role. Its fee, TTL bounds and dispute windows are fixed at construction.",
       "MandateAccountFactory": "No admin role. Everything it holds is immutable.",
       "Vesting": "AdminTimelock, from construction.",
@@ -205,7 +205,7 @@
         "executeAfterIso": "2026-09-24T10:07:16Z",
         "expiresAt": 1791454036,
         "expiresAtIso": "2026-10-08T10:07:16Z",
-        "state": "approved to the threshold, inside the delay",
+        "state": "executed on 2026-09-24",
         "executeCommand": "AdminTimelock.execute(0) from a timelock signer, once the delay has passed",
         "transactions": {
           "propose": "0x06ad44fe54c69cf7494af220620d294ff7f34b79c579cf63e00c2224d531a7f2",
@@ -259,7 +259,7 @@
         "executeAfterIso": "2026-09-24T10:07:51Z",
         "expiresAt": 1791454071,
         "expiresAtIso": "2026-10-08T10:07:51Z",
-        "state": "approved to the threshold, inside the delay",
+        "state": "executed on 2026-09-24",
         "executeCommand": "AdminTimelock.execute(1) from a timelock signer, once the delay has passed",
         "transactions": {
           "propose": "0x1d732973c3c0eae82d72c3fb52816eba9b0b4948a60a56c9584070dcca0a0ee8",
