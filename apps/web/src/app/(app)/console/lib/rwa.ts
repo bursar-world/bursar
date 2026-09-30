@@ -20,6 +20,7 @@ import { ReadBatch, addChainTime, runBatch } from '@/chain/batch';
 import type { Slot } from '@/chain/batch';
 import { rhcClient } from '@/chain/client';
 import { collateralLane, readCollateralAccount } from '@/chain/collateral';
+import { mandateBuild } from '@/chain/mandates';
 import { ADDRESSES, CHAIN_ID } from '@/chain/rhc';
 import { formatDuration } from '@/lib/time';
 
@@ -326,16 +327,13 @@ export function useRwa(mandate: Address, enabled: boolean) {
 }
 
 /**
- * Length of the runtime code of a v2.1 mandate account, the build whose `spend` and `buy` draw a
- * shortfall from their park (parked value or the collateral line) inside the same transaction. A v2
- * account holds the same park and never draws from it. `chain/mandates.ts` fingerprints both.
+ * Whether the account's own code draws from its park during a payment: its `spend` and `buy` pull a
+ * shortfall from parked value or the collateral line inside the same transaction. The v2.1 build
+ * and every build from v3 on do; a v2 account holds the same park and never draws from it.
+ * `chain/mandates.ts` fingerprints each build.
  */
-const DRAWING_BUILD_LENGTH = 20_331;
-
-/** Whether the account's own code draws from its park during a payment. */
 export async function drawsInsidePayment(mandate: Address): Promise<boolean> {
-  const code = await getCode(rhcClient(), { address: mandate });
-  return code !== undefined && (code.length - 2) / 2 === DRAWING_BUILD_LENGTH;
+  return mandateBuild(mandate, await getCode(rhcClient(), { address: mandate }))?.draws === true;
 }
 
 /**
