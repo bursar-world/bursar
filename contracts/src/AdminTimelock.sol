@@ -21,7 +21,6 @@ pragma solidity ^0.8.24;
 contract AdminTimelock {
     error NotSigner();
     error NotGuardian();
-    error NotAContract();
     error NotSelf();
     error InvalidSignerIndex();
     error DuplicateSigner();
@@ -54,6 +53,7 @@ contract AdminTimelock {
     event SignerUpdated(uint256 indexed index, address indexed from, address indexed to);
     event GuardianUpdated(address indexed from, address indexed to);
     event GuardianPaused(address indexed target, address indexed guardian);
+    event GuardianPauseSkipped(address indexed target, address indexed guardian, bytes reason);
 
     uint256 public constant REQUIRED_APPROVALS = 2;
     uint256 public constant SIGNER_COUNT = 3;
@@ -202,19 +202,25 @@ contract AdminTimelock {
     /// pausing the registry with it, and doing that across separate transactions leaves a
     /// window in between.
     ///
+    /// Each target is paused on its own. One that refuses, because it is already paused, has
+    /// no `pause()` or holds no code, is skipped with its reason and the rest still stop: a
+    /// brake that fails whole on one entry fails mid-incident.
+    ///
     /// The calldata is built here and is always `pause()`, so this grants the brake and never
     /// anything adjacent to it. Unpausing is a proposal like any other, which is the property
     /// that makes this key safe to keep warm.
     function guardianPause(address[] calldata targets) external onlyGuardian {
         for (uint256 i = 0; i < targets.length; ++i) {
             address target = targets[i];
-            // An address with no code accepts any call silently, and the event would then
-            // record a pause that never happened.
-            if (target.code.length == 0) revert NotAContract();
+            // An address with no code accepts any call silently, and would read as paused.
+            if (target.code.length == 0) {
+                emit GuardianPauseSkipped(target, msg.sender, "");
+                continue;
+            }
 
-            _call(target, abi.encodeWithSignature("pause()"));
-
-            emit GuardianPaused(target, msg.sender);
+            (bool ok, bytes memory reason) = target.call(abi.encodeWithSignature("pause()"));
+            if (ok) emit GuardianPaused(target, msg.sender);
+            else emit GuardianPauseSkipped(target, msg.sender, reason);
         }
     }
 

@@ -520,17 +520,24 @@ contract MandateTimelockTest is Test {
         timelock.guardianPause(targets);
     }
 
-    function test_guardianPause_revertsWhenATargetHasNoCode() public {
+    /// An address with no code accepts any call silently. It is recorded as skipped, never as
+    /// paused, and it does not stop the rest of the batch.
+    function test_guardianPause_skipsATargetWithNoCodeAndPausesTheRest() public {
         BrakeTarget target = new BrakeTarget();
+        address empty = makeAddr("notAContract");
         address[] memory targets = new address[](2);
-        targets[0] = address(target);
-        targets[1] = makeAddr("notAContract");
+        targets[0] = empty;
+        targets[1] = address(target);
+
+        vm.expectEmit(true, true, false, true, address(timelock));
+        emit AdminTimelock.GuardianPauseSkipped(empty, guardian, "");
+        vm.expectEmit(true, true, false, true, address(timelock));
+        emit AdminTimelock.GuardianPaused(address(target), guardian);
 
         vm.prank(guardian);
-        vm.expectRevert(AdminTimelock.NotAContract.selector);
         timelock.guardianPause(targets);
 
-        assertFalse(target.paused(), "a batch with a bad target pauses nothing");
+        assertTrue(target.paused(), "one bad entry held back the brake on the rest");
     }
 
     function test_guardian_cannotUnpauseAndCannotQueueTheRestart() public {
@@ -1027,6 +1034,37 @@ contract MandateWiringTest is Test {
 
         vm.expectRevert(AgentRegistry.NotAuthorized.selector);
         agentRegistry.setMinStake(1e6);
+    }
+
+    /// A target already paused, or one with no `pause()` at all, used to revert the whole batch
+    /// and hold back the brake on everything after it. Each target now stands alone.
+    function test_guardian_aBatchWithAPausedOrPauselessTargetStillStopsTheRest() public {
+        escrow.setPauser(address(timelock));
+
+        address[] memory first = new address[](1);
+        first[0] = address(escrow);
+        vm.prank(guardian);
+        timelock.guardianPause(first);
+
+        address[] memory batch = new address[](3);
+        batch[0] = address(escrow);
+        batch[1] = address(reputation);
+        batch[2] = address(oracleRegistry);
+
+        vm.expectEmit(true, true, false, true, address(timelock));
+        emit AdminTimelock.GuardianPauseSkipped(
+            address(escrow), guardian, abi.encodeWithSelector(Pausable.EnforcedPause.selector)
+        );
+        vm.expectEmit(true, true, false, true, address(timelock));
+        emit AdminTimelock.GuardianPauseSkipped(address(reputation), guardian, "");
+        vm.expectEmit(true, true, false, true, address(timelock));
+        emit AdminTimelock.GuardianPaused(address(oracleRegistry), guardian);
+
+        vm.prank(guardian);
+        timelock.guardianPause(batch);
+
+        assertTrue(escrow.paused());
+        assertTrue(oracleRegistry.paused(), "the registry was held back by the entries before it");
     }
 
     function test_guardian_brakesTheRegistryInOneBlockAndCannotRestartIt() public {
