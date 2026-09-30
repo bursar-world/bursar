@@ -11,7 +11,7 @@
  * the same sentence without them.
  */
 
-import type { Address } from 'viem';
+import type { Address, Chain, PublicClient, Transport } from 'viem';
 import {
   assetRegistryAbi,
   collateralVaultAbi,
@@ -715,3 +715,43 @@ export function laneRefusal(revert: RevertInfo, call: LaneCall, context: LaneCon
 
 /** Each contract's table, for the suite that holds them to the ABIs. */
 export const LANE_TABLES = { ROUTER, GUARD, ASSETS, PARK, ADAPTER, VAULT, POOL, PURCHASE, TOKEN } as const;
+
+/** Where a draw on credit went: the pool it asked, if the lane has one, and the mandate that drew. */
+export type CreditDraw = {
+  readonly client: PublicClient<Transport, Chain>;
+  readonly pool: Address | undefined;
+  readonly mandate: Address;
+};
+
+/**
+ * The limit a refused draw on credit actually ran into.
+ *
+ * The credit pool checks its cash before either of its caps, so a draw that is over a cap as well
+ * comes back as `InsufficientCash`, and lending the pool more would not let it through. Read
+ * against the caps, the refusal names the limit that holds however much cash the pool has: the
+ * mandate's own cap first, then the pool's total, and the cash only when neither cap is in the way.
+ * The figures are the ones the pool would have raised for that cap.
+ */
+export async function boundCredit(revert: RevertInfo, draw: CreditDraw): Promise<RevertInfo> {
+  const needed = revert.errorName === 'InsufficientCash' ? revert.args[1] : undefined;
+  if (typeof needed !== 'bigint' || draw.pool === undefined) return revert;
+
+  const read = { address: draw.pool, abi: creditPoolAbi } as const;
+  let caps: readonly [bigint, bigint, bigint, bigint];
+  try {
+    caps = await Promise.all([
+      draw.client.readContract({ ...read, functionName: 'debtOf', args: [draw.mandate] }),
+      draw.client.readContract({ ...read, functionName: 'perMandateCap' }),
+      draw.client.readContract({ ...read, functionName: 'totalDebt' }),
+      draw.client.readContract({ ...read, functionName: 'totalDebtCap' }),
+    ]);
+  } catch {
+    // The pool's own words stand when its caps cannot be read. They are true, only not the whole story.
+    return revert;
+  }
+
+  const [debt, mandateCap, lent, totalCap] = caps;
+  if (debt + needed > mandateCap) return { errorName: 'MandateCapExceeded', args: [debt + needed, mandateCap] };
+  if (lent + needed > totalCap) return { errorName: 'TotalCapExceeded', args: [lent + needed, totalCap] };
+  return revert;
+}

@@ -20,7 +20,7 @@ import { requireSigner, type Connection } from './connection.js';
 import { CallRefusedError, InsufficientFundsError, MandateDeniedError, denialOf } from './errors.js';
 import { usd } from './format.js';
 import { checkAddress, checkPositiveAmount } from './guards.js';
-import { laneRefusal, type LaneCall, type LaneContext } from './lane-refusals.js';
+import { boundCredit, laneRefusal, type LaneCall, type LaneContext } from './lane-refusals.js';
 import { micro } from './money.js';
 import { revertFrom } from './revert.js';
 import { sendCall, type ExplainRevert, type Sent } from './send.js';
@@ -623,7 +623,13 @@ export class RwaClient {
         return new InsufficientFundsError(this.mandate.address, await this.mandate.balance(), usdgIn);
       }
 
-      return lane(revert, error);
+      // A collateral-lane mandate short of USDG draws the difference, and the pool can refuse it.
+      const bound = await boundCredit(revert, {
+        client: this.mandate.connection.publicClient,
+        pool: this.lane.collateral?.CreditPool,
+        mandate: this.mandate.address,
+      });
+      return lane(bound, error);
     };
   }
 }

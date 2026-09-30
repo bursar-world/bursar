@@ -297,6 +297,76 @@ describe('a refused draw on credit', () => {
     );
   });
 
+  /**
+   * The pool checks its cash before its two caps, so `InsufficientCash` is what comes back whenever
+   * the pool is short, even for a draw a cap refuses anyway. The reading names the limit that holds
+   * however much the pool is lent.
+   */
+  describe('names the limit that bound a draw the pool was short for', () => {
+    const SHORT = encodeErrorResult({
+      abi: creditPoolAbi,
+      errorName: 'InsufficientCash',
+      args: [5_000_000n, 9_000_000n],
+    });
+
+    function pool(debt: bigint, lent: bigint) {
+      return answers({ debtOf: debt, perMandateCap: 10_000_000n, totalDebt: lent, totalDebtCap: 100_000_000n });
+    }
+
+    it('the mandate’s own cap, when the draw takes its debt past it', async () => {
+      const { mandate, reads } = await onLocal({ simulate: reverting(SHORT), read: pool(5_000_000n, 5_000_000n) });
+
+      const failure = await failureOf(mandate.pay({ to: PROVIDER, amount: usdg('9'), capability: 'gpu.render:1' }));
+
+      expect((failure as CallRefusedError).errorName).toBe('MandateCapExceeded');
+      expect(failure.message).toBe(
+        'This draw would bring the mandate’s debt to 14.00 USDG, over the 10.00 USDG one mandate may owe the ' +
+          'pool. Repay some of it, or spend less on credit.',
+      );
+      expect(reads.find((read) => read.functionName === 'debtOf')).toMatchObject({
+        address: LOCAL_RECORD.rwa.collateral.CreditPool,
+        args: [MANDATE],
+      });
+    });
+
+    it('the pool’s total, when the mandate has room and the pool is lent out to its cap', async () => {
+      const { mandate } = await onLocal({ simulate: reverting(SHORT), read: pool(0n, 95_000_000n) });
+
+      const failure = await failureOf(mandate.pay({ to: PROVIDER, amount: usdg('9'), capability: 'gpu.render:1' }));
+
+      expect((failure as CallRefusedError).errorName).toBe('TotalCapExceeded');
+      expect(failure.message).toMatch(
+        /^This draw would bring what the pool has lent across every mandate to 104\.00 USDG, over the 100\.00 USDG/u,
+      );
+    });
+
+    it('the pool’s cash, when neither cap is in the way', async () => {
+      const { mandate } = await onLocal({ simulate: reverting(SHORT), read: pool(0n, 45_000_000n) });
+
+      const failure = await failureOf(mandate.pay({ to: PROVIDER, amount: usdg('9'), capability: 'gpu.render:1' }));
+
+      expect((failure as CallRefusedError).errorName).toBe('InsufficientCash');
+      expect(failure.message).toMatch(/^The credit pool has 5\.00 USDG free to lend and this needs 9\.00 USDG\./u);
+    });
+
+    it('the pool’s own words, when its caps cannot be read', async () => {
+      const { mandate } = await onLocal({ simulate: reverting(SHORT) });
+
+      const failure = await failureOf(mandate.pay({ to: PROVIDER, amount: usdg('9'), capability: 'gpu.render:1' }));
+
+      expect((failure as CallRefusedError).errorName).toBe('InsufficientCash');
+    });
+
+    it('the same way inside a purchase that draws', async () => {
+      const { mandate } = await onLocal({ simulate: reverting(SHORT), read: pool(5_000_000n, 5_000_000n) });
+
+      const failure = await failureOf(rwa(mandate).buy('SPY', usdg('9')));
+
+      expect((failure as CallRefusedError).errorName).toBe('MandateCapExceeded');
+      expect(failure.message).toMatch(/^This draw would bring the mandate’s debt to 14\.00 USDG/u);
+    });
+  });
+
   it('reads a repayment of a line that owes nothing', async () => {
     const data = encodeErrorResult({ abi: creditPoolAbi, errorName: 'NoDebt', args: [MANDATE] });
     const { mandate } = await onLocal({ simulate: reverting(data), read: answers({ allowance: 2n ** 255n }) });

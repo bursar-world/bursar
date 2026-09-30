@@ -56,7 +56,7 @@ import {
 import { random32 } from './random.js';
 import { logsFrom } from './receipt.js';
 import { decodeRevertData, returnedNoData, type RevertInfo } from './revert.js';
-import { laneRefusal } from './lane-refusals.js';
+import { boundCredit, laneRefusal } from './lane-refusals.js';
 import { laneContext, laneOf, rwa, type BuyReceipt } from './rwa.js';
 import { collateral, type CollateralClient } from './collateral.js';
 import { sendCall, type ExplainRevert, type Sent } from './send.js';
@@ -1397,7 +1397,13 @@ export class MandateAccountClient {
 
       // A mandate short of USDG covers the difference inside the spend, from its park or on credit,
       // and a refusal there comes back through this call.
-      const lane = laneRefusal(revert, 'spend', laneContext(this.connection, laneOf(this.connection)));
+      const recorded = laneOf(this.connection);
+      const bound = await boundCredit(revert, {
+        client: this.connection.publicClient,
+        pool: recorded?.collateral?.CreditPool,
+        mandate: this.address,
+      });
+      const lane = laneRefusal(bound, 'spend', laneContext(this.connection, recorded));
       return lane === null
         ? undefined
         : new CallRefusedError(lane.code, lane.message, { mandate: this.address, owner: lane.owner });
