@@ -1,4 +1,5 @@
 import {
+  V2_ABIS,
   agentRegistryAbi,
   contractSetOfEscrow,
   createRhcClient,
@@ -8,12 +9,14 @@ import {
   oracleRegistryAbi,
   reputationAbi,
 } from '@bursar/core';
-import type { RhcChain, RhcPublicClient, RpcPool, RpcPoolEvent, RpcProvider } from '@bursar/core';
+import type { ContractSet, RhcChain, RhcPublicClient, RpcPool, RpcPoolEvent, RpcProvider } from '@bursar/core';
 import { encodeFunctionData, getAbiItem, keccak256 } from 'viem';
 import type { Address, Hex } from 'viem';
 
 import type { ResolverKey } from './keys.js';
 import { describeError } from './log.js';
+
+const isZeroAddress = (address: Address): boolean => /^0x0{40}$/i.test(address);
 
 /** Mirrors `IOracleRegistry.DisputeStatus`. */
 export const DisputeStatus = { None: 0, Committing: 1, Revealing: 2, Finalized: 3, Failed: 4 } as const;
@@ -137,7 +140,12 @@ export type ChainPort = {
   escrowResolver(escrow: Address): Promise<Address>;
   nextDisputeId(registry: Address): Promise<bigint>;
   disputeIdOf(registry: Address, escrowId: bigint): Promise<bigint>;
-  disputeTimeoutPeriod(escrow: Address): Promise<bigint>;
+  /**
+   * Every address the registry bars from voting on a dispute. A v3 registry recorded the payer's
+   * principal when the dispute opened; a v2 registry reads it from the payer at each vote, so it is
+   * read here the same way; a v1 registry bars nobody.
+   */
+  parties(registry: Address, disputeId: bigint, contractSet: ContractSet): Promise<readonly Address[]>;
   disputeOpenedLogs(registry: Address, fromBlock: bigint, toBlock: bigint): Promise<readonly DisputeOpenedLog[]>;
   dispute(registry: Address, disputeId: bigint): Promise<DisputeState>;
   lock(escrow: Address, escrowId: bigint, blockNumber?: bigint): Promise<LockState>;
@@ -385,6 +393,16 @@ export function createChain(options: ChainOptions): { port: ChainPort; client: R
 
   const headroom = (estimate: bigint): bigint => (estimate * GAS_HEADROOM_BPS) / 10_000n;
 
+  /** The payer's principal, where the payer is a contract that names one. */
+  async function principalOf(payer: Address): Promise<Address[]> {
+    try {
+      const principal = await client.readContract({ address: payer, abi: mandateAccountAbi, functionName: 'principal' });
+      return isZeroAddress(principal) ? [] : [principal];
+    } catch {
+      return [];
+    }
+  }
+
   async function stakingOf(registry: Address): Promise<Address> {
     const cached = staking.get(registry);
     if (cached !== undefined) return cached;
@@ -417,7 +435,20 @@ export function createChain(options: ChainOptions): { port: ChainPort; client: R
     disputeIdOf: (registry, escrowId) =>
       client.readContract({ address: registry, abi: oracleRegistryAbi, functionName: 'disputeIdOf', args: [escrowId] }),
 
-    disputeTimeoutPeriod: (escrow) => client.readContract({ address: escrow, abi: escrowAbi, functionName: 'disputeTimeoutPeriod' }),
+    parties: async (registry, disputeId, contractSet) => {
+      if (contractSet === 'v1') return [];
+      if (contractSet === 'v3') {
+        const found = await client.readContract({ address: registry, abi: oracleRegistryAbi, functionName: 'partiesOf', args: [disputeId] });
+        return found.filter((party) => !isZeroAddress(party));
+      }
+      const [payer, payee] = await client.readContract({
+        address: registry,
+        abi: V2_ABIS.OracleRegistry,
+        functionName: 'partiesOf',
+        args: [disputeId],
+      });
+      return [payer, payee, ...(await principalOf(payer))];
+    },
 
     disputeOpenedLogs: async (registry, fromBlock, toBlock) => {
       const logs = await client.getLogs({ address: registry, event: DISPUTE_OPENED, fromBlock, toBlock, strict: true });
@@ -506,7 +537,7 @@ export function createChain(options: ChainOptions): { port: ChainPort; client: R
       // A contract payer that is not a mandate account answers none of these, and that is a fact
       // about the payer, not a fault in the reading. It is reported as no mandate at all.
       try {
-        // A v1 account returns eight limit fields and a v2 account eleven, so the escrow it was
+        // A v1 account returns eight limit fields and a later one eleven, so the escrow it was
         // created against decides which ABI decodes them.
         const escrow = await client.readContract({ address: payer, abi: mandateAccountAbi, functionName: 'escrow', blockNumber });
         const limits =

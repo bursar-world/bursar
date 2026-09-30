@@ -11,7 +11,7 @@ import { openMemoryJournal } from '../src/journal.js';
 import type { Journal } from '../src/journal.js';
 import { createVoter } from '../src/voter.js';
 import type { Voter } from '../src/voter.js';
-import { ESCROW, FakeChain, HOUR, REGISTRY, SERVED, SERVED_V2, tableFetcher } from './support/fake-chain.js';
+import { ESCROW, FakeChain, HOUR, REGISTRY, SERVED, SERVED_V2, SERVED_V3, tableFetcher } from './support/fake-chain.js';
 import { captureAlerts, silentLogger, testKeys } from './support/keys.js';
 
 const payee = privateKeyToAccount(`0x${'a1'.repeat(32)}`);
@@ -265,6 +265,37 @@ describe('voter', () => {
     expect(r.alerts.sent.map((alert) => alert.event)).toContain('key_benched');
   });
 
+  // The registry bars the payer's principal from voting as well as the two parties. A key that is
+  // one of them is passed over before it signs anything, so the standby is not held back until 4h30.
+  it('passes over a key that is a party to the dispute and steps the standby in at once', async () => {
+    const opened = r.chain.time;
+    const { disputeId } = openJob(r.chain);
+    const [, second] = r.keys;
+    if (second === undefined) throw new Error('three keys');
+    r.chain.principals.set(disputeId, second.address);
+
+    for (let at = opened; at < opened + 3n * HOUR + 40n * MINUTE; at += 5n * MINUTE) {
+      r.chain.at(at);
+      await r.voter.step(SERVED_V3, disputeId, await r.chain.head());
+    }
+    const commits = r.chain.writes.filter((write) => write.action === 'commit').map((write) => write.key);
+    expect(commits.sort()).toEqual(['resolver-1', 'resolver-3']);
+    const party = r.alerts.sent.filter((alert) => alert.event === 'key_is_party');
+    expect(party).toHaveLength(1);
+    expect(party[0]?.message).toContain('resolver-2 is a party to dispute');
+  });
+
+  it('bars nobody on a v1 registry, which has no party rule', async () => {
+    const opened = r.chain.time;
+    const { disputeId } = openJob(r.chain);
+    const [first] = r.keys;
+    if (first === undefined) throw new Error('three keys');
+    r.chain.principals.set(disputeId, first.address);
+
+    await drive(r, disputeId, opened + 3n * HOUR + 40n * MINUTE);
+    expect(r.alerts.sent.map((alert) => alert.event)).not.toContain('key_is_party');
+  });
+
   it('retries a failing commit at a rising price and brings the standby in at T+4h30', async () => {
     const opened = r.chain.time;
     const { disputeId } = openJob(r.chain);
@@ -321,7 +352,7 @@ describe('voter', () => {
 
 /**
  * What a dispute that missed quorum leaves behind differs by contract set. v1 refunds the payer;
- * v2 puts the lock back to Locked with a later deadline and returns the bond.
+ * v2 and v3 put the lock back to Locked with a later deadline and return the bond.
  */
 describe('a failed dispute', () => {
   async function failed(served: typeof SERVED, lockStatus: number) {
@@ -350,16 +381,61 @@ describe('a failed dispute', () => {
     expect(events).not.toContain('dispute_failed_lock_frozen');
   });
 
-  it('on v2 says disputeTimeout stays refused while the dispute is open', async () => {
+  it('on v3 reports the reopened lock the same way', async () => {
+    const events = await failed(SERVED_V3, LockStatus.Locked);
+    expect(events).toContain('dispute_failed_reopened');
+    expect(events).not.toContain('dispute_failed_lock_frozen');
+  });
+
+  it('on v1 reports a lock the escrow never ruled on as still held, with no exit of its own named', async () => {
     const r = await rig();
-    const { disputeId } = openJob(r.chain);
-    r.chain.advance(41n * HOUR);
+    const { disputeId, escrowId } = openJob(r.chain);
+    await r.voter.step(SERVED, disputeId, await r.chain.head());
     const dispute = r.chain.disputes.get(disputeId);
     if (dispute === undefined) throw new Error('opened');
-    r.chain.disputes.set(disputeId, { ...dispute, commitEndsAt: r.chain.time + HOUR, revealEndsAt: r.chain.time + 2n * HOUR });
-    await r.voter.step(SERVED_V2, disputeId, await r.chain.head());
-    const watchdog = r.alerts.sent.find((alert) => alert.event === 'dispute_watchdog');
-    expect(watchdog?.message).toMatch(/stays refused/);
+    r.chain.disputes.set(disputeId, { ...dispute, status: DisputeStatus.Failed });
+    await r.voter.step(SERVED, disputeId, await r.chain.head());
+
+    const frozen = r.alerts.sent.find((alert) => alert.event === 'dispute_failed_lock_frozen');
+    expect(frozen?.message).toContain(`lock ${escrowId} still Disputed`);
+    expect(frozen?.message).not.toMatch(/timeout/i);
+  });
+});
+
+/**
+ * Nothing settles a dispute on its own once its vote closes, so a lock still disputed an hour after
+ * the reveal window pages, and the page names the two calls that settle it.
+ */
+describe('the watchdog', () => {
+  async function stalled() {
+    const r = await rig();
+    const { disputeId } = openJob(r.chain);
+    for (const key of r.keys) r.chain.refuse.set(`finalize:${key.name}`, 1_000);
+    const dispute = r.chain.disputes.get(disputeId);
+    if (dispute === undefined) throw new Error('opened');
+    return { r, disputeId, revealEndsAt: dispute.revealEndsAt };
+  }
+
+  it('stays quiet until an hour after the vote closed', async () => {
+    const { r, disputeId, revealEndsAt } = await stalled();
+    r.chain.at(revealEndsAt + HOUR - MINUTE);
+    await r.voter.step(SERVED_V3, disputeId, await r.chain.head());
+    expect(r.alerts.sent.map((alert) => alert.event)).not.toContain('dispute_watchdog');
+  });
+
+  it('pages once for a lock still disputed after that, naming finalize and failDispute', async () => {
+    const { r, disputeId, revealEndsAt } = await stalled();
+    r.chain.at(revealEndsAt + HOUR);
+    await r.voter.step(SERVED_V3, disputeId, await r.chain.head());
+    r.chain.advance(5n * MINUTE);
+    await r.voter.step(SERVED_V3, disputeId, await r.chain.head());
+
+    const pages = r.alerts.sent.filter((alert) => alert.event === 'dispute_watchdog');
+    expect(pages).toHaveLength(1);
+    expect(pages[0]?.level).toBe('CRITICAL');
+    expect(pages[0]?.message).toContain(`closed at ${new Date(Number(revealEndsAt) * 1_000).toISOString()}`);
+    expect(pages[0]?.message).toMatch(/finalize it, or failDispute it/);
+    expect(pages[0]?.message).not.toMatch(/timeout/i);
   });
 });
 

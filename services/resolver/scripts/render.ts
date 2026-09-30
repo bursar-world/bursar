@@ -22,6 +22,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { DEPLOYMENTS, RHC_MAINNET, deploymentsForChain } from '@bursar/core';
 import { getAddress } from 'viem';
 import type { Address } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -43,10 +44,14 @@ const RESOLVER_KEYS = ['resolver-1', 'resolver-2', 'resolver-3'];
 const OPERATOR_KEYSTORES = ['payer', 'payee'];
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 /**
- * The records the service votes for, newest first, as paths from the repository root. The service
- * starts from that root on Render, so the same relative paths resolve there.
+ * The records the service votes for, newest first, as paths from the repository root: the set that
+ * answers for the chain and every set it supersedes, as the address book bundled with this checkout
+ * has them. The service starts from that root on Render, so the same relative paths resolve there.
  */
-const RECORDS = ['contracts/deployments/rhc-mainnet-v2.json', 'contracts/deployments/rhc-mainnet.json'];
+const RECORDS = deploymentsForChain(RHC_MAINNET.chainId).map((record) => {
+  const [name] = Object.entries(DEPLOYMENTS).find(([, entry]) => entry === record) ?? [record.network];
+  return `contracts/deployments/${name}.json`;
+});
 
 const dryRun = process.argv.includes('--dry-run');
 const out = (line: string): void => {

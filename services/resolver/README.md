@@ -3,11 +3,13 @@
 The service that votes Bursar's three bonded resolver keys on every dispute the registry hears,
 under the published [ruling policy](../../docs/RULING-POLICY.md).
 
-A payer who disputes a job before paying freezes the lock and opens a vote on the
+A party that contests a job before it is paid out freezes the lock and opens a vote on the
 `OracleRegistry`. If fewer than two resolvers commit and reveal, anyone can call `failDispute`.
-On the v1 contracts that refunds the payer in full, whatever was delivered. On v2 it reopens the
-lock with a new deadline and returns the dispute bond, and a lock can be disputed only once. This
-service makes sure two resolvers always vote: it
+On the v1 contracts that refunds the payer in full, whatever was delivered. From v2 on it reopens
+the lock with a new deadline and returns the dispute bond, and a lock can be disputed only once.
+Nothing settles a vote on its own once its reveal window closes: somebody has to call `finalize`
+or `failDispute`, and until then the lock stays frozen. This service makes sure two resolvers
+always vote: it
 reads the job and any delivery evidence, rules by the policy, seals the same score from two keys,
 reveals it, finalizes, and checks the escrow paid out. Every step is taken from the chain as it
 reads at that moment, so a restart, a lost journal or a dead RPC endpoint costs a poll, not a
@@ -22,15 +24,15 @@ registry's windows if governance changes them.
 |---|---|
 | First poll | Reads the lock, the payer's mandate, the payee's record and the job input at one block. Alerts INFO with the provisional ruling. |
 | 3h00 | Evidence cutoff. The ruling is fixed from what arrived before it. |
-| 3h30 | Commits from the primary pair, `keys[id mod 3]` and `keys[(id+1) mod 3]`. A benched primary is replaced by the standby at once. |
+| 3h30 | Commits from the primary pair, `keys[id mod 3]` and `keys[(id+1) mod 3]`. A benched primary, or one that is a party to the dispute, is replaced by the standby at once. The registry bars the payer, the payee and, from v2 on, the payer's principal. |
 | 4h30 | Commits from the standby if fewer than two of ours are in. WARN. |
 | 5h30 | CRITICAL if the dispute is still short of quorum. |
 | 6h00 | Reveals from every key that committed, then finalizes as soon as every commitment is open. |
 | 10h00 | CRITICAL if any of our commitments is still sealed. |
 | 11h00 | Last-chance reveal at three times the estimated fee. CRITICAL: run the backup runner. |
 | 12h00 | If a resolver outside Bursar committed and never revealed, finalizes here. |
-| After | Verifies the dispute is `Finalized` and the lock `Resolved`. If the vote failed, CRITICAL either way: on v1 the lock was refunded, or is still frozen and the alert gives the `disputeTimeout` time; on v2 the lock is `Locked` again with a new deadline, which is the contract working as designed. |
-| 40h after the dispute | CRITICAL watchdog for any lock still `Disputed`. On v2, `disputeTimeout` stays refused while the registry holds the dispute open, so the alert asks for `finalize` or `failDispute` instead. |
+| After | Verifies the dispute is `Finalized` and the lock `Resolved`. If the vote failed, CRITICAL either way: on v1 the lock was refunded, or is still frozen because the escrow never ruled; from v2 on the lock is `Locked` again with a new deadline, which is the contract working as designed. |
+| 13h00 | CRITICAL watchdog for a lock still `Disputed` an hour after the reveal window closed. The alert gives the time the vote closed and asks for `finalize`, or `failDispute` if it missed quorum. |
 
 Every retry of a write is priced a quarter higher than the last. Finalize is sent with at least
 1.5M gas and twice the estimate, so the escrow call inside it cannot be starved.
@@ -65,7 +67,7 @@ The service has no public address. The console forwards `https://app.bursar.worl
 | `RESOLVER_PASSWORD_FILE` | with keystores | File holding the keystore password. |
 | `RESOLVER_PASSWORD_KEYCHAIN` | with keystores | Or a macOS Keychain item as `service/account`. |
 | `RESOLVER_KEYS_ORDER` | `resolver-1,resolver-2,resolver-3` | Key names, in rotation order. |
-| `RESOLVER_DEPLOYMENTS` | every live 4663 record, v2 then v1 | Deployment record paths to serve. The Render setup names `contracts/deployments/rhc-mainnet-v2.json,contracts/deployments/rhc-mainnet.json`. |
+| `RESOLVER_DEPLOYMENTS` | every 4663 record in the line, newest first | Deployment record paths to serve: the set that answers for the chain and each set it supersedes. The Render setup names the same records by path, taken from the address book it was built with. |
 | `BURSAR_ALERT_WEBHOOK` | unset | Slack, Discord or Telegram (`sendMessage?chat_id=`) URL. Unset means the log is the only channel. |
 | `RESOLVER_HTTP_HOST` | `127.0.0.1` | `0.0.0.0` on a host that routes to it. |
 | `RESOLVER_HTTP_PORT` | `10000` | |

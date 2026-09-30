@@ -337,10 +337,21 @@ export function createVoter(options: VoterOptions): Voter {
     if (ours >= quorum) return;
 
     const { primary, standby } = rotation(record.disputeId, keys.length, quorum);
+    const parties = await chain.parties(served.registry, record.disputeId, served.contractSet);
     const usable: number[] = [];
     for (const index of [...primary, ...standby]) {
       const key = keys[index];
       if (key === undefined) continue;
+      // The registry refuses a vote from the payer, the payee or the payer's principal. A key that
+      // is one of them is passed over now, so the next key in rotation signs at once rather than
+      // at the standby time.
+      if (parties.some((party) => party.toLowerCase() === key.address.toLowerCase())) {
+        await once(served, record, `party:${key.name}`, 'WARN', 'key_is_party', `${key.name} is a party to dispute ${record.disputeId}, so the registry will not take its vote. The next key in rotation votes instead.`, {
+          key: key.name,
+          address: key.address,
+        });
+        continue;
+      }
       if (await eligible(served, key)) {
         usable.push(index);
       } else {
@@ -581,10 +592,10 @@ export function createVoter(options: VoterOptions): Voter {
 
     await patch(served, record.disputeId, (r) => ({ ...r, outcome, published: true, stage: advance(r.stage, 'closed') }));
 
-    // v2 answers a missed quorum by reopening the lock: Locked again, a fresh deadline, the bond
-    // back with the disputer, and no refund. That is the contract working, but the vote still
-    // failed, which is what this service is here to prevent.
-    if (served.contractSet === 'v2' && dispute.status === DisputeStatus.Failed && lock.status === LockStatus.Locked) {
+    // Since v2 a missed quorum reopens the lock: Locked again, a fresh deadline, the bond back with
+    // the disputer, and no refund. That is the contract working, but the vote still failed, which
+    // is what this service is here to prevent.
+    if (served.contractSet !== 'v1' && dispute.status === DisputeStatus.Failed && lock.status === LockStatus.Locked) {
       await once(served, record, 'failed', 'CRITICAL', 'dispute_failed_reopened', `Dispute ${record.disputeId} closed without a ruling. The escrow reopened lock ${record.escrowId} with a new deadline of ${new Date(Number(lock.deadline) * 1_000).toISOString()} and returned the dispute bond; nobody was refunded.`, {
         medianScore: dispute.medianScore,
         refundBps: dispute.refundBps,
@@ -593,10 +604,9 @@ export function createVoter(options: VoterOptions): Voter {
     }
 
     if (lock.status === LockStatus.Disputed) {
-      // H1: the vote closed but the escrow never ruled, so the money is still frozen and the only
-      // exit left is the escrow's own timeout.
-      const timeoutAt = lock.disputedAt + (await chain.disputeTimeoutPeriod(served.escrow));
-      await once(served, record, 'failed-frozen', 'CRITICAL', 'dispute_failed_lock_frozen', `Dispute ${record.disputeId} closed as Failed with lock ${record.escrowId} still Disputed. disputeTimeout opens at ${new Date(Number(timeoutAt) * 1_000).toISOString()}; follow the payee-compensation playbook.`);
+      // H1, v1 only: the v1 registry wrapped the escrow call in `finalize`, so a starved call could
+      // close the vote while the escrow never ruled. Later registries revert the whole finalize.
+      await once(served, record, 'failed-frozen', 'CRITICAL', 'dispute_failed_lock_frozen', `Dispute ${record.disputeId} closed as Failed with lock ${record.escrowId} still Disputed: the escrow never ruled, so the money is still held. Follow the payee-compensation playbook.`);
       return;
     }
 
@@ -625,18 +635,16 @@ export function createVoter(options: VoterOptions): Voter {
       }
 
       const lock = await chain.lock(served.escrow, dispute.escrowId);
-      if (lock.status === LockStatus.Disputed && head.timestamp >= lock.disputedAt + WATCHDOG_SECONDS) {
-        // v2 refuses disputeTimeout with DisputeRulable while this dispute is still open, so the
-        // lock waits for finalize or failDispute rather than a refund at 48 hours.
+      if (lock.status === LockStatus.Disputed && head.timestamp >= dispute.revealEndsAt + WATCHDOG_SECONDS) {
+        // Nothing settles a dispute on its own once the vote closes. Until somebody calls finalize
+        // or failDispute the lock stays frozen, however long that takes.
         await once(
           served,
           record,
           'watchdog',
           'CRITICAL',
           'dispute_watchdog',
-          served.contractSet === 'v2'
-            ? `Lock ${dispute.escrowId} has been disputed for 40 hours and dispute ${disputeId} is still open. disputeTimeout stays refused while it is; finalize or failDispute it.`
-            : `Lock ${dispute.escrowId} has been disputed for 40 hours. disputeTimeout opens at 48 and would refund it without a ruling.`,
+          `Lock ${dispute.escrowId} is still disputed. The vote on dispute ${disputeId} closed at ${new Date(Number(dispute.revealEndsAt) * 1_000).toISOString()} and nobody has settled it: finalize it, or failDispute it if it missed quorum.`,
         );
       }
 
@@ -661,9 +669,9 @@ export function createVoter(options: VoterOptions): Voter {
 
 /** What failDispute does to the lock, in the words an alert needs. */
 function failureEffect(served: Served): string {
-  return served.contractSet === 'v2'
-    ? 'reopens the lock with a new deadline and returns the dispute bond'
-    : 'refunds the payer';
+  return served.contractSet === 'v1'
+    ? 'refunds the payer'
+    : 'reopens the lock with a new deadline and returns the dispute bond';
 }
 
 function upsertVote(votes: readonly StoredVote[], vote: StoredVote): StoredVote[] {

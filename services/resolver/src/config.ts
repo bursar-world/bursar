@@ -20,14 +20,15 @@ import type { Address, Hex } from 'viem';
 import type { KeySource } from './keys.js';
 import { passwordFromFile, passwordFromKeychain } from './keys.js';
 
-/** One escrow and the registry it rules through. v2 and v1 are served side by side. */
+/** One escrow and the registry it rules through. Every set on the chain is served side by side. */
 export type Served = {
   readonly name: string;
   readonly escrow: Address;
   readonly registry: Address;
   /**
    * Which contract build the pair runs. It decides what a dispute that misses quorum does to the
-   * lock: v1 refunds the payer, v2 reopens the lock and returns the bond.
+   * lock: v1 refunds the payer, and every later set reopens the lock and returns the bond. It also
+   * decides how the registry names the parties barred from voting.
    */
   readonly contractSet: ContractSet;
 };
@@ -80,8 +81,9 @@ const SCHEMA = {
   RHC_NETWORK: withDefault(envVar.oneOf(['testnet', 'mainnet']), 'mainnet'),
 
   /**
-   * Deployment records to serve, as paths. Unset serves every live record bundled for the chain,
-   * newest first, so the v1 escrow keeps its resolvers while its last locks and disputes settle.
+   * Deployment records to serve, as paths. Unset serves every record bundled for the chain, newest
+   * first: the set that answers for it and each set it supersedes, so an earlier escrow keeps its
+   * resolvers while its last locks and disputes settle.
    */
   RESOLVER_DEPLOYMENTS: optional(envVar.list()),
 

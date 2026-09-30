@@ -32,10 +32,11 @@ export type Timeline = {
 };
 
 /**
- * Past this long in `Disputed`, a lock is inside the window where `disputeTimeout` becomes
- * callable at 48 hours and D17 lets it pre-empt a ruling. Anything still frozen here is a page.
+ * How long after the reveal window closes a lock may still be `Disputed` before it pages. The
+ * service finalizes as soon as the window shuts and pages at once for a missed quorum, so an hour
+ * is several dozen polls of its own retries; past it, the money is held and nothing is moving it.
  */
-export const WATCHDOG_SECONDS = 40n * 3_600n;
+export const WATCHDOG_SECONDS = 3_600n;
 
 export function timeline(clock: DisputeClock): Timeline {
   const commit = clock.commitEndsAt - clock.openedAt;

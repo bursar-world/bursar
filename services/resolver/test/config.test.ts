@@ -1,5 +1,8 @@
-import { EnvError } from '@bursar/core';
-import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+import { EnvError, deploymentForChain } from '@bursar/core';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { loadConfig } from '../src/config.js';
 
@@ -20,9 +23,12 @@ function problems(env: Record<string, string>): string[] {
 }
 
 describe('config', () => {
-  it('serves every live mainnet record, v2 first, and prefers the primary for writes', () => {
+  // Written to hold before and after the v3 record lands: the set that answers for the chain comes
+  // first, and v2 and v1 follow it.
+  it('serves every mainnet record in the line, newest first, and prefers the primary for writes', () => {
     const { config, keys } = loadConfig(BASE);
-    expect(config.served).toEqual([
+    expect(config.served[0]?.name).toBe(deploymentForChain(4663).network);
+    expect(config.served.slice(-2)).toEqual([
       {
         name: 'rhc-mainnet-v2',
         escrow: '0x4315F8be7C9661345710910577Ec31cb867f3c20',
@@ -98,5 +104,57 @@ describe('config', () => {
   it('takes Postgres over the file journal when a database is named', () => {
     const { config } = loadConfig({ ...BASE, RESOLVER_DATABASE_URL: 'postgres://u:p@db.internal:5432/resolver' });
     expect(config.journal).toEqual({ kind: 'postgres', url: 'postgres://u:p@db.internal:5432/resolver' });
+  });
+});
+
+/**
+ * The address book the service is built with, swapped for one holding a third set. The records are
+ * the real v1 and v2 ones plus a v3 made up here, because the service has to serve all three the
+ * day the v3 record lands, without a release of its own.
+ */
+const ADDRESS_BOOK = fileURLToPath(new URL('../../../packages/core/dist/generated/deployments.js', import.meta.url));
+
+function record(name: string): Record<string, unknown> {
+  return JSON.parse(readFileSync(new URL(`../../../contracts/deployments/${name}.json`, import.meta.url), 'utf8')) as Record<
+    string,
+    unknown
+  >;
+}
+
+const fill = (digit: string): string => `0x${digit.repeat(40)}`;
+
+describe('config with a third contract set', () => {
+  afterEach(() => {
+    vi.doUnmock(ADDRESS_BOOK);
+    vi.resetModules();
+  });
+
+  it('serves v3, then the v2 it supersedes, then v1, each read as its own set', async () => {
+    const v2 = record('rhc-mainnet-v2');
+    const v3 = {
+      ...v2,
+      network: 'rhc-mainnet-v3',
+      supersedes: 'rhc-mainnet-v2',
+      contracts: {
+        AdminTimelock: fill('1'),
+        Reputation: fill('2'),
+        Escrow: fill('3'),
+        OracleRegistry: fill('4'),
+        AgentRegistry: fill('5'),
+        MandateAccountFactory: fill('6'),
+      },
+    };
+
+    vi.resetModules();
+    vi.doMock(ADDRESS_BOOK, () => ({
+      RAW_DEPLOYMENTS: { 'rhc-mainnet': record('rhc-mainnet'), 'rhc-mainnet-v2': v2, 'rhc-mainnet-v3': v3 },
+    }));
+    const { loadConfig: load } = await import('../src/config.js');
+
+    expect(load(BASE).config.served.map((entry) => [entry.name, entry.contractSet, entry.escrow, entry.registry])).toEqual([
+      ['rhc-mainnet-v3', 'v3', '0x3333333333333333333333333333333333333333', '0x4444444444444444444444444444444444444444'],
+      ['rhc-mainnet-v2', 'v2', '0x4315F8be7C9661345710910577Ec31cb867f3c20', '0xE38349668f0C470C814487E95C14e7652F713B17'],
+      ['rhc-mainnet', 'v1', '0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4', '0xCb7c60037eC43b9692A5dDcA42A500181Cf549FF'],
+    ]);
   });
 });

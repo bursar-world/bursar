@@ -209,7 +209,7 @@ export type LogReader = {
 export function createDisclosureSource(client: LogReader, registry: Address | undefined, chunk = 10_000n): DisclosureSource {
   const escrowEvent = escrowAbi.find((item) => item.type === 'event' && item.name === 'DisclosureGranted');
   const registryEvent = disclosureRegistryAbi.find((item) => item.type === 'event' && item.name === 'DisclosureGranted');
-  // Same signature on the v1 and the v2 escrow.
+  // Same signature on every escrow build.
   const lockedEvent = escrowAbi.find((item) => item.type === 'event' && item.name === 'Locked');
 
   return {
@@ -283,7 +283,8 @@ export function createDisclosureSource(client: LogReader, registry: Address | un
           functionName: 'termsCommitment',
           blockNumber,
         });
-        // A v2 MandateAccount answers the same selector with zero: it is not a committed mandate.
+        // A v2 MandateAccount answers the same selector with zero and a v3 one has no such getter;
+        // neither is a committed mandate.
         return typeof value === 'bigint' && value !== 0n ? value : null;
       } catch {
         return null;

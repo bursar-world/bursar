@@ -1,3 +1,4 @@
+import type { ContractSet } from '@bursar/core';
 import { commitmentFor } from '@bursar/sdk';
 import { getAddress } from 'viem';
 import type { Address, Hex } from 'viem';
@@ -12,6 +13,7 @@ export const REGISTRY: Address = getAddress('0xcb7c60037ec43b9692a5ddca42a500181
 export const ESCROW: Address = getAddress('0x7d82ad9dc36734adcf5cf985295096b2b575c8c4');
 export const SERVED: Served = { name: 'test', escrow: ESCROW, registry: REGISTRY, contractSet: 'v1' };
 export const SERVED_V2: Served = { ...SERVED, name: 'test-v2', contractSet: 'v2' };
+export const SERVED_V3: Served = { ...SERVED, name: 'test-v3', contractSet: 'v3' };
 
 export const HOUR = 3_600n;
 export const T0 = 1_790_000_000n;
@@ -38,6 +40,8 @@ export class FakeChain implements ChainPort {
   readonly writes: WriteCall[] = [];
   /** Keys whose next writes fail before anything is signed, per action. */
   readonly refuse = new Map<string, number>();
+  /** The payer's principal per dispute, which a registry after v1 bars from voting with the parties. */
+  readonly principals = new Map<bigint, Address>();
 
   advance(seconds: bigint): void {
     this.time += seconds;
@@ -126,7 +130,14 @@ export class FakeChain implements ChainPort {
   nextDisputeId = async () => BigInt(this.disputes.size + 1);
   disputeIdOf = async (_registry: Address, escrowId: bigint) =>
     [...this.disputes.entries()].find(([, dispute]) => dispute.escrowId === escrowId)?.[0] ?? 0n;
-  disputeTimeoutPeriod = async () => 48n * HOUR;
+  parties = async (_registry: Address, disputeId: bigint, contractSet: ContractSet): Promise<readonly Address[]> => {
+    if (contractSet === 'v1') return [];
+    const dispute = this.disputes.get(disputeId);
+    const lock = dispute === undefined ? undefined : this.locks.get(dispute.escrowId);
+    if (lock === undefined) return [];
+    const principal = this.principals.get(disputeId);
+    return [lock.payer, lock.payee, ...(principal === undefined ? [] : [principal])];
+  };
   disputeOpenedLogs = async (_registry: Address, fromBlock: bigint, toBlock: bigint) =>
     this.logs.filter((log) => log.blockNumber >= fromBlock && log.blockNumber <= toBlock);
 
