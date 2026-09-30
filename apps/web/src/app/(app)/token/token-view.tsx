@@ -34,7 +34,7 @@ export function TokenView() {
     <div className="space-y-10">
       <Section
         title="$BRSR"
-        description="The bond a resolver posts to rule on a dispute, and the stake that takes first loss on the collateralized lane and collects its spread and the buyback."
+        description="The bond a resolver posts to rule on a dispute, and the stake that covers first losses on collateral-backed credit and earns its spread and the BRSR the buyback buys."
         actions={
           <Button size="sm" onClick={data.refresh} disabled={data.isFetching}>
             {data.isFetching ? 'Reading' : 'Read again'}
@@ -45,7 +45,7 @@ export function TokenView() {
           <StatusStrip system={system} />
           <p className="mt-4 max-w-3xl text-sm">
             BRSR is not a claim on Robinhood, on Robinhood Chain, on Paxos or on USDG, and none of them endorses this. It is not a deposit and it is
-            not a share. Debt in this system exists inside the collateralized lane and nowhere else, so nothing here
+            not a share. Debt in this system exists only in collateral-backed credit, so nothing here
             lends, borrows or pays interest outside it.
           </p>
           {data.extras && (

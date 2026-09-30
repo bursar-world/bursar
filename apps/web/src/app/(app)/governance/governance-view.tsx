@@ -157,7 +157,7 @@ export function GovernanceView() {
 
       <Card title="Fees and the treasury are elsewhere">
         <p className="max-w-3xl text-sm">
-          Sweeping escrow fees and rotating the escrow treasury are not timelock calls, because the escrow has no admin
+          Sweeping settlement fees and rotating the escrow treasury are not timelock calls, because the escrow has no admin
           role. They live on the{' '}
           <Link href="/ops" className="underline underline-offset-2">
             operator surface

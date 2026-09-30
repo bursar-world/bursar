@@ -50,7 +50,7 @@ export function OpsView() {
     <div className="space-y-10">
       <Section
         title="Operations"
-        description="Escrow fees, the treasury that receives them, and the staking and buyback settings governance controls."
+        description="Settlement fees, the treasury that receives them, and the staking and buyback settings governance controls."
         actions={
           <Button size="sm" onClick={ops.refresh} disabled={ops.isFetching}>
             {ops.isFetching ? 'Reading' : 'Read again'}
@@ -169,7 +169,7 @@ function FeesSection({
   const unread = data === undefined ? 'Reading' : NOT_READ;
 
   return (
-    <Section title="Escrow fees" description="The protocol's cut of every release, held in the escrow until somebody pushes it to the treasury.">
+    <Section title="Settlement fees" description="The settlement fee from every release, held in the escrow until somebody sweeps it to the treasury.">
       <Card>
         <FieldGrid columns={3}>
           <Field label="Accrued and unswept" hint="Owed to the treasury. It sits in the escrow until the sweep runs.">
@@ -397,7 +397,7 @@ function ParameterSections({
             <Field label="Fee rebate tiers" hint="An empty table means every rebate reads zero, whatever anyone has staked.">
               {tiers === undefined ? unread : tiers.length === 0 ? 'Empty' : `${tiers.length} rungs`}
             </Field>
-            <Field label="Credit lane" hint="The address the staking pool takes spread from. It cannot take stake.">
+            <Field label="Credit manager" hint="The address the staking pool takes spread from. It cannot take stake.">
               {data?.staking.creditManager === undefined ? unread : isZeroAddress(data.staking.creditManager) ? 'Not named' : <AddressLabel value={data.staking.creditManager} />}
             </Field>
             <Field label="Slasher" hint="The only address that can take stake, up to the slash cap. Nothing can be slashed while none is named.">
@@ -422,7 +422,7 @@ function ParameterSections({
                 caption="Fee rebate by staked balance"
                 columns={[
                   { key: 'min', header: 'Staked at least', align: 'right', cell: (row) => <span className="tabular">{formatBrsrAmount(row.minStake)}</span> },
-                  { key: 'rebate', header: 'Off the facilitator fee', align: 'right', cell: (row) => <span className="tabular">{formatBps(BigInt(row.rebateBps))}</span> },
+                  { key: 'rebate', header: 'Off the settlement fee', align: 'right', cell: (row) => <span className="tabular">{formatBps(BigInt(row.rebateBps))}</span> },
                 ]}
               />
             </div>

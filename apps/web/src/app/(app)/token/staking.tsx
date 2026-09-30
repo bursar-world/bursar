@@ -27,7 +27,7 @@ import { useWriteContract } from '@/wallet/write';
  * The staking surface.
  *
  * What a staker is exposed to comes before what the position pays, and both come before the
- * controls. Stake is first-loss cover for the collateralized lane at a capped rate, and whether a
+ * controls. Stake is first-loss cover for collateral-backed credit at a capped rate, and whether a
  * write-off can reach it today is a reading, not a sentence: it depends on whom the pool names as
  * its slasher.
  */
@@ -44,13 +44,13 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
   return (
     <Section
       title="Staking"
-      description="First-loss cover for the collateralized lane, where its spread and the buyback arrive, and the fee rebate a staked balance earns."
+      description="First-loss cover for collateral-backed credit, where that credit’s spread and the buyback arrive, and the fee rebate a staked balance earns."
     >
       <Card title="What staking here exposes you to">
         <div className="max-w-3xl space-y-3 text-sm">
           <p>
-            Staked BRSR takes first loss on the collateralized lane. That lane lends USDG from a separate credit pool
-            against posted stock and treasury tokens. When a line&rsquo;s collateral cannot repay its debt, the credit
+            Staked BRSR takes first loss on collateral-backed credit: USDG lent from a separate credit pool against
+            posted stock and treasury tokens. When a line&rsquo;s collateral cannot repay its debt, the credit
             pool writes the shortfall off, and where the staking contract names that pool as its slasher, the write-off
             takes stake: the loss is converted to BRSR at the buyback&rsquo;s price ceiling and sent to the slash sink.
             The lender carries whatever the stake does not cover.
@@ -58,9 +58,9 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
           <p>{capSentence(pool)}</p>
           <p>{slasherSentence(pool, creditPool, data.token === undefined)}</p>
           <p>
-            In exchange the pool is where the collateralized lane&rsquo;s spread is paid, in USDG, and where the buyback
-            compounds the BRSR it buys, which raises what each earning share is worth. A staked balance also takes a
-            rebate off the facilitator fee on that party&rsquo;s own settlements. None of these is a rate. None is
+            In exchange the pool is where the spread on that credit is paid, in USDG, and where the buyback compounds
+            the BRSR it buys, which raises what each earning share is worth. A staked balance also takes a rebate off
+            the settlement fee on the staker&rsquo;s own payouts. None of these is a rate. None is
             promised. What arrives depends on how much the system is used. Staking also carries the BRSR price itself,
             which can fall, and the exit wait below.
           </p>
@@ -70,11 +70,11 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
       <Card title="What is switched on today" description="Read from the staking contract, not from a plan.">
         <FieldGrid columns={3}>
           <Field
-            label="Spread from the collateralized lane"
+            label="Spread from collateral-backed credit"
             hint={
               spreadReachesStakers
                 ? 'The credit pool is named here, so its spread is paid to stakers in USDG.'
-                : 'The lane is lending. Its spread waits in the credit pool until governance names the pool here; that proposal is on the governance page.'
+                : 'The credit pool is lending. Its spread waits there until governance names the pool here; that proposal is on the governance page.'
             }
           >
             {creditLane === undefined ? (
@@ -146,7 +146,7 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
               caption="Fee rebate by staked balance"
               columns={[
                 { key: 'min', header: 'Staked at least', align: 'right', cell: (row) => <span className="tabular">{formatBrsr(row.minStake)} BRSR</span> },
-                { key: 'rebate', header: 'Off the facilitator fee', align: 'right', cell: (row) => <span className="tabular">{bps(row.rebateBps)}</span> },
+                { key: 'rebate', header: 'Off the settlement fee', align: 'right', cell: (row) => <span className="tabular">{bps(row.rebateBps)}</span> },
               ]}
             />
           </div>
@@ -179,7 +179,7 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
               <Stat
                 label="Your fee rebate"
                 value={position?.rebateBps === undefined ? unread : bps(position.rebateBps)}
-                hint="Applied to the facilitator fee on your own settlements."
+                hint="Taken off the settlement fee on your own payouts."
               />
             </StatGrid>
 

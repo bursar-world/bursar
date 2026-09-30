@@ -42,7 +42,7 @@ export function contractGroups(): readonly ContractGroup[] {
       rows: [
         { name: 'Mandate accounts', address: ADDRESSES.mandateAccountFactory, role: 'Creates an account at an address the owner can compute first.' },
         ...(rwa?.MandateAccountFactoryV21
-          ? [{ name: 'Mandate accounts with treasury and collateral lanes', address: rwa.MandateAccountFactoryV21, role: 'Creates accounts that can draw parked or borrowed USDG inside a payment.' }]
+          ? [{ name: 'Mandate accounts that park or borrow', address: rwa.MandateAccountFactoryV21, role: 'Creates accounts that can draw parked or borrowed USDG inside a payment.' }]
           : []),
         { name: 'Escrow', address: ADDRESSES.escrow, role: 'Holds a payment until the provider delivers or the deadline passes.' },
         { name: 'Provider registry', address: ADDRESSES.agentRegistry, role: 'Who may be paid, and the stake behind them.' },
@@ -70,7 +70,7 @@ export function contractGroups(): readonly ContractGroup[] {
 
   if (collateral) {
     groups.push({
-      title: 'Collateralized lane',
+      title: 'Collateral-backed credit',
       rows: [
         { name: 'Collateral vault', address: collateral.CollateralVault, role: 'Holds posted stock and treasury tokens and checks health before a draw.' },
         { name: 'Credit pool', address: collateral.CreditPool, role: 'Lends USDG against posted collateral. Bad debt is written off here.' },
@@ -108,7 +108,7 @@ export function contractGroups(): readonly ContractGroup[] {
     title: 'Token',
     rows: [
       { name: 'BRSR', address: TOKEN_ADDRESSES.BRSR, role: 'The token resolvers bond and stakers hold.' },
-      { name: 'Staking', address: TOKEN_ADDRESSES.Staking, role: 'Holds staked BRSR and pays out the buyback and the collateralized lane’s spread.' },
+      { name: 'Staking', address: TOKEN_ADDRESSES.Staking, role: 'Holds staked BRSR and pays out the buyback and the spread on collateral-backed credit.' },
       { name: 'Vesting', address: TOKEN_ADDRESSES.Vesting, role: 'Holds the team grant for its term.' },
       { name: 'Buyback', address: TOKEN_ADDRESSES.Buyback, role: 'Turns fee revenue into BRSR for the staking pool.' },
     ],
@@ -118,13 +118,13 @@ export function contractGroups(): readonly ContractGroup[] {
     const administersToken = d.contracts.AdminTimelock.toLowerCase() === TOKEN_ROLES.adminTimelock.toLowerCase();
     groups.push({
       title: older.length === 1 ? 'Earlier payment contracts' : `Earlier payment contracts, ${SET_ORDINALS[older.length - 1 - index] ?? 'an earlier'} set`,
-      note: 'Still live for the payments, locks and disputes opened against them, and read only here. New mandates use the contracts above.',
+      note: 'Still settling the payments and disputes opened on them. The console only reads them. New mandates use the contracts above.',
       rows: [
-        { name: 'Mandate accounts', address: d.contracts.MandateAccountFactory, role: 'Created the mandates on this set, which still hold funds and history.' },
+        { name: 'Mandate accounts', address: d.contracts.MandateAccountFactory, role: 'Created the mandates on these contracts, which still hold funds and history.' },
         { name: 'Escrow', address: d.contracts.Escrow, role: 'Serves the locks opened against it until they close.' },
-        { name: 'Provider registry', address: d.contracts.AgentRegistry, role: 'Providers registered on this set.' },
-        { name: 'Reputation', address: d.contracts.Reputation, role: 'Scores earned on this set.' },
-        { name: 'Disputes', address: d.contracts.OracleRegistry, role: 'Rules on disputes opened against this set’s escrow until they close.' },
+        { name: 'Provider registry', address: d.contracts.AgentRegistry, role: 'Providers registered here.' },
+        { name: 'Reputation', address: d.contracts.Reputation, role: 'Scores earned here.' },
+        { name: 'Disputes', address: d.contracts.OracleRegistry, role: 'Rules on the disputes opened against this escrow until they close.' },
         {
           name: 'Governance delay',
           address: d.contracts.AdminTimelock,
@@ -146,18 +146,18 @@ export function contractGroups(): readonly ContractGroup[] {
  */
 function earlierLanes(d: Deployment): readonly ContractRow[] {
   const rows: ContractRow[] = [];
-  if (d.rwa) rows.push({ name: 'Treasury parking', address: d.rwa.TreasuryPark, role: 'Holds what was parked on this set until it is unparked.' });
+  if (d.rwa) rows.push({ name: 'Treasury parking', address: d.rwa.TreasuryPark, role: 'Holds what was parked here until it is unparked.' });
   if (d.rwa?.collateral) {
     rows.push(
-      { name: 'Collateral vault', address: d.rwa.collateral.CollateralVault, role: 'Holds collateral posted on this set.' },
-      { name: 'Credit pool', address: d.rwa.collateral.CreditPool, role: 'Holds the debt drawn on this set until it is repaid.' },
+      { name: 'Collateral vault', address: d.rwa.collateral.CollateralVault, role: 'Holds the collateral posted here.' },
+      { name: 'Credit pool', address: d.rwa.collateral.CreditPool, role: 'Holds the debt drawn here until it is repaid.' },
     );
   }
   if (d.privacy) {
-    rows.push({ name: 'Private mandate accounts', address: d.privacy.CommittedMandateFactory, role: 'Created the private mandates on this set.' });
+    rows.push({ name: 'Private mandate accounts', address: d.privacy.CommittedMandateFactory, role: 'Created the private mandates on these contracts.' });
   }
   if (d.privacy?.shielded) {
-    rows.push({ name: 'Shielded pool', address: d.privacy.shielded.ShieldedPool, role: 'Holds what was deposited on this set until it is withdrawn.' });
+    rows.push({ name: 'Shielded pool', address: d.privacy.shielded.ShieldedPool, role: 'Holds what was deposited here until it is withdrawn.' });
   }
   return rows;
 }

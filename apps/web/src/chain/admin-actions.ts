@@ -406,14 +406,14 @@ export const ADMIN_ACTIONS: readonly AdminAction[] = [
     functionName: 'setTiers',
     label: 'Set the staking fee rebate tiers',
     consequence:
-      'The table decides how much a staked balance takes off the facilitator fee on that party’s own settlements. It ships empty, so every rebate reads zero until this lands. At most eight rungs, ascending in both columns, and no rung above 50%.',
+      'The table decides how much a staked balance takes off the settlement fee on the staker’s own payouts. It ships empty, so every rebate reads zero until this lands. At most eight rungs, ascending in both columns, and no rung above 50%.',
     shape: {
       kind: 'rows',
       rowLabel: 'Rung',
       maxRows: LIMITS.stakingTiers,
       row: [
         { name: 'minStake', label: 'Staked at least', kind: 'brsr', help: 'Has to be higher than the rung above it.', placeholder: '25000' },
-        { name: 'rebateBps', label: 'Off the facilitator fee', kind: 'bps', help: '500 is 5%. Has to be higher than the rung above it, and at most 5000.', placeholder: '500' },
+        { name: 'rebateBps', label: 'Off the settlement fee', kind: 'bps', help: '500 is 5%. Has to be higher than the rung above it, and at most 5000.', placeholder: '500' },
       ],
     },
   },
@@ -435,10 +435,10 @@ export const ADMIN_ACTIONS: readonly AdminAction[] = [
     functionName: 'setSlasher',
     label: 'Name the slasher on the staking pool',
     consequence:
-      'The one address that can take stake to cover a collateralized-lane loss, never more than the slash cap allows. The lane’s credit pool slashes when it writes off a line, converting the loss to BRSR at the buyback’s price ceiling. The zero address leaves nobody able to take stake.',
+      'The one address that can take stake to cover a loss on collateral-backed credit, never more than the slash cap allows. The credit pool slashes when it writes off a line, converting the loss to BRSR at the buyback’s price ceiling. The zero address leaves nobody able to take stake.',
     shape: {
       kind: 'fields',
-      fields: [{ name: 'account', label: 'Slasher', kind: 'address', help: 'Usually the collateralized lane’s credit pool. The zero address clears it.' }],
+      fields: [{ name: 'account', label: 'Slasher', kind: 'address', help: 'Usually the credit pool. The zero address clears it.' }],
     },
   },
   {
@@ -1291,7 +1291,7 @@ function sentenceFor(name: string, contract: GovernedContract | undefined, args:
     case 'evict':
       return `Unseats resolver ${plain(first)} from ${on} and returns what is left of its bond. Refused while a vote that bond backs is open.`;
     case 'sweepSurplus':
-      return `Sends settlement asset ${on} holds beyond the rewards it owes to its slash sink.`;
+      return `Sends the settlement asset ${on} holds beyond the rewards it owes to its slash sink.`;
     case 'setSlashSink':
       return `Sends everything slashed by ${on} to ${plain(first)} from this point on. Balances already sent are not moved.`;
     case 'setBlacklistRoot':
@@ -1303,7 +1303,7 @@ function sentenceFor(name: string, contract: GovernedContract | undefined, args:
     case 'setCreditManager':
       if (isZero(first)) return 'Clears the credit manager. No spread can be paid in to stakers until one is named again.';
       return isCreditPool(first)
-        ? `Names the collateralized lane’s credit pool, ${plain(first)}, as the staking pool’s credit manager, so the lane’s spread is paid to stakers.`
+        ? `Names the credit pool, ${plain(first)}, as the staking pool’s credit manager, so its spread is paid to stakers.`
         : `Names ${plain(first)} as the staking pool’s credit manager, the one address that can pay spread in.`;
     case 'setBondFloor':
       return asBigint(args[1]) === 0n
@@ -1331,7 +1331,7 @@ function slasherSentence(contract: GovernedContract | undefined, value: unknown)
   if (contract?.key === 'staking') {
     if (isZero(value)) return 'Clears the staking pool’s slasher. Nothing can take stake until one is named again.';
     return isCreditPool(value)
-      ? `Names the collateralized lane’s credit pool, ${plain(value)}, as the staking pool’s slasher. A write-off then takes stake, converted to BRSR at the buyback’s price ceiling and held to the slash cap.`
+      ? `Names the credit pool, ${plain(value)}, as the staking pool’s slasher. A write-off then takes stake, converted to BRSR at the buyback’s price ceiling and held to the slash cap.`
       : `Names ${plain(value)} as the staking pool’s slasher, the one address that can take stake, held to the slash cap.`;
   }
   return isZero(value)
@@ -1350,7 +1350,7 @@ function isZeroWord(value: unknown): boolean {
 }
 
 function tiersSentence(value: unknown): string {
-  if (!Array.isArray(value)) return 'Replaces the fee rebate table that decides how much a staked balance takes off the facilitator fee.';
+  if (!Array.isArray(value)) return 'Replaces the fee rebate table that decides how much a staked balance takes off the settlement fee.';
   if (value.length === 0) {
     return 'Clears the fee rebate table. Every rebate then reads zero, whatever anyone has staked.';
   }
@@ -1360,7 +1360,7 @@ function tiersSentence(value: unknown): string {
     .map((tier) => `${formatBrsrAmount(brsr(asBigint(tier.minStake)))} for ${formatBps(asBigint(tier.rebateBps))}`)
     .join(', ');
 
-  return `Replaces the fee rebate table with ${value.length} ${value.length === 1 ? 'rung' : 'rungs'}: ${rungs} off the facilitator fee on that party's own settlements.`;
+  return `Replaces the fee rebate table with ${value.length} ${value.length === 1 ? 'rung' : 'rungs'}: ${rungs} off the settlement fee on the staker's own payouts.`;
 }
 
 function paramsSentence(value: unknown): string {

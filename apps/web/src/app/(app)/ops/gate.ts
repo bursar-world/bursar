@@ -80,7 +80,7 @@ export function opsAccess(roles: OpsRoles): OpsAccess {
     accepting: permits(roles.incomingTreasury),
     headline: 'This wallet holds none of the roles this surface is for.',
     detail:
-      'Sweeping escrow fees needs any funded key and pays the treasury either way. Rotating the treasury needs the treasury key itself, and completing that rotation needs the address it named. Changing a staking or buyback setting needs one of the three signer keys, because a governance delay administers both contracts. Connect one of those to act here.',
+      'Sweeping settlement fees needs any funded key and pays the treasury either way. Rotating the treasury needs the treasury key itself, and completing that rotation needs the address it named. Changing a staking or buyback setting needs one of the three signer keys, because a governance delay administers both contracts. Connect one of those to act here.',
   };
 }
 
@@ -117,7 +117,7 @@ export type ActionNeed = {
 export const NEEDS: readonly ActionNeed[] = [
   {
     id: 'sweep-fees',
-    title: 'Sweep escrow fees to the treasury',
+    title: 'Sweep settlement fees to the treasury',
     call: 'Escrow.sweepFees',
     needs: 'any funded key. The call is permissionless and the escrow pays its treasury whoever sends it.',
     route: 'direct',

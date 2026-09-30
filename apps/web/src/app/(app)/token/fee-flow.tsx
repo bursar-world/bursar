@@ -22,7 +22,7 @@ import { useWriteContract } from '@/wallet/write';
  * The path a fee takes from a settled call to a staker, with the state of each leg beside it.
  *
  * Two lines of revenue and two destinations. The buyback raises what a share is worth in BRSR;
- * the credit-lane spread arrives as USDG a staker claims, once Staking names the credit pool. Describing them as one number
+ * the spread on collateral-backed credit arrives as USDG a staker claims, once Staking names the credit pool. Describing them as one number
  * would be describing a yield.
  */
 export function FeeFlowSection({
@@ -61,7 +61,7 @@ export function FeeFlowSection({
       <Card title="The two lines">
         <FieldGrid columns={2}>
           <Field
-            label="Facilitator fee"
+            label="Settlement fee"
             hint="Charged on the payee's side of a settlement, with a floor at the measured gas cost of a settled call on this network, about 0.0019 USDG. Below that floor the facilitator pays to be used."
           >
             {escrow === undefined ? (
@@ -73,14 +73,14 @@ export function FeeFlowSection({
             )}
           </Field>
           <Field
-            label="Collateralized-lane spread"
-            hint="Charged only where an agent spends against posted collateral. Nothing outside that lane borrows, and nothing outside it pays this."
+            label="Spread on collateral-backed credit"
+            hint="Charged only where an agent spends against posted collateral. Nothing else here borrows, and nothing else pays this."
           >
             A yearly rate on what is borrowed, rising with how much of the credit pool is lent out
           </Field>
         </FieldGrid>
         <p className="mt-4 max-w-3xl text-sm">
-          The facilitator fee accrues in USDG to the treasury the escrow already pays, at{' '}
+          The settlement fee accrues in USDG to the treasury the escrow already pays, at{' '}
           <Address value={ADDRESSES.treasury} />. The spread accrues in USDG inside the credit pool
           {lane && (
             <>
@@ -94,7 +94,7 @@ export function FeeFlowSection({
       <Card title="The path to a staker" description="Two legs, because the two lines arrive in different assets. The first one takes three steps: the fee has to become BRSR before it reaches a share.">
         <ol className="space-y-4 text-sm">
           <li>
-            <span className="font-medium">Facilitator fee to the buyback.</span> Governance moves USDG from the treasury
+            <span className="font-medium">Settlement fee to the buyback.</span> Governance moves USDG from the treasury
             into the buyback contract. It is a transfer in and never an allowance out, so if every guard inside it
             failed at once the loss would stop at its own balance. The treasury behind it stays out of reach.
           </li>
@@ -111,7 +111,7 @@ export function FeeFlowSection({
             exit request does not share in it.
           </li>
           <li>
-            <span className="font-medium">Collateralized-lane spread to the staking contract.</span> The spread is
+            <span className="font-medium">Credit spread to the staking contract.</span> The spread is
             distributed in USDG and claimed per share. It arrives as the settlement asset because borrowers pay in the
             settlement asset.
           </li>

@@ -7,7 +7,7 @@ import type { Micro } from '@bursar/core';
  *
  * The order is the contract's, and it is the part that surprises people. The resolver fee comes
  * off the principal first and the refund divides what is left, so a refund of 10,000 basis points
- * returns the lock less that fee and never the whole lock. The facilitator fee is charged only on
+ * returns the lock less that fee and never the whole lock. The settlement fee is charged only on
  * what the payee keeps. Both divisions truncate toward the payee, exactly as the contract does.
  */
 export type SettlementSplit = {
@@ -15,7 +15,7 @@ export type SettlementSplit = {
   readonly resolverFee: Micro;
   /** Back to the payer. */
   readonly refunded: Micro;
-  /** The facilitator's cut, charged on the payee's share alone. */
+  /** The settlement fee, charged on the payee's share alone. */
   readonly protocolFee: Micro;
   /** What reaches the payee. */
   readonly paid: Micro;
@@ -32,7 +32,7 @@ export function splitSettlement(amount: Micro, refundBps: number, resolverFeeBps
 }
 
 /**
- * What a release pays the payee: the lock less the facilitator fee, with no resolver in it.
+ * What a release pays the payee: the lock less the settlement fee, with no resolver in it.
  * `Escrow.release` charges `feeBps` on the whole amount, which is a different base from the one
  * `splitSettlement` uses, so the two are kept apart rather than shared.
  */
