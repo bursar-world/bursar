@@ -13,7 +13,7 @@ import {AssetRegistry} from "./AssetRegistry.sol";
 import {CreditPool} from "./CreditPool.sol";
 import {PriceGuard} from "./PriceGuard.sol";
 import {V4Swapper} from "./V4Swapper.sol";
-import {IAggregatorV3, IRobinhoodStock} from "./interfaces/IRwaExternal.sol";
+import {IAggregatorV3} from "./interfaces/IRwaExternal.sol";
 import {ITreasuryPark} from "./interfaces/ITreasuryPark.sol";
 
 /// The collateral lane. A mandate in lane 1 posts registered stock or treasury tokens here and
@@ -21,8 +21,10 @@ import {ITreasuryPark} from "./interfaces/ITreasuryPark.sol";
 /// a mandate in any other lane cannot open a line or draw.
 ///
 /// Value. Each position counts at raw × feed (the feed already prices one raw token), less the
-/// haircut of its tier, and only while the feed is inside the tier's valuation bound and the
-/// token's oracle is not paused. A stale or paused position counts zero.
+/// haircut of its tier, and only while the feed is inside the tier's valuation bound, the
+/// token's oracle is not paused, and the asset's pinned pool trades inside its band of the feed.
+/// A position that fails any of these counts zero, which is what stops a mis-scaled or lagging
+/// answer, fresh by every timestamp test, from backing a draw.
 ///
 /// Haircuts. Every accepted asset sits in a tier with a market-session haircut and a wider
 /// after-hours haircut. After hours is outside the US equities 24/5 session (Monday 01:00 UTC to
@@ -35,6 +37,10 @@ import {ITreasuryPark} from "./interfaces/ITreasuryPark.sol";
 /// `liquidationTarget`, through the asset's pinned v4 pool, and pays the caller a bounty out of
 /// the proceeds. A sale needs a fresh, unpaused trade price inside the pool band, so a stale or
 /// paused price defers liquidation rather than selling blind.
+///
+/// The liquidation trigger leaves the pool test out and counts a fresh position at its feed. A
+/// pool can be pushed past its band inside one transaction; a trigger that read it would let
+/// anyone zero one position and sell the others for the bounty.
 ///
 /// Drawing. A lane-1 mandate names this contract as its `treasuryPark`. When a spend or
 /// purchase needs more USDG than the mandate holds, the mandate calls `unparkFor(shortfall)`
@@ -211,8 +217,7 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         if (held < raw) revert PositionEmpty(mandate, asset);
         collateralOf[mandate][asset] = held - raw;
 
-        uint256 h = health(mandate);
-        if (h < params.minBorrowHealth) revert HealthTooLow(h, params.minBorrowHealth);
+        _checkDraw(mandate);
 
         IERC20(asset).safeTransfer(to, raw);
         emit Withdrawn(mandate, asset, to, raw);
@@ -227,9 +232,7 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         if (!isLine[mandate]) revert NoLine(mandate);
         _checkLane(mandate);
         uint256 debt = pool.borrow(mandate, usdgNeeded, mandate);
-        uint256 h = health(mandate);
-        if (h < params.minBorrowHealth) revert HealthTooLow(h, params.minBorrowHealth);
-        emit Drawn(mandate, usdgNeeded, debt, h);
+        emit Drawn(mandate, usdgNeeded, debt, _checkDraw(mandate));
     }
 
     // --- anyone ---
@@ -328,25 +331,24 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         uint256 n = _assets.length;
         out = new PositionView[](n);
         for (uint256 i; i < n; ++i) {
-            out[i] = _position(mandate, _assets[i]);
+            (out[i],,) = _position(mandate, _assets[i]);
         }
     }
 
     /// Collateral value, value after haircuts, debt, room to draw, and health (max when no debt).
+    /// Value, adjusted value and room to draw leave out a position whose pool disagrees with its
+    /// feed; health is the liquidation trigger and counts it at the feed.
     function account(address mandate)
         public
         view
         returns (uint256 value, uint256 adjusted, uint256 debt, uint256 headroom, uint256 healthE18)
     {
-        uint256 n = _assets.length;
-        for (uint256 i; i < n; ++i) {
-            PositionView memory p = _position(mandate, _assets[i]);
-            value += p.value;
-            adjusted += p.adjusted;
-        }
+        uint256 drawAdjusted;
+        uint256 triggerAdjusted;
+        (value, adjusted, drawAdjusted, triggerAdjusted) = _totals(mandate);
         debt = pool.debtOf(mandate);
-        healthE18 = debt == 0 ? type(uint256).max : Math.mulDiv(adjusted, WAD, debt);
-        uint256 ceiling = Math.mulDiv(adjusted, WAD, params.minBorrowHealth);
+        healthE18 = _ratio(triggerAdjusted, debt);
+        uint256 ceiling = Math.mulDiv(drawAdjusted, WAD, params.minBorrowHealth);
         headroom = ceiling > debt ? ceiling - debt : 0;
         uint256 cap = pool.capacityFor(mandate);
         if (headroom > cap) headroom = cap;
@@ -362,22 +364,57 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
 
     // --- internals ---
 
-    function _position(address mandate, address asset) private view returns (PositionView memory p) {
+    /// One position as `positions` shows it, and the two adjusted values the view leaves out:
+    /// what a draw is checked against, counted only while the pool agrees with the feed, and
+    /// what the liquidation trigger counts, at the feed whatever the pool says.
+    function _position(address mandate, address asset)
+        private
+        view
+        returns (PositionView memory p, uint256 drawAdjusted, uint256 triggerAdjusted)
+    {
         p.asset = asset;
         p.tier = _tierOf[asset];
         p.raw = collateralOf[mandate][asset];
-        AssetRegistry.Asset memory a = registry.get(asset);
-        (, int256 answer,, uint256 updatedAt,) = IAggregatorV3(a.feed).latestRoundData();
+        (uint256 priceE8, uint256 updatedAt, bool unpaused, bool inBand) = guard.valuation(asset);
         p.updatedAt = updatedAt;
-        if (answer <= 0 || updatedAt > block.timestamp) return p;
-        p.priceE8 = uint256(answer);
-        if (p.tier == 0) return p;
-        Tier storage t = _tiers[p.tier - 1];
-        p.fresh = block.timestamp - updatedAt <= t.valuationStaleness && !IRobinhoodStock(asset).oraclePaused();
+        p.priceE8 = priceE8;
+        if (priceE8 == 0 || p.tier == 0) return (p, 0, 0);
+        bool counted = block.timestamp - updatedAt <= _tiers[p.tier - 1].valuationStaleness && unpaused;
+        p.fresh = counted && inBand;
         (p.haircutBps,) = haircutOf(asset);
-        if (!p.fresh || p.raw == 0) return p;
-        p.value = Math.mulDiv(p.raw, p.priceE8, 10 ** (uint256(a.decimals) + 2));
-        p.adjusted = Math.mulDiv(p.value, BPS - p.haircutBps, BPS);
+        if (!counted || p.raw == 0) return (p, 0, 0);
+        uint256 atFeed = Math.mulDiv(p.raw, priceE8, 10 ** (uint256(registry.get(asset).decimals) + 2));
+        triggerAdjusted = Math.mulDiv(atFeed, BPS - p.haircutBps, BPS);
+        if (!inBand) return (p, 0, triggerAdjusted);
+        p.value = atFeed;
+        p.adjusted = triggerAdjusted;
+        drawAdjusted = triggerAdjusted;
+    }
+
+    function _totals(address mandate)
+        private
+        view
+        returns (uint256 value, uint256 adjusted, uint256 drawAdjusted, uint256 triggerAdjusted)
+    {
+        uint256 n = _assets.length;
+        for (uint256 i; i < n; ++i) {
+            (PositionView memory p, uint256 d, uint256 t) = _position(mandate, _assets[i]);
+            value += p.value;
+            adjusted += p.adjusted;
+            drawAdjusted += d;
+            triggerAdjusted += t;
+        }
+    }
+
+    /// Reverts unless what the line can draw against still carries its debt at `minBorrowHealth`.
+    function _checkDraw(address mandate) private view returns (uint256 h) {
+        (,, uint256 drawAdjusted,) = _totals(mandate);
+        h = _ratio(drawAdjusted, pool.debtOf(mandate));
+        if (h < params.minBorrowHealth) revert HealthTooLow(h, params.minBorrowHealth);
+    }
+
+    function _ratio(uint256 adjusted, uint256 debt) private pure returns (uint256) {
+        return debt == 0 ? type(uint256).max : Math.mulDiv(adjusted, WAD, debt);
     }
 
     /// Raw amount of `asset` whose sale returns health to the target:
@@ -398,8 +435,8 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
     }
 
     function _valueToSell(address mandate, address asset) private view returns (uint256) {
-        (, uint256 adjusted, uint256 debt,,) = account(mandate);
-        uint256 need = Math.mulDiv(params.liquidationTarget, debt, WAD);
+        (,,, uint256 adjusted) = _totals(mandate);
+        uint256 need = Math.mulDiv(params.liquidationTarget, pool.debtOf(mandate), WAD);
         if (need <= adjusted) return 0;
         (uint16 h,) = haircutOf(asset);
         uint256 gross = Math.mulDiv(params.liquidationTarget, BPS - params.bountyBps, BPS);

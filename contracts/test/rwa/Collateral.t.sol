@@ -210,7 +210,7 @@ contract CollateralTest is Test {
         assertLt(afterH, before);
     }
 
-    function test_haircut_mondayBeforeOneUtcIsAfterHours() public {
+    function test_haircut_mondayBeforeOneUtcIsAfterHours() public view {
         assertFalse(vault.inSession(1_790_553_600 + 30 minutes)); // Monday 00:30 UTC
         assertTrue(vault.inSession(1_790_553_600 + 61 minutes));
         assertTrue(vault.inSession(1_790_553_600 + 4 days + 23 hours)); // Friday 23:00
@@ -259,6 +259,40 @@ contract CollateralTest is Test {
         spy.setOraclePaused(true);
         (uint256 value,,,,) = vault.account(address(acct));
         assertEq(value, 0);
+    }
+
+    /// The 2026-06-23 rounds were 1e8 too large and fresh by every timestamp test. With the pool
+    /// at its real mid the position backs nothing: no draw, no withdrawal, no inflated value.
+    function test_draw_refusedOnMisScaledFeed() public {
+        _deposit(spy, 1e14); // 0.0001 SPY, about 0.077 USDG
+        spyFeed.set(int256(SPY_E8 * 1e8), block.timestamp);
+        (uint256 value, uint256 adjusted,, uint256 headroom,) = vault.account(address(acct));
+        assertEq(value, 0);
+        assertEq(adjusted, 0);
+        assertEq(headroom, 0);
+        vm.expectRevert(abi.encodeWithSelector(CollateralVault.HealthTooLow.selector, 0, 1.25e18));
+        _spendOnCredit(10e6);
+
+        // A line drawn on a good round cannot take its collateral out on a bad one.
+        spyFeed.set(int256(SPY_E8), block.timestamp);
+        _deposit(spy, 0.01e18);
+        _spendOnCredit(3e6);
+        spyFeed.set(int256(SPY_E8 * 1e8), block.timestamp);
+        vm.prank(principal);
+        vm.expectRevert(abi.encodeWithSelector(CollateralVault.HealthTooLow.selector, 0, 1.25e18));
+        vault.withdraw(address(acct), address(spy), 0.01e18, principal);
+
+        // A feed lagging a split: the pool halves and the feed still reads the old price.
+        spyFeed.set(int256(SPY_E8), block.timestamp);
+        _setPool(spy, SPY_E8 / 2);
+        (value,,, headroom,) = vault.account(address(acct));
+        assertEq(value, 0);
+        assertEq(headroom, 0);
+        vm.expectRevert(abi.encodeWithSelector(CollateralVault.HealthTooLow.selector, 0, 1.25e18));
+        _spendOnCredit(1e6);
+        vm.prank(principal);
+        vm.expectRevert(abi.encodeWithSelector(CollateralVault.HealthTooLow.selector, 0, 1.25e18));
+        vault.withdraw(address(acct), address(spy), 1e14, principal);
     }
 
     function test_liquidation_deferredOnStaleOrPausedPrice() public {
@@ -420,6 +454,22 @@ contract CollateralTest is Test {
         assertEq(vault.collateralOf(address(acct), address(spy)), 0.01e18 - sold);
     }
 
+    /// Pushing one asset's pool past its band inside a transaction must not open the line's
+    /// other assets to a bounty sale, so the trigger counts that position at its feed.
+    function test_liquidate_ignoresPoolPushedPastBand() public {
+        _deposit(spy, 0.01e18);
+        _deposit(sgov, 0.02e18);
+        _spendOnCredit(5e6);
+        uint256 h = vault.health(address(acct));
+
+        _setPool(spy, SPY_E8 * 90 / 100);
+        assertEq(vault.health(address(acct)), h);
+        (,,, uint256 headroom,) = vault.account(address(acct));
+        assertEq(headroom, 0);
+        vm.expectRevert(abi.encodeWithSelector(CollateralVault.Healthy.selector, h));
+        vault.liquidate(address(acct), address(sgov));
+    }
+
     function test_liquidate_refusesHealthy() public {
         _deposit(spy, 0.01e18);
         _spendOnCredit(1e6);
@@ -469,6 +519,10 @@ contract CollateralTest is Test {
 
     function _movePrice(MockStock token, MockFeed feed, uint256 priceE8) internal {
         feed.set(int256(priceE8), block.timestamp);
+        _setPool(token, priceE8);
+    }
+
+    function _setPool(MockStock token, uint256 priceE8) internal {
         PoolKey memory k = reg.get(address(token)).pool;
         v4.setPrice(k, _sqrt(priceE8, k.currency0 == address(token)));
     }

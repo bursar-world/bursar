@@ -14,9 +14,11 @@ import {IAccessRegistry, IAggregatorV3, IRobinhoodStock, IStateView} from "./int
 /// the feed. The last check is what catches a mis-scaled answer: on 2026-06-23 the AAPL, SPY and
 /// NVDA feeds each published a round 1e8 too large, fresh by every timestamp test.
 ///
-/// Valuation is softer on purpose. SGOV prices once a day and skips Sunday, so parked value
-/// keeps counting up to the asset's valuation bound (100 hours covers a long weekend) and reads
-/// zero after it. Valuation never reverts; it reports `fresh`.
+/// Valuation is softer on age on purpose. SGOV prices once a day and skips Sunday, so parked
+/// value keeps counting up to the asset's valuation bound (100 hours covers a long weekend) and
+/// reads zero after it. It is not softer on the pool: a value counted off a mis-scaled or lagging
+/// answer is spent before anyone notices, so a holding whose pool disagrees with its feed is not
+/// fresh either. Valuation never reverts; it reports `fresh`.
 contract PriceGuard {
     AssetRegistry public immutable registry;
     IAccessRegistry public immutable accessRegistry;
@@ -63,11 +65,22 @@ contract PriceGuard {
     /// Price for counting a holding. Never reverts for a registered asset.
     function valuationPrice(address asset) public view returns (uint256 priceE8, uint256 updatedAt, bool fresh) {
         AssetRegistry.Asset memory a = registry.get(asset);
-        int256 answer;
-        (, answer,, updatedAt,) = IAggregatorV3(a.feed).latestRoundData();
-        if (answer <= 0 || updatedAt > block.timestamp) return (0, updatedAt, false);
-        priceE8 = uint256(answer);
-        fresh = block.timestamp - updatedAt <= a.valuationStaleness && !IRobinhoodStock(asset).oraclePaused();
+        bool unpaused;
+        bool inBand;
+        (priceE8, updatedAt, unpaused, inBand) = _valuation(asset, a);
+        fresh = priceE8 != 0 && block.timestamp - updatedAt <= a.valuationStaleness && unpaused && inBand;
+    }
+
+    /// What `valuationPrice` rests on, for a caller that holds the answer to its own age bound:
+    /// the feed answer (zero when it is not positive or is dated after the block), when it was
+    /// written, whether the token's oracle is unpaused, and whether the pinned pool's mid sits
+    /// inside the asset's band of the answer.
+    function valuation(address asset)
+        external
+        view
+        returns (uint256 priceE8, uint256 updatedAt, bool unpaused, bool inBand)
+    {
+        return _valuation(asset, registry.get(asset));
     }
 
     /// USDG value of `raw` at the valuation price, zero when the price is not fresh.
@@ -80,9 +93,7 @@ contract PriceGuard {
 
     /// Mid of the asset's pinned pool, as USD per whole token with eight decimals.
     function poolPriceE8(address asset) public view returns (uint256) {
-        AssetRegistry.Asset memory a = registry.get(asset);
-        (uint160 sqrtPriceX96,,,) = stateView.getSlot0(keccak256(abi.encode(a.pool)));
-        return midE8(sqrtPriceX96, a.pool.currency0 == asset, a.decimals);
+        return _poolPrice(asset, registry.get(asset));
     }
 
     /// `sqrtPriceX96` is token1 per token0 in raw units. USDG has six decimals.
@@ -110,8 +121,31 @@ contract PriceGuard {
         if (age > a.tradeStaleness) revert StalePrice(asset, age, a.tradeStaleness);
         priceE8 = uint256(answer);
 
-        uint256 pool = poolPriceE8(asset);
-        if (pool == 0 || _deviationBps(pool, priceE8) > a.bandBps) revert PoolPriceDeviation(asset, pool, priceE8);
+        uint256 pool = _poolPrice(asset, a);
+        if (!_agrees(pool, priceE8, a.bandBps)) revert PoolPriceDeviation(asset, pool, priceE8);
+    }
+
+    function _valuation(address asset, AssetRegistry.Asset memory a)
+        private
+        view
+        returns (uint256 priceE8, uint256 updatedAt, bool unpaused, bool inBand)
+    {
+        int256 answer;
+        (, answer,, updatedAt,) = IAggregatorV3(a.feed).latestRoundData();
+        if (answer <= 0 || updatedAt > block.timestamp) return (0, updatedAt, false, false);
+        priceE8 = uint256(answer);
+        unpaused = !IRobinhoodStock(asset).oraclePaused();
+        inBand = _agrees(_poolPrice(asset, a), priceE8, a.bandBps);
+    }
+
+    function _poolPrice(address asset, AssetRegistry.Asset memory a) private view returns (uint256) {
+        (uint160 sqrtPriceX96,,,) = stateView.getSlot0(keccak256(abi.encode(a.pool)));
+        return midE8(sqrtPriceX96, a.pool.currency0 == asset, a.decimals);
+    }
+
+    /// A pool with no price never agrees; that is how a pool nobody seeded reads.
+    function _agrees(uint256 poolE8, uint256 feedE8, uint16 bandBps) private pure returns (bool) {
+        return poolE8 != 0 && _deviationBps(poolE8, feedE8) <= bandBps;
     }
 
     function _deviationBps(uint256 x, uint256 ref) private pure returns (uint256) {

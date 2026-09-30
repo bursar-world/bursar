@@ -346,6 +346,18 @@ contract RwaTest is Test {
         assertEq(total, 0);
     }
 
+    /// Parked value off a mis-scaled answer would be spent before anyone noticed; the pool
+    /// catches it the way it catches a trade.
+    function test_park_misScaledFeedCountsZero() public {
+        _park(50e6);
+        sgovFeed.set(int256(SGOV_E8 * 1e8), block.timestamp);
+        (uint256 total,) = park.parkedValue(address(acct));
+        assertEq(total, 0);
+        (,,,,, bool fresh) = park.position(address(acct), address(sgovAdapter));
+        assertFalse(fresh);
+        assertEq(park.spendingPower(address(acct)), 150e6);
+    }
+
     function test_unpark_returnsUsdgToMandate() public {
         uint256 raw = _park(50e6);
         vm.prank(agent);
