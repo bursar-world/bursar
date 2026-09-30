@@ -1,17 +1,30 @@
-import { describe, expect, it } from 'vitest';
+import { createServer } from 'node:http';
+import type { Server } from 'node:http';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createPublicClient, http, toHex } from 'viem';
+import type { Address } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { DEPLOYMENTS, RHC_MAINNET } from '@bursar/core';
+import { DEPLOYMENTS, RHC_MAINNET, viemChain } from '@bursar/core';
 
 import {
   connect,
   connectFor,
   explorerTx,
   isConnection,
+  openConnection,
   requireSigner,
   writeOptions,
 } from '../src/connection.js';
-import { InvalidArgumentError, NoSignerError, UnsupportedChainError } from '../src/errors.js';
+import {
+  InvalidArgumentError,
+  NoSignerError,
+  NotAnvilError,
+  NotDeployedError,
+  UnsupportedChainError,
+} from '../src/errors.js';
+import { mandateAccount } from '../src/mandate.js';
 import { fakeConnection, RHC_DEPLOYMENT, TEST_KEY } from './helpers/fake-connection.js';
+import { LOCAL_RECORD } from './helpers/local-record.js';
 
 const HASH = `0x${'ab'.repeat(32)}` as const;
 
@@ -201,5 +214,169 @@ describe('isConnection', () => {
 describe('explorerTx', () => {
   it('links a person to the human explorer the deployment records', () => {
     expect(explorerTx(open(), HASH)).toBe(`https://robinhoodchain.blockscout.com/tx/${HASH}`);
+  });
+});
+
+/**
+ * A JSON-RPC node that answers from a table and remembers every method it was asked. Anything the
+ * table leaves out is an error answer, so a call these checks should have stopped shows up in
+ * `asked` and fails.
+ */
+type Answer = { readonly result: unknown } | { readonly error: { code: number; message: string } };
+
+let server: Server;
+let url: string;
+let asked: string[] = [];
+let answers: Readonly<Record<string, (params: readonly unknown[]) => Answer>> = {};
+
+beforeAll(async () => {
+  server = createServer((request, response) => {
+    const chunks: Buffer[] = [];
+    request.on('data', (chunk: Buffer) => chunks.push(chunk));
+    request.on('end', () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString()) as { id: number; method: string; params?: unknown[] };
+      asked.push(body.method);
+      const answer = answers[body.method]?.(body.params ?? []) ?? {
+        error: { code: -32601, message: `${body.method} is not answered here` },
+      };
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ jsonrpc: '2.0', id: body.id, ...answer }));
+    });
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (address === null || typeof address === 'string') throw new Error('no port');
+  url = `http://127.0.0.1:${address.port}`;
+});
+
+afterAll(async () => {
+  await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+});
+
+/** A node on 4663 that calls itself `client` and holds code everywhere but at `missing`. */
+function node(client: string | undefined, missing: readonly Address[] = []): void {
+  asked = [];
+  answers = {
+    eth_chainId: () => ({ result: toHex(RHC_MAINNET.chainId) }),
+    eth_getCode: ([address]) => ({
+      result: missing.some((gap) => gap.toLowerCase() === String(address).toLowerCase()) ? '0x' : '0x6080',
+    }),
+    eth_getBalance: () => ({ result: '0x0' }),
+    ...(client === undefined ? {} : { web3_clientVersion: () => ({ result: client }) }),
+  };
+}
+
+const MANDATE: Address = '0x1234567890123456789012345678901234567890';
+
+describe('connect, on a record it was handed', () => {
+  it('refuses a rehearsal record for any chain but 4663', () => {
+    const elsewhere = { ...LOCAL_RECORD, network: 'local-31337', chainId: 31337 };
+
+    expect(() => connect({ deployment: elsewhere })).toThrow(InvalidArgumentError);
+    expect(() => connect({ deployment: elsewhere })).toThrow(/start anvil with --chain-id 4663/);
+
+    // The chain config can be pointed at another id; a rehearsal record still cannot.
+    process.env['RHC_MAINNET_CHAIN_ID'] = '31337';
+    try {
+      expect(() => connect({ deployment: elsewhere })).toThrow(/local rehearsal record for chain 31337/);
+    } finally {
+      delete process.env['RHC_MAINNET_CHAIN_ID'];
+    }
+  });
+
+  it('refuses a rehearsal record on a node that is not anvil, before anything reaches it', async () => {
+    node('nitro/v3.12.0-rc.3+ebe9e83-20260916T211740Z/linux-amd64/go1.25.12');
+    const connection = connect({ deployment: LOCAL_RECORD, rpc: url, account: TEST_KEY });
+
+    const refused = await mandateAccount(MANDATE, connection).catch((error: unknown) => error);
+
+    expect(refused).toBeInstanceOf(NotAnvilError);
+    expect((refused as NotAnvilError).node).toMatch(/^nitro\//);
+    expect((refused as Error).message).toMatch(/^Deployment local-4663 is a local rehearsal record, and the node/);
+    expect(asked).toEqual(['eth_chainId', 'web3_clientVersion']);
+
+    // A read straight off the client is held back by the same check.
+    const read = await connection.publicClient.getBalance({ address: MANDATE }).catch((error: unknown) => error);
+    expect(String(read)).toContain('local rehearsal record');
+    expect(asked).not.toContain('eth_getBalance');
+  });
+
+  it('refuses a rehearsal record on a node that will not say what it is', async () => {
+    node(undefined);
+
+    const refused = await openConnection({ deployment: LOCAL_RECORD, rpc: url }, 'test()').catch(
+      (error: unknown) => error,
+    );
+
+    expect(refused).toBeInstanceOf(NotAnvilError);
+    expect((refused as NotAnvilError).node).toBe('');
+    expect((refused as Error).message).toContain('does not say what it is');
+  });
+
+  it('asks a client the caller built the same question', async () => {
+    node('Geth/v10.0.0/drpc');
+    const publicClient = createPublicClient({ chain: viemChain(RHC_MAINNET), transport: http(url, { retryCount: 0 }) });
+
+    await expect(openConnection({ deployment: LOCAL_RECORD, publicClient }, 'test()')).rejects.toBeInstanceOf(
+      NotAnvilError,
+    );
+  });
+
+  it('refuses a record naming a contract with no code, and names the first one', async () => {
+    node('anvil/v1.8.1', [LOCAL_RECORD.contracts.AgentRegistry, LOCAL_RECORD.contracts.Escrow]);
+
+    const refused = await openConnection({ deployment: LOCAL_RECORD, rpc: url }, 'test()').catch(
+      (error: unknown) => error,
+    );
+
+    expect(refused).toBeInstanceOf(NotDeployedError);
+    expect((refused as NotDeployedError).contract).toBe('Escrow');
+    expect((refused as NotDeployedError).address).toBe(LOCAL_RECORD.contracts.Escrow);
+    expect((refused as Error).message).toBe(
+      `Deployment local-4663 names ${LOCAL_RECORD.contracts.Escrow} as its Escrow, and the node this ` +
+        'connection reaches holds no code there. The record was written for another chain, for an anvil ' +
+        'node that has since restarted, or by a deploy that never landed. Point rpc at the chain the ' +
+        'record describes, or deploy again and use the record that run writes.',
+    );
+  });
+
+  it('checks the lane contracts a record names as well as the core set', async () => {
+    node('anvil/v1.8.1', [LOCAL_RECORD.rwa.collateral.CreditPool]);
+
+    await expect(openConnection({ deployment: LOCAL_RECORD, rpc: url }, 'test()')).rejects.toThrow(
+      `names ${LOCAL_RECORD.rwa.collateral.CreditPool} as its CreditPool`,
+    );
+  });
+
+  it('asks once, and lets a rehearsal record through on anvil with every contract in place', async () => {
+    node('anvil/v1.8.1');
+    const connection = connect({ deployment: LOCAL_RECORD, rpc: url });
+
+    await openConnection(connection, 'test()');
+    await openConnection(connection, 'test()');
+    await connection.publicClient.getBalance({ address: MANDATE });
+
+    expect(asked.filter((method) => method === 'web3_clientVersion')).toHaveLength(1);
+    expect(asked.filter((method) => method === 'eth_getCode')).toHaveLength(16);
+    expect(asked.at(-1)).toBe('eth_getBalance');
+  });
+
+  it('asks a record that is not a rehearsal for code but not for anvil', async () => {
+    node(undefined);
+
+    await openConnection({ deployment: RHC_DEPLOYMENT, rpc: url }, 'test()');
+
+    expect(asked).not.toContain('web3_clientVersion');
+    expect(asked.filter((method) => method === 'eth_getCode')).toHaveLength(7);
+  });
+
+  it('asks nothing about a record out of the address book', async () => {
+    if (!recorded) return;
+    node(undefined);
+
+    await openConnection({ rpc: url }, 'test()');
+
+    expect(asked).toEqual([]);
   });
 });

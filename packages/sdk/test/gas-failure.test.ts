@@ -45,6 +45,11 @@ let anvil: Anvil;
 
 beforeAll(async () => {
   anvil = await startAnvil();
+  // connect() asks the node for code at every contract a supplied record names before it sends
+  // anything. One STOP at each is enough to be found.
+  for (const address of [...Object.values(RHC_DEPLOYMENT.contracts), RHC_DEPLOYMENT.settlementAsset]) {
+    await anvil.setCode(address, '0x00');
+  }
   await anvil.setCode(BURNER, BURNER_CODE);
   await anvil.setCode(GRINDER_ADDRESS, GRINDER);
   await anvil.setCode(REFUSER, REFUSER_CODE);

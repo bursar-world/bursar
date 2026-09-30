@@ -1,11 +1,14 @@
-import { createWalletClient, custom, isAddressEqual } from 'viem';
-import type { Account, Chain, Hex, PublicClient, Transport, WalletClient } from 'viem';
+import { createPublicClient, createWalletClient, custom, isAddressEqual } from 'viem';
+import type { Account, Address, Chain, Hex, PublicClient, Transport, WalletClient } from 'viem';
 import { nonceManager, privateKeyToAccount } from 'viem/accounts';
 import {
+  BURSAR_CONTRACT_NAMES,
   DEPLOYMENTS,
+  RHC_MAINNET,
   RHC_TESTNET,
   BursarError,
   RpcPool,
+  RpcResponseError,
   createRhcClient,
   deployment,
   deploymentForChain,
@@ -22,7 +25,13 @@ import type {
   RpcProvider,
 } from '@bursar/core';
 
-import { InvalidArgumentError, NoSignerError, UnsupportedChainError } from './errors.js';
+import {
+  InvalidArgumentError,
+  NoSignerError,
+  NotAnvilError,
+  NotDeployedError,
+  UnsupportedChainError,
+} from './errors.js';
 import { checkAddress } from './guards.js';
 
 /** Every contract in a BURSAR deployment an agent-side caller has reason to touch. */
@@ -56,9 +65,10 @@ export type ConnectOptions = {
    * whatever that fork was given.
    *
    * Either a parsed `Deployment` or the record as a deploy script writes it, such as the one the
-   * contracts' local rehearsal leaves at `contracts/cache/bursar/local-4663.json`, read with
+   * contracts' local rehearsal leaves at `contracts/cache/bursar/local/local-4663.json`, read with
    * `JSON.parse`. It is checked and normalised here, and every lane client reads its addresses
-   * from it.
+   * from it. Before the first call goes out, the node is asked for code at every contract the
+   * record names, and a record marked `local` has to find a node that calls itself anvil.
    */
   readonly deployment?: Deployment | DeploymentRecordJson;
   /**
@@ -143,7 +153,7 @@ function recordFor(options: ConnectOptions): Deployment {
  * is, so it still reads as that record.
  */
 function suppliedRecord(given: Deployment | DeploymentRecordJson): Deployment {
-  if ((Object.values(DEPLOYMENTS) as unknown[]).includes(given)) return given as Deployment;
+  if (isShipped(given)) return given as Deployment;
 
   try {
     return parseDeployment(given, typeof given.network === 'string' ? given.network : 'deployment');
@@ -155,6 +165,112 @@ function suppliedRecord(given: Deployment | DeploymentRecordJson): Deployment {
       { ...error.details },
     );
   }
+}
+
+/** A record out of this package's own address book, which the node is never asked about. */
+function isShipped(given: Deployment | DeploymentRecordJson): boolean {
+  return (Object.values(DEPLOYMENTS) as unknown[]).includes(given);
+}
+
+/**
+ * A rehearsal record, as the contracts' local fixtures mark one. Its addresses exist only on the
+ * anvil node it was written against, and that node answers as Robinhood Chain, 4663, so a record
+ * on any other chain id came from an anvil node started without `--chain-id 4663`.
+ */
+function localRecord(options: ConnectOptions, record: Deployment): boolean {
+  if ((options.deployment as { local?: unknown } | undefined)?.local !== true) return false;
+  if (record.chainId === RHC_MAINNET.chainId) return true;
+
+  throw new InvalidArgumentError(
+    'deployment',
+    `Deployment ${record.network} is a local rehearsal record for chain ${record.chainId}. A rehearsal ` +
+      `answers as Robinhood Chain, ${RHC_MAINNET.chainId}: start anvil with --chain-id ` +
+      `${RHC_MAINNET.chainId} and run the deploy scripts again for a record on that chain.`,
+    { network: record.network, chainId: record.chainId, local: true },
+  );
+}
+
+type NodeRequest = (method: string, params: readonly unknown[]) => Promise<unknown>;
+
+/**
+ * What a supplied record claims about its node, asked of that node before anything else is.
+ *
+ * A rehearsal record has to find anvil, because the chain id the pool checks cannot tell a
+ * rehearsal from Robinhood Chain. Every supplied record has to find code at each contract it
+ * names: a record from another chain, or from an anvil node that has restarted, names addresses
+ * that hold nothing, and each client would report the empty answer as a failure of its own read.
+ */
+async function checkNode(record: Deployment, local: boolean, request: NodeRequest): Promise<void> {
+  if (local) {
+    const node = await clientVersion(request);
+    if (!/anvil/iu.test(node)) throw new NotAnvilError(record.network, node);
+  }
+
+  const contracts = recordedContracts(record);
+  const code = await Promise.all(contracts.map(([, address]) => request('eth_getCode', [address, 'latest'])));
+  const missing = contracts.find((_, index) => {
+    const found = code[index];
+    return typeof found !== 'string' || found.length <= 2;
+  });
+  if (missing !== undefined) throw new NotDeployedError(record.network, missing[0], missing[1]);
+}
+
+/** What the node calls itself, or nothing when it answers the question with an error. */
+async function clientVersion(request: NodeRequest): Promise<string> {
+  try {
+    const answer = await request('web3_clientVersion', []);
+    return typeof answer === 'string' ? answer : '';
+  } catch (error) {
+    // An error answer is the node declining to say. A node that could not be reached said nothing,
+    // and the failure is the caller's to see.
+    if (error instanceof RpcResponseError || typeof (error as { code?: unknown } | null)?.code === 'number') return '';
+    throw error;
+  }
+}
+
+/** Every contract a record names, in the order a missing one is reported in. */
+function recordedContracts(record: Deployment): (readonly [string, Address])[] {
+  const lane = record.rwa;
+  const privacy = record.privacy;
+  const named: (readonly [string, Address | undefined])[] = [
+    ...BURSAR_CONTRACT_NAMES.map((name) => [name, record.contracts[name]] as const),
+    ['settlement asset', record.settlementAsset],
+    ['AssetRegistry', lane?.AssetRegistry],
+    ['PriceGuard', lane?.PriceGuard],
+    ['StockSpendRouter', lane?.StockSpendRouter],
+    ['TreasuryPark', lane?.TreasuryPark],
+    ...Object.entries(lane?.adapters ?? {}).map(([asset, address]) => [`${asset} park adapter`, address] as const),
+    ['MandateAccountFactoryV21', lane?.MandateAccountFactoryV21],
+    ['CreditPool', lane?.collateral?.CreditPool],
+    ['CollateralVault', lane?.collateral?.CollateralVault],
+    ['Staking', lane?.collateral?.Staking],
+    ['WithinMandateVerifier', privacy?.WithinMandateVerifier],
+    ['CommittedMandateFactory', privacy?.CommittedMandateFactory],
+    ['CommittedMandateFactoryV1Escrow', privacy?.CommittedMandateFactoryV1Escrow],
+    ['DisclosureRegistry', privacy?.DisclosureRegistry],
+    ['SolvencyLog', privacy?.SolvencyLog],
+    ['WithdrawalVerifier', privacy?.shielded?.WithdrawalVerifier],
+    ['CommitmentVerifier', privacy?.shielded?.CommitmentVerifier],
+    ['Entrypoint', privacy?.shielded?.Entrypoint],
+    ['ShieldedPool', privacy?.shielded?.ShieldedPool],
+    ['ShieldedRelay', privacy?.shielded?.ShieldedRelay],
+    ['AccessRegistry', privacy?.shielded?.AccessRegistry],
+  ];
+
+  return named.filter((entry): entry is readonly [string, Address] => entry[1] !== undefined);
+}
+
+/** Runs `check` once. A node that answered is not asked again; one that could not be reached is. */
+function once(check: () => Promise<void>): () => Promise<void> {
+  let pending: Promise<void> | undefined;
+
+  return () => {
+    pending ??= check().catch((error: unknown) => {
+      if (!(error instanceof NotAnvilError || error instanceof NotDeployedError)) pending = undefined;
+      throw error;
+    });
+    return pending;
+  };
 }
 
 /** The chains connect() can open: a live record, and a settlement asset on that chain. */
@@ -268,10 +384,15 @@ function assertClientChain(
  * Read-only with no account: every write path throws with a message naming what it needed.
  * Nothing here holds a key on the caller's behalf: an account passed as a hex string is turned
  * into a viem account in this process and is never written anywhere.
+ *
+ * A record the caller supplies is checked against its node before the first call goes out on the
+ * connection: `NotAnvilError` for a rehearsal record on a node that is not anvil, and
+ * `NotDeployedError` for a record naming a contract the node holds no code for.
  */
 export function connect(options: ConnectOptions = {}): Connection {
   const record = recordFor(options);
   const name = record.network;
+  const local = localRecord(options, record);
   const chain = chainFor(record);
 
   // The deployment record and the chain config are maintained separately, and a settlement asset
@@ -299,6 +420,7 @@ export function connect(options: ConnectOptions = {}): Connection {
 
   const account = accountFor(options);
   const viem = viemChain(chain);
+  const supplied = options.deployment !== undefined && !isShipped(options.deployment);
 
   // A caller who brings a public client owns its transport, so writes go through the wallet
   // client they bring alongside it. Building one here would guess at an endpoint they already
@@ -312,16 +434,25 @@ export function connect(options: ConnectOptions = {}): Connection {
       );
     }
 
-    return {
+    const client = options.publicClient;
+    const connection: Connection = {
       chain,
       deployment: record,
       addresses: addressesFor(record, options.addresses),
-      publicClient: options.publicClient,
+      publicClient: client,
       walletClient: options.walletClient,
       account: options.walletClient?.account ?? account,
       pool: options.pool,
       receiptTimeoutMs: options.receiptTimeoutMs ?? DEFAULT_RECEIPT_TIMEOUT_MS,
     };
+    if (supplied) {
+      checks.set(
+        connection,
+        once(() => checkNode(record, local, (method, params) => client.request({ method, params } as never))),
+      );
+    }
+
+    return connection;
   }
 
   const rhc = createRhcClient({
@@ -336,24 +467,36 @@ export function connect(options: ConnectOptions = {}): Connection {
   });
 
   const pool = rhc.pool;
+  const check = supplied
+    ? once(() => checkNode(record, local, (method, params) => pool.request(method, params)))
+    : undefined;
   const transport: Transport = custom(
-    { request: ({ method, params }) => pool.request(method, (params ?? []) as readonly unknown[]) },
+    {
+      request: async ({ method, params }) => {
+        // Nothing goes out on a supplied record until its node has answered for it.
+        await check?.();
+        return pool.request(method, (params ?? []) as readonly unknown[]);
+      },
+    },
     { retryCount: 0 },
   );
 
   const walletClient =
     options.walletClient ?? (account ? createWalletClient({ account, chain: viem, transport }) : undefined);
 
-  return {
+  const connection: Connection = {
     chain,
     deployment: record,
     addresses: addressesFor(record, options.addresses),
-    publicClient: rhc.client,
+    publicClient: check === undefined ? rhc.client : createPublicClient({ chain: viem, transport }),
     walletClient,
     account,
     pool,
     receiptTimeoutMs: options.receiptTimeoutMs ?? DEFAULT_RECEIPT_TIMEOUT_MS,
   };
+  if (check !== undefined) checks.set(connection, check);
+
+  return connection;
 }
 
 /**
@@ -361,6 +504,9 @@ export function connect(options: ConnectOptions = {}): Connection {
  * connection rather than on it, so a Connection a caller assembles by hand needs no extra field.
  */
 const openedBy = new WeakMap<Connection, string>();
+
+/** The node check a connection's supplied record is waiting on, kept beside it as `openedBy` is. */
+const checks = new WeakMap<Connection, () => Promise<void>>();
 
 /**
  * The connection an entry point such as mandateAccount() runs on: the one it was given, or a new
@@ -371,6 +517,20 @@ export function connectFor(options: Connection | ConnectOptions, entry: string):
 
   const connection = connect(options);
   openedBy.set(connection, entry);
+
+  return connection;
+}
+
+/**
+ * The same connection, once its node has answered for a supplied record.
+ *
+ * The transport connect() builds holds every call back until then, and a refusal reaches whoever
+ * made the call wrapped in that call's own error. Awaited before an entry point's first read, it
+ * reaches the caller as the error that names it. A client the caller brought is asked here too.
+ */
+export async function openConnection(options: Connection | ConnectOptions, entry: string): Promise<Connection> {
+  const connection = connectFor(options, entry);
+  await checks.get(connection)?.();
 
   return connection;
 }

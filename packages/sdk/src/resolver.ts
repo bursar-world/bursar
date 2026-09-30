@@ -16,7 +16,7 @@ import type { Micro } from '@bursar/core';
 
 import { approveIfShort } from './allowance.js';
 import { brsr, formatBrsr, type Brsr } from './brsr.js';
-import { connectFor, requireSigner, type Connection, type ConnectOptions } from './connection.js';
+import { openConnection, requireSigner, type Connection, type ConnectOptions } from './connection.js';
 import { DisputePhase, readTerms, type DisputeTerms } from './dispute.js';
 import { CallRefusedError, InvalidArgumentError, UnconfirmedCommitError } from './errors.js';
 import { formatDuration, toDate } from './format.js';
@@ -699,7 +699,7 @@ function voteNote(
 
 /** Opens a resolver client against the dispute layer this deployment's escrow rules through. */
 export async function resolver(options: Connection | ConnectOptions = {}): Promise<ResolverClient> {
-  const connection = connectFor(options, 'resolver()');
+  const connection = await openConnection(options, 'resolver()');
   const address = await getContract({
     address: connection.addresses.escrow,
     abi: escrowAbi,

@@ -775,3 +775,59 @@ export class UnsupportedChainError extends BursarError {
     this.supported = supported;
   }
 }
+
+/**
+ * A local rehearsal record pointed at a node that is not anvil.
+ *
+ * A record marked `local` names contracts on a chain that lasts as long as the anvil node it was
+ * written against. That chain answers as 4663, as Robinhood Chain does, so the chain id cannot tell
+ * the two apart, and anywhere but that node the record's transactions would be real ones. The deploy
+ * scripts refuse the same thing as `NotAnvil`.
+ */
+export class NotAnvilError extends BursarError {
+  readonly network: string;
+  /** What the node calls itself in `web3_clientVersion`. Empty when it would not say. */
+  readonly node: string;
+
+  constructor(network: string, node: string) {
+    super(
+      'local_record_not_anvil',
+      `Deployment ${network} is a local rehearsal record, and the node this connection reaches ` +
+        (node === '' ? 'does not say what it is' : `calls itself ${node}`) +
+        '. A rehearsal record holds only on the anvil node it was written against, and anywhere else ' +
+        'its transactions would be real ones. Point rpc at that anvil node.',
+      { network, node },
+    );
+
+    this.network = network;
+    this.node = node;
+  }
+}
+
+/**
+ * A record that names a contract the node holds no code for.
+ *
+ * Every call to that address would come back empty, and each client would report the empty answer
+ * in terms of its own read. Refusing the record names the address once, before anything is sent.
+ */
+export class NotDeployedError extends BursarError {
+  readonly network: string;
+  /** The contract as the record names it, such as `Escrow` or `SGOV park adapter`. */
+  readonly contract: string;
+  readonly address: Address;
+
+  constructor(network: string, contract: string, address: Address) {
+    super(
+      'contract_not_deployed',
+      `Deployment ${network} names ${address} as its ${contract}, and the node this connection reaches ` +
+        'holds no code there. The record was written for another chain, for an anvil node that has ' +
+        'since restarted, or by a deploy that never landed. Point rpc at the chain the record describes, ' +
+        'or deploy again and use the record that run writes.',
+      { network, contract, address },
+    );
+
+    this.network = network;
+    this.contract = contract;
+    this.address = address;
+  }
+}

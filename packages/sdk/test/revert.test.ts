@@ -224,9 +224,13 @@ let server: Server;
 let url: string;
 let reply: (method: string) => Reply;
 
-/** Enough of a node to get an action as far as the call it fails on. */
+/**
+ * Enough of a node to get an action as far as the call it fails on. Code answers for every address,
+ * so the contracts a supplied record names are found before the first call goes out.
+ */
 const DEFAULTS: Readonly<Record<string, unknown>> = {
   eth_chainId: toHex(RHC_MAINNET.chainId),
+  eth_getCode: '0x00',
   eth_getTransactionCount: '0x0',
   eth_maxPriorityFeePerGas: toHex(1_000_000_000n),
 };

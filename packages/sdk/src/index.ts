@@ -143,6 +143,8 @@ export {
   MissingEventError,
   NoAcceptablePaymentError,
   NotAMandateAccountError,
+  NotAnvilError,
+  NotDeployedError,
   NoSignerError,
   PaymentRejectedError,
   SubmittedButUnconfirmedError,

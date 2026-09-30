@@ -17,7 +17,7 @@ import { agentRegistryAbi, escrowAbi, micro, reputationAbi } from '@bursar/core'
 import type { Micro } from '@bursar/core';
 
 import { approveIfShort } from './allowance.js';
-import { connectFor, requireSigner, type Connection, type ConnectOptions } from './connection.js';
+import { openConnection, requireSigner, type Connection, type ConnectOptions } from './connection.js';
 import { CallRefusedError, InvalidArgumentError } from './errors.js';
 import { formatDuration, toDate, usd } from './format.js';
 import { checkAddress, checkPositiveAmount } from './guards.js';
@@ -405,7 +405,7 @@ function reputationNote(settled: bigint, score: number, cap: Micro, maxCap: Micr
 
 /** Opens a provider client against the registry this deployment's escrow reads. */
 export async function provider(options: Connection | ConnectOptions = {}): Promise<ProviderClient> {
-  const connection = connectFor(options, 'provider()');
+  const connection = await openConnection(options, 'provider()');
   const escrow = getContract({
     address: connection.addresses.escrow,
     abi: escrowAbi,

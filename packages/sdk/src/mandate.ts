@@ -23,7 +23,7 @@ import type { Micro } from '@bursar/core';
 import { assertMandateDomain, limitsV1, signLimitsAuthorization, signSpendApproval } from './authorization.js';
 import type { LimitsAuthorization } from './authorization.js';
 import { canonicalStringify, commitCanonical, toCapabilityId, toDataUri } from './commit.js';
-import { connectFor, requireSigner, type Connection, type ConnectOptions } from './connection.js';
+import { openConnection, requireSigner, type Connection, type ConnectOptions } from './connection.js';
 import { disputes, type DisputeClient, type DisputeRecord } from './dispute.js';
 import { jobCommit, jobURI, readJobURI, type JobDocument, type JobSpec } from './job.js';
 import {
@@ -1685,7 +1685,7 @@ export async function mandateAccount(
   address: Address,
   options: Connection | ConnectOptions = {},
 ): Promise<MandateAccountClient> {
-  const connection = connectFor(options, 'mandateAccount()');
+  const connection = await openConnection(options, 'mandateAccount()');
   const client = connection.publicClient;
 
   const account = checkAddress('address', address);

@@ -4,7 +4,7 @@ import { CURRENT_CONTRACT_SET, ZERO_MICRO, contractSetOfEscrow, escrowAbi, micro
 import type { ContractSet, Micro } from '@bursar/core';
 
 import { canonicalStringify, commitCanonical, toDataUri } from './commit.js';
-import { connectFor, requireSigner, type Connection, type ConnectOptions } from './connection.js';
+import { openConnection, requireSigner, type Connection, type ConnectOptions } from './connection.js';
 import { CallRefusedError, InvalidArgumentError, MissingEventError } from './errors.js';
 import { formatDuration, toDate } from './format.js';
 import { checkAddress, checkBytes32, checkEscrowId } from './guards.js';
@@ -312,7 +312,7 @@ export async function escrow(
   options: Connection | ConnectOptions = {},
   at?: Address,
 ): Promise<EscrowClient> {
-  const connection = connectFor(options, 'escrow()');
+  const connection = await openConnection(options, 'escrow()');
   const address = at ?? connection.addresses.escrow;
   const contractSet = contractSetOfEscrow(address) ?? CURRENT_CONTRACT_SET;
   const read = getContract({ address, abi: escrowAbi, client: connection.publicClient }).read;

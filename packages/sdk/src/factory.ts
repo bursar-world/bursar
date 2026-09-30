@@ -2,7 +2,7 @@ import { encodeFunctionData, getContract, isAddressEqual, parseEventLogs } from 
 import type { Address, Hex } from 'viem';
 import { mandateAccountFactoryAbi } from '@bursar/core';
 
-import { connectFor, requireSigner, type Connection, type ConnectOptions } from './connection.js';
+import { openConnection, requireSigner, type Connection, type ConnectOptions } from './connection.js';
 import { CallRefusedError, InvalidArgumentError } from './errors.js';
 import { checkAddress, checkBytes32 } from './guards.js';
 import { encodeLimits, mandateAccount, type MandateAccountClient } from './mandate.js';
@@ -40,7 +40,7 @@ export async function deployMandate(
   options: Connection | ConnectOptions,
   seed: MandateSeed,
 ): Promise<DeployedMandate> {
-  const connection = connectFor(options, 'deployMandate()');
+  const connection = await openConnection(options, 'deployMandate()');
   const factory = connection.addresses.mandateAccountFactory;
   const { principal, agent, salt } = checkSeed(seed);
   const limits = encodeLimits(seed.limits);
@@ -100,7 +100,7 @@ export async function predictMandate(
   options: Connection | ConnectOptions,
   seed: MandateSeed & { salt: Hex },
 ): Promise<Address> {
-  const connection = connectFor(options, 'predictMandate()');
+  const connection = await openConnection(options, 'predictMandate()');
   const { principal, agent, salt } = checkSeed(seed);
 
   return connection.publicClient.readContract({
@@ -132,7 +132,7 @@ export async function mandatesOf(
   options: Connection | ConnectOptions,
   principal: Address,
 ): Promise<readonly Address[]> {
-  const connection = connectFor(options, 'mandatesOf()');
+  const connection = await openConnection(options, 'mandatesOf()');
 
   return getContract({
     address: connection.addresses.mandateAccountFactory,
@@ -146,7 +146,7 @@ export async function createMandate(
   options: Connection | ConnectOptions,
   seed: MandateSeed,
 ): Promise<MandateAccountClient> {
-  const connection = connectFor(options, 'createMandate()');
+  const connection = await openConnection(options, 'createMandate()');
   const deployed = await deployMandate(connection, seed);
 
   return mandateAccount(deployed.address, connection);

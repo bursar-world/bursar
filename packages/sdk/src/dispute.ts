@@ -13,7 +13,7 @@ import type { Address, Chain, PublicClient, Transport } from 'viem';
 import { escrowAbi, micro, oracleRegistryAbi } from '@bursar/core';
 import type { Micro } from '@bursar/core';
 
-import { connectFor, type Connection, type ConnectOptions } from './connection.js';
+import { openConnection, type Connection, type ConnectOptions } from './connection.js';
 import { toDate } from './format.js';
 import { checkEscrowId } from './guards.js';
 import { LockStatus, toLockStatus, type Lock } from './types.js';
@@ -352,7 +352,7 @@ export async function disputes(
   options: Connection | ConnectOptions = {},
   escrowAt?: Address,
 ): Promise<DisputeClient> {
-  const connection = connectFor(options, 'disputes()');
+  const connection = await openConnection(options, 'disputes()');
   const escrowAddress = escrowAt ?? connection.addresses.escrow;
   const read = getContract({
     address: escrowAddress,
