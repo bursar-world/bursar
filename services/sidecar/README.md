@@ -102,7 +102,7 @@ with no capabilities file and it names the path it looked in and the example to 
 | `RHC_RPC_TERTIARY` | unset | Optional third endpoint. |
 | `RHC_NETWORK` | `mainnet` | Chain 4663, and the only value that works. `testnet` is refused: 46630 has no USDG contract, so nothing there settles. Chain values are overridden through `RHC_MAINNET_*`, which is also how a local fork of 4663 is configured. |
 | `ESCROW_ADDRESS` | deployment record | The escrow to answer. |
-| `ESCROW_ADDRESSES` | unset | Several escrows to answer, comma-separated, for a payee with open locks on an earlier deployment as well as the current one: list both. Joined with `ESCROW_ADDRESS` when both are set. One process watches all of them, signing from the one payee key; each keeps its own outputs and cursor under `<OUTPUT_DIR>/<chainId>-<escrow>/`, so `STATE_PATH` must be unset. |
+| `ESCROW_ADDRESSES` | unset | Several escrows to answer, comma-separated, for a payee with open locks on an earlier deployment as well as the current one: list them all. Joined with `ESCROW_ADDRESS` when both are set. One process watches all of them, signing from the one payee key; each keeps its own outputs and cursor under `<OUTPUT_DIR>/<chainId>-<escrow>/`, so `STATE_PATH` must be unset. |
 | `CAPABILITIES_PATH` | `capabilities.json` | Route table. The file is required; only its path has a default. |
 | `ALLOWED_HOSTS` | none | Hosts an input URI may be fetched from, comma-separated. Loopback is not allowed unless it is listed. Base64 `data:` inputs need no entry. |
 | `OUTPUT_DIR` | `./out` | Where delivered outputs are written, as `<chainId>-<escrow>/<id>.json`. |
@@ -116,7 +116,7 @@ with no capabilities file and it names the path it looked in and the example to 
 | `MAX_INLINE_OUTPUT_BYTES` | `4096` | Above this the output travels by commitment. |
 | `MAX_BLOCK_RANGE` | `1000` | Widest `eth_getLogs` span. |
 | `FINALIZE_RELEASES` | `true` | Turn off only if something else finalises. |
-| `ESCALATE_EXPIRED` | `false` | Contest a lock whose deadline passed after delivery. |
+| `ESCALATE_EXPIRED` | `false` | Contest a lock whose deadline passed after delivery, on an escrow that still takes a late dispute (v1 and v2). |
 | `ESCALATE_MAX_BOND` | required when escalating | Largest bond this payee will post, in micro-USD. |
 | `MIN_GAS_WEI` | unset | Warn below this fee budget, in wei of ETH. |
 | `GAS_CHECK_MS` | `300000` | How often the fee budget is read. |
@@ -142,6 +142,10 @@ That costs a bond of `disputeBondBps` of the locked amount, kept if the ruling g
 the payee, and a resolver fee off the top of whatever is awarded. It is off by default, it
 requires a ceiling on the bond, and the sidecar checks the settlement allowance before
 spending gas on a call the escrow would revert.
+
+Only the v1 and v2 escrows take a dispute after the deadline. From v3 on the escrow refuses it,
+because by then the payer is owed its timeout refund, so the sidecar logs `escalation_skipped`
+and posts nothing. On those escrows the release has to land before the deadline.
 
 ## Evidence when a payer disputes
 

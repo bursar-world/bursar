@@ -842,6 +842,21 @@ describe('a deadline that ran out', () => {
     expect(log.find('escalation_skipped')?.fields['reason']).toContain('no resolver');
   });
 
+  // A v3 escrow refuses a dispute after the deadline, so sending one would only burn gas and, in
+  // a retry loop, keep burning it.
+  it('does not contest on an escrow that refuses a dispute after the deadline', async () => {
+    const { watcher, chain, log } = await expiredAfterDelivery(
+      {},
+      { terms: { ...TERMS, lateDisputes: false }, allowance: micro(1_000_000n) },
+    );
+
+    await watcher.poll();
+
+    expect(actions(chain.writes)).toEqual(['release:1']);
+    expect(log.find('escalation_skipped')?.fields['reason']).toContain('takes no dispute after the deadline');
+    expect(watcher.snapshot().tracked).toEqual([]);
+  });
+
   it('does not contest a lock it never delivered work for', async () => {
     const { watcher, chain, log } = await harness(
       async () => EXECUTED,

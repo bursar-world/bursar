@@ -143,7 +143,8 @@ const SCHEMA = {
 
   /**
    * Whether to contest a lock whose deadline passed with work already delivered. It posts a bond
-   * and risks losing it, so it is off until an operator says otherwise.
+   * and risks losing it, so it is off until an operator says otherwise. Only a v1 or v2 escrow takes
+   * such a dispute; from v3 on the payer's timeout refund stands, and nothing is posted.
    */
   ESCALATE_EXPIRED: withDefault(envVar.boolean(), false),
   ESCALATE_MAX_BOND: optional(envVar.micro()),
@@ -289,8 +290,8 @@ function capture<T>(resolve: () => T, problems: EnvProblem[]): T | undefined {
  * the escrow by name, because a bare chain-id miss says nothing useful about what to fix.
  *
  * The record that answers for the chain is the current one. A payee still holding locks on a
- * superseded escrow lists both in ESCROW_ADDRESSES: the calls a payee makes (release,
- * finalizeRelease, dispute) are the same on both.
+ * superseded escrow lists every escrow it answers in ESCROW_ADDRESSES: the calls a payee makes
+ * (release, finalizeRelease, dispute) are the same on each.
  */
 function knownEscrow(chain: RhcChain, problems: EnvProblem[]): Address | undefined {
   try {

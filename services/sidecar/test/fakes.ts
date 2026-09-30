@@ -30,6 +30,7 @@ export const TERMS: EscrowTerms = {
   disputeBondBps: 500,
   disputeWindow: 3_600n,
   resolver: RESOLVER,
+  lateDisputes: true,
 };
 
 export function rawDataURI(text: string): string {

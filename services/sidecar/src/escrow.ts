@@ -1,4 +1,4 @@
-import { escrowAbi, micro, settlementAssetAbi } from '@bursar/core';
+import { CURRENT_CONTRACT_SET, contractSetOfEscrow, escrowAbi, micro, settlementAssetAbi } from '@bursar/core';
 import type { RhcPublicClient, Micro } from '@bursar/core';
 import { getAbiItem, zeroAddress } from 'viem';
 import type { Address, Chain, Hex, PrivateKeyAccount, Transport, WalletClient } from 'viem';
@@ -63,6 +63,11 @@ export type EscrowTerms = {
   readonly disputeWindow: bigint;
   /** Zero while no oracle registry is wired, in which case `dispute` on an open lock reverts. */
   readonly resolver: Address;
+  /**
+   * Whether the escrow takes a dispute on a lock past its deadline. v1 and v2 do. v3 refuses one
+   * with `TooLate`, because by then the payer is owed its timeout refund.
+   */
+  readonly lateDisputes: boolean;
 };
 
 export type LockRecord = {
@@ -229,7 +234,9 @@ export function createEscrowPort(options: EscrowPortOptions): EscrowPort {
         client.readContract({ address, abi: escrowAbi, functionName: 'resolver' }),
       ]);
 
-      return { settlementAsset, feeBps, resolverFeeBps, disputeBondBps, disputeWindow, resolver };
+      const lateDisputes = (contractSetOfEscrow(address) ?? CURRENT_CONTRACT_SET) !== 'v3';
+
+      return { settlementAsset, feeBps, resolverFeeBps, disputeBondBps, disputeWindow, resolver, lateDisputes };
     },
 
     lockedLogs: async (fromBlock, toBlock) => {

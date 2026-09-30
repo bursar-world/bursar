@@ -602,7 +602,7 @@ export async function createWatcher(options: WatcherOptions): Promise<Watcher> {
    * The deadline passed on a lock that still holds the money. `release` reverts from here, so the
    * only way the payee is paid for work it did deliver is to contest the lock before someone calls
    * `timeout` and refunds the payer. Contesting costs a bond and a share of the resolver fee, so
-   * an operator has to turn it on.
+   * an operator has to turn it on, and an escrow from v3 on refuses it outright.
    */
   async function handleExpired(id: bigint, lock: LockRecord): Promise<void> {
     const deadline = { id, deadline: lock.deadline, amount: usd(lock.amount) };
@@ -610,6 +610,14 @@ export async function createWatcher(options: WatcherOptions): Promise<Watcher> {
     const delivered = executed.get(id);
     if (!escalate || !delivered) {
       giveUp(id, 'deadline_passed', deadline);
+      return;
+    }
+
+    if (!terms.lateDisputes) {
+      giveUp(id, 'escalation_skipped', {
+        ...deadline,
+        reason: 'this escrow takes no dispute after the deadline, so the payer can reclaim the lock',
+      });
       return;
     }
 
