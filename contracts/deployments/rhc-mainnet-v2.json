@@ -1,6 +1,7 @@
 {
   "network": "rhc-mainnet-v2",
   "chainId": 4663,
+  "status": "live",
   "dev": true,
   "rpc": "https://rpc.mainnet.chain.robinhood.com",
   "rpcUsedForThisRun": "https://rpc.mainnet.chain.robinhood.com",

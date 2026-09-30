@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IUsdg} from "./interfaces/IUsdg.sol";
+import {BursarScript} from "./lib/BursarScript.sol";
+import {RecordKeys as K} from "./lib/RecordKeys.sol";
 
 import {AdminTimelock} from "../src/AdminTimelock.sol";
 import {AgentRegistry} from "../src/AgentRegistry.sol";
@@ -17,9 +18,11 @@ import {Reputation} from "../src/Reputation.sol";
 import {IAgentRegistry} from "../src/interfaces/IAgentRegistry.sol";
 import {IOracleRegistry} from "../src/interfaces/IOracleRegistry.sol";
 import {IReputation} from "../src/interfaces/IReputation.sol";
+import {IStaking} from "../src/token/interfaces/IStaking.sol";
 
 /// Deploys the mandate contracts in the one order that leaves no contract half-wired, and
-/// stops when the parameter set is internally inconsistent.
+/// stops when the parameter set is internally inconsistent. The first script of a deployment:
+/// every later one reads what this one records.
 ///
 /// Three pairings cannot be expressed in a constructor, because each side needs the other's
 /// address: reputation to escrow, escrow to resolver, resolver to escrow. Each is closed by a
@@ -27,40 +30,25 @@ import {IReputation} from "../src/interfaces/IReputation.sol";
 /// contracts, in the same run. Miss one and the deployment is stuck: the setters take no second
 /// call and the constructors are already spent.
 ///
+/// The fourth pairing, the registry's staking pool, closes in `DeployStaking.s.sol`, from the
+/// same key, because the pool is deployed there. Until it does, no resolver can bond.
+///
 /// The invariants asserted here are the ones no single constructor can see. A fee plus a
 /// resolver fee at or above a whole settlement would leave nothing to split; a zero base cap
 /// would reject every payee that has no history, which is every payee on day one.
 ///
 /// Gas on Robinhood Chain is ETH and settlement is USDG, two different assets held at two
-/// different scales. On a chain that pays gas in the same USDC it settles in, every reader has
-/// to be told not to add the eighteen-decimal view of a balance to the six-decimal one. That
-/// hazard does not exist here, and nothing in this script reads a native balance.
-contract Deploy is Script {
-    /// Robinhood Chain mainnet, read from the chain itself and never from an announcement.
-    /// Testnet 46630 answers, but USDG holds no contract there, so nothing on it can settle
-    /// and it is not a deploy target.
-    uint256 internal constant RHC_CHAIN_ID = 4663;
-    /// USDG. Six decimals, a diamond proxy, verified on chain: `decimals()` answers 6,
-    /// `symbol()` answers USDG and `name()` answers Global Dollar.
-    address internal constant RHC_USDG = 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168;
-
+/// different scales. Nothing in this script reads a native balance.
+contract Deploy is BursarScript {
     /// What the deploy key has to hold in the settlement asset before the run starts. This
-    /// deployment spends no USDG, so it is not a funding check: it is the proof that the
-    /// address in the parameter file is the asset the system will settle in and that the key
-    /// can fund the first live mandate afterwards. One USDG is ten times what the documented
-    /// example mandate carries.
+    /// deployment spends no USDG, so it is not a funding check: it is the proof that the address
+    /// in the record is the asset the system will settle in and that the key can fund the first
+    /// live mandate afterwards.
     uint256 internal constant MIN_SETTLEMENT_BALANCE = 1_000_000;
 
-    /// What `BURSAR_ALLOW_EOA_GOVERNANCE` has to say. A phrase rather than a boolean, so that
-    /// no shell carrying a stray `true` can switch off the refusal below.
+    /// What `BURSAR_ALLOW_EOA_GOVERNANCE` has to say. A phrase rather than a boolean, so that no
+    /// shell carrying a stray `true` can switch off the refusal below.
     string internal constant EOA_GOVERNANCE_ACK = "i-accept-eoa-governance";
-
-    uint16 internal constant BPS = 10_000;
-    uint8 internal constant SETTLEMENT_DECIMALS = 6;
-
-    /// No legitimate parameter reaches this, so it distinguishes an unset variable from a zero
-    /// someone chose. A fee of zero is a policy; a fee nobody set is a mistake.
-    uint256 private constant UNSET = type(uint256).max;
 
     struct Deployment {
         address timelock;
@@ -71,11 +59,6 @@ contract Deploy is Script {
         address factory;
     }
 
-    error MissingEnv(string key);
-    error RetiredEnv(string key, string replacement);
-    error EnvOutOfRange(string key, uint256 value, uint256 max);
-    error EnvNotBoolean(string key, string value);
-    error WrongChain(uint256 expected, uint256 actual);
     error AssetNotContract(address asset);
     error AssetDecimalsMismatch(uint8 found, uint8 expected);
     error AssetNotUsdg(address configured, address expected);
@@ -84,25 +67,12 @@ contract Deploy is Script {
     error SettlementBalanceTooLow(address account, uint256 held, uint256 floor);
     error FeeSplitTooLarge(uint16 feeBps, uint16 resolverFeeBps);
     error DisputeBondTooLarge(uint16 disputeBondBps);
-    error TimelockPeriodZero();
     error TimelockNotContract(address timelock);
     error DeployerIsTimelockSigner(address deployer);
     error GovernanceHasNoMultisig();
     error EoaGovernanceNotAcknowledged(string given, string required);
     error RoleCollision(string role, string otherRole, address account);
     error BaseCapZero();
-    error WiringFailed(string what, address expected, address actual);
-    error ParameterNotApplied(string what, uint256 expected, uint256 actual);
-
-    /// Namespace every variable this script reads sits under, empty for an ordinary run.
-    ///
-    /// The process environment is not part of the EVM state Foundry snapshots per test, so two
-    /// suites driving a deploy script in one process write the same variables and read each
-    /// other's values: the second run deploys against an address from the first one's fixture
-    /// and fails on something unrelated to the code. A harness pins a prefix per instance,
-    /// which lives in state and is therefore isolated; an operator running two deployments
-    /// from one shell sets `BURSAR_ENV_PREFIX` instead.
-    string public envPrefix;
 
     address private asset;
     address private treasury;
@@ -110,10 +80,10 @@ contract Deploy is Script {
     address[3] private signers;
     address private guardian;
     uint64 private timelockPeriod;
-    /// Live governance this run joins, or zero when it brings its own. See `_loadEnv`.
+    /// Live governance this run joins, or zero when it brings its own.
     address private existingTimelock;
-    /// Live staking pool whose bond policy this run's registry reads, or zero when the token
-    /// deployment that follows will name it.
+    /// Live staking pool whose bond policy this run's registry reads, or zero when
+    /// `DeployStaking.s.sol` names it later.
     address private existingStaking;
 
     uint16 private feeBps;
@@ -139,16 +109,19 @@ contract Deploy is Script {
     MandateAccountFactory private factory;
 
     function run() external returns (Deployment memory) {
-        address deployer = msg.sender;
+        _loadPrefix();
+        _requireChain();
+        address deployer = _deployer();
 
         _loadEnv();
         _preflight(deployer);
 
-        vm.startBroadcast();
-        _deploy(deployer);
+        vm.startBroadcast(deployer);
+        _deploy();
         vm.stopBroadcast();
 
         _verify(deployer);
+        _record(deployer);
         _report(deployer);
 
         return Deployment({
@@ -161,38 +134,33 @@ contract Deploy is Script {
         });
     }
 
-    function pinEnvPrefix(string calldata prefix) external {
-        envPrefix = prefix;
-    }
-
     function _loadEnv() private {
-        // Read once, so every variable in one run comes from one namespace.
-        if (bytes(envPrefix).length == 0) envPrefix = vm.envOr("BURSAR_ENV_PREFIX", string(""));
-
-        uint256 expectedChain = _envUint("BURSAR_CHAIN_ID");
-        if (expectedChain != block.chainid) revert WrongChain(expectedChain, block.chainid);
-
-        asset = _envAddress("BURSAR_SETTLEMENT_ASSET");
-        treasury = _envAddress("BURSAR_TREASURY");
-        slashSink = _envAddress("BURSAR_SLASH_SINK");
-
-        signers[0] = _envAddress("BURSAR_TIMELOCK_SIGNER_1");
-        signers[1] = _envAddress("BURSAR_TIMELOCK_SIGNER_2");
-        signers[2] = _envAddress("BURSAR_TIMELOCK_SIGNER_3");
-        guardian = _envAddress("BURSAR_TIMELOCK_GUARDIAN");
+        asset = _settlementAsset();
+        treasury = _role(K.TREASURY, "BURSAR_TREASURY");
+        slashSink = _role(K.SLASH_SINK, "BURSAR_SLASH_SINK");
+        guardian = _role(K.GUARDIAN, "BURSAR_TIMELOCK_GUARDIAN");
+        _loadSigners();
         timelockPeriod = _envUint64("BURSAR_TIMELOCK_PERIOD");
 
-        // A first deployment brings its own governance. A redeploy of the money path joins the
-        // governance already holding the rest of the system, because the delay only means
-        // anything if there is one of it: two timelocks over one deployment is two answers to
-        // the question of who may change a parameter. The variable that names it is the same
-        // one the token deployment reads, so one address describes governance for both runs.
-        // Unset deploys a fresh timelock, which is the case every new chain starts from.
-        existingTimelock = vm.envOr(_key("BURSAR_ADMIN_TIMELOCK"), address(0));
+        // A first deployment brings its own governance. A run that finds governance in the
+        // record, or is told to join one, joins it: the delay only means anything if there is
+        // one of it, and two timelocks over one deployment are two answers to the question of
+        // who may change a parameter. A recorded timelock with no code behind it is a broadcast
+        // that never landed, and this run replaces it.
+        address recorded = _recordAddress(K.ADMIN_TIMELOCK);
+        if (recorded.code.length == 0) recorded = address(0);
+        address named = vm.envOr(_key("BURSAR_ADMIN_TIMELOCK"), address(0));
+        if (recorded != address(0) && named != address(0) && named != recorded) {
+            revert RecordMismatch(K.ADMIN_TIMELOCK, recorded, named);
+        }
+        existingTimelock = recorded != address(0) ? recorded : named;
 
-        // A redeploy of the money path next to a live token set bonds its resolvers in the same
-        // BRSR and under the same floor. Unset leaves the link to the token deployment.
-        existingStaking = vm.envOr(_key("BURSAR_STAKING"), address(0));
+        // A staking pool already in the record is joined here, so the resolver registry bonds in
+        // its token from the first block. The usual order records it later, and the staking
+        // deployment closes the link from its side.
+        address pool = _recordAddress(K.STAKING);
+        existingStaking = pool.code.length == 0 ? address(0) : pool;
+        _refuseRetired("BURSAR_STAKING", "the record's token.Staking");
 
         feeBps = _envUint16("BURSAR_FEE_BPS");
         resolverFeeBps = _envUint16("BURSAR_RESOLVER_FEE_BPS");
@@ -214,9 +182,9 @@ contract Deploy is Script {
         });
 
         // Resolver bonds are posted in BRSR and the floor that admits one lives in `Staking`,
-        // which is deployed with the token set. A core deployment no longer carries a figure
-        // for it, and a stale variable here would read as though it did.
-        _refuseRetired("BURSAR_RESOLVER_MIN_BOND", "BURSAR_STAKING_MIN_BOND, in the token deployment");
+        // which the staking deployment brings. A core deployment carries no figure for it, and a
+        // stale variable here would read as though it did.
+        _refuseRetired("BURSAR_RESOLVER_MIN_BOND", "BURSAR_STAKING_MIN_BOND, in the staking deployment");
 
         oracleConfig = IOracleRegistry.Config({
             commitWindow: _envUint64("BURSAR_COMMIT_WINDOW"),
@@ -235,6 +203,22 @@ contract Deploy is Script {
         }
     }
 
+    /// Three signers, each from the record when it names them and from the environment when it
+    /// does not. A signer set the record holds cannot be half-replaced by a shell.
+    function _loadSigners() private {
+        address[] memory recorded = _recordAddresses(K.SIGNERS);
+        string[3] memory names = ["BURSAR_TIMELOCK_SIGNER_1", "BURSAR_TIMELOCK_SIGNER_2", "BURSAR_TIMELOCK_SIGNER_3"];
+        for (uint256 i; i < 3; ++i) {
+            address named = vm.envOr(_key(names[i]), address(0));
+            if (recorded.length == 3) {
+                if (named != address(0) && named != recorded[i]) revert RecordMismatch(K.SIGNERS, recorded[i], named);
+                signers[i] = recorded[i];
+            } else {
+                signers[i] = _envAddress(names[i]);
+            }
+        }
+    }
+
     /// Everything checkable before a single transaction is sent. A deployment that fails halfway
     /// leaves live contracts nobody can finish wiring, so the expensive checks run first.
     function _preflight(address deployer) private view {
@@ -246,13 +230,11 @@ contract Deploy is Script {
         } catch {
             revert AssetNotContract(asset);
         }
-        // On the one chain whose settlement asset is verified, a typo in the parameter file is
-        // caught before it is deployed against, and the compliance reads below are worth
-        // making because the address they run on is known.
-        if (_isRobinhoodChain()) {
-            if (asset != RHC_USDG) revert AssetNotUsdg(asset, RHC_USDG);
-            _requireUsdgWillMove(deployer);
-        }
+        // On the one chain whose settlement asset is verified, a typo in the record is caught
+        // before it is deployed against, and the compliance reads below are worth making because
+        // the address they run on is known.
+        if (_onRobinhood() && asset != RHC_USDG) revert AssetNotUsdg(asset, RHC_USDG);
+        if (block.chainid == RHC_CHAIN_ID) _requireUsdgWillMove(deployer);
 
         // Both fees are taken from the same locked principal. At the sum the payee receives
         // nothing from a settlement it delivered, and above it the arithmetic underflows. The
@@ -263,10 +245,6 @@ contract Deploy is Script {
         if (disputeBondBps >= BPS) revert DisputeBondTooLarge(disputeBondBps);
 
         if (timelockPeriod == 0) revert TimelockPeriodZero();
-
-        if (existingStaking != address(0) && existingStaking.code.length == 0) {
-            revert WiringFailed("staking.code", existingStaking, address(0));
-        }
 
         // Joining live governance means this run never sets its terms, so the terms are read
         // off the contract and held against the parameter file instead. A wrong address is
@@ -287,6 +265,22 @@ contract Deploy is Script {
             for (uint256 i; i < 3; ++i) {
                 if (liveSigners[i] != signers[i]) revert WiringFailed("timelock.signer", signers[i], liveSigners[i]);
             }
+        }
+
+        // A second copy of a contract the rest of the system points at is two answers to one
+        // question. The record says what is already there.
+        if (existingTimelock == address(0)) _requireUnrecorded(K.ADMIN_TIMELOCK);
+        _requireUnrecorded(K.REPUTATION);
+        _requireUnrecorded(K.ESCROW);
+        _requireUnrecorded(K.ORACLE_REGISTRY);
+        if (withAgentRegistry) _requireUnrecorded(K.AGENT_REGISTRY);
+        _requireUnrecorded(K.FACTORY);
+
+        // The registry reads the bond token off the pool, so the pool has to be one this
+        // deployment settles against.
+        if (existingStaking != address(0)) {
+            address reward = address(IStaking(existingStaking).rewardToken());
+            if (reward != asset) revert WiringFailed("staking.rewardToken", asset, reward);
         }
 
         // An unscored payee is capped at `baseCap`. A zero floor rejects every first lock a
@@ -321,12 +315,10 @@ contract Deploy is Script {
 
     /// The refusal an operator can lift, on purpose, in one place, once.
     ///
-    /// Release 1 governance is three plain keys until a multisig replaces them, so a deployment
-    /// has to be possible with no contract in the signer set.
-    ///
-    /// Unset, the refusal stands and nothing deploys. What lifts it is a phrase and not a
-    /// boolean, because `true` is a word that arrives in a shell by accident and
-    /// `i-accept-eoa-governance` is not.
+    /// Governance is three plain keys until a multisig replaces them, so a deployment has to be
+    /// possible with no contract in the signer set. Unset, the refusal stands and nothing
+    /// deploys. What lifts it is a phrase and not a boolean, because `true` is a word that
+    /// arrives in a shell by accident and `i-accept-eoa-governance` is not.
     function _requireEoaGovernanceAccepted() private view {
         string memory given = vm.envOr(_key("BURSAR_ALLOW_EOA_GOVERNANCE"), string(""));
         if (bytes(given).length == 0) revert GovernanceHasNoMultisig();
@@ -339,19 +331,10 @@ contract Deploy is Script {
         );
     }
 
-    /// Robinhood Chain mainnet, the only chain this deployment pins an asset address on.
-    function _isRobinhoodChain() private view returns (bool) {
-        return block.chainid == RHC_CHAIN_ID;
-    }
-
     /// Reverts before broadcast when the settlement asset itself would stop the deployment
-    /// working. Read straight, with no gas stipend and no try/catch: USDG is an ordinary
-    /// contract whose storage a fork fetches, and a diamond that stopped routing one of these
-    /// selectors would be a change to the asset this system settles in, which is a reason to
-    /// stop and look rather than to carry on.
-    ///
-    /// A stipend and a three-valued read are only needed when a block list lives behind a node
-    /// precompile that publishes one byte of code. Nothing on 4663 does that.
+    /// working. Read straight, with no gas stipend and no try/catch: USDG is an ordinary contract
+    /// whose storage a fork fetches, and a diamond that stopped routing one of these selectors
+    /// would be a change to the asset this system settles in, which is a reason to stop.
     function _requireUsdgWillMove(address deployer) private view {
         if (IUsdg(asset).paused()) revert AssetPaused(asset);
         // A frozen address reverts every transfer whatever its balance says. A frozen deploy
@@ -365,10 +348,9 @@ contract Deploy is Script {
         }
     }
 
-    function _deploy(address deployer) private {
-        // Governance first, so no contract is ever admin-controlled by the deploy key. The plan
-        // hands admin to the timelock after deployment; naming it in the constructors closes the
-        // same gap without the window in between.
+    function _deploy() private {
+        // Governance first, so no contract is ever admin-controlled by the deploy key. Naming it
+        // in the constructors closes the gap a handover afterwards would leave open.
         timelock = existingTimelock == address(0)
             ? new AdminTimelock(signers, guardian, timelockPeriod)
             : AdminTimelock(existingTimelock);
@@ -409,13 +391,11 @@ contract Deploy is Script {
         escrow.setPauser(address(timelock));
         if (existingStaking != address(0)) oracleRegistry.setStaking(existingStaking);
 
-        // `setSlasher` is never called. The resolver rules on a job, not on an
-        // agent's balance sheet: it produces a quality score, the escrow turns that into a
-        // refund split and the reputation curve lowers the cap on the agent's next lock. It
-        // holds no figure to slash by and imports nothing from this registry. Naming it here
-        // would publish a capability it does not have, and the deployment would read as though
-        // agent collateral were at risk from a vote. It is not. Collateral moves on a timelock
-        // proposal, with a person naming the amount.
+        // `setSlasher` is never called. The resolver rules on a job, not on an agent's balance
+        // sheet: it produces a quality score, the escrow turns that into a refund split and the
+        // reputation curve lowers the cap on the agent's next lock. Naming it here would publish
+        // a capability it does not have. Collateral moves on a timelock proposal, with a person
+        // naming the amount.
         if (withAgentRegistry) escrow.setRegistry(IAgentRegistry(address(agentRegistry)));
 
         // Last, because it bakes both addresses into every account it creates and there is
@@ -423,9 +403,9 @@ contract Deploy is Script {
         factory = new MandateAccountFactory(address(escrow), asset);
     }
 
-    /// Reads every wiring decision back off chain. A setter that reverted inside a broadcast
-    /// would have stopped the run, but a setter pointed at the wrong address by a stale constant
-    /// would not, and the cost of finding that out later is a redeploy.
+    /// Reads every wiring decision back. Forge runs this against its own simulation before it
+    /// broadcasts anything, so a setter pointed at the wrong address stops the run with nothing
+    /// sent. `VerifyCore.s.sol` asks the chain the same questions once the transactions land.
     function _verify(address deployer) private view {
         _expect("escrow.deployer", deployer, escrow.deployer());
         _expect("reputation.deployer", deployer, reputation.deployer());
@@ -443,10 +423,9 @@ contract Deploy is Script {
         _expect("factory.escrow", address(escrow), factory.escrow());
         _expect("escrow.reputation", address(reputation), escrow.reputation());
 
-        // Bonds are posted in BRSR. Joining a live token set names its pool here; otherwise the
-        // pool is deployed with the token set, which runs after this one, and it is asserted
-        // as absent so the state is stated and not assumed: until the token deployment calls
-        // `setStaking`, no resolver can bond and no dispute can be voted on.
+        // Bonds are posted in BRSR. A pool already in the record is named here; otherwise the
+        // staking deployment names it, and it is asserted as absent so the state is stated and
+        // not assumed: until then, no resolver can bond and no dispute can be voted on.
         _expect("oracleRegistry.staking", existingStaking, address(oracleRegistry.staking()));
         if (existingStaking == address(0)) {
             _expect("oracleRegistry.bondAsset", address(0), address(oracleRegistry.bondAsset()));
@@ -469,8 +448,8 @@ contract Deploy is Script {
             _expectUint("agentRegistry.slashBps", agentSlashBps, agentRegistry.slashBps());
         }
 
-        // The same three invariants as the preflight, re-read from the contracts that now hold
-        // them. A constructor that clamped or ignored an argument is caught here.
+        // The same invariants as the preflight, re-read from the contracts that now hold them. A
+        // constructor that clamped or ignored an argument is caught here.
         uint64 period = timelock.timelockPeriod();
         if (period == 0) revert TimelockPeriodZero();
         _expectUint("timelock.timelockPeriod", timelockPeriod, period);
@@ -491,6 +470,50 @@ contract Deploy is Script {
         _expectUint("reputation.maxCap", curve.maxCap, onChainCurve.maxCap);
     }
 
+    function _record(address deployer) private {
+        if (_recordAddress(K.DEPLOYER) == address(0)) _write(K.DEPLOYER, deployer);
+        if (!_recorded(K.FROM_BLOCK)) _write(K.FROM_BLOCK, block.number);
+
+        address[] memory signerList = new address[](3);
+        for (uint256 i; i < 3; ++i) {
+            signerList[i] = signers[i];
+        }
+        _write(K.SIGNERS, signerList);
+        _write(K.GUARDIAN, guardian);
+        _write(K.TREASURY, treasury);
+        _write(K.SLASH_SINK, slashSink);
+
+        _write(K.ADMIN_TIMELOCK, address(timelock));
+        _write(K.REPUTATION, address(reputation));
+        _write(K.ESCROW, address(escrow));
+        _write(K.ORACLE_REGISTRY, address(oracleRegistry));
+        if (withAgentRegistry) _write(K.AGENT_REGISTRY, address(agentRegistry));
+        _write(K.FACTORY, address(factory));
+
+        _write(".parameters.AdminTimelock.timelockPeriod", timelockPeriod);
+        _write(".parameters.Escrow.feeBps", feeBps);
+        _write(".parameters.Escrow.resolverFeeBps", resolverFeeBps);
+        _write(".parameters.Escrow.disputeBondBps", disputeBondBps);
+        _write(".parameters.Escrow.minTtl", minTtl);
+        _write(".parameters.Escrow.maxTtl", maxTtl);
+        _write(".parameters.Escrow.disputeWindow", disputeWindow);
+        _writeAmount(".parameters.Escrow.minLock", minLock);
+        _writeAmount(".parameters.Reputation.baseCap", curve.baseCap);
+        _writeAmount(".parameters.Reputation.capPerScore", curve.capPerScore);
+        _writeAmount(".parameters.Reputation.maxCap", curve.maxCap);
+        _write(".parameters.OracleRegistry.commitWindow", oracleConfig.commitWindow);
+        _write(".parameters.OracleRegistry.revealWindow", oracleConfig.revealWindow);
+        _write(".parameters.OracleRegistry.unbondingPeriod", oracleConfig.unbondingPeriod);
+        _write(".parameters.OracleRegistry.quorum", oracleConfig.quorum);
+        _write(".parameters.OracleRegistry.maxVoters", oracleConfig.maxVoters);
+        _write(".parameters.OracleRegistry.maxDeviation", oracleConfig.maxDeviation);
+        _write(".parameters.OracleRegistry.slashBps", oracleConfig.slashBps);
+        if (withAgentRegistry) {
+            _writeAmount(".parameters.AgentRegistry.minStake", agentMinStake);
+            _write(".parameters.AgentRegistry.slashBps", agentSlashBps);
+        }
+    }
+
     function _report(address deployer) private view {
         console2.log("chain", block.chainid);
         console2.log("deployer", deployer);
@@ -508,91 +531,14 @@ contract Deploy is Script {
             console2.log("Staking", existingStaking);
             console2.log("  live, joined by this run");
         } else {
-            // The one wiring call this run cannot make. The pool that prices a resolver bond
-            // is part of the token set, and the same deploy key closes the link from there.
-            console2.log("Pending: OracleRegistry.setStaking, from the token deployment");
-            console2.log("  oracleRegistry", address(oracleRegistry));
+            // The one wiring call this run cannot make. The pool that prices a resolver bond is
+            // deployed by the staking script, and the same deploy key closes the link from there.
+            console2.log("Pending: OracleRegistry.setStaking, from DeployStaking.s.sol");
             console2.log("  until it runs, register and increaseBond revert with StakingNotSet");
         }
 
-        if (!withAgentRegistry) return;
-
-        // Named because a zero `slasher` is the intended state. The resolver rules on a job
-        // and produces a score, not a figure to take off a balance sheet, so nothing in this
-        // deployment can reach agent collateral except a proposal from the timelock.
-        console2.log("AgentRegistry.slasher is unset: collateral moves on a timelock proposal");
-    }
-
-    function _expect(string memory what, address expected, address actual) private pure {
-        if (expected != actual) revert WiringFailed(what, expected, actual);
-    }
-
-    function _expectUint(string memory what, uint256 expected, uint256 actual) private pure {
-        if (expected != actual) revert ParameterNotApplied(what, expected, actual);
-    }
-
-    function _key(string memory key) private view returns (string memory) {
-        return bytes(envPrefix).length == 0 ? key : string.concat(envPrefix, key);
-    }
-
-    /// A retired variable still holds a value in the unit it was retired for. Reading it under
-    /// the new name would be worse than ignoring it.
-    function _refuseRetired(string memory key, string memory replacement) private view {
-        string memory name = _key(key);
-        if (bytes(vm.envOr(name, string(""))).length != 0) revert RetiredEnv(name, replacement);
-    }
-
-    function _envAddress(string memory key) private view returns (address value) {
-        string memory name = _key(key);
-        value = vm.envOr(name, address(0));
-        if (value == address(0)) revert MissingEnv(name);
-    }
-
-    function _envUint(string memory key) private view returns (uint256 value) {
-        string memory name = _key(key);
-        value = vm.envOr(name, UNSET);
-        if (value == UNSET) revert MissingEnv(name);
-    }
-
-    /// Each of the four narrowing reads range-checks the value on the line above the cast. A
-    /// variable that does not fit its field is named in `EnvOutOfRange`, never silently wrapped
-    /// into a fee or a window nobody chose.
-    // forge-lint: disable-start(unsafe-typecast)
-    function _envUint8(string memory key) private view returns (uint8) {
-        uint256 value = _envUint(key);
-        if (value > type(uint8).max) revert EnvOutOfRange(_key(key), value, type(uint8).max);
-        return uint8(value);
-    }
-
-    function _envUint16(string memory key) private view returns (uint16) {
-        uint256 value = _envUint(key);
-        if (value > type(uint16).max) revert EnvOutOfRange(_key(key), value, type(uint16).max);
-        return uint16(value);
-    }
-
-    function _envUint64(string memory key) private view returns (uint64) {
-        uint256 value = _envUint(key);
-        if (value > type(uint64).max) revert EnvOutOfRange(_key(key), value, type(uint64).max);
-        return uint64(value);
-    }
-
-    function _envUint128(string memory key) private view returns (uint128) {
-        uint256 value = _envUint(key);
-        if (value > type(uint128).max) revert EnvOutOfRange(_key(key), value, type(uint128).max);
-        return uint128(value);
-    }
-
-    // forge-lint: disable-end
-
-    /// Spelled out, because `envOr` reads an unset variable as false and would quietly skip
-    /// the registry.
-    function _envBool(string memory key) private view returns (bool) {
-        string memory name = _key(key);
-        string memory raw = vm.envOr(name, string(""));
-        bytes32 given = keccak256(bytes(raw));
-        if (given == keccak256("")) revert MissingEnv(name);
-        if (given == keccak256("true")) return true;
-        if (given == keccak256("false")) return false;
-        revert EnvNotBoolean(name, raw);
+        // Named because a zero `slasher` is the intended state. The resolver rules on a job and
+        // produces a score, not a figure to take off a balance sheet.
+        if (withAgentRegistry) console2.log("AgentRegistry.slasher is unset: collateral moves on a timelock proposal");
     }
 }

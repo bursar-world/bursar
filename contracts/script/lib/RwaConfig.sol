@@ -4,85 +4,66 @@ pragma solidity ^0.8.24;
 import {PoolKey} from "../../src/token/Buyback.sol";
 import {AssetRegistry} from "../../src/rwa/AssetRegistry.sol";
 
-/// Launch parameters for the RWA lane on Robinhood Chain 4663, from the 2026-09-28 measurements.
-/// Feeds are the Chainlink proxies; pools are the hookless v4 pool pinned per asset.
+/// The terms each asset trades under in the RWA lane, from the 2026-09-28 measurements. Addresses
+/// are not here: the token, its feed and, on Robinhood Chain, the measured id of its pinned pool
+/// come from the record's `external.assets`, so a rehearsal against stand-ins runs the same terms.
+///
+/// Each asset trades through one hookless v4 pool against USDG. The pool is named by its fee and
+/// spacing here and by the two currencies, sorted, from the record.
 library RwaConfig {
-    address internal constant USDG = 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168;
-    address internal constant POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
-    address internal constant STATE_VIEW = 0xF3334192D15450CdD385c8B70e03f9A6bD9E673b;
-    address internal constant ACCESS_REGISTRY = 0xe10b6f6B275de231345c20D14Ab812db62151b00;
-
-    /// Earlier factories whose mandates may park: v2 accounts park through the principal, v2.1
-    /// accounts also unpark inside a spend.
-    address internal constant FACTORY_V2 = 0xe9f8cc653fF40E346e0591f353Be58DF0533cfD0;
-    address internal constant FACTORY_V21 = 0x669366d0Ae3C6b51fEDcf451A01bF741Fd2ed08D;
-
-    address internal constant SGOV = 0x92FD66527192E3e61d4DDd13322Aa222DE86F9B5;
-    address internal constant SPY = 0x117cc2133c37B721F49dE2A7a74833232B3B4C0C;
-    address internal constant NVDA = 0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC;
-    address internal constant AAPL = 0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9;
-
-    address internal constant SGOV_FEED = 0xa0DF4ee0fFf975306345875E3548Fcc519577A11;
-    address internal constant SPY_FEED = 0x319724394D3A0e3669269846abE664Cd621f9f6A;
-    address internal constant NVDA_FEED = 0x379EC4f7C378F34a1B47E4F3cbeBCbAC3E8E9F15;
-    address internal constant AAPL_FEED = 0x6B22A786bAa607d76728168703a39Ea9C99f2cD0;
-
-    bytes32 internal constant SGOV_POOL_ID = 0x2a72510d7d92cc121f9733ab6d14227ef8963cfadf9d40ac574f02e20e6299a8;
-    bytes32 internal constant SPY_POOL_ID = 0xe5923c8a8be481ec89a2ca784a2bbfa4235de6d88f92260fd66b660c4babf907;
-    bytes32 internal constant NVDA_POOL_ID = 0x6444a8e0b267406a15db74ca00c4a24bdfa81ed3180f5b6d0851f8ed6f4f29c5;
-    bytes32 internal constant AAPL_POOL_ID = 0xc748f4671a867db48b552f6b7650bf3255e05f80f00e3f7aad1b17ccb7898fdb;
-
-    /// Trade bound: the 24 h heartbeat plus two hours. Valuation bound for SGOV: a three-day
-    /// weekend. Stocks are never parked, so their valuation bound equals the trade bound.
+    /// Trade bound: the stock feeds' 24 h heartbeat plus two hours. Valuation bound for the
+    /// treasury fund: a three-day weekend. Stocks are never parked, so their valuation bound is
+    /// the trade bound.
     uint32 internal constant TRADE_STALENESS = 93_600;
-    uint32 internal constant SGOV_VALUATION_STALENESS = 360_000;
+    uint32 internal constant TREASURY_VALUATION_STALENESS = 360_000;
 
     uint128 internal constant STOCK_TRADE_CAP = 25e6;
-    uint128 internal constant SGOV_PER_MANDATE = 100e6;
-    uint128 internal constant SGOV_TOTAL = 1_000e6;
+    uint128 internal constant PARK_PER_MANDATE = 100e6;
+    uint128 internal constant PARK_TOTAL = 1_000e6;
 
-    function assets() internal pure returns (address[] memory list, AssetRegistry.Asset[] memory configs) {
-        list = new address[](4);
-        configs = new AssetRegistry.Asset[](4);
-
-        list[0] = SGOV;
-        configs[0] = _asset(SGOV_FEED, SGOV_VALUATION_STALENESS, 50, 50, false, true, 0, SGOV_PER_MANDATE, SGOV_TOTAL);
-        configs[0].pool = PoolKey(USDG, SGOV, 375, 4, address(0));
-
-        list[1] = SPY;
-        configs[1] = _asset(SPY_FEED, TRADE_STALENESS, 100, 0, true, false, STOCK_TRADE_CAP, 0, 0);
-        configs[1].pool = PoolKey(SPY, USDG, 500, 5, address(0));
-
-        list[2] = NVDA;
-        configs[2] = _asset(NVDA_FEED, TRADE_STALENESS, 100, 0, true, false, STOCK_TRADE_CAP, 0, 0);
-        configs[2].pool = PoolKey(USDG, NVDA, 100, 1, address(0));
-
-        list[3] = AAPL;
-        configs[3] = _asset(AAPL_FEED, TRADE_STALENESS, 100, 0, true, false, STOCK_TRADE_CAP, 0, 0);
-        configs[3].pool = PoolKey(USDG, AAPL, 3000, 60, address(0));
+    struct Term {
+        string symbol;
+        bool isTreasury;
+        uint24 fee;
+        int24 tickSpacing;
+        uint32 valuationStaleness;
+        uint16 bandBps;
+        uint16 haircutBps;
+        uint128 perTradeCap;
+        uint128 perMandateCap;
+        uint128 totalCap;
     }
 
-    function _asset(
-        address feed,
-        uint32 valuation,
-        uint16 band,
-        uint16 haircut,
-        bool isStock,
-        bool isTreasury,
-        uint128 perTrade,
-        uint128 perMandate,
-        uint128 total
-    ) private pure returns (AssetRegistry.Asset memory a) {
+    function terms() internal pure returns (Term[] memory t) {
+        t = new Term[](4);
+        t[0] = Term("SGOV", true, 375, 4, TREASURY_VALUATION_STALENESS, 50, 50, 0, PARK_PER_MANDATE, PARK_TOTAL);
+        t[1] = Term("SPY", false, 500, 5, TRADE_STALENESS, 100, 0, STOCK_TRADE_CAP, 0, 0);
+        t[2] = Term("NVDA", false, 100, 1, TRADE_STALENESS, 100, 0, STOCK_TRADE_CAP, 0, 0);
+        t[3] = Term("AAPL", false, 3000, 60, TRADE_STALENESS, 100, 0, STOCK_TRADE_CAP, 0, 0);
+    }
+
+    function asset(Term memory term, address token, address feed, address usdg)
+        internal
+        pure
+        returns (AssetRegistry.Asset memory a)
+    {
         a.feed = feed;
         a.tradeStaleness = TRADE_STALENESS;
-        a.valuationStaleness = valuation;
-        a.bandBps = band;
-        a.haircutBps = haircut;
+        a.valuationStaleness = term.valuationStaleness;
+        a.bandBps = term.bandBps;
+        a.haircutBps = term.haircutBps;
         a.eligible = true;
-        a.isStock = isStock;
-        a.isTreasury = isTreasury;
-        a.perTradeCap = perTrade;
-        a.perMandateCap = perMandate;
-        a.totalCap = total;
+        a.isStock = !term.isTreasury;
+        a.isTreasury = term.isTreasury;
+        a.perTradeCap = term.perTradeCap;
+        a.perMandateCap = term.perMandateCap;
+        a.totalCap = term.totalCap;
+        a.pool = pool(token, usdg, term.fee, term.tickSpacing);
+    }
+
+    /// The key v4 files the pool under: the lower address is `currency0`.
+    function pool(address token, address usdg, uint24 fee, int24 tickSpacing) internal pure returns (PoolKey memory) {
+        (address c0, address c1) = token < usdg ? (token, usdg) : (usdg, token);
+        return PoolKey({currency0: c0, currency1: c1, fee: fee, tickSpacing: tickSpacing, hooks: address(0)});
     }
 }

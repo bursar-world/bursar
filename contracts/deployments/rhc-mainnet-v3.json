@@ -1,0 +1,69 @@
+{
+  "$schema": "./schema.json",
+  "network": "rhc-mainnet-v3",
+  "chainId": 4663,
+  "status": "planned",
+  "dev": true,
+  "rpc": "https://rpc.mainnet.chain.robinhood.com",
+  "explorer": "https://robinhoodchain.blockscout.com",
+  "settlementAsset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+  "settlementDecimals": 6,
+  "supersedes": "rhc-mainnet-v2",
+  "deployer": "0x6B6fC40Ed9652728A9B620C4e1B05fBF4F9712a4",
+  "note": "Robinhood Chain mainnet, contract set v3: the hardened set, deployed as a development build with a one-hour timelock. BRSR and Vesting carry over from rhc-mainnet-token and the Poseidon libraries from rhc-mainnet-v2; every other contract is new. Each deploy script writes its own section as it runs, and status turns live when the migration's last step retires the records this one replaces.",
+  "external": {
+    "PoolManager": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+    "StateView": "0xF3334192D15450CdD385c8B70e03f9A6bD9E673b",
+    "AccessRegistry": "0xe10b6f6B275de231345c20D14Ab812db62151b00",
+    "PoseidonT3": "0xf967B532757ae8DfE2F9a82F956fE04730A666bA",
+    "PoseidonT4": "0xD483B2384ed0DC1395dEb401b673f8d36362757b",
+    "assets": {
+      "SGOV": {
+        "address": "0x92FD66527192E3e61d4DDd13322Aa222DE86F9B5",
+        "feed": "0xa0DF4ee0fFf975306345875E3548Fcc519577A11",
+        "kind": "treasury",
+        "poolId": "0x2a72510d7d92cc121f9733ab6d14227ef8963cfadf9d40ac574f02e20e6299a8"
+      },
+      "SPY": {
+        "address": "0x117cc2133c37B721F49dE2A7a74833232B3B4C0C",
+        "feed": "0x319724394D3A0e3669269846abE664Cd621f9f6A",
+        "kind": "stock",
+        "poolId": "0xe5923c8a8be481ec89a2ca784a2bbfa4235de6d88f92260fd66b660c4babf907"
+      },
+      "NVDA": {
+        "address": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+        "feed": "0x379EC4f7C378F34a1B47E4F3cbeBCbAC3E8E9F15",
+        "kind": "stock",
+        "poolId": "0x6444a8e0b267406a15db74ca00c4a24bdfa81ed3180f5b6d0851f8ed6f4f29c5"
+      },
+      "AAPL": {
+        "address": "0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9",
+        "feed": "0x6B22A786bAa607d76728168703a39Ea9C99f2cD0",
+        "kind": "stock",
+        "poolId": "0xc748f4671a867db48b552f6b7650bf3255e05f80f00e3f7aad1b17ccb7898fdb"
+      }
+    }
+  },
+  "roles": {
+    "timelockSigners": [
+      "0xb51c63568324848DfC88A09f91F06fA86771aB69",
+      "0x3C7facc7C72c3aCeB2EF93703813652aC9039266",
+      "0x1f3eE000728EF363B9F867f88BBF618F2A17c42d"
+    ],
+    "guardian": "0x7cfF32B8B4DB47E2Cde5907c8F5c93EC6a095E2A",
+    "treasury": "0x7f2D3be9597fb538BDBA3Dbcb9BEcECCD9056d21",
+    "slashSink": "0xb4A7D77a710f6b1fF4cDDd9D3c9b66E3f917A4FF",
+    "liquidity": "0x0DF776dBD1Ce5A8F38993Bc98bc3D81661FA51B2",
+    "resolvers": [
+      "0xD8D90e4c8f3419B1b8305dF2905eb31d3fBBf599",
+      "0xC284CdA6c6982447f202830f4e969F13cBcB0b94",
+      "0x7062A480732EC7B0F00a3D0c968356e1671dd356"
+    ]
+  },
+  "contracts": {},
+  "token": {
+    "BRSR": "0x00e503925880c4b07E5Fb70232D83aD871F57a7d",
+    "Vesting": "0x5aD3d29C80C1617F3B195d74D593Bc9839681b2F"
+  },
+  "verifiedOnChain": {}
+}

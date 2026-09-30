@@ -1,6 +1,7 @@
 {
   "network": "rhc-mainnet",
   "chainId": 4663,
+  "status": "live",
   "rpc": "https://rpc.mainnet.chain.robinhood.com",
   "rpcUsedForThisRun": "https://rpc.mainnet.chain.robinhood.com",
   "explorer": "https://robinhoodchain.blockscout.com",
@@ -14,6 +15,7 @@
     "Vesting": "0x5aD3d29C80C1617F3B195d74D593Bc9839681b2F",
     "Staking": "0x3f2a0E7822B30aD928488F053348b137866Cf962",
     "Buyback": "0xE979a30564a6F15DCCdB5488d5ac0D74a1bda6F0",
+    "V4LiquiditySeeder": "0xB3caCD9ce86F12a85cB5dbeEBFFb41a1C848AD5f",
     "PoolManager": "0x8366a39CC670B4001A1121B8F6A443A643e40951"
   },
   "roles": {
@@ -56,8 +58,8 @@
     "why these figures": "Sized to the float Release 1 actually has rather than to the round numbers in contracts/script/TOKEN-README.md. The buyback can only spend what has been transferred to it, the pool will be seeded with single-digit USDG, and a per-call target above the balance would never be the binding constraint. All six move on a Buyback.setParams proposal; only the pool identity is frozen."
   },
   "pool": {
-    "state": "not initialised",
-    "liquidity": "none",
+    "state": "seeded on 2026-09-29 at 200 micro-USD per BRSR: 25 USDG against about 125,000 BRSR over the full range, through contracts.V4LiquiditySeeder, which the liquidity key owns",
+    "liquidity": "1767766952966368, all of it the seeder's position",
     "id": "0x95bdade638ae86f8f1e424a2561796dd3aea34d75f594bd03cdb8d9e615ec765",
     "key": {
       "currency0": "0x00e503925880c4b07E5Fb70232D83aD871F57a7d",

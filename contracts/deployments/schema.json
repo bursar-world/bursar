@@ -1,0 +1,291 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/bursar-world/bursar/contracts/deployments/schema.json",
+  "title": "Bursar deployment record",
+  "description": "One deployment of the Bursar contracts on one chain. The deploy scripts read the addresses they build on from a record and write their own into it; the verify scripts hold the chain to it. Each section covers one part of the deployment: the contracts it holds, the operators that part answers to, and the block it started at. Records of earlier deployments keep the history they were written with, so every section also accepts fields this schema does not describe.",
+  "type": "object",
+  "required": ["network", "chainId", "status", "settlementAsset", "settlementDecimals"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "network": {
+      "description": "The record's name, which is its file name without the extension.",
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$"
+    },
+    "chainId": { "type": "integer", "minimum": 1 },
+    "status": {
+      "description": "planned: some or all of the contracts are not deployed yet. live: the deployment answers for its chain. superseded: a newer record answers for the chain, and this one is still readable because its contracts still hold money. retired: kept as the account of what ran, never looked up by chain again.",
+      "enum": ["planned", "live", "superseded", "retired"]
+    },
+    "local": {
+      "description": "A rehearsal on a local chain. Scripts accept such a record only with BURSAR_LOCAL=1, and refuse it without.",
+      "type": "boolean"
+    },
+    "dev": {
+      "description": "A development deployment: live on its chain, with settings that change before launch.",
+      "type": "boolean"
+    },
+    "rpc": { "type": "string" },
+    "explorer": { "type": "string" },
+    "settlementAsset": { "$ref": "#/$defs/address" },
+    "settlementDecimals": {
+      "description": "Always six. Every amount is in micro-USD.",
+      "const": 6
+    },
+    "supersedes": {
+      "description": "The record this one replaced on its chain.",
+      "type": "string"
+    },
+    "supersededBy": {
+      "description": "The record that replaced this one.",
+      "type": "string"
+    },
+    "retired": {
+      "description": "Why this record is history, in a sentence. Present when status is retired.",
+      "type": "string"
+    },
+    "deployer": {
+      "description": "The key every deploy script signs with. The one-shot setters answer only to it.",
+      "$ref": "#/$defs/address"
+    },
+    "fromBlock": {
+      "description": "The first block of the deployment, for readers that scan events.",
+      "$ref": "#/$defs/block"
+    },
+    "note": { "type": "string" },
+    "external": {
+      "description": "Contracts on the chain that this deployment uses and did not deploy, or carries over from an earlier one.",
+      "type": "object",
+      "properties": {
+        "PoolManager": { "$ref": "#/$defs/address" },
+        "StateView": { "$ref": "#/$defs/address" },
+        "AccessRegistry": { "$ref": "#/$defs/address" },
+        "PoseidonT3": { "$ref": "#/$defs/address" },
+        "PoseidonT4": { "$ref": "#/$defs/address" },
+        "assets": {
+          "description": "The tokenized assets the RWA lane may hold, by symbol.",
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/asset" }
+        }
+      }
+    },
+    "roles": {
+      "description": "Who holds each governance and treasury role.",
+      "type": "object",
+      "properties": {
+        "timelockSigners": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/address" },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "guardian": { "$ref": "#/$defs/address" },
+        "treasury": { "$ref": "#/$defs/address" },
+        "slashSink": { "$ref": "#/$defs/address" },
+        "liquidity": { "$ref": "#/$defs/address" },
+        "community": { "$ref": "#/$defs/address" },
+        "resolvers": {
+          "description": "The vetted resolvers governance gives a bond floor to.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/address" }
+        }
+      }
+    },
+    "contracts": {
+      "description": "The core set: governance, escrow, reputation, the dispute and agent registries, and the mandate factory.",
+      "type": "object",
+      "properties": {
+        "AdminTimelock": { "$ref": "#/$defs/address" },
+        "Reputation": { "$ref": "#/$defs/address" },
+        "Escrow": { "$ref": "#/$defs/address" },
+        "OracleRegistry": { "$ref": "#/$defs/address" },
+        "AgentRegistry": { "$ref": "#/$defs/address" },
+        "MandateAccountFactory": { "$ref": "#/$defs/address" }
+      },
+      "additionalProperties": { "$ref": "#/$defs/address" }
+    },
+    "token": {
+      "description": "BRSR, its vesting, the staking pool, the buyback and the seeder that holds the BRSR/USDG position.",
+      "type": "object",
+      "properties": {
+        "BRSR": { "$ref": "#/$defs/address" },
+        "Vesting": { "$ref": "#/$defs/address" },
+        "Staking": { "$ref": "#/$defs/address" },
+        "Buyback": { "$ref": "#/$defs/address" },
+        "V4LiquiditySeeder": { "$ref": "#/$defs/address" },
+        "keeper": {
+          "description": "The address governance names as the buyback's keeper.",
+          "$ref": "#/$defs/address"
+        },
+        "poolId": { "$ref": "#/$defs/bytes32" },
+        "fromBlock": { "$ref": "#/$defs/block" }
+      }
+    },
+    "rwa": {
+      "description": "The asset registry, the price guard, stock purchases and the treasury park, with the collateral lane nested inside.",
+      "type": "object",
+      "required": ["AssetRegistry", "PriceGuard", "StockSpendRouter", "TreasuryPark", "adapters", "assets"],
+      "properties": {
+        "AssetRegistry": { "$ref": "#/$defs/address" },
+        "PriceGuard": { "$ref": "#/$defs/address" },
+        "StockSpendRouter": { "$ref": "#/$defs/address" },
+        "TreasuryPark": { "$ref": "#/$defs/address" },
+        "adapters": {
+          "description": "The park's adapter for each asset it parks in, by symbol.",
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/address" }
+        },
+        "assets": {
+          "description": "What the registry was deployed with, by symbol. The registry itself is the authority.",
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/asset" }
+        },
+        "fromBlock": { "$ref": "#/$defs/block" },
+        "collateral": {
+          "type": "object",
+          "required": ["CreditPool", "CollateralVault", "Staking", "fromBlock"],
+          "properties": {
+            "CreditPool": { "$ref": "#/$defs/address" },
+            "CollateralVault": { "$ref": "#/$defs/address" },
+            "Staking": {
+              "description": "Where the spread is paid and write-offs are slashed.",
+              "$ref": "#/$defs/address"
+            },
+            "lender": {
+              "description": "The only address that can take unlent cash back out of the credit pool.",
+              "$ref": "#/$defs/address"
+            },
+            "fromBlock": { "$ref": "#/$defs/block" }
+          }
+        }
+      }
+    },
+    "privacy": {
+      "description": "Committed mandates, disclosure grants and the solvency log, with shielded settlement nested inside.",
+      "type": "object",
+      "required": ["WithinMandateVerifier", "CommittedMandateFactory", "DisclosureRegistry", "SolvencyLog", "fromBlock"],
+      "properties": {
+        "WithinMandateVerifier": { "$ref": "#/$defs/address" },
+        "CommittedMandateFactory": { "$ref": "#/$defs/address" },
+        "DisclosureRegistry": { "$ref": "#/$defs/address" },
+        "SolvencyLog": { "$ref": "#/$defs/address" },
+        "solvencyPoster": { "$ref": "#/$defs/address" },
+        "fromBlock": { "$ref": "#/$defs/block" },
+        "shielded": {
+          "type": "object",
+          "required": [
+            "Entrypoint",
+            "ShieldedPool",
+            "ShieldedRelay",
+            "WithdrawalVerifier",
+            "CommitmentVerifier",
+            "AccessRegistry",
+            "asset",
+            "scope",
+            "maxDeposit",
+            "maxTotal",
+            "minimumDeposit",
+            "maxRelayFeeBps",
+            "aspPostman",
+            "relayer",
+            "fromBlock"
+          ],
+          "properties": {
+            "PoseidonT3": { "$ref": "#/$defs/address" },
+            "PoseidonT4": { "$ref": "#/$defs/address" },
+            "WithdrawalVerifier": { "$ref": "#/$defs/address" },
+            "CommitmentVerifier": { "$ref": "#/$defs/address" },
+            "EntrypointImplementation": { "$ref": "#/$defs/address" },
+            "Entrypoint": { "$ref": "#/$defs/address" },
+            "ShieldedPool": { "$ref": "#/$defs/address" },
+            "ShieldedRelay": { "$ref": "#/$defs/address" },
+            "AccessRegistry": { "$ref": "#/$defs/address" },
+            "asset": { "$ref": "#/$defs/address" },
+            "scope": { "$ref": "#/$defs/decimal" },
+            "maxDeposit": { "$ref": "#/$defs/decimal" },
+            "maxTotal": { "$ref": "#/$defs/decimal" },
+            "minimumDeposit": { "$ref": "#/$defs/decimal" },
+            "vettingFeeBps": { "$ref": "#/$defs/bps" },
+            "maxRelayFeeBps": { "$ref": "#/$defs/bps" },
+            "aspPostman": { "$ref": "#/$defs/address" },
+            "relayer": { "$ref": "#/$defs/address" },
+            "fromBlock": { "$ref": "#/$defs/block" }
+          }
+        }
+      }
+    },
+    "parameters": {
+      "description": "The figures each contract was deployed with, as applied, keyed by contract name. Durations are seconds and rates basis points, as numbers; amounts are decimal strings in the token's smallest unit. Records written before the deploy scripts kept this section hold one flat note per figure instead.",
+      "type": "object",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": {
+              "oneOf": [
+                { "type": "integer", "minimum": 0 },
+                { "$ref": "#/$defs/decimal" },
+                { "$ref": "#/$defs/address" },
+                { "type": "array", "items": { "$ref": "#/$defs/address" } }
+              ]
+            }
+          },
+          { "type": ["string", "number"] }
+        ]
+      }
+    },
+    "verifiedOnChain": {
+      "description": "State read back from the chain after an earlier deploy, keyed as contract.field. The verify scripts are the readback for later records.",
+      "type": "object",
+      "additionalProperties": { "type": ["string", "number"] }
+    },
+    "exampleMandate": { "$ref": "#/$defs/example" },
+    "exampleCollateralMandate": { "$ref": "#/$defs/example" },
+    "exampleCommittedMandate": { "$ref": "#/$defs/example" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "retired" } } },
+      "then": { "required": ["retired"] }
+    },
+    {
+      "if": { "properties": { "status": { "const": "superseded" } } },
+      "then": { "required": ["supersededBy"] }
+    }
+  ],
+  "$defs": {
+    "address": { "type": "string", "pattern": "^0x[0-9a-fA-F]{40}$" },
+    "bytes32": { "type": "string", "pattern": "^0x[0-9a-fA-F]{64}$" },
+    "decimal": { "type": "string", "pattern": "^[0-9]+$" },
+    "block": { "type": "integer", "minimum": 0 },
+    "bps": { "type": "integer", "minimum": 0, "maximum": 10000 },
+    "asset": {
+      "type": "object",
+      "required": ["address", "feed", "kind"],
+      "properties": {
+        "address": { "$ref": "#/$defs/address" },
+        "feed": {
+          "description": "The Chainlink aggregator proxy that prices one raw token, eight decimals.",
+          "$ref": "#/$defs/address"
+        },
+        "kind": { "enum": ["stock", "treasury"] },
+        "poolId": {
+          "description": "The id of the pinned v4 pool as measured on chain. The RWA deploy refuses a pool key that does not hash to it.",
+          "$ref": "#/$defs/bytes32"
+        }
+      }
+    },
+    "example": {
+      "description": "A public mandate kept for anyone to read.",
+      "type": "object",
+      "required": ["address"],
+      "properties": {
+        "address": { "$ref": "#/$defs/address" },
+        "principal": { "$ref": "#/$defs/address" },
+        "agent": { "$ref": "#/$defs/address" },
+        "factory": { "$ref": "#/$defs/address" },
+        "salt": { "type": "string" }
+      }
+    }
+  }
+}
