@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BaseError, RawContractError, decodeFunctionData, toFunctionSelector } from 'viem';
+import { BaseError, RawContractError, decodeFunctionData, erc20Abi, toFunctionSelector } from 'viem';
 import type { Hex } from 'viem';
 import { agentRegistryAbi } from '@bursar/core';
 
@@ -50,6 +50,8 @@ function answers(overrides: Record<string, unknown> = {}) {
         return 115_000_000n;
       case 'curve':
         return CURVE;
+      case 'allowance':
+        return 2n ** 255n;
       default:
         return undefined;
     }
@@ -126,6 +128,31 @@ describe('a provider getting listed and staying listed', () => {
     expect(status.withdrawal?.amount).toBe(10_000_000n);
     expect(status.withdrawal?.maturesAt.toISOString()).toBe(new Date(Number(NOW + 604_800n) * 1000).toISOString());
     expect(status.next).toContain('stays slashable until it leaves');
+  });
+
+  it('approves the registry for exactly the stake when the signer has not, then registers', async () => {
+    const { provider: desk, sent, account } = await client({ read: answers({ allowance: 0n }) });
+
+    await desk.register({ name: 'render_farm', stake: 25_000_000n as never });
+
+    expect(sent.map((transaction) => transaction.to)).toEqual([ADDRESSES.settlementAsset, ADDRESSES.agentRegistry]);
+    const approval = decodeFunctionData({ abi: erc20Abi, data: sent[0]?.data ?? '0x' });
+    expect(approval.functionName).toBe('approve');
+    expect(approval.args).toEqual([ADDRESSES.agentRegistry, 25_000_000n]);
+    expect(decodeFunctionData({ abi: agentRegistryAbi, data: sent[1]?.data ?? '0x' }).args).toEqual([
+      'render_farm',
+      25_000_000n,
+    ]);
+    expect(account.address).toBeDefined();
+  });
+
+  it('refuses a name outside 3 to 32 letters, digits and underscores before anything is sent', async () => {
+    const { provider: desk, sent } = await client({ read: answers({ allowance: 0n }) });
+
+    for (const name of ['ab', 'render farm', 'render-farm', 'r'.repeat(33), 'réndér']) {
+      await expect(desk.register({ name, stake: 25_000_000n as never })).rejects.toBeInstanceOf(InvalidArgumentError);
+    }
+    expect(sent).toHaveLength(0);
   });
 
   it('encodes every step of the lifecycle against the registry', async () => {

@@ -16,6 +16,7 @@ import type { Address, Chain, GetContractReturnType, Hex, PublicClient, Transpor
 import { agentRegistryAbi, escrowAbi, micro, reputationAbi } from '@bursar/core';
 import type { Micro } from '@bursar/core';
 
+import { approveIfShort } from './allowance.js';
 import { connectFor, requireSigner, type Connection, type ConnectOptions } from './connection.js';
 import { CallRefusedError, InvalidArgumentError } from './errors.js';
 import { formatDuration, toDate, usd } from './format.js';
@@ -189,29 +190,33 @@ export class ProviderClient {
   }
 
   /**
-   * Joins the registry with a stake pulled from the signer, which has to have approved the
-   * registry for it first. The name is a display handle: it is not unique and nothing resolves it.
+   * Joins the registry with a stake pulled from the signer. When the signer has not approved the
+   * registry for the stake, the approval for exactly that amount is sent first. The name is a
+   * display handle of 3 to 32 letters, digits and underscores: it is not unique and nothing
+   * resolves it.
    */
   async register(args: { name: string; stake: Micro }): Promise<Sent> {
+    const name = checkName(args.name);
+    const stake = checkPositiveAmount('stake', args.stake);
+    await this.#approve(stake, 'register');
+
     return this.#send(
       'register',
-      encodeFunctionData({
-        abi: agentRegistryAbi,
-        functionName: 'register',
-        args: [checkName(args.name), checkPositiveAmount('stake', args.stake)],
-      }),
+      encodeFunctionData({ abi: agentRegistryAbi, functionName: 'register', args: [name, stake] }),
     );
   }
 
-  /** Adds collateral. It also cancels a withdrawal already asked for, which the registry does itself. */
+  /**
+   * Adds collateral, approving the registry for it first when the allowance is short. It also
+   * cancels a withdrawal already asked for, which the registry does itself.
+   */
   async addStake(amount: Micro): Promise<Sent> {
+    const stake = checkPositiveAmount('amount', amount);
+    await this.#approve(stake, 'addStake');
+
     return this.#send(
       'addStake',
-      encodeFunctionData({
-        abi: agentRegistryAbi,
-        functionName: 'addStake',
-        args: [checkPositiveAmount('amount', amount)],
-      }),
+      encodeFunctionData({ abi: agentRegistryAbi, functionName: 'addStake', args: [stake] }),
     );
   }
 
@@ -267,6 +272,10 @@ export class ProviderClient {
 
   #send(action: string, data: Hex): Promise<Sent> {
     return sendCall(this.connection, { to: this.address, data, action, explain: this.#explain(action) });
+  }
+
+  async #approve(amount: Micro, action: string): Promise<void> {
+    await approveIfShort(this.connection, { token: this.stakeAsset, spender: this.address, amount, action });
   }
 
   #explain(action: string): ExplainRevert {

@@ -14,6 +14,7 @@ import type { Address, Chain, GetContractReturnType, Hex, PublicClient, Transpor
 import { escrowAbi, micro, oracleRegistryAbi } from '@bursar/core';
 import type { Micro } from '@bursar/core';
 
+import { approveIfShort } from './allowance.js';
 import { brsr, formatBrsr, type Brsr } from './brsr.js';
 import { connectFor, requireSigner, type Connection, type ConnectOptions } from './connection.js';
 import { DisputePhase, readTerms, type DisputeTerms } from './dispute.js';
@@ -307,27 +308,31 @@ export class ResolverClient {
     );
   }
 
-  /** Joins the roster with a bond in BRSR. The pool has to be willing to accept it from this address. */
+  /**
+   * Joins the roster with a bond in BRSR, approving the registry for it first when the allowance
+   * is short. The staking pool has to be willing to accept it from this address.
+   */
   async bond(amount: Brsr): Promise<Sent> {
+    const bond = this.#bondAmount('bond', amount);
+    await this.#approve(bond, 'bond');
+
     return this.#send(
       'register',
-      encodeFunctionData({
-        abi: oracleRegistryAbi,
-        functionName: 'register',
-        args: [this.#bondAmount('bond', amount)],
-      }),
+      encodeFunctionData({ abi: oracleRegistryAbi, functionName: 'register', args: [bond] }),
     );
   }
 
-  /** Tops the bond back up. The total has to clear the floor, not the increment. */
+  /**
+   * Tops the bond back up, approving the registry for the increment first when the allowance is
+   * short. The total has to clear the floor, not the increment.
+   */
   async increaseBond(amount: Brsr): Promise<Sent> {
+    const increment = this.#bondAmount('amount', amount);
+    await this.#approve(increment, 'increaseBond');
+
     return this.#send(
       'increaseBond',
-      encodeFunctionData({
-        abi: oracleRegistryAbi,
-        functionName: 'increaseBond',
-        args: [this.#bondAmount('amount', amount)],
-      }),
+      encodeFunctionData({ abi: oracleRegistryAbi, functionName: 'increaseBond', args: [increment] }),
     );
   }
 
@@ -513,6 +518,10 @@ export class ResolverClient {
     }
 
     return checked;
+  }
+
+  async #approve(amount: bigint, action: string): Promise<void> {
+    await approveIfShort(this.connection, { token: this.bondAsset, spender: this.address, amount, action });
   }
 
   async #floor(resolver: Address): Promise<Brsr> {

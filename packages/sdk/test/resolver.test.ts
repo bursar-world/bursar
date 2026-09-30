@@ -4,6 +4,7 @@ import {
   RawContractError,
   decodeFunctionData,
   encodeAbiParameters,
+  erc20Abi,
   encodeErrorResult,
   encodeEventTopics,
   toFunctionSelector,
@@ -92,6 +93,8 @@ function answers(overrides: Record<string, unknown> = {}, voter?: Address) {
         return 25_000n * 10n ** 18n;
       case 'isBondable':
         return true;
+      case 'allowance':
+        return 2n ** 255n;
       case 'nextDisputeId':
         return 5n;
       case 'getDispute':
@@ -409,6 +412,18 @@ describe('what a resolver sees and does', () => {
     const { resolver: bonded } = await client(() => ({ logs: [] }));
 
     expect((await bonded.claimRewards()).amount).toBe(1_250_000n);
+  });
+
+  it('approves the registry for exactly the bond in BRSR when the signer has not, then bonds', async () => {
+    const { resolver: bonded, sent } = await client((account) => ({ read: answers({ allowance: 0n }, account) }));
+
+    await bonded.bond(25_000n * 10n ** 18n as never);
+
+    expect(sent.map((transaction) => transaction.to)).toEqual([BRSR, ADDRESSES.oracleRegistry]);
+    const approval = decodeFunctionData({ abi: erc20Abi, data: sent[0]?.data ?? '0x' });
+    expect(approval.functionName).toBe('approve');
+    expect(approval.args).toEqual([ADDRESSES.oracleRegistry, 25_000n * 10n ** 18n]);
+    expect(decodeFunctionData({ abi: oracleRegistryAbi, data: sent[1]?.data ?? '0x' }).functionName).toBe('register');
   });
 
   it('refuses a bond of nothing before it costs a transaction', async () => {
