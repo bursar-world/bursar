@@ -193,8 +193,9 @@ const consent = await principal.signApproval({
 await mandate.pay({ to: provider, amount: usdg('480'), capability: 'gpu.render:1', approval: consent });
 ```
 
-The approval is single use and expires on its own. The signed amount is a ceiling, so a quote that
-settles under it still clears.
+The approval is single use and expires on its own. Once used or revoked, its id stays burned for the
+life of the account, even across a change of principal. The signed amount is a ceiling, so a quote
+that settles under it still clears.
 
 ## Paying over HTTP
 
