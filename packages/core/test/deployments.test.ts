@@ -390,6 +390,18 @@ describe('retired deployments', () => {
     expect(book.deploymentForChain(EXAMPLE_CHAIN).network).toBe('example-net');
   });
 
+  it('names the newest record on a chain whose records are all retired, with its reason once', async () => {
+    const retired = { status: 'retired', retired: RETIRED_REASON };
+    const v1 = { ...raw, ...retired };
+    const v2 = { ...raw, ...retired, network: 'example-net-v2', supersedes: 'example-net' };
+    const book = await withAddressBook({ 'example-net': v1, 'example-net-v2': v2 });
+    const error = capture(() => book.deploymentForChain(EXAMPLE_CHAIN)) as BursarError;
+
+    expect(error.code).toBe('deployment_retired');
+    expect(error.message.startsWith(`No live record for chain ${EXAMPLE_CHAIN}. "example-net-v2" is retired. ${RETIRED_REASON} `)).toBe(true);
+    expect(error.message.split(RETIRED_REASON)).toHaveLength(2);
+  });
+
   it('is not counted among the live deployments', async () => {
     const book = await withAddressBook({ 'example-net': raw, 'example-old': retiredRecord() });
     const live = book.liveDeployments().map((d) => d.network);

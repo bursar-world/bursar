@@ -144,13 +144,18 @@ export function deploymentForChain(chainId: number): Deployment {
   const found = answering(chainId);
   if (found) return found;
 
-  const retired = Object.values(DEPLOYMENTS).find((d) => d.chainId === chainId);
-  if (retired) {
+  // The newest record is the one no other record on the chain supersedes.
+  const onChain = Object.values(DEPLOYMENTS).filter((d) => d.chainId === chainId);
+  const newest = onChain.find((d) => !onChain.some((other) => other.supersedes === nameOf(d))) ?? onChain[0];
+  if (newest) {
+    const state =
+      newest.status === 'superseded'
+        ? `is superseded by "${newest.supersededBy ?? 'a newer record'}", which this address book does not carry.`
+        : `is retired.${newest.retired === undefined ? '' : ` ${newest.retired}`}`;
     throw new BursarError(
       'deployment_retired',
-      `The only record for chain ${chainId} is "${retired.network}", which is retired: ` +
-        `${retired.retired ?? 'superseded'} ${REGENERATE}`,
-      { chainId, network: retired.network, retired: retired.retired },
+      `No live record for chain ${chainId}. "${newest.network}" ${state} ${REGENERATE}`,
+      { chainId, network: newest.network, retired: newest.retired },
     );
   }
 
