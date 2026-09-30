@@ -5,6 +5,7 @@ import {
   ContractFunctionZeroDataError,
   RawContractError,
   decodeFunctionData,
+  domainSeparator,
   encodeAbiParameters,
   encodeEventTopics,
   toFunctionSelector,
@@ -19,6 +20,7 @@ import {
   MandateDeniedError,
   NotAMandateAccountError,
 } from '../src/errors.js';
+import { mandateDomain } from '../src/authorization.js';
 import { canonicalStringify, capabilityId, commitCanonical, toDataUri } from '../src/commit.js';
 import { encodeLimits, mandateAccount } from '../src/mandate.js';
 import { usdg } from '../src/money.js';
@@ -882,6 +884,78 @@ describe('spend classes', () => {
       capabilityId('hire:gpu.render:1'),
       capabilityId('rwa:aapl:1'),
     ]);
+  });
+
+  /**
+   * The README allows `gpu.render:1` and then pays under it. `pay` spends under `service:`, so an
+   * allowlist keyed any other way reads as allowed and refuses the payment.
+   */
+  it('allows a bare label under the service class, the id pay then spends under', async () => {
+    const { mandate, sent } = await client({ logs: [spentLog(7n)] });
+
+    await mandate.setCapability(CAPABILITY, true);
+    const receipt = await mandate.pay({ to: PROVIDER, amount: usdg('1.00'), capability: CAPABILITY });
+
+    const allowed = decodeFunctionData({ abi: mandateAccountAbi, data: sent[0]?.data ?? '0x' });
+    expect(allowed.functionName).toBe('setCapability');
+    expect(allowed.args).toEqual([capabilityId('service:gpu.render:1'), true]);
+    expect(receipt.capabilityId).toBe(allowed.args?.[0]);
+  });
+
+  it('keeps an explicit hire or rwa label in its class, and a 32-byte id as given', async () => {
+    const { mandate, sent } = await client();
+    const id = capabilityId('some.label:1');
+
+    await mandate.setCapability('hire:research.summarize:1', true);
+    await mandate.setCapability('rwa:SPY', false);
+    await mandate.setCapability(id, true);
+    await mandate.setCapability('  service:gpu.render:1 ', true);
+
+    const stored = sent.map((transaction) => decodeFunctionData({ abi: mandateAccountAbi, data: transaction.data }).args);
+
+    expect(stored).toEqual([
+      [capabilityId('hire:research.summarize:1'), true],
+      [capabilityId('rwa:SPY'), false],
+      [id, true],
+      [capabilityId('service:gpu.render:1'), true],
+    ]);
+  });
+
+  it('reads the allowlist the way pay and hire spend', async () => {
+    const asked: Hex[] = [];
+    const read = answers();
+    const { mandate } = await client({
+      read: (call) => {
+        if (call.functionName === 'capabilities') {
+          asked.push(call.args[0] as Hex);
+          return call.args[0] === capabilityId('service:gpu.render:1');
+        }
+        return read(call);
+      },
+    });
+
+    expect(await mandate.allowsCapability(CAPABILITY)).toBe(true);
+    expect(await mandate.allowsCapability('service:gpu.render:1')).toBe(true);
+    expect(await mandate.allowsCapability('hire:gpu.render:1')).toBe(false);
+    expect(asked).toEqual([
+      capabilityId('service:gpu.render:1'),
+      capabilityId('service:gpu.render:1'),
+      capabilityId('hire:gpu.render:1'),
+    ]);
+  });
+
+  it('signs an approval for the capability id pay will carry', async () => {
+    const separator = domainSeparator({ domain: mandateDomain(ACCOUNT, RHC_MAINNET.chainId) });
+    const { mandate } = await client({ read: answers({ DOMAIN_SEPARATOR: separator }) });
+
+    const consent = await mandate.signApproval({
+      merchant: PROVIDER,
+      capability: CAPABILITY,
+      amount: usdg('30'),
+      expiry: CHAIN_NOW + 3_600n,
+    });
+
+    expect(consent.approval.capabilityId).toBe(capabilityId('service:gpu.render:1'));
   });
 });
 

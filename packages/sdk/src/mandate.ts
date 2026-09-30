@@ -574,8 +574,12 @@ export class MandateAccountClient {
     return this.#account.read.merchants([checkAddress('merchant', merchant)]);
   }
 
+  /**
+   * Whether `pay` or `hire` may spend on a capability, read the way they spend: a bare label is a
+   * service, `hire:` and `rwa:` labels are read as written, and a 32-byte id is taken as it is.
+   */
   async allowsCapability(capability: string): Promise<boolean> {
-    return this.#account.read.capabilities([toCapabilityId(checkCapability('capability', capability))]);
+    return this.#account.read.capabilities([allowedCapabilityId(capability)]);
   }
 
   /** The Merkle leaf for a merchant, for building a roster off chain. */
@@ -1044,13 +1048,19 @@ export class MandateAccountClient {
     );
   }
 
+  /**
+   * Allows or refuses one capability, keyed the way `pay` and `hire` spend on it. A bare label such
+   * as `gpu.render:1` is allowed as a service, which is the class `pay` spends in. A hire is named
+   * `hire:research.summarize:1`, and a label already carrying a class is stored as written. A 32-byte
+   * id is stored as given.
+   */
   async setCapability(capability: string, allowed: boolean): Promise<Sent> {
     return this.#send(
       'setCapability',
       encodeFunctionData({
         abi: mandateAccountAbi,
         functionName: 'setCapability',
-        args: [toCapabilityId(checkCapability('capability', capability)), allowed],
+        args: [allowedCapabilityId(capability), allowed],
       }),
     );
   }
@@ -1180,7 +1190,9 @@ export class MandateAccountClient {
    * Signs consent for one spend at or above the approval threshold.
    *
    * The result is handed to the agent and carried into `pay`. Nothing reaches the chain until the
-   * spend does, so an approval that is never used costs nothing and expires on its own.
+   * spend does, so an approval that is never used costs nothing and expires on its own. The
+   * capability is read as `pay` reads it, so a bare label consents to a service; consent to a hire
+   * names it with the `hire:` prefix.
    */
   async signApproval(input: {
     merchant: Address;
@@ -1192,7 +1204,7 @@ export class MandateAccountClient {
     const approval = checkApproval({
       approvalId: input.approvalId ?? random32(),
       merchant: input.merchant,
-      capabilityId: toCapabilityId(checkCapability('capability', input.capability)),
+      capabilityId: allowedCapabilityId(input.capability),
       amount: input.amount,
       expiry: toSeconds('expiry', input.expiry),
     });
@@ -1708,6 +1720,18 @@ function belowMinLock(amount: Micro, minLock: Micro): string {
     'keeps every payment large enough that contesting it costs a bond. Nothing was sent; pay at ' +
     'least the floor.'
   );
+}
+
+/**
+ * The id an allowlist entry or an approval is keyed by, under the rule `pay` spends by. A bare
+ * label is a service, a label already in a class stays in it, and a 32-byte id is taken as the id it
+ * is, since an id cannot be read back to a class.
+ */
+function allowedCapabilityId(capability: string): Hex {
+  const written = checkCapability('capability', capability).trim();
+  if (/^0x[0-9a-fA-F]{64}$/u.test(written)) return written as Hex;
+
+  return toCapabilityId(classOfLabel(written) === undefined ? spendLabel('service', written) : written);
 }
 
 /**
