@@ -12,6 +12,34 @@ updates:
         update-types:
           - minor
           - patch
+    # A major version of the framework, the wallet stack, the compiler, the test runner or the
+    # runtime's types is an upgrade someone plans, not a weekly bump. @types/node follows the Node
+    # version in .nvmrc.
+    ignore:
+      - dependency-name: next
+        update-types: ['version-update:semver-major']
+      - dependency-name: react
+        update-types: ['version-update:semver-major']
+      - dependency-name: react-dom
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@types/react'
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@types/react-dom'
+        update-types: ['version-update:semver-major']
+      - dependency-name: tailwindcss
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@tailwindcss/postcss'
+        update-types: ['version-update:semver-major']
+      - dependency-name: wagmi
+        update-types: ['version-update:semver-major']
+      - dependency-name: viem
+        update-types: ['version-update:semver-major']
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
+      - dependency-name: vitest
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
 
   - package-ecosystem: github-actions
     directory: /
