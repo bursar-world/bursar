@@ -1,11 +1,17 @@
 # Ruling policy
 
 Version 2, in force from 30 September 2026. It covers disputes heard by the Bursar dispute
-registries on Robinhood Chain (chain 4663). Today the second set of contracts takes new payments,
-and the first set settles the disputes still open on it. Once the third set is live, it takes new
-payments and the second set settles what is open on it. The status page, at
-`https://app.bursar.world/status`, lists the current payment contracts and each earlier set, with
-the registry and escrow of each.
+registries on Robinhood Chain (chain 4663). The third set of contracts takes new payments, and the
+second and first sets settle the disputes still open on them:
+
+| Set | Registry | Escrow |
+|---|---|---|
+| v3, current (development deployment) | `0x20E75139996fFf7B3158DF28Bf133b326DCD2BdF` | `0x68D4aD683b5519C785Dde9F0ee0eE09dB2D40919` |
+| v2, previous | `0xE38349668f0C470C814487E95C14e7652F713B17` | `0x4315F8be7C9661345710910577Ec31cb867f3c20` |
+| v1, previous | `0xCb7c60037eC43b9692A5dDcA42A500181Cf549FF` | `0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4` |
+
+The status page, at `https://app.bursar.world/status`, lists the same sets, with the registry and
+escrow of each.
 
 The rules and scores are the same on every set. Where the sets behave differently, the difference
 is stated below.
@@ -147,8 +153,8 @@ Those disputes are ruled by P0 to P5 alone, and the published ruling marks them 
 
 Times are counted from the moment the dispute opens. The table is for sealing and reveal windows
 of six hours each, the length the first set uses. A set with other windows moves every step in
-proportion. The second set, and the third once it is live, use one-hour windows: the evidence
-cutoff is at 30 minutes, sealing closes at 1 hour, and the ruling settles by 2 hours at the latest.
+proportion. The second and third sets use one-hour windows: the evidence cutoff is at 30 minutes,
+sealing closes at 1 hour, and the ruling settles by 2 hours at the latest.
 
 | When | What happens |
 |---|---|

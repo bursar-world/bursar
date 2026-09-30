@@ -62,7 +62,7 @@ import { connect } from '@bursar/sdk';
 
 const connection = connect();
 
-connection.addresses.escrow;           // 0x4315F8be7C9661345710910577Ec31cb867f3c20
+connection.addresses.escrow;           // 0x68D4aD683b5519C785Dde9F0ee0eE09dB2D40919
 connection.addresses.settlementAsset;  // 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168
 ```
 

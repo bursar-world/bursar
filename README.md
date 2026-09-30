@@ -240,11 +240,25 @@ Robinhood Chain mainnet, chain id 4663. Settlement asset: USDG at
 The full records, including transactions, parameters and roles, are in
 [`contracts/deployments/`](contracts/deployments).
 
-### Current set (v2)
+### Current set (v3)
 
 New mandates are created here. It is a development deployment: its timelock delay and its dispute
 vote windows are one hour each, so changes can be exercised within a day. Before the public
 launch the delay returns to 48 hours and each vote window to six hours.
+
+| Contract | Address |
+|---|---|
+| `AdminTimelock` | [`0xD91A6577828424E386900D0bB41596c6eF3BF8DF`](https://robinhoodchain.blockscout.com/address/0xD91A6577828424E386900D0bB41596c6eF3BF8DF) |
+| `MandateAccountFactory` | [`0x946FFE695eCc8Ceb201Cf3Dd07dBd302e289Fd07`](https://robinhoodchain.blockscout.com/address/0x946FFE695eCc8Ceb201Cf3Dd07dBd302e289Fd07) |
+| `Escrow` | [`0x68D4aD683b5519C785Dde9F0ee0eE09dB2D40919`](https://robinhoodchain.blockscout.com/address/0x68D4aD683b5519C785Dde9F0ee0eE09dB2D40919) |
+| `Reputation` | [`0xF2510fB02BaE866fD307CE5f48BBe1B1C2E17238`](https://robinhoodchain.blockscout.com/address/0xF2510fB02BaE866fD307CE5f48BBe1B1C2E17238) |
+| `OracleRegistry` | [`0x20E75139996fFf7B3158DF28Bf133b326DCD2BdF`](https://robinhoodchain.blockscout.com/address/0x20E75139996fFf7B3158DF28Bf133b326DCD2BdF) |
+| `AgentRegistry` | [`0xCa7b01237a43a515FbFBB5BA3e0Fed7e953139c9`](https://robinhoodchain.blockscout.com/address/0xCa7b01237a43a515FbFBB5BA3e0Fed7e953139c9) |
+
+### Previous set (v2)
+
+The v2 and v1 contracts stay on chain and keep serving the mandates, locks and disputes opened
+through them. The console, the SDK and the MCP server still read them.
 
 | Contract | Address |
 |---|---|
@@ -255,10 +269,7 @@ launch the delay returns to 48 hours and each vote window to six hours.
 | `OracleRegistry` | [`0xE38349668f0C470C814487E95C14e7652F713B17`](https://robinhoodchain.blockscout.com/address/0xE38349668f0C470C814487E95C14e7652F713B17) |
 | `AgentRegistry` | [`0x552E95102aE6B9232dD6A744B8f6bd348b379D26`](https://robinhoodchain.blockscout.com/address/0x552E95102aE6B9232dD6A744B8f6bd348b379D26) |
 
-### Previous set (v1)
-
-The v1 contracts stay on chain and keep serving the mandates, locks and disputes opened through
-them. The console, the SDK and the MCP server still read them.
+### First set (v1)
 
 | Contract | Address |
 |---|---|
@@ -271,22 +282,26 @@ them. The console, the SDK and the MCP server still read them.
 
 ### Token contracts
 
-Shared by both sets. Resolver bonds on either registry are held in the same `Staking` pool.
+`BRSR` and `Vesting` are shared by every set. `Staking` and `Buyback` belong to the current set,
+and resolver bonds on its registry are held in this `Staking` pool. The v2 and v1 registries keep
+reading the earlier pool, listed here as previous.
 
 | Contract | Address |
 |---|---|
 | `BRSR` | [`0x00e503925880c4b07E5Fb70232D83aD871F57a7d`](https://robinhoodchain.blockscout.com/address/0x00e503925880c4b07E5Fb70232D83aD871F57a7d) |
 | `Vesting` | [`0x5aD3d29C80C1617F3B195d74D593Bc9839681b2F`](https://robinhoodchain.blockscout.com/address/0x5aD3d29C80C1617F3B195d74D593Bc9839681b2F) |
-| `Staking` | [`0x3f2a0E7822B30aD928488F053348b137866Cf962`](https://robinhoodchain.blockscout.com/address/0x3f2a0E7822B30aD928488F053348b137866Cf962) |
-| `Buyback` | [`0xE979a30564a6F15DCCdB5488d5ac0D74a1bda6F0`](https://robinhoodchain.blockscout.com/address/0xE979a30564a6F15DCCdB5488d5ac0D74a1bda6F0) |
+| `Staking` | [`0x31CbD06003089B00897F0d7e3c283C66a1768d9A`](https://robinhoodchain.blockscout.com/address/0x31CbD06003089B00897F0d7e3c283C66a1768d9A) |
+| `Buyback` | [`0x51a88fb749738CB31ddb1F35A426ab2189F45eab`](https://robinhoodchain.blockscout.com/address/0x51a88fb749738CB31ddb1F35A426ab2189F45eab) |
+| `Staking`, previous | [`0x3f2a0E7822B30aD928488F053348b137866Cf962`](https://robinhoodchain.blockscout.com/address/0x3f2a0E7822B30aD928488F053348b137866Cf962) |
+| `Buyback`, previous | [`0xE979a30564a6F15DCCdB5488d5ac0D74a1bda6F0`](https://robinhoodchain.blockscout.com/address/0xE979a30564a6F15DCCdB5488d5ac0D74a1bda6F0) |
 
 Mandate accounts are created per principal by a factory and are not listed here.
 
 ### An example mandate to read
 
 [`0x420BeB507F72173E7d78e0f956968f64fb508356`](https://app.bursar.world/console/0x420BeB507F72173E7d78e0f956968f64fb508356)
-is a live mandate account created by the current factory, and it is the one to point at while you
-learn the system. It settles through the current escrow and has no expiry. It allows up to 0.10
+is a live mandate account created by the v2 factory, and it is the one to point at while you
+learn the system. It settles through the v2 escrow and has no expiry. It allows up to 0.10
 USDG per payment, 0.50 USDG a day and 2.00 USDG a month, with a lifetime total of 1.00 USDG. Its
 approval threshold is also 0.10 USDG: payments below 0.10 go through on the agent's signature, and
 a payment of exactly 0.10 waits for the principal to approve it. It may pay for services and hire

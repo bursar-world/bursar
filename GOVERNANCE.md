@@ -24,31 +24,38 @@ review request to that team.
 
 ## How protocol parameters change
 
-Chain 4663 has two timelocks, one per contract set:
+Chain 4663 has three timelocks, one per contract set:
 
-- `AdminTimelock` v2 at `0x135eF562ac57845AeA1Bb650fc0E74D67A4a866B` administers `Reputation`,
-  `OracleRegistry` and `AgentRegistry` of the current set and is the escrow's pauser.
-- `AdminTimelock` v1 at `0x5a32Eab02454f97a39857E85b536F83EE0f844Bf` administers the v1 set and
-  the token contracts, `Staking`, `Buyback` and `Vesting`, which both sets share.
+- `AdminTimelock` v3 at `0xD91A6577828424E386900D0bB41596c6eF3BF8DF` administers `Reputation`,
+  `OracleRegistry` and `AgentRegistry` of the current set, together with its `Staking` pool and
+  `Buyback`, and is the current escrow's pauser.
+- `AdminTimelock` v2 at `0x135eF562ac57845AeA1Bb650fc0E74D67A4a866B` administers the same three
+  contracts of the previous set and is the v2 escrow's pauser.
+- `AdminTimelock` v1 at `0x5a32Eab02454f97a39857E85b536F83EE0f844Bf` administers the v1 set, the
+  earlier `Staking` pool and `Buyback` that the v1 and v2 registries read, and `Vesting`, which
+  every set shares. It also holds the community allocation of BRSR. `Vesting` and that allocation
+  pass to the v3 timelock through a proposal on the v1 timelock, with its 48-hour delay.
 
-Both have the same signers and the same guardian. What that means in practice:
+All three have the same signers and the same guardian. What that means in practice:
 
 - **Three signers, two approvals.** Any signer can propose a call. Proposing counts as that
   signer's approval, so one more signer has to approve before it can run.
 - **A fixed delay.** A proposal becomes executable 48 hours (172,800 seconds) after it is created
   on the v1 timelock. The delay is set when a timelock is deployed, has no setter, and on v1
-  cannot be below 48 hours or above 30 days. The v2 timelock is a development deployment with a
-  one-hour delay and a one-hour minimum; it is replaced by one with a 48-hour delay before the
-  public launch. The delay is the window in which anyone can read a pending change and act on it.
+  cannot be below 48 hours or above 30 days. The v2 and v3 timelocks are development deployments
+  with a one-hour delay and a one-hour minimum; the current one is replaced by one with a 48-hour
+  delay before the public launch. The delay is the window in which anyone can read a pending
+  change and act on it.
 - **A grace period.** An approved proposal that is not executed within 14 days of becoming
   executable expires and has to be proposed again.
-- **Cancellation.** On v2, a proposer can withdraw its own pending proposal. Cancelling anyone
+- **Cancellation.** On v2 and v3, a proposer can withdraw its own pending proposal. Cancelling anyone
   else's takes vetoes from two signers, so one key cannot block its own removal or keep a pause in
   place by cancelling every unpause. On v1, any single signer can cancel a pending proposal.
 - **The guardian.** A separate guardian key can pause contracts in the same block, with no
-  approvals and no delay: on v2 the escrow, `OracleRegistry` and `AgentRegistry`; on v1
-  `AgentRegistry`, `Staking` and `Buyback`. It can do nothing else. Unpausing, replacing the
-  guardian and replacing a signer are ordinary proposals with the full delay.
+  approvals and no delay: on v3 the escrow, `OracleRegistry`, `AgentRegistry`, `Staking` and
+  `Buyback`; on v2 the escrow, `OracleRegistry` and `AgentRegistry`; on v1 `AgentRegistry`,
+  `Staking` and `Buyback`. It can do nothing else. Unpausing, replacing the guardian and replacing
+  a signer are ordinary proposals with the full delay.
 
 Proposals, approvals and executions are public events on chain. The console's governance page at
 [app.bursar.world/governance](https://app.bursar.world/governance) lists them and lets a signer
@@ -68,9 +75,9 @@ What the timelock can change:
 What it cannot change:
 
 - `Escrow` has no admin. Its fees, time-to-live bounds and dispute windows are fixed at
-  deployment, and a change to any of them is a new deployment. The v2 escrow names the v2 timelock as
-  its pauser. A pause stops new locks and new disputes; payments already held can still be
-  released, refunded and ruled on.
+  deployment, and a change to any of them is a new deployment. The v3 escrow names the v3 timelock
+  as its pauser, and the v2 escrow the v2 timelock. A pause stops new locks and new disputes;
+  payments already held can still be released, refunded and ruled on.
 - `MandateAccountFactory` has no admin, and each `MandateAccount` is controlled by its own
   principal. Governance cannot move a principal's funds or change a mandate's limits.
 - `BRSR` has a fixed supply, no minter and no owner.

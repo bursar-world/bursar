@@ -34,9 +34,10 @@ Use either channel:
   on this repository.
 
 If funds are at risk right now, start the email subject with `URGENT`. The timelock guardian can
-pause the v2 escrow, `OracleRegistry` and `AgentRegistry`, and the v1 `AgentRegistry`, `Staking`
-and `Buyback`, in the same block. Principals can revoke an agent on their own mandate accounts at
-once. An early report is what gives them the time.
+pause, in the same block, the v3 escrow, `OracleRegistry`, `AgentRegistry`, `Staking` and
+`Buyback`; the v2 escrow, `OracleRegistry` and `AgentRegistry`; and the v1 `AgentRegistry`,
+`Staking` and `Buyback`. Principals can revoke an agent on their own mandate accounts at once. An
+early report is what gives them the time.
 
 Please include:
 
@@ -66,28 +67,34 @@ There is no bug bounty programme yet. We will say so here when there is one.
 
 In scope:
 
-- The contracts deployed on Robinhood Chain mainnet, chain id 4663. The current set (v2) is a
-  development deployment; the previous set (v1) still holds open locks and disputes.
+- The contracts deployed on Robinhood Chain mainnet, chain id 4663. The current set (v3) is a
+  development deployment; the previous set (v2) still holds open locks and disputes.
 
-  | Contract | v2 (current) | v1 (previous) |
+  | Contract | v3 (current) | v2 (previous) |
   |---|---|---|
-  | `AdminTimelock` | `0x135eF562ac57845AeA1Bb650fc0E74D67A4a866B` | `0x5a32Eab02454f97a39857E85b536F83EE0f844Bf` |
-  | `MandateAccountFactory` | `0xe9f8cc653fF40E346e0591f353Be58DF0533cfD0` | `0xF8Ca04BEc1D7bcf767154AC6F7Ed1DD840CCF216` |
-  | `Escrow` | `0x4315F8be7C9661345710910577Ec31cb867f3c20` | `0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4` |
-  | `Reputation` | `0x48BF5F8Cea580148B2A5Ee3A9c487BF1dCafd9c3` | `0x8F123EDDDC586EEaAC3B1D6A5B9dF7BC0247680d` |
-  | `OracleRegistry` | `0xE38349668f0C470C814487E95C14e7652F713B17` | `0xCb7c60037eC43b9692A5dDcA42A500181Cf549FF` |
-  | `AgentRegistry` | `0x552E95102aE6B9232dD6A744B8f6bd348b379D26` | `0x4a9e90F15c0FEC02f7592C6E618cd3B64076035b` |
+  | `AdminTimelock` | `0xD91A6577828424E386900D0bB41596c6eF3BF8DF` | `0x135eF562ac57845AeA1Bb650fc0E74D67A4a866B` |
+  | `MandateAccountFactory` | `0x946FFE695eCc8Ceb201Cf3Dd07dBd302e289Fd07` | `0xe9f8cc653fF40E346e0591f353Be58DF0533cfD0` |
+  | `Escrow` | `0x68D4aD683b5519C785Dde9F0ee0eE09dB2D40919` | `0x4315F8be7C9661345710910577Ec31cb867f3c20` |
+  | `Reputation` | `0xF2510fB02BaE866fD307CE5f48BBe1B1C2E17238` | `0x48BF5F8Cea580148B2A5Ee3A9c487BF1dCafd9c3` |
+  | `OracleRegistry` | `0x20E75139996fFf7B3158DF28Bf133b326DCD2BdF` | `0xE38349668f0C470C814487E95C14e7652F713B17` |
+  | `AgentRegistry` | `0xCa7b01237a43a515FbFBB5BA3e0Fed7e953139c9` | `0x552E95102aE6B9232dD6A744B8f6bd348b379D26` |
 
-  The token contracts, shared by both sets:
+  The first set (v1) stays on chain and in scope; its addresses are listed in the
+  [README](README.md#first-set-v1).
+
+  The token contracts, of which `BRSR` and `Vesting` are shared by every set. `Staking` and
+  `Buyback` are the current set's; the earlier pool and buyback are listed as previous:
 
   | Contract | Address |
   |---|---|
   | `BRSR` | `0x00e503925880c4b07E5Fb70232D83aD871F57a7d` |
   | `Vesting` | `0x5aD3d29C80C1617F3B195d74D593Bc9839681b2F` |
-  | `Staking` | `0x3f2a0E7822B30aD928488F053348b137866Cf962` |
-  | `Buyback` | `0xE979a30564a6F15DCCdB5488d5ac0D74a1bda6F0` |
+  | `Staking` | `0x31CbD06003089B00897F0d7e3c283C66a1768d9A` |
+  | `Buyback` | `0x51a88fb749738CB31ddb1F35A426ab2189F45eab` |
+  | `Staking`, previous | `0x3f2a0E7822B30aD928488F053348b137866Cf962` |
+  | `Buyback`, previous | `0xE979a30564a6F15DCCdB5488d5ac0D74a1bda6F0` |
 
-  and every `MandateAccount` created by either factory.
+  and every `MandateAccount` created by any of the three factories.
 - The contract source, deploy scripts and packages in this repository (`contracts/`,
   `packages/*`).
 - The services in this repository: the facilitator, the underwriter and the sidecar.
