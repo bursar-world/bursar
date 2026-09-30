@@ -90,21 +90,22 @@ contract RetireRecords is Migration {
         string memory v2 = _envString("BURSAR_V2_RECORD");
         string memory token = _envString("BURSAR_TOKEN_RECORD");
         string memory next = vm.parseJsonString(_json(), K.NETWORK);
+        string memory second = vm.parseJsonString(vm.readFile(v2), K.NETWORK);
 
-        _retire(
-            v1,
-            vm.parseJsonString(vm.readFile(v2), K.NETWORK),
-            "Retired: every contract in this set was replaced, and nothing open remains on its escrow."
-        );
+        _retire(v1, second, string.concat("Replaced by ", second, ". Nothing is open on its escrow."));
         _retire(
             v2,
             next,
-            "Retired: replaced by the hardened contract set, and nothing open remains on its escrow, credit pool, collateral vault or shielded pool."
+            string.concat(
+                "Replaced by ", next, ". Nothing is open on its escrow, credit pool, collateral vault or shielded pool."
+            )
         );
         _retire(
             token,
             next,
-            "Retired: the staking pool, buyback and seeder were replaced. BRSR and Vesting carry over into the record that replaced this one."
+            string.concat(
+                "Replaced by ", next, " for the staking pool, buyback and seeder. BRSR and Vesting carry over into it."
+            )
         );
         _writeString(K.STATUS, "live");
         console2.log("records retired; this record is live:", next);
