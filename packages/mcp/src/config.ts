@@ -9,9 +9,19 @@ import {
   isBursarError,
   loadEnv,
   optional,
+  parseDeployment,
+  rwaDeployment,
   withDefault,
 } from '@bursar/core';
-import type { RhcChain, EnvSource, RpcProvider, ShieldedDeployment } from '@bursar/core';
+import type {
+  Deployment,
+  EnvSource,
+  PrivacyDeployment,
+  RhcChain,
+  RpcProvider,
+  RwaDeployment,
+  ShieldedDeployment,
+} from '@bursar/core';
 import { readAgentHandoff } from '@bursar/sdk';
 import type { AgentHandoff, ShieldedKeys } from '@bursar/sdk';
 import { readFileSync } from 'node:fs';
@@ -92,15 +102,20 @@ export type McpConfig = {
   readonly providers: readonly RpcProvider[];
   /** Null when this server serves a resolver or a provider and no mandate. */
   readonly account: Address | null;
-  /** The escrow of the deployment that answers for the chain, or MANDATE_ESCROW. */
+  /** MANDATE_ESCROW, or the escrow of the record this server reads. */
   readonly escrow: Address;
   /**
-   * Every escrow a mandate may settle through: MANDATE_ESCROW alone when it is set, otherwise the
-   * escrow of every live deployment on the chain, newest first. A mandate on the previous contract
-   * set keeps reading.
+   * Every escrow a mandate may settle through: MANDATE_ESCROW alone when it is set, or the escrow of
+   * the record BURSAR_RECORD names. Otherwise the escrow of every live deployment on the chain,
+   * newest first, so a mandate on the previous contract set keeps reading.
    */
   readonly escrows: readonly Address[];
   readonly settlementAsset: Address;
+  /**
+   * The stock and treasury lane of the record this server reads, with its collateral lane if it has
+   * one. Null when that record carries none, and the tools that need it are then refused or absent.
+   */
+  readonly rwa: RwaDeployment | null;
   /** Null unless this server acts for a resolver. */
   readonly resolver: ResolverConfig | null;
   /** Null unless this server acts for a provider. */
@@ -111,7 +126,7 @@ export type McpConfig = {
   readonly signer: LocalSignerConfig | null;
   /** Null unless BURSAR_AGENT_KEY_FILE names a private mandate's key file. */
   readonly privateMandate: PrivateMandateConfig | null;
-  /** Null on a chain with no shielded pool recorded. */
+  /** Null when the record this server reads has no shielded pool. */
   readonly shielded: ShieldedConfig | null;
   readonly index: IndexConfig;
 };
@@ -123,6 +138,9 @@ const SCHEMA = {
   // Naming testnet is refused outright, by `rhcChain`, with the reason.
   RHC_NETWORK: withDefault(envVar.oneOf(['testnet', 'mainnet']), 'mainnet'),
   MANDATE_ACCOUNT: optional(envVar.address()),
+  // A deployment record as the deploy scripts write it, for a deployment this package has not
+  // recorded. Every address the server takes from a record then comes from this one.
+  BURSAR_RECORD: optional(envVar.string({ minLength: 1 })),
   MANDATE_ESCROW: optional(envVar.address()),
   BURSAR_SETTLEMENT_ASSET: optional(envVar.address()),
   // The addresses the relay signs as, for the two roles that act on their own behalf rather than
@@ -176,7 +194,7 @@ export function loadConfig(source: EnvSource = process.env): McpConfig {
   // Before the escrow, because an operator on a first run has neither and the endpoints are the
   // ones they cannot guess. Resolving them here reports them in the same pass.
   const providers = rhcRpcProviders(source);
-  const deployed = deployedContracts(chain.chainId);
+  const deployed = deployedContracts(chain.chainId, env.BURSAR_RECORD);
 
   const escrow = env.MANDATE_ESCROW ?? deployed?.escrow;
 
@@ -201,7 +219,7 @@ export function loadConfig(source: EnvSource = process.env): McpConfig {
   const signer = privateMandate === null ? localSigner(env, account) : { key: privateMandate.handoff.privateKey };
   const resolver = resolverConfig(env, deployed, chain.chainId);
   const provider = providerConfig(env, deployed, chain.chainId);
-  const shielded = shieldedConfig(env, chain.chainId);
+  const shielded = shieldedConfig(env, chain.chainId, deployed?.privacy);
 
   // A server bound to no role serves nothing. Saying so at startup is better than advertising an
   // empty tool list to a client that will sit there waiting to be told why.
@@ -221,6 +239,7 @@ export function loadConfig(source: EnvSource = process.env): McpConfig {
     escrow,
     escrows: env.MANDATE_ESCROW === undefined && deployed !== null ? deployed.escrows : [escrow],
     settlementAsset: env.BURSAR_SETTLEMENT_ASSET ?? deployed?.settlementAsset ?? chain.usdg,
+    rwa: deployed?.rwa ?? null,
     resolver,
     provider,
     relay:
@@ -361,13 +380,17 @@ function privateMandateConfig(env: Env, chainId: number): PrivateMandateConfig |
  * The pool on this chain and, when BURSAR_SHIELDED_KEY_FILE is set, the float's keys. The file is
  * the money: whoever reads it can withdraw the balance, so it is kept out of every reply like a key.
  */
-function shieldedConfig(env: Env, chainId: number): ShieldedConfig | null {
-  const deployment = privacyDeployment(chainId)?.shielded;
+function shieldedConfig(env: Env, chainId: number, privacy: PrivacyDeployment | undefined): ShieldedConfig | null {
+  const deployment = privacy?.shielded;
   const path = env.BURSAR_SHIELDED_KEY_FILE;
 
   if (deployment === undefined) {
     if (path === undefined) return null;
-    throw new BursarError('env_invalid', `BURSAR_SHIELDED_KEY_FILE is set, and chain ${chainId} has no shielded pool.`, { chainId });
+    throw new BursarError(
+      'env_invalid',
+      `BURSAR_SHIELDED_KEY_FILE is set, and the record this server reads for chain ${chainId} has no shielded pool.`,
+      { chainId },
+    );
   }
 
   const relayerUrl = env.BURSAR_RELAYER_URL ?? null;
@@ -495,29 +518,78 @@ function assertNoKeys(source: EnvSource): void {
   );
 }
 
-function deployedContracts(chainId: number): {
+/**
+ * The addresses this server takes from a deployment record, and the record's lanes.
+ *
+ * A record BURSAR_RECORD names answers for itself, and nothing it leaves out is filled in by chain
+ * id: a local rehearsal and a fork of mainnet answer as chain 4663 too, and a lookup would hand them
+ * the mainnet escrows, lanes and pool. Unset, the record that answers for the chain is read, the
+ * escrows of the sets it replaced are still accepted, and a lane it has not deployed may come from
+ * an earlier record of the same build.
+ */
+function deployedContracts(chainId: number, path: string | undefined): {
   escrow: Address;
   escrows: Address[];
   settlementAsset: Address;
   oracleRegistry: Address;
   agentRegistry: Address;
   reputation: Address;
+  rwa: RwaDeployment | undefined;
+  privacy: PrivacyDeployment | undefined;
 } | null {
-  try {
-    const record = deploymentForChain(chainId);
+  const supplied = path !== undefined;
+  const record = supplied ? readRecord(path, chainId) : answeringRecord(chainId);
+  if (record === null) return null;
 
-    return {
-      escrow: record.contracts.Escrow,
-      escrows: deploymentsForChain(chainId).map((d) => d.contracts.Escrow),
-      settlementAsset: record.settlementAsset,
-      oracleRegistry: record.contracts.OracleRegistry,
-      agentRegistry: record.contracts.AgentRegistry,
-      reputation: record.contracts.Reputation,
-    };
+  return {
+    escrow: record.contracts.Escrow,
+    escrows: supplied ? [record.contracts.Escrow] : deploymentsForChain(chainId).map((d) => d.contracts.Escrow),
+    settlementAsset: record.settlementAsset,
+    oracleRegistry: record.contracts.OracleRegistry,
+    agentRegistry: record.contracts.AgentRegistry,
+    reputation: record.contracts.Reputation,
+    rwa: supplied ? record.rwa : rwaDeployment(chainId),
+    privacy: supplied ? record.privacy : privacyDeployment(chainId),
+  };
+}
+
+function answeringRecord(chainId: number): Deployment | null {
+  try {
+    return deploymentForChain(chainId);
   } catch (error) {
     // A chain with no committed deployment is normal before launch day; the addresses come from env.
     if (isBursarError(error) && error.code === 'deployment_unknown') return null;
 
     throw error;
   }
+}
+
+/** Reads the record BURSAR_RECORD names, checked the way the address book checks its own. */
+function readRecord(path: string, chainId: number): Deployment {
+  let text: string;
+  try {
+    text = readFileSync(path, 'utf8');
+  } catch {
+    throw new BursarError('env_invalid', `BURSAR_RECORD names ${path}, and it could not be read.`, { path });
+  }
+
+  let record: Deployment;
+  try {
+    record = parseDeployment(JSON.parse(text) as unknown, path);
+  } catch (error) {
+    if (!(error instanceof SyntaxError) && !isBursarError(error)) throw error;
+    const reason = isBursarError(error) ? error.message : 'It is not JSON.';
+    throw new BursarError('env_invalid', `BURSAR_RECORD is not a usable deployment record. ${reason}`, { path });
+  }
+
+  if (record.chainId !== chainId) {
+    throw new BursarError(
+      'config_mismatch',
+      `BURSAR_RECORD holds ${record.network}, a deployment on chain ${record.chainId}, and this server is on ` +
+        `chain ${chainId}.`,
+      { network: record.network, recordChainId: record.chainId, chainId },
+    );
+  }
+
+  return record;
 }

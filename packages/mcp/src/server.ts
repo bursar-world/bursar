@@ -109,6 +109,8 @@ export function createContext(config: McpConfig, options: ContextOptions = {}): 
             chain: config.chain,
             account: config.account,
             key: signer === null || config.signer === null ? null : config.signer.key,
+            rwa: config.rwa,
+            settlementAsset: config.settlementAsset,
           }),
     gateway:
       config.account === null || config.privateMandate !== null
@@ -118,6 +120,7 @@ export function createContext(config: McpConfig, options: ContextOptions = {}): 
             account: config.account,
             escrows: config.escrows,
             settlementAsset: config.settlementAsset,
+            rwa: config.rwa,
             relay: spender,
             index: createExplorerIndex({
               chainId: config.chain.chainId,

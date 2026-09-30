@@ -12,11 +12,10 @@ import {
   oracleRegistryAbi,
   priceGuardAbi,
   rawToUsdgMicros,
-  rwaDeployment,
   settlementAssetAbi,
   stockSpendRouterAbi,
 } from '@bursar/core';
-import type { ContractSet, RhcPublicClient, SpendClass } from '@bursar/core';
+import type { ContractSet, RhcPublicClient, RwaDeployment, SpendClass } from '@bursar/core';
 import { BaseError, ContractFunctionRevertedError, decodeEventLog, encodeEventTopics } from 'viem';
 import type { Address, Hex } from 'viem';
 
@@ -84,6 +83,11 @@ export type ChainGatewayOptions = {
   readonly relay: SpendRelay | null;
   /** Where the settlement history is read from. The node cannot answer it; see explorer.ts. */
   readonly index: SettlementIndex;
+  /**
+   * The RWA lane of the record this server reads: the price guard and router a purchase is quoted
+   * against, and the stocks it may name. Without one, purchases are refused.
+   */
+  readonly rwa?: RwaDeployment | null;
 };
 
 /** Basis points, as every rate in the escrow is expressed. */
@@ -554,8 +558,10 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
       throw new ToolError('mandate_refused', 'This mandate is on the first contract set, which cannot buy stocks.');
     }
 
-    const lane = rwaDeployment(await client.getChainId());
-    if (lane === undefined) throw new ToolError('rwa_unavailable', 'Stock purchases are not available on this chain.');
+    const lane = options.rwa ?? null;
+    if (lane === null) {
+      throw new ToolError('rwa_unavailable', 'The deployment record this server reads has no stock lane, so it cannot buy stocks.');
+    }
 
     const wanted = order.asset.toLowerCase();
     const listed = lane.assets.find((a) => a.symbol.toLowerCase() === wanted || a.address.toLowerCase() === wanted);

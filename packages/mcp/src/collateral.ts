@@ -1,11 +1,9 @@
 import {
   COLLATERAL_LANE,
-  collateralDeployment,
   collateralVaultAbi,
   creditPoolAbi,
   healthRatio,
   mandateAccountAbi,
-  rwaDeployment,
   viemChain,
 } from '@bursar/core';
 import type { CollateralDeployment, RhcChain, RhcPublicClient, RwaDeployment } from '@bursar/core';
@@ -81,14 +79,20 @@ export type CollateralGatewayOptions = {
   readonly account: Address;
   /** The local signer's key. Null with a relay or no signer: the lane's writes need a key held here. */
   readonly key: Hex | null;
+  /**
+   * The RWA lane of the record this server reads. Its collateral part names the vault and the credit
+   * pool, and its asset list is what a symbol resolves through.
+   */
+  readonly rwa: RwaDeployment | null;
+  /** What the credit pool lends and takes back in repayment. */
+  readonly settlementAsset: Address;
 };
 
-/** Null on a chain with no collateral lane recorded. */
+/** Null when the record this server reads has no collateral lane. */
 export function createCollateralGateway(options: CollateralGatewayOptions): CollateralGateway | null {
-  const lane = collateralDeployment(options.chain.chainId);
-  const rwa = rwaDeployment(options.chain.chainId);
-  if (lane === undefined || rwa === undefined) return null;
-  return gatewayFor(options, lane, rwa);
+  const { rwa } = options;
+  if (rwa?.collateral === undefined) return null;
+  return gatewayFor(options, rwa.collateral, rwa);
 }
 
 function gatewayFor(options: CollateralGatewayOptions, lane: CollateralDeployment, rwa: RwaDeployment): CollateralGateway {
@@ -272,7 +276,7 @@ function gatewayFor(options: CollateralGatewayOptions, lane: CollateralDeploymen
       }
       amount = debt + REPAY_MARGIN;
     }
-    const approveTxHash = await approve(options.chain.usdg, lane.CreditPool, amount);
+    const approveTxHash = await approve(options.settlementAsset, lane.CreditPool, amount);
     const txHash = await send(
       lane.CreditPool,
       encodeFunctionData({ abi: creditPoolAbi, functionName: 'repay', args: [account, amount] }),

@@ -332,9 +332,15 @@ export function lock(overrides: Partial<Lock> = {}): Lock {
   };
 }
 
-type Answer = { abi: Abi; functionName: string; resolve: (args: readonly unknown[], state: NodeState) => unknown };
+export type Answer = { abi: Abi; functionName: string; resolve: (args: readonly unknown[], state: NodeState) => unknown };
 
-function answer(
+/**
+ * Contracts a suite places at addresses of its own, such as a lane where a record puts it. Keyed by
+ * lowercase address, and asked before the contracts this node holds itself.
+ */
+export type Contracts = ReadonlyMap<string, ReadonlyMap<Hex, Answer>>;
+
+export function answer(
   abi: Abi,
   functionName: string,
   resolve: (args: readonly unknown[], state: NodeState) => unknown,
@@ -359,10 +365,13 @@ const ACCOUNT_ANSWERS = new Map<Hex, Answer>([
   answer(mandateAccountAbi, 'merchantRoot', (_args, state) => state.merchantRoot),
   answer(mandateAccountAbi, 'approvalThreshold', (_args, state) => state.limits.approvalThreshold),
   answer(mandateAccountAbi, 'creditable', (_args, state) => state.creditable),
-  // The three writes a signer may send. Answered here because every write is run as a call first.
+  answer(mandateAccountAbi, 'lane', (_args, state) => state.limits.lane),
+  // The writes a signer may send. Answered here because every write is run as a call first.
   answer(mandateAccountAbi, 'spend', (_args, state) => write(state, state.nextEscrowId)),
   answer(mandateAccountAbi, 'spendApproved', (_args, state) => write(state, state.nextEscrowId)),
   answer(mandateAccountAbi, 'disputeSpend', (_args, state) => write(state, undefined)),
+  // A purchase fills at the least the router accepts, which the caller passes as `minOut`.
+  answer(mandateAccountAbi, 'buy', (args, state) => write(state, args[2] as bigint)),
   answer(mandateAccountAbi, 'previewSpend', (_args, state) => [
     state.previewReason === '0x00000000',
     state.previewReason,
@@ -533,7 +542,7 @@ export type FakeNode = {
   transactions: SentTransaction[];
 };
 
-export function createFakeNode(state: NodeState = defaultState()): FakeNode {
+export function createFakeNode(state: NodeState = defaultState(), contracts: Contracts = new Map()): FakeNode {
   const calls: { method: string; params: readonly unknown[] }[] = [];
   const transactions: SentTransaction[] = [];
 
@@ -548,7 +557,7 @@ export function createFakeNode(state: NodeState = defaultState()): FakeNode {
       });
 
     try {
-      return reply({ result: handle(state, body.method, body.params ?? [], transactions) });
+      return reply({ result: handle(state, contracts, body.method, body.params ?? [], transactions) });
     } catch (error) {
       // The shape a node returns a refusal in: code 3, with the contract's own bytes on `data`.
       if (error instanceof Reverted) {
@@ -566,6 +575,7 @@ export function createFakeNode(state: NodeState = defaultState()): FakeNode {
 
 function handle(
   state: NodeState,
+  contracts: Contracts,
   method: string,
   params: readonly unknown[],
   transactions: SentTransaction[],
@@ -578,7 +588,7 @@ function handle(
     case 'eth_getBlockByNumber':
       return block(state);
     case 'eth_call':
-      return call(state, params[0] as { to: Address; data: Hex });
+      return call(state, contracts, params[0] as { to: Address; data: Hex });
     case 'eth_getLogs':
       return logs(state, params[0] as { fromBlock?: Hex; toBlock?: Hex; address?: Address });
     case 'eth_getTransactionCount':
@@ -624,12 +634,6 @@ function receipt(state: NodeState, hash: Hex, transactions: SentTransaction[]): 
 
   if (sent === undefined) return null;
 
-  const decoded = decodeFunctionData({ abi: mandateAccountAbi, data: sent.data });
-  const spends = decoded.functionName === 'spend' || decoded.functionName === 'spendApproved';
-  const request = spends
-    ? (decoded.args[0] as { merchant: Address; capabilityId: Hex; amount: bigint })
-    : undefined;
-
   return {
     transactionHash: hash,
     transactionIndex: '0x0',
@@ -644,34 +648,58 @@ function receipt(state: NodeState, hash: Hex, transactions: SentTransaction[]): 
     logsBloom: `0x${'00'.repeat(256)}`,
     status: state.receiptStatus,
     type: '0x2',
-    logs:
-      request === undefined
-        ? []
-        : [
-            {
-              address: ACCOUNT,
-              topics: encodeEventTopics({
-                abi: mandateAccountAbi,
-                eventName: 'Spent',
-                args: {
-                  escrowId: state.nextEscrowId,
-                  merchant: request.merchant,
-                  capabilityId: request.capabilityId,
-                },
-              }),
-              data: encodeAbiParameters(
-                [{ type: 'uint128' }, { type: 'uint128' }, { type: 'uint128' }],
-                [request.amount, state.daily.spent + request.amount, state.monthly.spent + request.amount],
-              ),
-              blockNumber: toHex(state.blockNumber),
-              blockHash: `0x${'ab'.repeat(32)}`,
-              transactionHash: hash,
-              transactionIndex: '0x0',
-              logIndex: '0x0',
-              removed: false,
-            },
-          ],
+    logs: accountEvents(state, sent).map((event) => ({
+      address: ACCOUNT,
+      ...event,
+      blockNumber: toHex(state.blockNumber),
+      blockHash: `0x${'ab'.repeat(32)}`,
+      transactionHash: hash,
+      transactionIndex: '0x0',
+      logIndex: '0x0',
+      removed: false,
+    })),
   };
+}
+
+/** What the account emits for a transaction sent to it. One sent anywhere else emits nothing here. */
+function accountEvents(state: NodeState, sent: SentTransaction): { topics: readonly unknown[]; data: Hex }[] {
+  if (sent.to.toLowerCase() !== ACCOUNT.toLowerCase()) return [];
+
+  const decoded = decodeFunctionData({ abi: mandateAccountAbi, data: sent.data });
+
+  if (decoded.functionName === 'spend' || decoded.functionName === 'spendApproved') {
+    const request = decoded.args[0] as { merchant: Address; capabilityId: Hex; amount: bigint };
+
+    return [
+      {
+        topics: encodeEventTopics({
+          abi: mandateAccountAbi,
+          eventName: 'Spent',
+          args: { escrowId: state.nextEscrowId, merchant: request.merchant, capabilityId: request.capabilityId },
+        }),
+        data: encodeAbiParameters(
+          [{ type: 'uint128' }, { type: 'uint128' }, { type: 'uint128' }],
+          [request.amount, state.daily.spent + request.amount, state.monthly.spent + request.amount],
+        ),
+      },
+    ];
+  }
+
+  if (decoded.functionName === 'buy') {
+    const [asset, usdgIn, minOut, quotedPriceE8] = decoded.args;
+
+    return [
+      {
+        topics: encodeEventTopics({ abi: mandateAccountAbi, eventName: 'Bought', args: { asset } }),
+        data: encodeAbiParameters(
+          [{ type: 'uint128' }, { type: 'uint256' }, { type: 'uint256' }],
+          [usdgIn, minOut, quotedPriceE8],
+        ),
+      },
+    ];
+  }
+
+  return [];
 }
 
 function block(state: NodeState): Record<string, unknown> {
@@ -699,19 +727,19 @@ function block(state: NodeState): Record<string, unknown> {
   };
 }
 
-function call(state: NodeState, request: { to: Address; data: Hex }): Hex {
+function call(state: NodeState, contracts: Contracts, request: { to: Address; data: Hex }): Hex {
   if (request.to.toLowerCase() === RHC_MAINNET.multicall3.toLowerCase()) {
     const { args } = decodeFunctionData({ abi: multicall3Abi, data: request.data });
     const batch = (args?.[0] ?? []) as readonly { target: Address; allowFailure: boolean; callData: Hex }[];
     const results = batch.map((entry) => ({
       success: true,
-      returnData: call(state, { to: entry.target, data: entry.callData }),
+      returnData: call(state, contracts, { to: entry.target, data: entry.callData }),
     }));
 
     return encodeFunctionResult({ abi: multicall3Abi, functionName: 'aggregate3', result: results });
   }
 
-  const table = tableFor(request.to, state);
+  const table = contracts.get(request.to.toLowerCase()) ?? tableFor(request.to, state);
   const selector = request.data.slice(0, 10) as Hex;
   const entry = table.get(selector);
 

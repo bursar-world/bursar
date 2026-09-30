@@ -1,4 +1,4 @@
-import { NO_DEBT_HEALTH, RHC_MAINNET } from '@bursar/core';
+import { NO_DEBT_HEALTH, RHC_MAINNET, rwaDeployment } from '@bursar/core';
 import type { RhcPublicClient } from '@bursar/core';
 import { describe, expect, it } from 'vitest';
 
@@ -52,7 +52,14 @@ const LIVE_READS = {
 };
 
 function gateway(reads: Record<string, (args?: readonly unknown[]) => unknown>, key: `0x${string}` | null = null) {
-  const g = createCollateralGateway({ client: fakeClient(reads), chain: RHC_MAINNET, account: MANDATE, key });
+  const g = createCollateralGateway({
+    client: fakeClient(reads),
+    chain: RHC_MAINNET,
+    account: MANDATE,
+    key,
+    rwa: rwaDeployment(4663) ?? null,
+    settlementAsset: RHC_MAINNET.usdg,
+  });
   if (g === null) throw new Error('no collateral lane on 4663');
   return g;
 }
