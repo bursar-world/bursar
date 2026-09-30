@@ -3,6 +3,7 @@ import type { Micro, RhcPublicClient } from '@bursar/core';
 import { parseEventLogs } from 'viem';
 import type { Log } from 'viem';
 import type { LaneLedger, UnsettledPayment } from '../lanes/ledger.js';
+import type { SettlementFee } from './facilitator.js';
 
 /**
  * Closes out settle claims that nothing else will.
@@ -49,7 +50,8 @@ export type ReconcileOptions = {
   readonly network: string;
   readonly asset: `0x${string}`;
   readonly treasury: string;
-  readonly fee: (amountMicro: Micro) => Micro;
+  /** Prices a landed transfer the way its settle would have, rebate included, for the payee it paid. */
+  readonly fee: (amountMicro: Micro, payee: `0x${string}`) => Promise<SettlementFee>;
   /** How old a claim has to be before it is treated as abandoned rather than in flight. */
   readonly olderThanMs: number;
   readonly log?: (line: string) => void;
@@ -110,14 +112,14 @@ async function reconcileOne(
     return 'unresolved';
   }
 
-  const feeMicro = options.fee(transfer.amountMicro);
+  const fee = await options.fee(transfer.amountMicro, transfer.to);
   const settlement = payment.reservationId
     ? (
         await options.ledger.settleReservation({
           reservationId: payment.reservationId,
           claim: payment.claim,
           asset: options.asset,
-          feeMicro,
+          ...fee,
           payment: {
             amountMicro: transfer.amountMicro,
             payerWallet: payment.payerWallet,
@@ -133,7 +135,7 @@ async function reconcileOne(
         payerWallet: payment.payerWallet,
         merchantWallet: transfer.to,
         amountMicro: transfer.amountMicro,
-        feeMicro,
+        ...fee,
         txHash: transfer.txHash,
         nonce: payment.nonce,
         treasury: options.treasury,

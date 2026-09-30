@@ -4,6 +4,7 @@ import {
   activeBrand,
   assertFundingIsolation,
   caip2,
+  collateralDeployment,
   envVar,
   loadEnv,
   optional,
@@ -184,6 +185,11 @@ export type FacilitatorConfig = {
   readonly gasFloatMinimumWei: Wei;
   readonly feeBps: number;
   readonly feeFloorMicro: Micro;
+  /**
+   * The staking pool a payee's fee rebate is read from, as the deployment record for this chain
+   * names it. Null where the record names none, and every settle pays the full fee.
+   */
+  readonly stakingPool: `0x${string}` | null;
   readonly dailySettlements: number;
   readonly perPayerHourly: number;
   readonly requireBinding: boolean;
@@ -302,6 +308,9 @@ export function loadConfig(source: EnvSource = process.env): FacilitatorConfig {
     gasFloatMinimumWei,
     feeBps: env.FACILITATOR_FEE_BPS,
     feeFloorMicro: env.FACILITATOR_FEE_FLOOR_MICRO,
+    // The record names the pool under the collateral lane, whose spread is paid into it. There is
+    // one pool, and it holds the rebate tiers.
+    stakingPool: collateralDeployment(chain.chainId)?.Staking ?? null,
     dailySettlements: env.FACILITATOR_DAILY_SETTLEMENTS,
     perPayerHourly: env.FACILITATOR_PER_PAYER_HOURLY,
     requireBinding: env.FACILITATOR_REQUIRE_BINDING,
@@ -392,6 +401,7 @@ export function describeConfig(config: FacilitatorConfig): Readonly<Record<strin
     lanes: LANE_MODES,
     feeBps: config.feeBps,
     feeFloorMicro: config.feeFloorMicro.toString(),
+    stakingPool: config.stakingPool,
     gasFloat: config.funding.gasFloat,
     requireBinding: config.requireBinding,
     underwriter: config.underwriter.mode,

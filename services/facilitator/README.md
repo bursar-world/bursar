@@ -107,8 +107,8 @@ transaction for its receipt, and shutdown lets in-flight settles finish before i
 | `FACILITATOR_TREASURY` | yes | Where fees accrue. |
 | `FACILITATOR_RELAYER_KEY` | yes | The only key this service holds. Must sign for the gas float. |
 | `FACILITATOR_GAS_FLOAT_MINIMUM_ETH` | yes | The relayer's ETH reserve, written as ETH: `0.004`, not a count of wei. ETH is the gas asset here and is not the settlement asset. Health reports degraded below it. |
-| `FACILITATOR_FEE_BPS` | yes | 0 to 10000. |
-| `FACILITATOR_FEE_FLOOR_MICRO` | yes | Atomic micro-USD. The smallest fee this deployment will spend a direct-lane broadcast on. |
+| `FACILITATOR_FEE_BPS` | yes | 0 to 9999. The fee on each settle this service broadcasts, before a staked payee's rebate. See [The fee](#the-fee). |
+| `FACILITATOR_FEE_FLOOR_MICRO` | yes | Atomic micro-USD. The smallest fee this deployment will spend a broadcast on. No rebate takes a fee below it. |
 | `FACILITATOR_HOST`, `FACILITATOR_PORT` | no | `127.0.0.1:8402`. |
 | `FACILITATOR_AUTH_TOKEN` | off loopback | Required on every route, health included, when the host is not loopback. |
 | `FACILITATOR_REQUIRE_BINDING` | no | Default true. See below. |
@@ -170,6 +170,52 @@ mandate-x402:v1
 The facilitator recomputes that digest from the bytes that arrived, not from a field parsed out of
 them. `FACILITATOR_REQUIRE_BINDING=false` accepts unbound payments while a client is being moved
 onto binding. It is not safe to leave off.
+
+## The fee
+
+Every settle on the `exact` scheme broadcasts a transaction, and the relayer pays its gas in ETH
+that the payment never returns. The fee covers that. It is `FACILITATOR_FEE_BPS` of the amount,
+truncated toward zero, and never less than `FACILITATOR_FEE_FLOOR_MICRO`. A payment at or under the
+floor is refused before anything is broadcast. A mandate-lane settle broadcasts nothing and is
+charged nothing here; the escrow takes its own fee when the provider releases the lock.
+
+The fee is the payee's. The payer pays the price and nothing more. The settlement row records the
+fee beside the amount, and the payee nets the difference. The fee accrues to
+`FACILITATOR_TREASURY`.
+
+### The staking rebate
+
+A payee with BRSR staked pays less. The staking contract keeps a table of tiers, and
+`rebateBpsOf(payee)` answers how many basis points that payee's stake takes off the fee. Stake
+behind an exit request does not count. The table governance set on 2026-09-24 has four tiers:
+
+| Staked | Off the fee |
+|---|---|
+| 25,000 BRSR | 5% |
+| 100,000 BRSR | 10% |
+| 500,000 BRSR | 20% |
+| 2,500,000 BRSR | 30% |
+
+The contract is the one the deployment record names for this chain, and `GET /config` publishes it
+as `stakingPool`. It is the authority, so when governance rewrites the table the fee follows with no
+restart.
+
+- The rebate is read for the payee, the `payTo` of the payment, because the fee is the payee's. A
+  payer's own stake changes nothing.
+- It comes off the proportional fee and stops at the floor. At 1% with a 1,900 micro-USD floor, a
+  payment of 250,000 micro-USD carries a fee of 2,500. A 30% rebate would leave 1,750, so the payee
+  pays 1,900 and saves 600. Below 190,000 micro-USD the fee is the floor with or without a rebate.
+- Each payee's rebate is reused for a minute after it is read. A new stake, or an exit request,
+  reaches the fee within that minute.
+- A read that fails, or answers above the contract's 50% ceiling, is logged as `rebate unread` and
+  priced as no rebate. The fee is never discounted on a figure the staking contract did not give.
+
+A settle that lands answers with `feeMicro`, `rebateBps` and `rebateMicro`: the fee charged, the
+tier the contract reported, and what that tier took off. `rebateMicro` is zero where the floor held
+the fee. The settlement row keeps the same two figures in `rebate_bps` and `rebate_micro`, so every
+route that returns a settlement carries them. Reconciliation prices a transfer it recovers the same
+way. A fee sent to `POST /reservations/:id/consume` is the caller's figure and is recorded as sent,
+with no rebate.
 
 ## Money in the database
 
@@ -254,7 +300,8 @@ answers `account_not_found` or `pool_not_found` until they do.
 | `settlementAsset` | The USDG contract every amount on this service is denominated in. |
 | `index` | `keyed` or `unkeyed`: whether `BLOCKSCOUT_API_KEY` is set. Never the key. |
 | `lanes` | The three names a request may put in `lane`. |
-| `feeBps`, `feeFloorMicro` | The fee rate, and the smallest fee a direct-lane broadcast is spent on. |
+| `feeBps`, `feeFloorMicro` | The fee rate, and the smallest fee a broadcast is spent on. |
+| `stakingPool` | The staking contract a payee's fee rebate is read from, or null where the deployment record names none. |
 | `gasFloat` | The relayer's address, which pays for every broadcast. |
 | `requireBinding` | Whether `/verify` and `/settle` refuse a payment not bound to its request. |
 | `underwriter` | `remote`, `in-process` or `none`. |
@@ -518,8 +565,9 @@ A valid payment verifies as `{ "isValid": true, "payer": "0x…", "method": "eip
 The payer above holds no USDG, so this body verifies as
 `{ "isValid": false, "invalidReason": "insufficient_funds", "payer": "0x1563915e194D8CfBA1943570603F7606A3115508" }` and settles as
 `{ "success": false, "settled": false, "broadcast": false, "errorReason": "insufficient_funds", "payer": "0x1563915e194D8CfBA1943570603F7606A3115508", "transaction": "", "network": "eip155:4663" }`.
-A settle that lands answers `success: true`, `settled: true` and the transaction hash. Both routes
-answer 200 for a refusal; `/settle` answers 429 when a budget is spent.
+A settle that lands answers `success: true`, `settled: true`, the transaction hash, its
+`settlementId`, and the fee as `feeMicro`, `rebateBps` and `rebateMicro`. Both routes answer 200
+for a refusal; `/settle` answers 429 when a budget is spent.
 
 Health and readiness answer different questions. `/healthz` is what a supervisor restarts on and
 stays 200 while the deployment is degraded. `/readyz` is what an orchestrator routes on, and it is

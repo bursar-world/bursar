@@ -8,6 +8,7 @@ import { RECEIPT_WAIT_MS } from '@bursar/x402';
 import { CLAIM_MARGIN_MS, Facilitator, readRequest } from '../src/x402/facilitator.js';
 import { authorizationNonce } from '../src/x402/contract.js';
 import type { PaymentPayload, PaymentRequirements } from '../src/x402/contract.js';
+import type { RebateReader } from '../src/x402/rebate.js';
 import {
   FakeLedger,
   ScriptedScheme,
@@ -55,7 +56,14 @@ function boundPayload(body: string, salt = SALT): PaymentPayload {
 
 const RESERVATION = '33333333-3333-4333-8333-333333333333';
 
-function build(overrides: { requireBinding?: boolean; feeBps?: number } = {}) {
+function build(
+  overrides: {
+    requireBinding?: boolean;
+    feeBps?: number;
+    rebateOf?: RebateReader;
+    log?: (line: string) => void;
+  } = {},
+) {
   const scheme = new ScriptedScheme({
     verify: { isValid: true, payer: payer.address },
     settle: { success: true, settled: true, broadcast: true, payer: payer.address, transaction: TX, network: NETWORK },
@@ -77,7 +85,9 @@ function build(overrides: { requireBinding?: boolean; feeBps?: number } = {}) {
     treasury: '0x000000000000000000000000000000000000beef',
     feeBps: overrides.feeBps ?? 100,
     feeFloorMicro: FEE_FLOOR,
+    rebateOf: overrides.rebateOf,
     requireBinding: overrides.requireBinding ?? true,
+    log: overrides.log,
   });
   return { scheme, ledger, budget, facilitator };
 }
@@ -104,17 +114,31 @@ function throwing(error: Error) {
 describe('fee', () => {
   it('takes basis points once they clear the gas floor', () => {
     const { facilitator } = build({ feeBps: 100 });
-    expect(facilitator.fee(toMicro(1_000_000))).toBe(10_000n);
+    expect(facilitator.fee(toMicro(1_000_000))).toEqual({ feeMicro: 10_000n, rebateBps: 0, rebateMicro: 0n });
   });
 
   it('never charges less than a settled call costs in gas', () => {
     const { facilitator } = build({ feeBps: 100 });
-    expect(facilitator.fee(toMicro(10_000))).toBe(FEE_FLOOR);
+    expect(facilitator.fee(toMicro(10_000)).feeMicro).toBe(FEE_FLOOR);
   });
 
   it('never charges more than the payment itself', () => {
     const { facilitator } = build({ feeBps: 100 });
-    expect(facilitator.fee(toMicro(500))).toBe(500n);
+    expect(facilitator.fee(toMicro(500)).feeMicro).toBe(500n);
+  });
+
+  it('takes a rebate off the part of the fee above the floor, and no further', () => {
+    const { facilitator } = build({ feeBps: 100 });
+    // 1% of 0.25 USDG is 2,500. 30% off would leave 1,750, under what the broadcast costs.
+    expect(facilitator.fee(toMicro(250_000), 3_000)).toEqual({ feeMicro: FEE_FLOOR, rebateBps: 3_000, rebateMicro: 600n });
+    // 1% of 0.1 USDG is already under the floor, so a staked payee pays what anyone else does.
+    expect(facilitator.fee(toMicro(100_000), 3_000)).toEqual({ feeMicro: FEE_FLOOR, rebateBps: 3_000, rebateMicro: 0n });
+  });
+
+  it('rounds the rebated fee toward zero, as the contracts round a fee', () => {
+    const { facilitator } = build({ feeBps: 100 });
+    // 1% of 1,234,567 is 12,345; 5% off leaves 11,727.75, charged as 11,727.
+    expect(facilitator.fee(toMicro(1_234_567), 500)).toEqual({ feeMicro: 11_727n, rebateBps: 500, rebateMicro: 618n });
   });
 
   it('refuses a fee outside basis points at construction', () => {
@@ -729,6 +753,141 @@ describe('settle', () => {
       requestHash: hashRequest(body),
     });
     expect(result).toMatchObject({ errorReason: 'invalid_payment_requirements' });
+  });
+});
+
+describe('the staking rebate', () => {
+  const PAYEE = String(requirements.payTo);
+
+  function settle(facilitator: Facilitator, amount = '1000000', reservationId?: string) {
+    const body = '{}';
+    return facilitator.settle({
+      paymentPayload: boundPayload(body),
+      paymentRequirements: { ...requirements, amount },
+      requestHash: hashRequest(body),
+      ...(reservationId ? { reservationId } : {}),
+    });
+  }
+
+  // Each tier the pool can report for a payee: none, then 5%, 10%, 20% and 30% off the fee.
+  it.each([
+    [0, '10000', '0'],
+    [500, '9500', '500'],
+    [1_000, '9000', '1000'],
+    [2_000, '8000', '2000'],
+    [3_000, '7000', '3000'],
+  ])('charges a payee at %i basis points its rebated fee', async (tier, fee, rebate) => {
+    const asked: string[] = [];
+    const { ledger, facilitator } = build({
+      rebateOf: async (payee) => {
+        asked.push(payee);
+        return tier;
+      },
+    });
+
+    const result = await settle(facilitator);
+
+    expect(result).toMatchObject({ success: true, feeMicro: fee, rebateBps: tier, rebateMicro: rebate });
+    expect(ledger.calls.find((call) => call.kind === 'direct')).toMatchObject({
+      input: { feeMicro: BigInt(fee), rebateBps: tier, rebateMicro: BigInt(rebate) },
+    });
+    // The fee comes out of what the payee receives, so the payee's stake is the one that counts.
+    expect(asked).toEqual([PAYEE.toLowerCase()]);
+  });
+
+  it('ignores the payer\'s stake, which buys nothing off the payee\'s fee', async () => {
+    const { facilitator } = build({
+      rebateOf: async (party) => (party === payer.address.toLowerCase() ? 3_000 : 0),
+    });
+    expect(await settle(facilitator)).toMatchObject({ feeMicro: '10000', rebateBps: 0, rebateMicro: '0' });
+  });
+
+  it('holds the fee at the floor however large the rebate', async () => {
+    const staked = () => build({ rebateOf: async () => 3_000 }).facilitator;
+    expect(await settle(staked(), '250000')).toMatchObject({
+      success: true,
+      feeMicro: FEE_FLOOR.toString(),
+      rebateBps: 3_000,
+      rebateMicro: '600',
+    });
+    expect(await settle(staked(), '100000')).toMatchObject({
+      success: true,
+      feeMicro: FEE_FLOOR.toString(),
+      rebateBps: 3_000,
+      rebateMicro: '0',
+    });
+  });
+
+  it('charges the full fee when the pool cannot be read, and logs why', async () => {
+    const lines: string[] = [];
+    const { facilitator } = build({
+      rebateOf: async () => {
+        throw new Error('execution reverted');
+      },
+      log: (line) => lines.push(line),
+    });
+
+    expect(await settle(facilitator)).toMatchObject({
+      success: true,
+      feeMicro: '10000',
+      rebateBps: 0,
+      rebateMicro: '0',
+    });
+    expect(lines).toContain(`rebate unread payee=${PAYEE} fee=full reason=execution reverted`);
+  });
+
+  it('prices a settle that closes a reservation the same way', async () => {
+    const { ledger, facilitator } = build({ rebateOf: async () => 2_000 });
+    const result = await settle(facilitator, '1000000', RESERVATION);
+
+    expect(result).toMatchObject({ success: true, feeMicro: '8000', rebateBps: 2_000, rebateMicro: '2000' });
+    expect(ledger.calls.find((call) => call.kind === 'settleHold')).toMatchObject({
+      feeMicro: 8_000n,
+      rebateBps: 2_000,
+      rebateMicro: 2_000n,
+    });
+  });
+
+  it('answers a retry with the rebate the settlement was recorded at', async () => {
+    const { scheme, ledger, facilitator } = build({ rebateOf: async () => 3_000 });
+    const body = '{}';
+    const request = {
+      paymentPayload: boundPayload(body),
+      paymentRequirements: requirements,
+      requestHash: hashRequest(body),
+    };
+    await facilitator.settle(request);
+    ledger.records.set(`${NETWORK}:${payer.address.toLowerCase()}:${nonceOf(request.paymentPayload)}`, {
+      settlement: settlementFixture({
+        txHash: TX,
+        feeMicro: toMicro(7_000),
+        rebateBps: 3_000,
+        rebateMicro: toMicro(3_000),
+      }),
+      txHash: TX,
+      reservationId: null,
+    });
+
+    scheme.set({ verify: { isValid: false, invalidReason: 'invalid_transaction_state', payer: payer.address } });
+    expect(await facilitator.settle(request)).toMatchObject({
+      success: true,
+      feeMicro: '7000',
+      rebateBps: 3_000,
+      rebateMicro: '3000',
+    });
+  });
+
+  it('records no fee and no rebate on a lock the mandate lane settles without a broadcast', async () => {
+    const { scheme, ledger, facilitator } = build({ rebateOf: async () => 3_000 });
+    scheme.set({
+      verify: { isValid: true, payer: payer.address },
+      settle: { success: true, settled: true, broadcast: false, payer: payer.address, transaction: TX, network: NETWORK },
+    });
+
+    expect(await settle(facilitator)).toMatchObject({ success: true, feeMicro: '0', rebateBps: 0, rebateMicro: '0' });
+    expect(ledger.calls.find((call) => call.kind === 'direct')).toMatchObject({
+      input: { feeMicro: 0n, rebateBps: 0, rebateMicro: 0n },
+    });
   });
 });
 

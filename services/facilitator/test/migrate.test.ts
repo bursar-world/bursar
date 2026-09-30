@@ -38,6 +38,7 @@ describe('migration files', () => {
       '0008_usdg_collateral_asset.sql',
       '0009_settle_claims.sql',
       '0010_repayment_pool.sql',
+      '0011_settlement_rebate.sql',
     ]);
   });
 

@@ -3,6 +3,7 @@ import { toMicro } from '@bursar/core';
 import type { Micro } from '@bursar/core';
 import { LaneLedger } from '../src/lanes/ledger.js';
 import { TrustStore } from '../src/trust/store.js';
+import type { SettlementFee } from '../src/x402/facilitator.js';
 import { reconcile } from '../src/x402/reconcile.js';
 import type { AuthorizationChain, LandedTransfer } from '../src/x402/reconcile.js';
 import type { Scratch } from './support/postgres.js';
@@ -49,6 +50,7 @@ describe.skipIf(!TEST_DATABASE_URL)('settle reconciliation against Postgres', ()
   let ledger: LaneLedger;
   let chain: FakeChain;
   let now: Date;
+  let priced: string[];
 
   beforeAll(async () => {
     scratch = await scratchDatabase('bursar_reconcile_test');
@@ -70,6 +72,7 @@ describe.skipIf(!TEST_DATABASE_URL)('settle reconciliation against Postgres', ()
       now: () => now,
     });
     chain = new FakeChain();
+    priced = [];
 
     await ledger.upsertAccount({ agentId: AGENT, payerWallet: PAYER, repayWallet: PAYER, networks: [NETWORK] });
     await ledger.upsertPool({
@@ -89,14 +92,17 @@ describe.skipIf(!TEST_DATABASE_URL)('settle reconciliation against Postgres', ()
     });
   });
 
-  const pass = () =>
+  const pass = (fee: SettlementFee = { feeMicro: m(1_900), rebateBps: 0, rebateMicro: m(0) }) =>
     reconcile({
       ledger,
       chain,
       network: NETWORK,
       asset: ASSET,
       treasury: TREASURY,
-      fee: () => m(1_900),
+      fee: async (_amountMicro, payee) => {
+        priced.push(payee);
+        return fee;
+      },
       olderThanMs: AFTER_MS,
     });
 
@@ -189,6 +195,20 @@ describe.skipIf(!TEST_DATABASE_URL)('settle reconciliation against Postgres', ()
     );
     expect(settled.rows).toEqual([{ status: 'settled', merchant_wallet: MERCHANT, tx_hash: TX }]);
     expect((await guardRows())[0]?.settlement_id).not.toBeNull();
+  });
+
+  it('prices the transfer for the payee it paid and records the rebate with it', async () => {
+    await ledger.claimPaymentNonce({ network: NETWORK, payerWallet: PAYER, nonce: NONCE, amountMicro: m(1_000_000) });
+    chain.used = true;
+    chain.transfer = { txHash: TX, to: MERCHANT, amountMicro: m(1_000_000) };
+    now = new Date(now.getTime() + AFTER_MS + 1_000);
+
+    expect(await pass({ feeMicro: m(7_000), rebateBps: 3_000, rebateMicro: m(3_000) })).toMatchObject({ recorded: 1 });
+    expect(priced).toEqual([MERCHANT]);
+    const settled = await scratch.db.query<{ fee_micro: string; rebate_bps: number; rebate_micro: string }>(
+      'SELECT fee_micro::text, rebate_bps, rebate_micro::text FROM bursar_settlements',
+    );
+    expect(settled.rows).toEqual([{ fee_micro: '7000.000000', rebate_bps: 3_000, rebate_micro: '3000.000000' }]);
   });
 
   it('keeps a spent claim it cannot find the transfer for, and asks again only after the interval', async () => {

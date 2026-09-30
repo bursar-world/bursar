@@ -460,7 +460,14 @@ describe.skipIf(!TEST_DATABASE_URL)('lane ledger against Postgres', () => {
 
     it('spends the hold and records the payment as authorised, not settled', async () => {
       const result = await consume(m(2_000_000));
-      expect(result.settlement).toMatchObject({ status: 'authorized', txHash: null, feeMicro: 1_900n });
+      // The caller priced this fee, so no rebate was read for it.
+      expect(result.settlement).toMatchObject({
+        status: 'authorized',
+        txHash: null,
+        feeMicro: 1_900n,
+        rebateBps: 0,
+        rebateMicro: 0n,
+      });
       expect(result.debt).toBeNull();
       expect(await ledger.getBalance(AGENT, PREFUND)).toMatchObject({
         availableMicro: 8_000_000n,
@@ -1393,6 +1400,30 @@ describe.skipIf(!TEST_DATABASE_URL)('lane ledger against Postgres', () => {
       expect(guard.rows[0]).toEqual({ settlement_id: settled.settlement.id, tx_hash: TX });
     });
 
+    it('keeps the payee\'s rebate beside the fee, and owes the treasury the fee after it', async () => {
+      const held = await heldAndGuarded();
+      const claim = await claimFor(held);
+      if (!claim) throw new Error('claim refused');
+
+      const settled = await ledger.settleReservation({
+        reservationId: held,
+        claim,
+        asset: ASSET,
+        feeMicro: m(7_000),
+        rebateBps: 3_000,
+        rebateMicro: m(3_000),
+        txHash: TX,
+        treasury: TREASURY,
+      });
+      expect(settled.settlement).toMatchObject({ feeMicro: 7_000n, rebateBps: 3_000, rebateMicro: 3_000n });
+
+      const fees = await scratch.db.query<{ amount_micro: string }>(
+        'SELECT amount_micro::text FROM bursar_fee_ledger WHERE settlement_id = $1::uuid',
+        [settled.settlement.id],
+      );
+      expect(fees.rows).toEqual([{ amount_micro: '7000.000000' }]);
+    });
+
     it('rolls the consume back when marking it paid fails', async () => {
       const held = await heldAndGuarded();
       const claim = await claimFor(held);
@@ -1503,6 +1534,24 @@ describe.skipIf(!TEST_DATABASE_URL)('lane ledger against Postgres', () => {
       );
       expect(fees.rows).toHaveLength(1);
       expect(fees.rows[0]?.treasury).toBe(TREASURY);
+    });
+
+    it('refuses a rebate that, added back to the fee, comes to more than the payment', async () => {
+      await expect(
+        ledger.recordDirectSettlement({
+          network: NETWORK,
+          asset: ASSET,
+          payerWallet: PAYER,
+          merchantWallet: MERCHANT,
+          amountMicro: m(1_000_000),
+          feeMicro: m(900_000),
+          rebateBps: 3_000,
+          rebateMicro: m(200_000),
+          txHash: `0x${'11'.repeat(32)}`,
+          nonce: `0x${'7e'.repeat(32)}`,
+          treasury: TREASURY,
+        }),
+      ).rejects.toThrow(/chk_settlements_rebate_within_amount/);
     });
 
     it('reports it to the trust layer under the payer when there is no account', async () => {

@@ -129,6 +129,8 @@ export type LedgerCall =
       readonly reservationId: string;
       readonly claim: string;
       readonly feeMicro: Micro;
+      readonly rebateBps: number;
+      readonly rebateMicro: Micro;
       readonly txHash: string;
     }
   | { readonly kind: 'record'; readonly nonce: string }
@@ -143,6 +145,8 @@ export function settlementFixture(overrides: Partial<Settlement> = {}): Settleme
     merchantWallet: '0xmerchant',
     amountMicro: toMicro(1_000_000),
     feeMicro: toMicro(1_900),
+    rebateBps: 0,
+    rebateMicro: toMicro(0),
     status: 'settled',
     txHash: `0x${'ab'.repeat(32)}`,
     settleNonce: null,
@@ -253,6 +257,8 @@ export class FakeLedger implements SettlementLedger {
       reservationId: input.reservationId,
       claim: input.claim,
       feeMicro: input.feeMicro,
+      rebateBps: input.rebateBps ?? 0,
+      rebateMicro: input.rebateMicro ?? toMicro(0),
       txHash: input.txHash,
     });
     if (this.writesFail) throw this.writesFail;
@@ -281,6 +287,8 @@ export class FakeLedger implements SettlementLedger {
         payerWallet: hold.payerWallet,
         merchantWallet: hold.merchantWallet,
         feeMicro: input.feeMicro,
+        rebateBps: input.rebateBps ?? 0,
+        rebateMicro: input.rebateMicro ?? toMicro(0),
       },
       debt: null,
     };
@@ -292,7 +300,14 @@ export class FakeLedger implements SettlementLedger {
     if (input.feeMicro >= input.amountMicro) {
       throw new LedgerError('fee_exceeds_amount', 'the facilitator fee cannot take the whole payment');
     }
-    return { ...this.settlement, txHash: input.txHash, amountMicro: input.amountMicro, feeMicro: input.feeMicro };
+    return {
+      ...this.settlement,
+      txHash: input.txHash,
+      amountMicro: input.amountMicro,
+      feeMicro: input.feeMicro,
+      rebateBps: input.rebateBps ?? 0,
+      rebateMicro: input.rebateMicro ?? toMicro(0),
+    };
   }
 
   kinds(): string[] {

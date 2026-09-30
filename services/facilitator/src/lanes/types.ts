@@ -188,6 +188,10 @@ export type Settlement = {
   readonly merchantWallet: string;
   readonly amountMicro: Micro;
   readonly feeMicro: Micro;
+  /** The payee's staking rebate the fee was priced with, in basis points. Zero where none was read. */
+  readonly rebateBps: number;
+  /** What that rebate took off the fee. Zero where the floor held the fee up. */
+  readonly rebateMicro: Micro;
   readonly status: SettlementStatus;
   readonly txHash: string | null;
   /** The authorisation a direct settlement spent. Null in the lanes that settle net. */

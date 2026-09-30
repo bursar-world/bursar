@@ -38,6 +38,8 @@ describe.skipIf(!TEST_DATABASE_URL)('paying a provider through the prefund lane'
   let scheme: ScriptedScheme;
   let delivered: TrustEventPayload[];
   let relay: TrustRelay;
+  /** What the staking pool reports for each payee, lowercased. Anyone missing has no stake. */
+  let tiers: Map<string, number>;
 
   beforeAll(async () => {
     scratch = await scratchDatabase('bursar_flow_test');
@@ -53,6 +55,7 @@ describe.skipIf(!TEST_DATABASE_URL)('paying a provider through the prefund lane'
     trust = new TrustStore({ topic: 'mandate.trust.v1' });
     ledger = new LaneLedger({ db: scratch.db, trust, currency: 'USDG' });
     scheme = new ScriptedScheme({ verify: { isValid: true, payer: payer.address } });
+    tiers = new Map();
 
     const facilitator = new Facilitator({
       scheme,
@@ -61,6 +64,7 @@ describe.skipIf(!TEST_DATABASE_URL)('paying a provider through the prefund lane'
       treasury: TREASURY,
       feeBps: 100,
       feeFloorMicro: toMicro(1_900),
+      rebateOf: async (payee) => tiers.get(payee) ?? 0,
       requireBinding: true,
     });
 
@@ -215,9 +219,8 @@ describe.skipIf(!TEST_DATABASE_URL)('paying a provider through the prefund lane'
     await expect(reserve('1000000', 'call-1')).rejects.toThrow(/does not hold/);
   });
 
-  it('settles a direct call on chain and reports it once', async () => {
-    await setUp();
-
+  /** A direct `/settle` for one 1 USDG call, landing on chain as the scheme reports it. */
+  async function settleDirect(): Promise<{ status: number; body: unknown }> {
     // The request the payment buys is the one the resource server served, not this envelope. It
     // forwards the digest of those bytes, and the payer derived its nonce from the same digest.
     const requestHash = hashRequest(JSON.stringify({ prompt: 'render this frame' }));
@@ -244,8 +247,6 @@ describe.skipIf(!TEST_DATABASE_URL)('paying a provider through the prefund lane'
       requestHash,
     };
 
-    const bytes = new TextEncoder().encode(JSON.stringify(body));
-
     scheme.set({
       verify: { isValid: true, payer: payer.address },
       settle: {
@@ -264,8 +265,15 @@ describe.skipIf(!TEST_DATABASE_URL)('paying a provider through the prefund lane'
       query: new URLSearchParams(),
       headers: {},
       body,
-      bytes,
+      bytes: new TextEncoder().encode(JSON.stringify(body)),
     });
+    return { status: response.status, body: response.body };
+  }
+
+  it('settles a direct call on chain and reports it once', async () => {
+    await setUp();
+
+    const response = await settleDirect();
 
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({ success: true });
@@ -278,6 +286,26 @@ describe.skipIf(!TEST_DATABASE_URL)('paying a provider through the prefund lane'
       poolId: 'direct',
       amountMicro: '1000000',
     });
+  });
+
+  it('takes a staked payee\'s rebate off the fee, and says so in the answer and the ledger', async () => {
+    await setUp();
+    tiers.set(MERCHANT.toLowerCase(), 2_000);
+
+    const response = await settleDirect();
+
+    // 1% of 1 USDG is 10,000 micro-USD, and the payee's 20% tier takes 2,000 of it.
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ success: true, feeMicro: '8000', rebateBps: 2_000, rebateMicro: '2000' });
+
+    const rows = await scratch.db.query<{ fee_micro: string; rebate_bps: number; rebate_micro: string; owed: string }>(
+      `SELECT s.fee_micro::text, s.rebate_bps, s.rebate_micro::text, f.amount_micro::text AS owed
+       FROM bursar_settlements s
+       INNER JOIN bursar_fee_ledger f ON f.settlement_id = s.id`,
+    );
+    expect(rows.rows).toEqual([
+      { fee_micro: '8000.000000', rebate_bps: 2_000, rebate_micro: '2000.000000', owed: '8000.000000' },
+    ]);
   });
 
   it('reports the trust queue and its quarantine to an operator', async () => {

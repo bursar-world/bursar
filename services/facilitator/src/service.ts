@@ -16,6 +16,8 @@ import { canonicalNetwork } from '@bursar/x402';
 import { SettlementBudget } from './x402/budget.js';
 import type { PaymentScheme } from './x402/contract.js';
 import { Facilitator, SETTLE_WORST_CASE_MS } from './x402/facilitator.js';
+import { stakingRebates } from './x402/rebate.js';
+import type { RebateReader } from './x402/rebate.js';
 import { chainAuthorizations, reconcile } from './x402/reconcile.js';
 import type { AuthorizationChain } from './x402/reconcile.js';
 import type { UnderwriterLookup } from './underwriting/underwriter.js';
@@ -62,6 +64,11 @@ export type ServiceOptions = {
    * configured chain, read through `rhc`; `null` measures credit against the ledger's rows alone.
    */
   readonly onchainCollateral?: OnchainCollateralReader | null;
+  /**
+   * Reads a payee's fee rebate. Defaults to `Staking.rebateBpsOf` on `config.stakingPool`, read
+   * through `rhc`; `null` charges every settle the full fee.
+   */
+  readonly rebateOf?: RebateReader | null;
   readonly log?: (line: string) => void;
   readonly now?: () => Date;
 };
@@ -165,6 +172,8 @@ export function createFacilitatorService(options: ServiceOptions): FacilitatorSe
     treasury: config.funding.treasury,
     feeBps: config.feeBps,
     feeFloorMicro: config.feeFloorMicro,
+    rebateOf:
+      options.rebateOf !== undefined ? options.rebateOf : stakingRebates(rhc.client, config.stakingPool),
     requireBinding: config.requireBinding,
     log,
   });
@@ -287,7 +296,7 @@ export function createFacilitatorService(options: ServiceOptions): FacilitatorSe
       network: canonicalNetwork(config.network),
       asset: config.settlementAsset,
       treasury: config.funding.treasury,
-      fee: (amountMicro) => facilitator.fee(amountMicro),
+      fee: (amountMicro, payee) => facilitator.feeFor(amountMicro, payee),
       olderThanMs: RECONCILE_AFTER_MS,
       log,
     });

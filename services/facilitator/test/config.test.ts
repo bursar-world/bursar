@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EnvError, isBursarError } from '@bursar/core';
+import { EnvError, RHC_MAINNET, collateralDeployment, isBursarError } from '@bursar/core';
 import { describeConfig, loadConfig } from '../src/config.js';
 import { isLaneMode } from '../src/lanes/types.js';
 
@@ -183,6 +183,15 @@ describe('configuration', () => {
     // Marketing copy has no reader on this route; nothing in the console, SDK or MCP server asks.
     expect(described).not.toHaveProperty('heroLane');
     expect(described).not.toHaveProperty('brand');
+  });
+
+  it('reads the fee rebate from the staking pool the deployment record names, and says which', () => {
+    const pool = collateralDeployment(RHC_MAINNET.chainId)?.Staking;
+    expect(pool).toMatch(/^0x[0-9a-fA-F]{40}$/);
+
+    const config = loadConfig(env());
+    expect(config.stakingPool).toBe(pool);
+    expect(describeConfig(config)).toMatchObject({ stakingPool: pool });
   });
 
   it('refuses the testnet, naming the variable that chose it', () => {

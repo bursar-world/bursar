@@ -166,6 +166,8 @@ export type SettlementRow = {
   merchant_wallet: string;
   amount_micro: string;
   fee_micro: string;
+  rebate_bps: number;
+  rebate_micro: string;
   status: SettlementStatus;
   tx_hash: string | null;
   settle_nonce: string | null;
@@ -363,6 +365,8 @@ export function toSettlement(row: SettlementRow): Settlement {
     merchantWallet: row.merchant_wallet,
     amountMicro: numericToMicro(row.amount_micro, 'amount_micro'),
     feeMicro: numericToMicro(row.fee_micro, 'fee_micro'),
+    rebateBps: row.rebate_bps,
+    rebateMicro: numericToMicro(row.rebate_micro, 'rebate_micro'),
     status: row.status,
     txHash: row.tx_hash,
     settleNonce: row.settle_nonce,

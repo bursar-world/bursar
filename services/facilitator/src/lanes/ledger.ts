@@ -125,7 +125,8 @@ const REPAYMENT_COLUMNS = `
 
 const SETTLEMENT_COLUMNS = `
   id::text, network, asset, payer_wallet, merchant_wallet,
-  amount_micro::text, fee_micro::text, status, tx_hash, settle_nonce, settled_at, created_at`;
+  amount_micro::text, fee_micro::text, rebate_bps, rebate_micro::text,
+  status, tx_hash, settle_nonce, settled_at, created_at`;
 
 const POSITION_COLUMNS = `
   id::text, agent_id, pool_id, collateral_account, asset_id,
@@ -197,6 +198,12 @@ export type ConsumeReservationInput = {
   readonly asset: string;
   readonly feeMicro: Micro;
   /**
+   * The payee's staking rebate, where this service priced the fee. A fee the caller priced itself
+   * carries none, and the settlement records zero.
+   */
+  readonly rebateBps?: number;
+  readonly rebateMicro?: Micro;
+  /**
    * The payment closing the hold, when one is.
    *
    * Everything the settlement records is taken from the reservation, so without this a payment for
@@ -260,6 +267,9 @@ export type DirectSettlementInput = {
   readonly merchantWallet: string;
   readonly amountMicro: Micro;
   readonly feeMicro: Micro;
+  /** The payee's staking rebate the fee was priced with. Zero when absent. */
+  readonly rebateBps?: number;
+  readonly rebateMicro?: Micro;
   readonly txHash: string;
   readonly nonce: string;
   /** Where the fee is owed. Recorded on the same transaction as the settlement it comes out of. */
@@ -1068,9 +1078,10 @@ export class LaneLedger {
     const settlementRow = await one<SettlementRow>(
       client,
       `INSERT INTO bursar_settlements (
-         network, asset, payer_wallet, merchant_wallet, amount_micro, fee_micro, status
+         network, asset, payer_wallet, merchant_wallet, amount_micro, fee_micro,
+         rebate_bps, rebate_micro, status
        )
-       VALUES ($1,$2,$3,$4,$5,$6,'authorized')
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'authorized')
        RETURNING ${SETTLEMENT_COLUMNS}`,
       [
         reservation.network,
@@ -1079,6 +1090,8 @@ export class LaneLedger {
         reservation.merchantWallet,
         microToNumeric(reservation.amountMicro),
         microToNumeric(input.feeMicro),
+        input.rebateBps ?? 0,
+        microToNumeric(input.rebateMicro ?? ZERO_MICRO),
       ],
     );
     if (!settlementRow) throw new LedgerError('settlement_insert_failed', 'could not record the settlement');
@@ -1230,9 +1243,9 @@ export class LaneLedger {
         client,
         `INSERT INTO bursar_settlements (
            network, asset, payer_wallet, merchant_wallet, amount_micro, fee_micro,
-           status, tx_hash, settle_nonce, settled_at
+           rebate_bps, rebate_micro, status, tx_hash, settle_nonce, settled_at
          )
-         VALUES ($1,$2,$3,$4,$5,$6,'settled',$7,$8,$9)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'settled',$9,$10,$11)
          ON CONFLICT (network, lower(payer_wallet), settle_nonce) WHERE settle_nonce IS NOT NULL DO NOTHING
          RETURNING ${SETTLEMENT_COLUMNS}`,
         [
@@ -1242,6 +1255,8 @@ export class LaneLedger {
           input.merchantWallet,
           microToNumeric(input.amountMicro),
           microToNumeric(input.feeMicro),
+          input.rebateBps ?? 0,
+          microToNumeric(input.rebateMicro ?? ZERO_MICRO),
           input.txHash,
           input.nonce.toLowerCase(),
           now,

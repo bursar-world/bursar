@@ -1,4 +1,4 @@
-import { maxMicro, minMicro, mulBps, toMicro } from '@bursar/core';
+import { ZERO_MICRO, maxMicro, minMicro, mulBps, subMicro, toMicro } from '@bursar/core';
 import type { Micro } from '@bursar/core';
 import { MAX_SETTLEMENT_CALLS, REASON, RECEIPT_WAIT_MS, canonicalNetwork, isNotSent } from '@bursar/x402';
 import type {
@@ -26,6 +26,8 @@ import type {
   SupportedResponse,
   VerifyResult,
 } from './contract.js';
+import { Rebates } from './rebate.js';
+import type { RebateReader } from './rebate.js';
 
 /**
  * Verify and settle, on someone else's behalf.
@@ -109,6 +111,11 @@ export type FacilitatorOptions = {
    * broadcast per call there.
    */
   readonly feeFloorMicro: Micro;
+  /**
+   * A payee's rebate, from `Staking.rebateBpsOf` on the pool the deployment record names. Absent or
+   * null, every settle pays the full fee.
+   */
+  readonly rebateOf?: RebateReader | null;
   /** Defaults to `CLAIM_MARGIN_MS`. */
   readonly claimMarginMs?: number;
   /** Refuse any payment that carries no proof it was signed for the request it is redeemed for. */
@@ -135,7 +142,21 @@ export type FacilitatorSettleResponse = SettleResult & {
   /** This service's own record of the payment, once one exists. */
   readonly settlementId?: string;
   readonly feeMicro?: string;
+  /** The payee's rebate as the staking pool reported it when the fee was priced, in basis points. */
+  readonly rebateBps?: number;
+  /** What the rebate took off the fee. */
+  readonly rebateMicro?: string;
 };
+
+/** The fee on one settle, and what the payee's staking rebate took off it. */
+export type SettlementFee = {
+  readonly feeMicro: Micro;
+  readonly rebateBps: number;
+  /** Short of `rebateBps` of the fee, or zero, wherever the floor holds the fee up. */
+  readonly rebateMicro: Micro;
+};
+
+const NO_FEE: SettlementFee = { feeMicro: ZERO_MICRO, rebateBps: 0, rebateMicro: ZERO_MICRO };
 
 export class Facilitator {
   private readonly scheme: PaymentScheme;
@@ -144,6 +165,7 @@ export class Facilitator {
   private readonly treasury: string;
   private readonly feeBps: number;
   private readonly feeFloorMicro: Micro;
+  private readonly rebates: Rebates;
   private readonly requireBinding: boolean;
   private readonly claimMarginMs: number;
   private readonly log: (line: string) => void;
@@ -161,6 +183,7 @@ export class Facilitator {
     this.requireBinding = options.requireBinding ?? true;
     this.claimMarginMs = options.claimMarginMs ?? CLAIM_MARGIN_MS;
     this.log = options.log ?? (() => undefined);
+    this.rebates = new Rebates({ read: options.rebateOf ?? null, log: this.log });
   }
 
   async supported(): Promise<SupportedResponse & Record<string, unknown>> {
@@ -169,14 +192,24 @@ export class Facilitator {
   }
 
   /**
-   * What the facilitator charges on a settle of this size.
+   * What the facilitator charges on a settle of this size, to a payee earning `rebateBps`.
    *
-   * Truncated toward zero like the contracts, raised to the floor because every settle here pays
-   * for a broadcast, then capped at the payment itself. Settle refuses anything at or under the
-   * floor before broadcasting, so the cap only shows on a figure asked for outside it.
+   * Basis points of the amount, truncated toward zero like the contracts, less the rebate, truncated
+   * the same way. Then raised to the floor, because every settle here pays for a broadcast and a
+   * rebate never comes out of what the broadcast costs, and capped at the payment itself. Settle
+   * refuses anything at or under the floor before broadcasting, so the cap only shows on a figure
+   * asked for outside it.
    */
-  fee(amountMicro: Micro): Micro {
-    return minMicro(maxMicro(mulBps(amountMicro, this.feeBps), this.feeFloorMicro), amountMicro);
+  fee(amountMicro: Micro, rebateBps = 0): SettlementFee {
+    const proportional = mulBps(amountMicro, this.feeBps);
+    const charged = (fee: Micro): Micro => minMicro(maxMicro(fee, this.feeFloorMicro), amountMicro);
+    const feeMicro = charged(mulBps(proportional, 10_000 - rebateBps));
+    return { feeMicro, rebateBps, rebateMicro: subMicro(charged(proportional), feeMicro) };
+  }
+
+  /** The fee on a settle paid to `payee`, at the rebate the staking pool says it earns. */
+  async feeFor(amountMicro: Micro, payee: string): Promise<SettlementFee> {
+    return this.fee(amountMicro, await this.rebates.of(payee));
   }
 
   async verify(request: VerifyRequest): Promise<FacilitatorVerifyResponse> {
@@ -287,6 +320,11 @@ export class Facilitator {
       return refuse(allowance.reason, verdict.payer);
     }
 
+    // The fee is the payee's, so the payee's stake decides the rebate. Read while the transfer is in
+    // flight, so a landed payment waits on nothing before it is recorded. It never rejects: a pool
+    // that cannot be read is no rebate.
+    const rebate = this.rebates.of(String(request.paymentRequirements.payTo ?? ''));
+
     let settlement: SettleResult;
     try {
       settlement = await this.scheme.settle(
@@ -341,18 +379,14 @@ export class Facilitator {
 
     // The fee pays for the broadcast. A mandate-lane settle relays nothing, and the escrow takes
     // its own fee when the merchant releases the lock.
-    const feeMicro = settlement.broadcast ? this.fee(amountMicro) : (0n as Micro);
+    const fee = settlement.broadcast ? this.fee(amountMicro, await rebate) : NO_FEE;
     try {
       const recorded = claim
-        ? await this.closeReservation(claim, request, settlement, verdict.payer, amountMicro, feeMicro)
-        : await this.recordDirect(request, settlement, verdict.payer, amountMicro, feeMicro, nonce, network);
+        ? await this.closeReservation(claim, request, settlement, verdict.payer, amountMicro, fee)
+        : await this.recordDirect(request, settlement, verdict.payer, amountMicro, fee, nonce, network);
 
       this.log(`settle ok payer=${verdict.payer} tx=${settlement.transaction} settlement=${recorded.id}`);
-      return {
-        ...withoutDetail(settlement),
-        settlementId: recorded.id,
-        feeMicro: recorded.feeMicro.toString(),
-      };
+      return { ...withoutDetail(settlement), ...receipt(recorded) };
     } catch (error) {
       // The transfer is on chain and the gas is spent. Failing the call here would tell the payer
       // nothing happened while their money has moved. The hash goes onto the replay guard, the one
@@ -399,8 +433,7 @@ export class Facilitator {
         payer,
         transaction: settled.txHash,
         network,
-        settlementId: settled.id,
-        feeMicro: settled.feeMicro.toString(),
+        ...receipt(settled),
       };
     }
     if (record.txHash) {
@@ -473,13 +506,13 @@ export class Facilitator {
     settlement: SettleResult,
     payer: `0x${string}`,
     amountMicro: Micro,
-    feeMicro: Micro,
+    fee: SettlementFee,
   ): Promise<Settlement> {
     const closed = await this.ledger.settleReservation({
       reservationId: request.reservationId ?? '',
       claim,
       asset: String(request.paymentRequirements.asset ?? request.asset ?? ''),
-      feeMicro,
+      ...fee,
       payment: this.paymentTerms(request, payer, amountMicro),
       txHash: settlement.transaction,
       treasury: this.treasury,
@@ -492,7 +525,7 @@ export class Facilitator {
     settlement: SettleResult,
     payer: `0x${string}`,
     amountMicro: Micro,
-    feeMicro: Micro,
+    fee: SettlementFee,
     nonce: string,
     network: string,
   ): Promise<Settlement> {
@@ -502,7 +535,7 @@ export class Facilitator {
       payerWallet: payer,
       merchantWallet: String(request.paymentRequirements.payTo ?? ''),
       amountMicro,
-      feeMicro,
+      ...fee,
       txHash: settlement.transaction,
       nonce,
       treasury: this.treasury,
@@ -578,6 +611,19 @@ const ZERO_SALT = `0x${'00'.repeat(32)}` as const;
 const SCHEME_FAILED = 'the settlement scheme failed before answering; the facilitator log has the cause';
 const UNRECORDED = 'the transfer was broadcast and could not be recorded; it is reconciled from the chain';
 const MISMATCH_LANDED = 'the transfer was broadcast and does not pay the reservation it names';
+
+/** What a recorded settlement tells the caller about the fee, read off the row rather than recomputed. */
+function receipt(settlement: Settlement): Pick<
+  FacilitatorSettleResponse,
+  'settlementId' | 'feeMicro' | 'rebateBps' | 'rebateMicro'
+> {
+  return {
+    settlementId: settlement.id,
+    feeMicro: settlement.feeMicro.toString(),
+    rebateBps: settlement.rebateBps,
+    rebateMicro: settlement.rebateMicro.toString(),
+  };
+}
 
 /** A scheme's own detail is transport output as often as not, so it is logged and not forwarded. */
 function withoutDetail(result: SettleResult): SettleResult {
