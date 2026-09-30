@@ -484,6 +484,9 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
                 to: address(this)
             })
         );
+        // The sale has to leave the pool inside the band as well as find it there, or a push to
+        // the band's edge earlier in the transaction lets the fill run past it.
+        guard.exitPrice(asset, address(this));
     }
 
     /// Bounty to the caller, the rest against the debt, any surplus back to the mandate, and a

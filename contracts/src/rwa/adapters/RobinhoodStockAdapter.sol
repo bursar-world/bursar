@@ -13,7 +13,9 @@ import {IParkAsset} from "../interfaces/IParkAsset.sol";
 ///
 /// Value is raw × feed, with no multiplier and no projected return: the parked figure is what the
 /// token is priced at now, and nothing else. Every trade passes the price guard at the asset's
-/// trade bound and fills within the asset's band of the feed.
+/// trade bound, fills within the asset's band of the feed, and leaves the pool inside that band:
+/// a trade that only had to find the pool there could follow a push to the band's edge earlier
+/// in the same transaction and fill past it.
 contract RobinhoodStockAdapter is IParkAsset, V4Swapper {
     uint256 internal constant BPS = 10_000;
 
@@ -81,6 +83,7 @@ contract RobinhoodStockAdapter is IParkAsset, V4Swapper {
                 to: address(this)
             })
         );
+        guard.tradePrice(asset, beneficiary);
     }
 
     function release(uint256 raw, uint256 minUsdg, address to, address beneficiary)
@@ -98,6 +101,7 @@ contract RobinhoodStockAdapter is IParkAsset, V4Swapper {
                 key: a.pool, zeroForOne: a.pool.currency0 == asset, exactIn: true, amount: raw, limit: floor, to: to
             })
         );
+        guard.exitPrice(asset, beneficiary);
     }
 
     function releaseExact(uint256 usdgOut, uint256 maxRaw, address to, address beneficiary)
@@ -120,6 +124,7 @@ contract RobinhoodStockAdapter is IParkAsset, V4Swapper {
                 to: to
             })
         );
+        guard.exitPrice(asset, beneficiary);
     }
 
     function _scale() private view returns (uint256) {

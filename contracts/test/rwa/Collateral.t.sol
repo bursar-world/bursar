@@ -510,6 +510,28 @@ contract CollateralTest is Test {
         vault.liquidate(address(acct), address(sgov));
     }
 
+    /// A sale must leave the pool inside the band as well as find it there. Pushed to the band's
+    /// edge earlier in the same transaction, the pool would let the sale fill past it.
+    function test_liquidate_refusesManipulatedFill() public {
+        _deposit(spy, 0.01e18);
+        _deposit(aapl, 0.01e18);
+        _spendOnCredit(5e6);
+        uint256 price = SPY_E8 * 45 / 100;
+        _movePrice(spy, spyFeed, price);
+        v4.setImpact(50);
+
+        // 80 bps under the feed is inside the 100 bps band, and the sale takes it past.
+        _setPool(spy, price * 9_920 / 10_000);
+        vm.prank(keeper);
+        vm.expectPartialRevert(PriceGuard.PoolPriceDeviation.selector);
+        vault.liquidate(address(acct), address(spy));
+
+        // From the feed the same sale stays inside it.
+        _setPool(spy, price);
+        vm.prank(keeper);
+        assertGt(vault.liquidate(address(acct), address(spy)), 0);
+    }
+
     function test_liquidate_refusesHealthy() public {
         _deposit(spy, 0.01e18);
         _spendOnCredit(1e6);

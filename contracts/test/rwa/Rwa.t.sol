@@ -269,6 +269,20 @@ contract RwaTest is Test {
         acct.buy(address(spy), 1e6, 0, SPY_E8);
     }
 
+    /// A purchase must leave the pool inside the band as well as find it there. Pushed to the
+    /// band's edge earlier in the same transaction, the pool would let the fill run past it.
+    function test_buy_refusesManipulatedFill() public {
+        v4.setImpact(50);
+        _setPool(spy, SPY_E8 * 10_080 / 10_000); // 80 bps over the feed, inside the 100 bps band
+        vm.prank(agent);
+        vm.expectPartialRevert(PriceGuard.PoolPriceDeviation.selector);
+        acct.buy(address(spy), 1e6, 0, SPY_E8);
+
+        _setPool(spy, SPY_E8);
+        vm.prank(agent);
+        acct.buy(address(spy), 1e6, 0, SPY_E8);
+    }
+
     function test_buy_onlyPrincipalSetsPolicy() public {
         vm.prank(agent);
         vm.expectRevert(StockSpendRouter.NotPrincipal.selector);
@@ -374,6 +388,15 @@ contract RwaTest is Test {
         (,,,,, bool fresh) = park.position(address(acct), address(sgovAdapter));
         assertFalse(fresh);
         assertEq(park.spendingPower(address(acct)), 150e6);
+    }
+
+    function test_unpark_refusesManipulatedFill() public {
+        uint256 raw = _park(50e6);
+        v4.setImpact(30);
+        _setPool(sgov, SGOV_E8 * 9_970 / 10_000); // 30 bps under the feed, inside the 50 bps band
+        vm.prank(principal);
+        vm.expectPartialRevert(PriceGuard.PoolPriceDeviation.selector);
+        park.unpark(address(acct), address(sgovAdapter), raw, 0);
     }
 
     function test_unpark_returnsUsdgToMandate() public {
@@ -532,6 +555,11 @@ contract RwaTest is Test {
     function _cost(uint256 out, address asset) internal view returns (uint256) {
         uint256 fee = reg.get(asset).pool.fee;
         return Math.mulDiv(out * (10_000 + v4.haircutBps()) / 10_000, 1e6, 1e6 - fee);
+    }
+
+    function _setPool(MockStock token, uint256 priceE8) internal {
+        PoolKey memory k = reg.get(address(token)).pool;
+        v4.setPrice(k, _sqrt(priceE8, k.currency0 == address(token)));
     }
 
     function _park(uint256 amount) internal returns (uint256 raw) {
