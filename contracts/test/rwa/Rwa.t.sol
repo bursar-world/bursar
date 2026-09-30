@@ -148,6 +148,29 @@ contract RwaTest is Test {
         reg.setAsset(address(spy), c);
     }
 
+    function test_registry_rejectsWideBandAndLongStaleness() public {
+        AssetRegistry.Asset memory c = reg.get(address(spy));
+        c.bandBps = 501;
+        _expectBadBounds(c);
+        c.bandBps = 500;
+        c.tradeStaleness = 7 days;
+        c.valuationStaleness = 14 days;
+        vm.prank(admin);
+        reg.setAsset(address(spy), c);
+
+        c = reg.get(address(spy));
+        c.tradeStaleness = 7 days + 1;
+        _expectBadBounds(c);
+
+        c = reg.get(address(spy));
+        c.valuationStaleness = 14 days + 1;
+        _expectBadBounds(c);
+
+        c = reg.get(address(spy));
+        c.perMandateCap = c.totalCap + 1;
+        _expectBadBounds(c);
+    }
+
     function test_guard_midMatchesFeed() public view {
         uint256 mid = guard.poolPriceE8(address(spy));
         assertApproxEqRel(mid, SPY_E8, 1e12);
@@ -323,14 +346,17 @@ contract RwaTest is Test {
         vm.expectRevert(abi.encodeWithSelector(TreasuryPark.MandateCapExceeded.selector, 101e6, 100e6));
         park.park(address(acct), address(sgovAdapter), 1e6, 0);
 
+        // A second mandate under its own cap still meets the one they share.
         AssetRegistry.Asset memory c = reg.get(address(sgov));
-        c.perMandateCap = 1_000e6;
         c.totalCap = 100e6;
         vm.prank(admin);
         reg.setAsset(address(sgov), c);
+        MandateAccount second = new MandateAccount(principal, agent, address(usdg), address(escrow), _limits(7));
+        accounts.add(principal, address(second));
+        usdg.mint(park.vaultOf(address(second)), 1e6);
         vm.prank(principal);
         vm.expectRevert(abi.encodeWithSelector(TreasuryPark.TotalCapExceeded.selector, 101e6, 100e6));
-        park.park(address(acct), address(sgovAdapter), 1e6, 0);
+        park.park(address(second), address(sgovAdapter), 1e6, 0);
     }
 
     function test_park_staleFeed() public {
@@ -555,6 +581,12 @@ contract RwaTest is Test {
     function _cost(uint256 out, address asset) internal view returns (uint256) {
         uint256 fee = reg.get(asset).pool.fee;
         return Math.mulDiv(out * (10_000 + v4.haircutBps()) / 10_000, 1e6, 1e6 - fee);
+    }
+
+    function _expectBadBounds(AssetRegistry.Asset memory c) internal {
+        vm.prank(admin);
+        vm.expectRevert(AssetRegistry.BadBounds.selector);
+        reg.setAsset(address(spy), c);
     }
 
     function _setPool(MockStock token, uint256 priceE8) internal {
