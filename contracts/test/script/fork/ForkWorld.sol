@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {console2} from "forge-std/console2.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {RecordKeys as K} from "../../../script/lib/RecordKeys.sol";
@@ -33,8 +32,7 @@ abstract contract ForkWorld is World {
     function _fork(string memory name) internal {
         string memory rpc = vm.envOr("BURSAR_RHC_FORK_RPC", string(""));
         if (bytes(rpc).length == 0) {
-            console2.log("BURSAR_RHC_FORK_RPC is unset; skipping the fork run.");
-            vm.skip(true);
+            vm.skip(true, "BURSAR_RHC_FORK_RPC is unset; it names the Robinhood Chain endpoint these suites fork");
             return;
         }
         vm.createSelectFork(rpc);
@@ -65,7 +63,6 @@ abstract contract ForkWorld is World {
         AssetRegistry.Asset memory a = AssetRegistry(_readAddress(path, K.ASSET_REGISTRY)).get(_asset(symbol));
         (,,, uint256 updatedAt,) = IAggregatorV3(a.feed).latestRoundData();
         if (block.timestamp - updatedAt <= a.tradeStaleness) return;
-        console2.log(string.concat("The ", symbol, " feed is past its trade bound: run this in the 24/5 session."));
-        vm.skip(true);
+        vm.skip(true, string.concat("the ", symbol, " feed is past its trade bound; run this in the 24/5 session"));
     }
 }

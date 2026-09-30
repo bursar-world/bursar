@@ -7,14 +7,29 @@
 #   script/local/rehearse-mainnet.sh            # from contracts/
 #
 # RHC_RPC_URL is the chain it forks, the public endpoint unless set, and BURSAR_ANVIL_PORT the
-# port, 8549 unless set. The records it writes are copies under cache/bursar/fork: nothing in
-# deployments/ changes.
+# port, 8549 unless set. The records it writes are copies under cache/bursar/fork, and it builds,
+# logs its transactions and keeps forge's --resume data there too: nothing in deployments/, out/,
+# broadcast/ or cache/ outside cache/bursar changes, so a real run's logs are never overwritten.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 upstream="${RHC_RPC_URL:-https://rpc.mainnet.chain.robinhood.com}"
 port="${BURSAR_ANVIL_PORT:-8549}"
 rpc="http://127.0.0.1:${port}"
+anvil_pid=""
+current="the port check"
+
+step() {
+  current="$1"
+  printf '\n=== %s\n' "$1"
+}
+
+finish() {
+  local status=$?
+  if [ -n "$anvil_pid" ]; then kill "$anvil_pid" 2>/dev/null || true; fi
+  if [ "$status" -ne 0 ]; then printf '\nMainnet rehearsal failed at: %s\n' "$current" >&2; fi
+}
+trap finish EXIT
 
 # Another node on the port would take every transaction meant for this one.
 if nc -z 127.0.0.1 "$port" 2>/dev/null; then
@@ -23,12 +38,12 @@ if nc -z 127.0.0.1 "$port" 2>/dev/null; then
 fi
 anvil --fork-url "$upstream" --chain-id 4663 --port "$port" --auto-impersonate --silent &
 anvil_pid=$!
-trap 'kill "$anvil_pid" 2>/dev/null || true' EXIT
 for _ in $(seq 100); do
   cast chain-id --rpc-url "$rpc" >/dev/null 2>&1 && break
   sleep 0.2
 done
 kill -0 "$anvil_pid" 2>/dev/null || { echo "anvil did not start" >&2; exit 1; }
+forked_at="$(cast block-number --rpc-url "$rpc")"
 
 # shellcheck source=../env/rhc-mainnet-v3.env
 source script/env/rhc-mainnet-v3.env
@@ -42,9 +57,13 @@ export BURSAR_V1_RECORD="$dir/rhc-mainnet.json"
 export BURSAR_V2_RECORD="$dir/rhc-mainnet-v2.json"
 export BURSAR_TOKEN_RECORD="$dir/rhc-mainnet-token.json"
 export BURSAR_ALLOW_EOA_GOVERNANCE=i-accept-eoa-governance
-# The fork reports chain 4663, so its transaction logs would land where a real mainnet run keeps
-# its own.
+# The fork reports chain 4663, so without these its logs and --resume data would land where a real
+# mainnet run keeps its own.
+export FOUNDRY_OUT="$dir/out"
+export FOUNDRY_CACHE_PATH="$dir/cache"
 export FOUNDRY_BROADCAST="$dir/broadcast"
+# Forge's test preprocessing leaves artifacts behind that every later command warns about.
+export FOUNDRY_DYNAMIC_TEST_LINKING=false
 
 # Every key comes from the records, as the runbook's commands name them.
 deployer="$(jq -r .deployer "$BURSAR_RECORD")"
@@ -71,10 +90,6 @@ check() {
 later() {
   cast rpc evm_increaseTime "$1" --rpc-url "$rpc" >/dev/null
   cast rpc evm_mine --rpc-url "$rpc" >/dev/null
-}
-
-step() {
-  printf '\n=== %s\n' "$1"
 }
 
 step "1. Deploy the new set"
@@ -141,3 +156,6 @@ step "Done"
 for record in "$BURSAR_V1_RECORD" "$BURSAR_TOKEN_RECORD" "$BURSAR_V2_RECORD" "$BURSAR_RECORD"; do
   printf '%-40s %s\n' "$record" "$(jq -r '.status + (if .supersededBy then " -> " + .supersededBy else "" end)' "$record")"
 done
+current="done"
+printf '\nMainnet rehearsal passed: every step of MIGRATION.md ran on a fork of block %s, and the new record is %s.\n' \
+  "$forked_at" "$(jq -r .status "$BURSAR_RECORD")"
