@@ -157,6 +157,10 @@ pnpm -r typecheck
 pnpm -r test
 ```
 
+To build only the SDK, build the workspace packages it imports along with it:
+`pnpm --filter "@bursar/sdk..." build`. The package README,
+[`packages/sdk/README.md`](packages/sdk/README.md), also covers running it against a local chain.
+
 The contracts need their Solidity dependencies once. `contracts/lib/` is not committed:
 
 ```sh
