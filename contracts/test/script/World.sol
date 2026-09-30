@@ -32,6 +32,9 @@ abstract contract World is ScriptHarness {
     uint256 internal constant T0 = 1_790_592_800;
 
     string internal path;
+    /// The key every deploy script signs with: anvil's first account here, the record's own deploy
+    /// key on a fork of Robinhood Chain.
+    address internal deployKey;
     uint256 private _snapshot;
     string private _saved;
 
@@ -43,31 +46,32 @@ abstract contract World is ScriptHarness {
         _set("BURSAR_VESTING_START", vm.toString(block.timestamp));
         path = string.concat(RECORDS, "/", name, ".json");
         _set("BURSAR_RECORD", path);
+        deployKey = DEPLOYER;
         _run(FIXTURES, address(new LocalFixtures()));
     }
 
     function _core() internal {
-        _run(DEPLOYER, address(new Deploy()));
+        _run(deployKey, address(new Deploy()));
     }
 
     function _token() internal {
-        _run(DEPLOYER, address(new DeployToken()));
+        _run(deployKey, address(new DeployToken()));
     }
 
     function _staking() internal {
-        _run(DEPLOYER, address(new DeployStaking()));
+        _run(deployKey, address(new DeployStaking()));
     }
 
     function _rwa() internal {
-        _run(DEPLOYER, address(new DeployRwa()));
+        _run(deployKey, address(new DeployRwa()));
     }
 
     function _collateral() internal {
-        _run(DEPLOYER, address(new DeployCollateral()));
+        _run(deployKey, address(new DeployCollateral()));
     }
 
     function _privacy() internal {
-        _run(DEPLOYER, address(new DeployPrivacy()));
+        _run(deployKey, address(new DeployPrivacy()));
     }
 
     /// Proposed by the first signer, approved by the second, executed by the first once the
