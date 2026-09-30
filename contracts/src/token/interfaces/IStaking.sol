@@ -3,17 +3,14 @@ pragma solidity ^0.8.24;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-/// Staked BRSR underwrites agent credit and is paid the spread the credit lane charges.
+/// Staked BRSR is paid the spread the credit lane charges and is slashed when the lane writes
+/// off a line.
 ///
-/// A staker here is taking a position, not making a deposit. When a borrower in the
-/// collateralized lane defaults past their own collateral, the slasher takes cover for the
-/// shortfall out of this pool before anyone else pays, never more than `slashCapBps` of the
-/// pool at a time and with that allowance refilling over `slashWindow`, and the lender carries
-/// whatever the cap leaves. Every staker's claim falls by the same proportion when that
+/// A staker here is taking a position, not making a deposit. When a collateral-lane line is
+/// written off, the slasher takes stake as a penalty. It goes to the slash sink; the lender
+/// carries the whole loss in USDG. Every staker's claim falls by the same proportion when that
 /// happens, whatever they were doing at the time. There is no rate, no term, and no guarantee
 /// that a stake comes back whole.
-///
-/// Four properties do the work.
 ///
 /// Claims are held as shares. A share is a fraction of whatever BRSR the pool holds, so a
 /// loss lands on everyone at once and needs no per-account bookkeeping to do it.
@@ -24,7 +21,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 /// until it completes, so leaving ahead of a loss the capital was already exposed to buys
 /// nothing. The period exists to outlast the gap between a default happening and the
 /// shortfall being measured, and the guardian brake holds exits while that measurement is
-/// running, for at most `maxExitHold`: a pause is an outage, never a freeze.
+/// running, for at most `maxExitHold`, after which exits reopen even if the pause has not
+/// lifted.
 ///
 /// Losses arrive at a bounded rate. Only the slasher can take stake, never more than
 /// `slashCapBps` of the pool at once, and the allowance a slash uses grows back evenly over
@@ -113,25 +111,25 @@ interface IStaking {
     event AdminTransferred(address indexed from, address indexed to);
 
     /// Pulls `amount` BRSR and mints shares against it at the pool's current value. Reverts
-    /// while paused: new first-loss capital must not arrive on top of a loss being measured.
-    /// Reverts too while a share is worth less than a millionth of what it was issued at,
-    /// because a deposit there would mint shares by the billion per wei.
+    /// while paused: new stake must not arrive on top of a loss being measured. Reverts too
+    /// while a share is worth less than a millionth of what it was issued at, because a
+    /// deposit there would mint shares by the billion per wei.
     function stake(uint256 amount) external returns (uint256 shares);
 
-    /// Step one of three. Moves `shares` out of the earning pool at their value now and starts
-    /// the unbonding clock. From this block the stake earns no spread and no compounds, and it
-    /// keeps taking losses until the exit completes. A lapsed request is put back to work
-    /// first, so the same call files it again.
+    /// Moves `shares` out of the earning pool at their value now and starts the unbonding
+    /// clock. From this block the stake earns no spread and no compounds, and it keeps taking
+    /// losses until the exit completes. A lapsed request is put back to work first, so the same
+    /// call files it again.
     function requestUnbond(uint256 shares) external;
 
-    /// Step two, the exit. Pays the request's value now: what the shares were worth when the
-    /// request was filed, less every slash since. Open from maturity until the request lapses
-    /// `unbondWindow` later, a window that grows by any time a pause spends holding exits.
+    /// Pays the request's value now: what the shares were worth when the request was filed,
+    /// less every slash since. Open from maturity until the request lapses `unbondWindow`
+    /// later, a window that grows by any time a pause spends holding exits.
     function completeUnbond() external returns (uint256 amount);
 
-    /// Step two, the other way. Puts the request's stake back into the earning pool at the
-    /// current share price, lapsed or not. Compounds that landed while it was out stay with
-    /// the stakers who earned them, so it comes back as fewer shares than it left as.
+    /// Puts the request's stake back into the earning pool at the current share price, lapsed
+    /// or not. Compounds that landed while it was out stay with the stakers who earned them, so
+    /// it comes back as fewer shares than it left as.
     function cancelUnbond() external;
 
     /// Pays out the spread the caller has accrued. Pulled rather than pushed so one staker
@@ -149,22 +147,21 @@ interface IStaking {
     /// the treasury instead of reverting. A revert here would fail the settlement that was
     /// trying to pay the spread.
     ///
-    /// Callable only by the credit manager, the component that charges the spread. It cannot
-    /// slash; that is the slasher's.
+    /// Callable only by the credit manager, the component that charges the spread.
     function distribute(uint256 amount) external;
 
     /// Adds BRSR to the earning pool without minting shares, which raises what every earning
     /// share is worth. Exit requests do not share in it. This is where bought-back BRSR lands.
     function compound(uint256 amount) external;
 
-    /// Covers a credit-lane shortfall out of the stake. `loss` is in BRSR wei, the stake token,
-    /// not USDG: the caller converts its shortfall before it calls.
+    /// Penalises stakers for a written-off credit line. `loss` is in BRSR wei, the stake token,
+    /// not USDG: the caller converts its loss before it calls.
     ///
     /// Callable only by the slasher. Takes the smaller of `loss` and `slashAllowance()`, from
     /// every earning share and every pending exit in the same proportion, and sends it to the
-    /// slash sink for conversion. The lender carries whatever is not taken. Never reverts for
-    /// an empty pool, a zero `loss` or a spent allowance, so a write-off cannot fail on the
-    /// pool's state; it returns zero instead.
+    /// slash sink. None of it reaches the lender. Never reverts for an empty pool, a zero
+    /// `loss` or a spent allowance, so a write-off cannot fail on the pool's state; it returns
+    /// zero instead.
     ///
     /// A slash that would leave less than a thousandth of the pool takes the rest with it and
     /// wipes the pool. That is only reachable with the cap raised close to the whole pool.

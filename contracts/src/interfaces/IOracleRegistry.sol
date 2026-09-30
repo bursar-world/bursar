@@ -9,12 +9,12 @@ import {IStaking} from "../token/interfaces/IStaking.sol";
 ///
 /// The bond is what makes a vote cost something: a resolver that stays silent after
 /// committing, or reveals a score far from the median, loses part of it. Commit-reveal is
-/// what stops the later voters from simply copying the earlier ones, which would turn a
-/// quorum into a single opinion repeated.
+/// what stops the later voters from copying the earlier ones, which would turn a quorum into
+/// a single opinion repeated.
 ///
 /// The bond is only half the incentive. The escrow deducts a resolver fee from every lock it
 /// settles on a ruling and sends it back here, where it is split between the resolvers whose
-/// scores held. Ruling well pays; staying silent or voting away from the room costs.
+/// scores held.
 ///
 /// Bonds are posted in BRSR and rewards are paid in the settlement asset, so a resolver puts
 /// the protocol's own token at risk and is paid out of the settlement it ruled on. Neither is
@@ -75,8 +75,8 @@ interface IOracleRegistry {
     }
 
     /// `maxDeviation` is in score points, not basis points. If more than half the revealed
-    /// scores sit further than that from the median, the vote is treated as collusion or
-    /// noise, not a result, and the dispute fails to the refund path.
+    /// scores sit further than that from the median, the vote has no centre and the payer is
+    /// refunded in full.
     ///
     /// `maxVoters` has to be at least the roster cap of 64, so every seated resolver can vote
     /// and none can be crowded out by whoever commits first. Both windows are at least ten
@@ -150,14 +150,14 @@ interface IOracleRegistry {
     /// cannot return in instalments that never reach it.
     function increaseBond(uint128 amount) external;
 
-    /// Step one of three. Stops the resolver being drawn into new disputes and starts the
-    /// cooldown, which has to outlast the longest dispute a live vote could still slash.
+    /// Stops the resolver being drawn into new disputes and starts the cooldown, which has to
+    /// outlast the longest dispute a live vote could still slash.
     function requestUnbond() external;
 
-    /// Step two, the exit: returns the bond once the cooldown has matured.
+    /// Returns the bond once the cooldown has matured and no vote it committed is still open.
     function completeUnbond() external;
 
-    /// Step two, the other way: returns the resolver to active without touching the bond.
+    /// Returns the resolver to active without touching the bond.
     function cancelUnbond() external;
 
     /// Opened by the escrow when either party contests a lock that still holds its funds. The
@@ -195,10 +195,9 @@ interface IOracleRegistry {
     function failDispute(uint256 disputeId) external;
 
     /// Posts the resolver fee the escrow deducted from a settled lock. The escrow transfers
-    /// the tokens first and calls this second, inside its own `resolve`, so the call has to
-    /// survive anything: a pot too small to split between the resolvers who earned it is
-    /// parked for the sink instead of reverting, because a refusal here would strand the lock
-    /// the vote just ruled on.
+    /// the tokens first and calls this second, inside its own `resolve`. A pot too small to
+    /// split between the resolvers who earned it is parked for the sink instead of reverting;
+    /// a revert would leave the fee here uncredited until `sweepSurplus`.
     ///
     /// The pot is split evenly between the resolvers that revealed within `maxDeviation` of
     /// the median. Silence and outlier scores earn nothing, which is the same test that
@@ -231,9 +230,9 @@ interface IOracleRegistry {
     function setEscrow(address escrow) external;
 
     /// Names the staking pool that holds the bond floor, and with it the token bonds are posted
-    /// in. That token is read off the pool. One shot, deployer only: the token
-    /// set is deployed after this contract, and re-pointing it later would change the currency
-    /// of bonds already held. Until it is called nobody can bond.
+    /// in. That token is read off the pool. One shot, deployer only: the token set is deployed
+    /// after this contract, and re-pointing it later would change the currency of bonds already
+    /// held. Until it is called nobody can bond.
     function setStaking(address staking) external;
 
     function transferAdmin(address to) external;
@@ -284,7 +283,7 @@ interface IOracleRegistry {
     function resolverCount() external view returns (uint256);
     function nextDisputeId() external view returns (uint256);
 
-    /// Settlement-asset balance held for resolver rewards, claimed and unclaimed. Bonds are
+    /// Settlement asset held for rewards not yet claimed or swept, allocated or not. Bonds are
     /// counted by `totalBonded` and held in a different token, so the two cannot overlap.
     function rewardFloat() external view returns (uint256);
     function unallocatedRewards() external view returns (uint256);

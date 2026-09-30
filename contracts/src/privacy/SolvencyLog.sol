@@ -10,7 +10,7 @@ interface IArbSys {
 /// A public log of epoch solvency roots. Each entry is the root of a Merkle-sum tree over the
 /// protocol's public obligations and the balances that back them, read at `asOfBlock`. Anyone can
 /// rebuild the tree from chain data at that block and check the root (services/solvency, the
-/// verify command). Phase A: the inputs are public state, so no proof is needed to check it.
+/// verify command). The inputs are public state, so checking a root needs no proof.
 contract SolvencyLog {
     error NotPoster();
     error NotAdmin();

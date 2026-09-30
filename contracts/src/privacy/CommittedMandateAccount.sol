@@ -17,10 +17,11 @@ interface IWithinMandateVerifier {
 }
 
 /// A mandate whose terms live off chain. The account holds a Poseidon commitment to the terms and
-/// a commitment to its running counters, and nothing else about them: no cap, no capability list,
-/// no counterparty list and no spend total is in storage or in an event. Every spend carries a
-/// Groth16 proof (circuits/src/within_mandate.circom) that it fits the committed terms, and the
-/// escrow lock opens only after the verifier accepts it.
+/// a commitment to its running counters, and nothing else about them: no committed cap,
+/// capability list, counterparty list or counter value is in storage or in an event; `ceiling`
+/// and `lockedTotal` below are the public exceptions. Every spend carries a Groth16 proof
+/// (circuits/src/within_mandate.circom) that it fits the committed terms, and the escrow lock
+/// opens only after the verifier accepts it.
 ///
 /// What stays public: the amount, the payee and the capability of each spend, because the escrow
 /// lock carries them; the time each proof was made for; and the principal, because it is the

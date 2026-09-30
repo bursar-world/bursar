@@ -10,8 +10,8 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 /// BRSR mints the team's tenth of the supply straight to this address, so the tokens are here
 /// before anyone can promise them. The schedule is a pair of constants, not a parameter: it is
 /// the term the allocation was published under, and a term governance can shorten is not a
-/// lock-up. Nothing vests in the first year. At the cliff a quarter becomes
-/// claimable in one step, and the rest accrues every second until the four years are up.
+/// lock-up. Nothing vests in the first year. At the cliff a quarter becomes claimable in one
+/// step, and the rest accrues every second until the four years are up.
 ///
 /// The grant set is written once, by the address that deployed this contract, in the
 /// deployment run, and it closes behind that call. A later cohort gets its own deployment,

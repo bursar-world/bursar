@@ -56,7 +56,7 @@ contract CreditPool is ReentrancyGuard {
 
     address public admin;
     address public pendingAdmin;
-    /// May take back the USDG it supplied that is not lent out and not owed to stakers.
+    /// May take back USDG that is not lent out and not owed to stakers.
     address public lender;
     address public vault;
 
@@ -160,8 +160,6 @@ contract CreditPool is ReentrancyGuard {
         emit VaultBound(vault_);
     }
 
-    // --- lender ---
-
     /// Anyone can add USDG to lend. Only `lender` can take unlent USDG back out.
     function fund(uint256 amount) external nonReentrant {
         if (amount == 0) revert ZeroAmount();
@@ -177,8 +175,6 @@ contract CreditPool is ReentrancyGuard {
         usdg.safeTransfer(to, amount);
         emit LiquidityWithdrawn(to, amount);
     }
-
-    // --- vault ---
 
     function borrow(address mandate, uint256 amount, address to)
         external
@@ -220,8 +216,6 @@ contract CreditPool is ReentrancyGuard {
         uint256 slashedBrsr = _slash(mandate, amount);
         emit WrittenOff(mandate, amount, slashedBrsr);
     }
-
-    // --- anyone ---
 
     /// Pays down `mandate`'s debt from the caller's USDG. Takes at most what is owed.
     function repay(address mandate, uint256 amount) external nonReentrant returns (uint256 paid) {
@@ -274,8 +268,6 @@ contract CreditPool is ReentrancyGuard {
         _accrue();
     }
 
-    // --- admin ---
-
     function setCaps(uint128 totalDebtCap_, uint128 perMandateCap_) external onlyAdmin {
         _setCaps(totalDebtCap_, perMandateCap_);
     }
@@ -303,8 +295,6 @@ contract CreditPool is ReentrancyGuard {
         admin = msg.sender;
         pendingAdmin = address(0);
     }
-
-    // --- reads ---
 
     function debtOf(address mandate) public view returns (uint256) {
         uint256 scaled = scaledDebtOf[mandate];
@@ -351,8 +341,6 @@ contract CreditPool is ReentrancyGuard {
         uint256 c = cash();
         return Math.min(Math.min(m, t), c);
     }
-
-    // --- internals ---
 
     function _accrue() private {
         if (block.timestamp == lastAccrual) return;

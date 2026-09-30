@@ -101,8 +101,8 @@ interface IMandateAccount {
         uint32 classMask;
         /// Lifetime ceiling on committed spend, net of refunds. Zero means no lifetime ceiling.
         uint128 totalCap;
-        /// Where the funds settle: 0 escrow, 1 treasury, 2 collateral. The treasury lane is
-        /// `TreasuryPark`; `CollateralVault` opens a credit line only for a mandate on lane 2.
+        /// Lane 1 is the collateral lane, the only one `CollateralVault` opens a credit line
+        /// for; no contract distinguishes 0 from 2.
         uint8 lane;
     }
 
@@ -225,8 +225,7 @@ interface IMandateAccount {
     function setMerchant(address merchant, bool allowed) external;
 
     /// Switching to `MerkleRoot` requires a non-zero root; switching back to `Allowlist`
-    /// requires a zero one. An empty root under a Merkle gate would deny every merchant. That
-    /// reads as an outage, not a policy.
+    /// requires a zero one. An empty root under a Merkle gate would deny every merchant.
     function setMerchantGate(MerchantGate gate, bytes32 merchantRoot) external;
 
     function setCapability(bytes32 capabilityId, bool allowed) external;
@@ -280,8 +279,8 @@ interface IMandateAccount {
     /// What is left under the lifetime ceiling, or the uint128 maximum when there is none.
     function remainingTotal() external view returns (uint128);
 
-    /// Headroom after lazy window rollover: what an agent can actually spend now, not what the
-    /// caps nominally say.
+    /// Headroom after lazy window rollover: what an agent can spend now, not what the caps
+    /// nominally say.
     function remaining() external view returns (uint128 perCall, uint128 daily, uint128 monthly);
 
     function principal() external view returns (address);

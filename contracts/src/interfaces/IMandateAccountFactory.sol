@@ -16,8 +16,8 @@ interface IMandateAccountFactory {
 
     event Created(address indexed account, address indexed principal, address indexed agent, bytes32 salt);
 
-    /// Limits are set in the constructor, never after deployment. There is no block in which a
-    /// funded account is spendable without a bound.
+    /// Limits are constructor arguments, so there is no block in which a funded account is
+    /// spendable without a bound.
     function create(address principal, address agent, bytes32 salt, IMandateAccount.Limits calldata limits)
         external
         returns (address account);

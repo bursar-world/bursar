@@ -112,8 +112,6 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
         emit AdminTransferred(address(0), admin_);
     }
 
-    // --- wiring and admin ---
-
     /// The adapters take this contract's address in their constructors, so they exist only
     /// after it does. The deployer lists them once; every later change is the admin's.
     function initAdapters(address[] calldata list) external {
@@ -138,8 +136,6 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
         admin = msg.sender;
         pendingAdmin = address(0);
     }
-
-    // --- principal ---
 
     function setBuffer(address mandate, uint128 amount) external {
         if (msg.sender != IMandateAccount(mandate).principal()) revert NotPrincipal();
@@ -226,8 +222,6 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
         emit IdleReturned(mandate, held);
     }
 
-    // --- reads ---
-
     function adapters() external view returns (address[] memory) {
         return _adapters;
     }
@@ -271,8 +265,6 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
         (, uint256 counted) = parkedValue(mandate);
         return usdg.balanceOf(mandate) + usdg.balanceOf(vaultOf(mandate)) + counted;
     }
-
-    // --- internals ---
 
     /// Sells `exact` USDG out of the position when that is set, falling back to the whole position
     /// at market when the position turns out too small for it. Zeros mean the adapter could not

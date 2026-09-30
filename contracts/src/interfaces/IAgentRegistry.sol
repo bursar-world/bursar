@@ -1,14 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-/// The party gate every other contract in the deployment reads before it lets a
-/// counterparty take money or a ruling.
-///
-/// Four functions, and no more. The escrow only needs to know whether a payee may be paid at
-/// all, how much collateral stands behind it, and how to take that collateral away; it has no
-/// business reading names, withdrawal queues or admin keys. Keeping the surface this
-/// narrow is also what lets a minimal deployment run with no registry at all, because a
-/// consumer holding `address(0)` here is holding a gate it knows how to skip.
+/// The party gate the escrow reads before it opens a lock. The escrow calls `isActive` and
+/// `isBlacklisted`; `stakeOf` and `slash` are for readers and governance.
 ///
 /// Amounts are in the settlement asset's own units, six decimals for USDG.
 interface IAgentRegistry {
@@ -24,8 +18,6 @@ interface IAgentRegistry {
 
     function stakeOf(address party) external view returns (uint256);
 
-    /// `reason` is a fixed-width tag, not prose. A slashing path is paid for by the caller
-    /// ruling against a bad party, and an unbounded string is an open invitation to make
-    /// that ruling expensive enough to skip.
+    /// `reason` is a fixed-width tag.
     function slash(address party, uint256 amount, bytes32 reason) external;
 }

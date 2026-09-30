@@ -7,7 +7,7 @@ pragma solidity ^0.8.24;
 /// The delay is the product: two signers agreeing is what authorises a change, and the wait
 /// between authorisation and execution is what gives everyone else time to read it and act.
 /// A timelock that can execute in the same block is a multisig with extra steps, so the
-/// period is fixed at construction, floored, and has no setter.
+/// period is floored and fixed at construction.
 ///
 /// The floor is one hour in this development deployment and forty-eight hours at launch. A
 /// principal can pause a mandate or pull its funds inside either. A staked party cannot leave
@@ -21,8 +21,8 @@ pragma solidity ^0.8.24;
 /// The one exception to the delay is the brake. A pause that takes two days to land is not a
 /// brake at all, so a guardian key can stop any administered contract in the same block. It
 /// can do nothing else: the calldata for that path is built here, not supplied, and it is
-/// always `pause()`. Restarting stays a proposal. A stolen guardian key is an outage, not a
-/// loss, and rotating the guardian is a proposal too.
+/// always `pause()`. Restarting stays a proposal. The worst a stolen guardian key can do is
+/// an outage, and rotating the guardian is a proposal too.
 contract AdminTimelock {
     error NotSigner();
     error NotGuardian();
@@ -305,9 +305,6 @@ contract AdminTimelock {
         return p.executeAfter + GRACE_PERIOD;
     }
 
-    /// Passes the target's revert data straight through. A caller that waited out a delay, or
-    /// is mid-incident with the brake in hand, needs the reason the target refused rather
-    /// than this contract's opinion of it.
     function _call(address target, bytes memory data) private returns (bytes memory result) {
         bool ok;
         (ok, result) = target.call(data);

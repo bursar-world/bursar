@@ -75,11 +75,10 @@ interface IBuybackPool {
 /// is no setter and no key argument on any function here. A seeder that can be pointed at a
 /// second pool is a seeder that can open a market the buyback will never trade while looking
 /// exactly like the one that does, and the failure would be discovered by the first person who
-/// bought into the wrong one. Pointing this contract somewhere else is a redeploy, and the
-/// address the liquidity holder funds is what names the live one.
+/// bought into the wrong one. Pointing this contract somewhere else is a redeploy.
 ///
 /// It also holds no allowance on any address. Tokens are pulled from the caller for the length
-/// of one seed and whatever the position did not take goes straight back to them in the same
+/// of one add and whatever the position did not take goes straight back to them in the same
 /// transaction.
 ///
 /// ## Who can do what
@@ -91,11 +90,11 @@ interface IBuybackPool {
 /// the opening price is the one decision here that cannot be taken back. Ownership moves in two
 /// steps, and the incoming owner has to accept it.
 ///
-/// ## The decimal trap, stated once
+/// ## Decimals
 ///
 /// `sqrtPriceX96` is a ratio of **raw token units**. BRSR carries eighteen decimals and USDG
 /// carries six, so a price that reads correctly in whole tokens is out by `1e12` in the units v4
-/// actually uses. This contract does not compute that number: `script/lib/V4Math.sol` does,
+/// uses. This contract does not compute that number: `script/lib/V4Math.sol` does,
 /// `script/SeedPool.s.sol` prints both derivations of it, and `initializePool` takes the result.
 /// A pool can be opened once and never reopened, so the number is checked before it is sent and
 /// the opening tick is read back afterwards.
@@ -132,8 +131,8 @@ contract V4LiquiditySeeder is ReentrancyGuard {
     mapping(int24 tickLower => mapping(int24 tickUpper => uint128 liquidity)) public liquidityOf;
 
     /// Binds the callback to the payload that asked for it. A bare flag says a callback was
-    /// expected; this says which one, so a manager that re-entered with different parameters
-    /// would be refused rather than obeyed.
+    /// expected; this says which one, so a manager that re-entered with different parameters is
+    /// refused.
     bytes32 private _callbackHash;
 
     event PoolInitialized(uint160 sqrtPriceX96, int24 tick);
@@ -235,12 +234,10 @@ contract V4LiquiditySeeder is ReentrancyGuard {
 
     /// Takes `liquidity` back out of the position and sends the proceeds to `to`.
     ///
-    /// The exit exists because a seeded pool is not a decision anyone should have to live with
-    /// forever: a venue can be abandoned, a key can be rotated, and the alternative to this
-    /// function is liquidity nobody can reach. `amount0Min` and `amount1Min` are the caller's
-    /// floor on what comes back, which is what a price that moved between the read and the
-    /// transaction shows up as. Fees the position accrued come out with it, to the same
-    /// recipient.
+    /// The exit exists so a pool can be abandoned; without it the liquidity is out of reach for
+    /// good. `amount0Min` and `amount1Min` are the caller's floor on what comes back, which is
+    /// what a price that moved between the read and the transaction shows up as. Fees the
+    /// position accrued come out with it, to the same recipient.
     function removeLiquidity(
         int24 tickLower,
         int24 tickUpper,
@@ -273,7 +270,7 @@ contract V4LiquiditySeeder is ReentrancyGuard {
         emit Swept(token, to, amount);
     }
 
-    /// Step one of two. The current owner keeps every power until the new one accepts.
+    /// The current owner keeps every power until the new one accepts.
     function transferOwnership(address to) external onlyOwner {
         if (to == address(0)) revert ZeroAddress();
         pendingOwner = to;
@@ -359,7 +356,6 @@ contract V4LiquiditySeeder is ReentrancyGuard {
         if (amount > maximum) revert AmountAboveMaximum(currency, amount, maximum);
     }
 
-    /// Pays what is owed or collects what is due, and returns the amount either way.
     function _settleOrTake(address currency, int256 delta, uint256 maximum, address to)
         private
         returns (uint256 moved)

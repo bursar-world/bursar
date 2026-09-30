@@ -334,7 +334,7 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
     function approveSpend(SpendApproval calldata approval) external override onlyPrincipal {
         if (approval.merchant == address(0)) revert ZeroAddress();
         if (approval.amount == 0) revert ZeroAmount();
-        // An approval that never expires is a second mandate with no limits attached to it.
+        // Zero is not "no expiry": an approval past its expiry, zero included, is refused.
         if (block.timestamp > approval.expiry) revert ApprovalExpired();
 
         if (_burned[approval.approvalId]) revert ApprovalSpent();
@@ -633,10 +633,6 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
     function _setLimits(Limits memory limits_) private {
         if (limits_.dailyWindow == 0 || limits_.monthlyWindow == 0) revert BadWindow();
         if (limits_.validUntil != 0 && limits_.validUntil <= limits_.validFrom) revert BadValidity();
-        // The threshold binds at and above, so zero puts every spend behind the principal's
-        // signature. A mandate deployed with the field left at its default would refuse the
-        // agent's first call and read as an outage. Zero is refused here, and `1` is the value
-        // that puts every spend behind the signature.
         if (limits_.approvalThreshold == 0) revert BadApprovalThreshold();
         if (limits_.classMask == 0 || limits_.classMask >> (CLASS_RWA + 1) != 0) revert BadClassMask();
         if (limits_.lane > MAX_LANE) revert BadLane();
@@ -672,8 +668,8 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
     }
 
     /// Advances `start` by whole periods. The part of the current period that has already
-    /// elapsed counts against it. Snapping to now would let
-    /// an agent that waits out a window buy itself a fresh one on a schedule of its choosing.
+    /// elapsed counts against it. Snapping to now would let an agent that waits out a window
+    /// buy itself a fresh one on a schedule of its choosing.
     function _rolled(Window memory w) private view returns (Window memory) {
         if (w.duration == 0) return w;
 
@@ -731,7 +727,7 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
     }
 
     /// Unparks the shortfall when the USDG balance cannot cover `amount`. With no park set, or
-    /// nothing fresh parked, the transfer that follows fails as it always did.
+    /// nothing fresh parked, the transfer that follows fails on the short balance.
     function _ensureLiquid(uint128 amount) private {
         address park = treasuryPark;
         if (park == address(0)) return;

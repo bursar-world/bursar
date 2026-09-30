@@ -11,13 +11,14 @@ import {IOracleRegistry} from "./interfaces/IOracleRegistry.sol";
 import {IEscrow} from "./interfaces/IEscrow.sol";
 import {IStaking} from "./token/interfaces/IStaking.sol";
 
-/// Bonded resolvers, commit-reveal voting, and the slashing that makes both mean something.
+/// Bonded resolvers vote on escrow disputes by commit-reveal and lose bond for silence or
+/// outlying scores.
 ///
 /// A dispute has two permissionless exits: `finalize` when the vote produced a result and
 /// `failDispute` when it did not. Once the reveal window closes one of them is always open,
 /// and neither can be blocked by a party to the lock: the escrow books a payout it cannot
-/// deliver instead of reverting on it. That is the property that matters most here. A
-/// resolver quorum that can strand a payer's funds is worse than no quorum.
+/// deliver instead of reverting on it. A resolver quorum that can strand a payer's funds is
+/// worse than no quorum.
 ///
 /// A failed vote reopens the lock rather than refunding it. Otherwise a payer facing a thin
 /// bench could dispute, wait out an empty vote, and take back money for work it received.
@@ -36,18 +37,17 @@ import {IStaking} from "./token/interfaces/IStaking.sol";
 ///
 /// Putting the bond in BRSR is what makes the token the security budget of adjudication rather
 /// than a claim on one. A resolver that rules badly loses BRSR, and BRSR is the only thing it
-/// loses. The cost is real and it is not hedged: the bond is volatile and the disputes it backs
-/// are not, so a fall in the token's price lowers what a resolver has at risk against a lock
-/// whose value has not moved. Nothing in this contract observes that. Reading a price here
-/// would put the dispute layer behind an oracle, which is a dependency the dispute layer
-/// otherwise does not have and a surface an attacker would reach for before reaching for a
-/// bond.
+/// loses. The bond is volatile and the disputes it backs are not, so a fall in the token's
+/// price lowers what a resolver has at risk against a lock whose value has not moved. Nothing
+/// in this contract observes that. Reading a price here would put the dispute layer behind an
+/// oracle, which is a dependency the dispute layer otherwise does not have and a surface an
+/// attacker would reach for before reaching for a bond.
 ///
 /// The lever instead is governance, and it is held in `Staking`: a global minimum bond, a
 /// higher floor for a named resolver, and an outright bar. `commitVote` reads that floor live,
 /// on every vote, so raising it benches every resolver below it in the block the change lands
 /// without touching a single bond. Topping back up is how they return. That is the whole
-/// mitigation, and it is a person watching a market rather than a contract reading one.
+/// mitigation: governance watches the market and raises the floor.
 contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using SafeCast for uint256;
@@ -102,8 +102,7 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
     /// arrive together and neither can be moved afterwards: bonds already posted are held in
     /// `bondAsset`, so a second address here would be a second currency in one ledger.
     ///
-    /// Unset until the token set is deployed, and unset means no resolver can bond. That is
-    /// the correct reading of a dispute layer whose collateral does not exist yet.
+    /// Unset until the token set is deployed, and unset means no resolver can bond.
     IStaking public staking;
     IERC20 public bondAsset;
 
@@ -111,7 +110,7 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
     uint256 public resolverCount;
     uint256 public nextDisputeId = 1;
 
-    /// Settlement asset held against resolver rewards, claimed and unclaimed alike. Bonds are
+    /// Settlement asset held for rewards not yet claimed or swept, allocated or not. Bonds are
     /// a different token entirely, so this is the whole of what this contract owes in it.
     uint256 public rewardFloat;
     uint256 public unallocatedRewards;
@@ -208,7 +207,7 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
         if (resolver.status != ResolverStatus.Unbonding) revert UnbondNotRequested();
         if (block.timestamp < uint256(resolver.unbondingAt) + _config.unbondingPeriod) revert UnbondNotMatured();
         // The cooldown alone does not cover a dispute opened moments before the request, so
-        // the live vote count is what actually releases the bond.
+        // the live vote count is what releases the bond.
         if (openVotes[msg.sender] != 0) revert BondLocked();
 
         uint128 returned = resolver.bond;
@@ -268,9 +267,8 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
         Resolver storage resolver = _resolvers[msg.sender];
         _requireRegistered(resolver);
         if (resolver.status != ResolverStatus.Active) revert NotActive();
-        // Read live, and this is the whole of the mitigation for a volatile bond. A bond
-        // thinned by slashing, or one left below a floor governance has just raised, benches
-        // its resolver from the next vote until it is topped back up.
+        // Read live, so a bond thinned by slashing, or one left below a floor governance has
+        // just raised, benches its resolver from the next vote until it is topped back up.
         if (!staking.isBondable(msg.sender, resolver.bond)) revert BondTooSmall();
 
         Dispute storage dispute = _requireDispute(disputeId);
@@ -331,9 +329,9 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
         uint8 median = _median(_revealedScores(disputeId, dispute.revealCount));
         uint256 outliers = _outlierCount(disputeId, median, cfg.maxDeviation);
 
-        // A majority sitting outside the deviation band is not a narrow disagreement, it is a
-        // vote with no centre. Nobody who merely disagreed is slashed for it, because the
-        // contract cannot tell which side was honest; the payer is made whole instead.
+        // A majority outside the deviation band means the vote has no centre. Nobody who
+        // merely disagreed is slashed for it, because the contract cannot tell which side was
+        // honest; the payer is made whole instead.
         bool suspect = outliers * 2 > dispute.revealCount;
         uint16 refundBps = suspect ? BPS : refundBpsForScore(median);
 
@@ -350,9 +348,9 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
         dispute.rewardShares = shares;
 
         // Not wrapped. A ruling the escrow refuses is not a ruling, and closing the dispute
-        // anyway would leave the lock to a timeout that refunds the payer in full. Any refusal,
-        // including one engineered by starving the call of gas, reverts the whole finalize and
-        // leaves the dispute open for the next caller.
+        // anyway would leave the lock frozen with no exit. Any refusal, including one
+        // engineered by starving the call of gas, reverts the whole finalize and leaves the
+        // dispute open for the next caller.
         IEscrow(escrow).resolve(dispute.escrowId, refundBps, shares);
 
         if (suspect) {
@@ -381,20 +379,19 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
         // A dispute doomed by a short commit phase exits the moment that phase ends, which is
         // before anyone could have revealed. Slashing for silence there would punish resolvers
         // for a quorum they had no way to reach, and the caller picks the moment. Silence only
-        // counts once the reveal window it belonged to has actually closed.
+        // counts once the reveal window it belonged to has closed.
         _closeVotes(disputeId, 0, cfg, block.timestamp >= dispute.revealEndsAt, false);
 
         emit DisputeFailed(disputeId, QuorumNotMet.selector);
 
-        // No vote is no ruling, so nothing moves. The lock goes back to the payee with time
-        // to deliver, the bond goes back to the disputer, and a dispute nobody could hear is
-        // never a refund.
+        // No vote is no ruling. The lock goes back to the payee with time to deliver, and the
+        // bond goes back to the disputer.
         IEscrow(escrow).reopen(dispute.escrowId);
     }
 
     /// Not `nonReentrant`. The escrow calls this from inside `resolve`, which `finalize` is
-    /// itself waiting on. The guard would already be held, and every settlement that carried a
-    /// fee would fail.
+    /// itself waiting on. The guard would already be held, and every fee would land here
+    /// uncredited.
     function notifyReward(uint256 disputeId, uint256 amount) external {
         if (msg.sender != escrow) revert NotEscrow();
         if (amount == 0) return;
@@ -651,9 +648,8 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
         return SCORE_MAX;
     }
 
-    /// Credits what arrived, not what was asked for. The bond asset is fixed, but a token that
-    /// takes a fee on transfer would leave `totalBonded` above the balance actually held, and
-    /// the last resolver out would be the one who discovers it.
+    /// The bond is booked at the balance change. The bond asset is fixed, but a token that took
+    /// a fee on transfer would otherwise leave `totalBonded` above the balance held.
     function _pullBond(uint128 amount) private returns (uint128) {
         IERC20 asset = bondAsset;
         if (address(asset) == address(0)) revert StakingNotSet();
@@ -715,7 +711,7 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
     /// still open, since a resolver cannot be silent in a window it can still speak in.
     ///
     /// An unrevealed vote carries a zero score, which sits far from most medians. The outlier
-    /// term is read only where a score was actually published.
+    /// term is read only where a score was published.
     ///
     /// Returns the number of resolvers the fee splits between.
     function _closeVotes(uint256 disputeId, uint8 median, Config memory cfg, bool punishSilence, bool voteStood)
@@ -783,8 +779,8 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
         return score > median ? score - median : median - score;
     }
 
-    /// Insertion sort over at most `MAX_RESOLVERS` entries. On an even split the lower of the two
-    /// middle scores wins the rounding, which resolves a tie toward the payer's refund.
+    /// Insertion sort over at most `MAX_RESOLVERS` entries. With an even count the two middle
+    /// scores are averaged and rounded down, toward the payer's refund.
     function _median(uint8[] memory scores) private pure returns (uint8) {
         uint256 n = scores.length;
         for (uint256 i = 1; i < n; ++i) {

@@ -15,7 +15,7 @@ interface IAggregatorV3 {
 }
 
 /// Robinhood stock and treasury tokens. `uiMultiplier` is read for share display and change
-/// detection only: the Chainlink feed already prices one raw token (docs/14, section c).
+/// detection only: the Chainlink feed already prices one raw token.
 interface IRobinhoodStock {
     function oraclePaused() external view returns (bool);
     function tokenPaused() external view returns (bool);

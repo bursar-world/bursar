@@ -9,8 +9,8 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 
 import {IStaking} from "./interfaces/IStaking.sol";
 
-/// First-loss capital for the collateralized lane, the spread that pays it, and the fee
-/// rebate a staked balance earns.
+/// Staked BRSR behind the collateral lane: it earns the credit pool's spread and is slashed
+/// when the pool writes off a line. A staked balance also earns a fee rebate.
 ///
 /// The pool holds BRSR and issues shares against it. Everything a staker owns is a fraction
 /// of the pool, so a slash costs every staker the same proportion without touching a single
@@ -23,12 +23,13 @@ import {IStaking} from "./interfaces/IStaking.sol";
 /// neither of them. The accumulator between the two carries thirty digits, and the
 /// part of a distribution too small to divide is carried into the next one, never lost.
 ///
-/// Stakers take first loss through the slasher, at no more than `slashCapBps` of the pool at a
-/// time and at the rate the cap refills over `slashWindow`. The lender carries what the cap
-/// leaves. With the cap raised to the whole pool a single slash can take all of it: the wipe
-/// generation advances, outstanding shares stop being worth anything, and stale positions are
-/// cleared the next time they are touched. Spread already accrued survives, because it was
-/// earned before the loss and it is held in USDG, not in stake.
+/// The slasher takes stake when a line is written off, at most `slashCapBps` of the pool at a
+/// time and at the rate the cap refills over `slashWindow`. The BRSR goes to the slash sink;
+/// the lender carries the whole USDG loss either way. With the cap raised to the whole pool a
+/// single slash can take all of it: the wipe generation advances, outstanding shares stop
+/// being worth anything, and stale positions are cleared the next time they are touched.
+/// Spread already accrued survives, because it was earned before the loss and it is held in
+/// USDG, not in stake.
 contract Staking is IStaking, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -90,16 +91,14 @@ contract Staking is IStaking, Pausable, ReentrancyGuard {
     address public admin;
     address public pendingAdmin;
 
-    /// The credit lane, and the only party that pays the spread in. It cannot take stake.
+    /// The credit pool, and the only party that can pay the spread in.
     address public creditManager;
 
     /// The only party that can take stake, and only as fast as the slash cap allows. Held apart
-    /// from `admin` so the key that covers a shortfall is not the key that sets the parameters,
-    /// and apart from `creditManager` so the contract that earns the spread is not the one that
-    /// decides a loss on its own.
+    /// from `admin` so the key that sets the parameters cannot also take stake.
     address public slasher;
 
-    /// Where slashed BRSR goes to be converted against the shortfall it is covering.
+    /// Where slashed BRSR goes. None of it returns to the lender.
     address public slashSink;
 
     address public treasury;
@@ -107,8 +106,8 @@ contract Staking is IStaking, Pausable, ReentrancyGuard {
     /// What a resolver has to bond to vote on a dispute, in BRSR, and the lever that answers a
     /// falling token. `OracleRegistry` reads it on registration and again on every vote, so
     /// raising it benches an underbonded resolver in the block the change lands, except one
-    /// governance has given a floor of its own. Zero would close bonding entirely, which is why
-    /// neither the constructor nor the setter admits it.
+    /// governance has given a floor of its own. Zero would admit a one-wei bond, which is why
+    /// neither the constructor nor the setter accepts it.
     uint256 public minBond;
 
     uint256 public totalStaked;
@@ -179,10 +178,6 @@ contract Staking is IStaking, Pausable, ReentrancyGuard {
         // pay out as spread.
         if (address(stakeToken_) == address(rewardToken_)) revert SameToken();
         if (unbondingPeriod_ < MIN_UNBONDING_PERIOD || unbondingPeriod_ > MAX_UNBONDING_PERIOD) revert BadConfig();
-        // Set at construction, because the dispute layer is wired to this floor and a zero one
-        // bars every resolver from bonding at all. A
-        // deployment that admitted zero would ship a dispute layer nobody could join for two
-        // days.
         if (minBond_ == 0) revert ZeroAmount();
 
         stakeToken = stakeToken_;
@@ -268,9 +263,9 @@ contract Staking is IStaking, Pausable, ReentrancyGuard {
 
     /// Closed while paused, unlike the agent registry's matured withdrawal, but only for
     /// `maxExitHold` into the pause. The difference is what the capital is for: an agent's
-    /// stake is its own collateral, and this is cover for somebody else's default. The brake
-    /// exists to hold it in place while a shortfall is being measured, and a measurement that
-    /// has not finished in that time is not one the stakers can be made to wait on forever.
+    /// stake is its own collateral, and this one is slashed for somebody else's default. The
+    /// brake exists to hold it in place while a shortfall is being measured, and a measurement
+    /// that has not finished in that time is not one the stakers can be made to wait on forever.
     function completeUnbond() external nonReentrant returns (uint256 amount) {
         uint64 heldUntil = exitsHeldUntil;
         if (block.timestamp < heldUntil) revert ExitsHeld(heldUntil);
@@ -285,7 +280,7 @@ contract Staking is IStaking, Pausable, ReentrancyGuard {
         if (block.timestamp >= lapsesAt) revert UnbondLapsed(uint64(lapsesAt));
 
         // Rounded down, so the exit can never take more than its share of what the unbonding
-        // pool actually holds.
+        // pool holds.
         amount = _unbondingValue(claim);
 
         unbondingStaked -= amount;
@@ -298,20 +293,20 @@ contract Staking is IStaking, Pausable, ReentrancyGuard {
         emit UnbondCompleted(msg.sender, claim, amount);
     }
 
-    /// Open while paused. Spread already earned is not first-loss capital and holding it back
-    /// would punish stakers for a loss the brake was pulled over.
+    /// Open while paused. Spread already earned cannot be slashed, and holding it back would
+    /// punish stakers for a loss the brake was pulled over.
     function claimRewards() external nonReentrant returns (uint256 amount) {
         Position storage position = _settle(msg.sender);
 
         uint256 owed = position.rewards;
         if (owed == 0) revert NothingToClaim();
 
-        // A claim pays at most what distributions have actually set aside for shares. The
-        // accumulator rounds once per distribution and a claim rounds once over the sum of
-        // them, so a run of distributions can leave a claimant entitled to a micro-dollar or
-        // two more than was divided. Paying it out of somebody else's spread is how a pool
-        // like this ends up short for whoever claims last; the remainder stays owed and the
-        // next distribution covers it.
+        // A claim pays at most what distributions have set aside for shares. The accumulator
+        // rounds once per distribution and a claim rounds once over the sum of them, so a run
+        // of distributions can leave a claimant entitled to a micro-dollar or two more than was
+        // divided. Paying it out of somebody else's spread is how a pool like this ends up
+        // short for whoever claims last; the remainder stays owed and the next distribution
+        // covers it.
         uint256 backed = rewardsBacked;
         amount = owed > backed ? backed : owed;
         if (amount == 0) revert NothingToClaim();
@@ -324,7 +319,7 @@ contract Staking is IStaking, Pausable, ReentrancyGuard {
     }
 
     /// The credit lane is the only party that pays the spread, so it is the only party that can
-    /// post one. Leaving this open let any address move the accumulator that prices every
+    /// post one. Left open, this would let any address move the accumulator that prices every
     /// staker's claim and emit `RewardsDistributed` for the price of a micro-dollar, which is a
     /// receipt a token page would read as protocol revenue reaching stakers.
     ///
@@ -374,8 +369,8 @@ contract Staking is IStaking, Pausable, ReentrancyGuard {
         uint256 staked = totalStaked;
         uint256 load = _slashLoadNow();
         uint256 cap = _slashCap();
-        // An empty pool or a spent allowance leaves the loss with the lender. It is not a reason
-        // for the write-off that called this to fail.
+        // An empty pool or a spent allowance slashes nothing. It is not a reason for the
+        // write-off that called this to fail.
         if (loss == 0 || staked == 0 || load >= cap) return 0;
 
         taken = Math.min(loss, Math.mulDiv(staked, cap - load, WAD));
@@ -703,9 +698,9 @@ contract Staking is IStaking, Pausable, ReentrancyGuard {
         emit PoolWiped(epoch, wiped);
     }
 
-    /// Credits what arrived, not what was asked for. Neither BRSR nor USDG takes
-    /// a fee on transfer, and a pool whose books can drift from its balance is worth the two
-    /// extra reads anyway: the last staker out is the one who would discover it.
+    /// Returns what the balance gained. Neither BRSR nor USDG takes a fee on transfer, and a
+    /// pool whose books can drift from its balance is worth the two extra reads anyway: the
+    /// last staker out is the one who would discover it.
     function _pull(IERC20 token, uint256 amount) private returns (uint256 credited) {
         uint256 before = token.balanceOf(address(this));
         token.safeTransferFrom(msg.sender, address(this), amount);

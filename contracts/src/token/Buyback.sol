@@ -10,8 +10,6 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IStaking} from "./interfaces/IStaking.sol";
 
-/// The pool manager interface, redeclared here.
-///
 /// The AMM this trades against is a live deployment on Robinhood Chain and is not built from this
 /// repository. Vendoring its source would pull in a second compiler version, a second EVM
 /// target and a submodule pinned to an upstream revision, for five function signatures. The
@@ -54,9 +52,9 @@ struct SwapParams {
 /// worth without minting a single new one.
 ///
 /// It buys and distributes rather than burning. Bonds in the dispute layer are posted in
-/// BRSR, so the token is the security budget of adjudication; destroying supply to raise a
-/// price works directly against the first thing the token is for. Distributed tokens stay in
-/// the hands that can bond them, and they land where the capital already at risk is.
+/// BRSR, so backing adjudication is the first thing the token is for, and destroying supply
+/// to raise a price works directly against it. Distributed tokens stay in the hands that can
+/// bond them, and they land where the capital already at risk is.
 ///
 /// Funding is a transfer in and never an allowance out. The treasury moves USDG here and this
 /// contract spends only what it has been given. Every guard below failing at once is bounded
@@ -101,10 +99,10 @@ struct SwapParams {
 /// pending call can be seen and bracketed. It does not close it, and a sequencer reordering
 /// its own block never needed the mempool.
 ///
-/// The ceiling moves on governance time, and the timelock's delay is 48 hours. A ceiling left
-/// above the market widens the prize; a ceiling left below it blocks buybacks entirely. Only
-/// the second failure is safe, so the fast response to a fast move is the brake: the
-/// guardian pauses this contract in one call, governance retunes, and the pause lifts on a
+/// The ceiling moves on governance time, behind the timelock's delay (48 hours at launch). A
+/// ceiling left above the market widens the prize; a ceiling left below it blocks buybacks
+/// entirely. Only the second failure is safe, so the fast response to a fast move is the brake:
+/// the guardian pauses this contract in one call, governance retunes, and the pause lifts on a
 /// proposal like any other change.
 ///
 /// ## Robinhood Chain
@@ -119,9 +117,8 @@ struct SwapParams {
 /// transfer out of here reverts while the token is paused or while this address or the manager
 /// is frozen. `isBlacklisted` is not one of them: USDG is a diamond proxy and that selector
 /// reverts with `FacetNotFound`, so a caller looking for Circle's name for this finds nothing
-/// and must not read that as an all-clear. Either case stops a buyback and neither is
-/// recoverable from inside this contract, which is the correct behaviour: the money stays where
-/// it is.
+/// and must not read that as an all-clear. Either case stops a buyback and nothing here works
+/// around it: the money stays where it is.
 contract Buyback is Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -131,10 +128,10 @@ contract Buyback is Pausable, ReentrancyGuard {
 
     /// The largest number that is still a price. One BRSR at a million dollars values the whole
     /// supply at a thousand trillion, which no governance intends; a number that large is a
-    /// figure entered in some other unit, and the unit this replaced was BRSR wei, where the
-    /// everyday values start at 1e18. Rejecting anything above this catches that class of
-    /// mistake at the constructor. It does not make a ceiling correct, and nothing in this
-    /// contract can: only governance knows what BRSR is worth.
+    /// figure entered in some other unit, most likely BRSR wei, where everyday values start at
+    /// 1e18. Rejecting anything above this catches that class of mistake before it is stored.
+    /// It does not make a ceiling correct, and nothing in this contract can: only governance
+    /// knows what BRSR is worth.
     uint128 private constant MAX_PRICE_MICRO_USD_PER_BRSR = 1e12;
 
     uint8 private constant SETTLEMENT_DECIMALS = 6;
@@ -584,10 +581,10 @@ contract Buyback is Pausable, ReentrancyGuard {
         if (p.spendPerCallMicroUsd > p.maxSpendPerWindowMicroUsd) {
             revert BadParams("spendPerCall > maxSpendPerWindow");
         }
-        // Zero is legal and is the safe end of this parameter: it blocks every trade. The
-        // ceiling at the other end is not a policy, it is a unit check. Everything this
-        // contract does to resist being front-run reduces to the number in between being set
-        // honestly, and no code here can tell whether it was.
+        // Zero is legal and is the safe end of this parameter: it blocks every trade. The upper
+        // bound only catches a figure entered in the wrong unit. Everything this contract does
+        // to resist being front-run reduces to the number in between being set honestly, and
+        // no code here can tell whether it was.
         if (p.maxPriceMicroUsdPerBrsr > MAX_PRICE_MICRO_USD_PER_BRSR) revert BadParams("maxPrice");
         if (p.window == 0) revert BadParams("window");
         if (p.window > MAX_WINDOW) revert BadParams("window > 30 days");

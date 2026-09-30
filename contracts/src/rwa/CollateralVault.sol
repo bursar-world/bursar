@@ -188,8 +188,6 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         }
     }
 
-    // --- principal ---
-
     /// Opens the collateral line for a mandate the principal holds. The mandate has to come
     /// from the factory and sit in the collateral lane.
     function openLine(address mandate) external {
@@ -230,8 +228,6 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         emit Withdrawn(mandate, asset, to, raw);
     }
 
-    // --- the mandate ---
-
     /// Called by a lane-1 mandate inside a spend or purchase. Borrows exactly `usdgNeeded` into
     /// the mandate and checks the health that leaves.
     function unparkFor(uint256 usdgNeeded) external override nonReentrant {
@@ -241,8 +237,6 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         uint256 debt = pool.borrow(mandate, usdgNeeded, mandate);
         emit Drawn(mandate, usdgNeeded, debt, _checkDraw(mandate));
     }
-
-    // --- anyone ---
 
     /// Sells the slice of `asset` that brings the position back to `liquidationTarget`, repays
     /// the pool with the proceeds less the caller's bounty, and writes off any remainder once
@@ -277,8 +271,6 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         emit Liquidated(mandate, asset, msg.sender, rawSold, proceeds, bounty, repaid, health(mandate));
     }
 
-    // --- admin ---
-
     function setParams(Params calldata p) external onlyAdmin {
         _setParams(p);
     }
@@ -306,8 +298,6 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         admin = msg.sender;
         pendingAdmin = address(0);
     }
-
-    // --- reads ---
 
     /// Inside the US equities 24/5 session by the clock: Monday 01:00 UTC to Saturday 00:00 UTC.
     function inSession(uint256 ts) public pure returns (bool) {
@@ -374,8 +364,6 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
     function headroomOf(address mandate) external view returns (uint256 headroom) {
         (,,, headroom,) = account(mandate);
     }
-
-    // --- internals ---
 
     /// One position as `positions` shows it, and the two adjusted values the view leaves out:
     /// what a draw is checked against, counted only while the pool agrees with the feed, and
@@ -569,7 +557,7 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
     }
 
     function _setAssetTier(address asset, uint8 tier) private {
-        registry.get(asset); // registered, keyed on address
+        registry.get(asset); // reverts for an unregistered asset
         if (tier > _tiers.length) revert BadTier();
         if (_tierOf[asset] == 0 && tier != 0) {
             bool known;

@@ -12,8 +12,8 @@ interface IPrincipalOf {
 /// published key. The registry stores nothing and holds no funds; the grant is the event, and only
 /// the named resolver can open its ciphertext.
 ///
-/// It works against any escrow with the v1 or v2 lock layout, and it lets the principal of a
-/// mandate account grant directly, without routing through the account.
+/// It reads locks in the v1 layout, which every escrow deployed so far still uses, and it lets
+/// the principal of a mandate account grant directly, without routing through the account.
 contract DisclosureRegistry {
     error NotParty();
     error NotDisputed();

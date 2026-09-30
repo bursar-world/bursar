@@ -14,10 +14,10 @@ import {IAgentRegistry} from "./interfaces/IAgentRegistry.sol";
 ///
 /// The stake is collateral rather than a listing fee: it is what governance can take from an
 /// agent that failed its counterparties, on a timelocked proposal that names the amount, and
-/// it is the number a principal is really trusting when it allowlists one. A dispute ruling
-/// never reaches it; a ruling moves the refund and the agent's reputation. Exit runs through a
-/// seven-day request so a stake cannot leave in the window between a bad job and the proposal
-/// that answers it.
+/// it is the number a principal trusts when it allowlists one. A dispute ruling never reaches
+/// it; a ruling moves the refund and the agent's reputation. Exit runs through a seven-day
+/// request so a stake cannot leave in the window between a bad job and the proposal that
+/// answers it.
 ///
 /// Every amount is denominated in the settlement asset's own units, six decimals for USDG.
 /// The native 18-decimal view of the same balance is never read; it is the same money
@@ -51,8 +51,7 @@ contract AgentRegistry is IAgentRegistry, Pausable, ReentrancyGuard {
         bool active;
     }
 
-    /// `requestedAt` is the moment the exit was asked for; maturity is derived from the
-    /// live `WITHDRAWAL_DELAY` so a pending request carries no frozen parameters.
+    /// `requestedAt` is when the exit was asked for; it matures `WITHDRAWAL_DELAY` later.
     struct Withdrawal {
         uint128 amount;
         uint64 requestedAt;
@@ -80,8 +79,8 @@ contract AgentRegistry is IAgentRegistry, Pausable, ReentrancyGuard {
 
     uint64 public constant WITHDRAWAL_DELAY = 7 days;
 
-    /// A single ruling can never take more than half a stake, so an admin that starts
-    /// slashing without cause is visible for several rounds before the collateral is gone.
+    /// A single slash can never take more than half a stake, so an admin that starts slashing
+    /// without cause is visible for several rounds before the collateral is gone.
     uint16 public constant MAX_SLASH_BPS = 5000;
 
     /// Ten thousand USDG. A floor above this is a closed registry, and closing it is a pause,
@@ -99,15 +98,14 @@ contract AgentRegistry is IAgentRegistry, Pausable, ReentrancyGuard {
     address public admin;
     address public pendingAdmin;
 
-    /// A second address allowed to take collateral, held apart from `admin` so that a party
-    /// which rules on jobs need not also be able to reconfigure the registry.
+    /// A second address allowed to take collateral, held apart from `admin` so that whoever
+    /// slashes need not also be able to reconfigure the registry.
     ///
-    /// Unset in the deployed system, and that is the accurate reading, not an omission.
-    /// Nothing in the protocol can size a ruling against an agent: a dispute produces a quality
-    /// score, the escrow turns that into a refund split, and the reputation curve lowers the
-    /// cap on the agent's next lock. Collateral is the one consequence with no automatic
-    /// measure behind it. It moves on an admin call: a governance proposal with a delay on it
-    /// and a person naming the figure.
+    /// Unset in the deployed system. Nothing in the protocol can size a slash against an
+    /// agent: a dispute produces a quality score, the escrow turns that into a refund split,
+    /// and the reputation curve lowers the cap on the agent's next lock. Collateral is the one
+    /// consequence with no automatic measure behind it. It moves on an admin call: a
+    /// governance proposal with a delay on it and a person naming the figure.
     address public slasher;
     address public slashSink;
 
@@ -178,8 +176,8 @@ contract AgentRegistry is IAgentRegistry, Pausable, ReentrancyGuard {
     }
 
     /// Topping up cancels a pending exit. Asking to leave and adding collateral in the same
-    /// breath is contradictory, and the alternative reading would let an agent hold a
-    /// matured request open as a standing option to drain.
+    /// breath is contradictory, and the alternative reading would let an agent keep a matured
+    /// request open and take its stake out whenever it chose.
     function addStake(uint128 amount) external whenNotPaused onlyRegistered nonReentrant {
         if (amount == 0) revert ZeroAmount();
         if (isBlacklisted[msg.sender]) revert IsBlacklisted();
@@ -269,15 +267,11 @@ contract AgentRegistry is IAgentRegistry, Pausable, ReentrancyGuard {
 
     /// Takes up to `amount` from the agent's stake and sends it to the slash sink.
     ///
-    /// The caller names the figure, because a ruling is about what one job cost someone and
+    /// The caller names the figure, because a slash is about what one job cost someone and
     /// not about a fixed share of whatever collateral happens to be posted. `slashBps` stays
-    /// as the ceiling on any single ruling, and a request above the ceiling is clamped to it
-    /// rather than rejected: the caller is a resolver finalising a dispute, and a revert here
-    /// would leave that dispute unresolvable by anyone. `maxSlash` is the figure to size a
-    /// request against.
-    ///
-    /// `reason` is a fixed-width tag. The slasher pays for this call, and an unbounded string
-    /// is a way to make ruling against a bad agent cost more than letting it go.
+    /// as the ceiling on any single slash, and a request above the ceiling is clamped to it
+    /// rather than rejected, so a proposal sized before its delay still executes if the stake
+    /// moved meanwhile. `maxSlash` is the figure to size a request against.
     function slash(address agent, uint256 amount, bytes32 reason) external override nonReentrant {
         if (msg.sender != slasher && msg.sender != admin) revert NotAuthorized();
         if (!isRegistered[agent]) revert NotRegistered();
@@ -304,8 +298,8 @@ contract AgentRegistry is IAgentRegistry, Pausable, ReentrancyGuard {
             emit AgentDeactivated(agent);
         }
 
-        // An agent already stripped to nothing takes a ruling of zero. The event still fires:
-        // a resolver ruled against this agent, and that is the record a principal reads, even
+        // An agent already stripped to nothing takes a slash of zero. The event still fires:
+        // governance acted against this agent, and that is the record a principal reads, even
         // when there was no collateral left to take.
         if (taken != 0) settlementAsset.safeTransfer(slashSink, taken);
 
@@ -314,7 +308,7 @@ contract AgentRegistry is IAgentRegistry, Pausable, ReentrancyGuard {
 
     /// Permissionless: the root is the admin's statement, and anyone may hold the registry
     /// to it. Unregistered addresses can be flagged too, which is what keeps a barred
-    /// address from simply registering a moment later.
+    /// address from registering a moment later.
     function flagBlacklisted(address agent, bytes32[] calldata proof) external {
         bytes32 root = blacklistRoot;
         if (root == bytes32(0)) revert RootNotSet();
@@ -364,10 +358,9 @@ contract AgentRegistry is IAgentRegistry, Pausable, ReentrancyGuard {
         emit SlashBpsUpdated(newSlashBps);
     }
 
-    /// Names a second address allowed to rule against a stake, and the zero address clears it.
-    /// Re-pointable, unlike the escrow pairing, because replacing a ruling authority moves
-    /// custody of nothing. There is no contract in this system that can size a ruling, so
-    /// nothing calls this today.
+    /// Names a second address allowed to slash a stake, and the zero address clears it.
+    /// Re-pointable, unlike the escrow pairing, because replacing the slasher moves custody
+    /// of nothing.
     function setSlasher(address newSlasher) external onlyAdmin {
         slasher = newSlasher;
         emit SlasherUpdated(newSlasher);
@@ -430,8 +423,8 @@ contract AgentRegistry is IAgentRegistry, Pausable, ReentrancyGuard {
         return _agents[agent].stake;
     }
 
-    /// The most a single ruling can take right now. A resolver sizing a slash reads this
-    /// first; anything above it is clamped.
+    /// The most a single slash can take right now. A proposal sizing a slash reads this first;
+    /// anything above it is clamped.
     function maxSlash(address agent) external view returns (uint256) {
         return (uint256(_agents[agent].stake) * slashBps) / 10_000;
     }

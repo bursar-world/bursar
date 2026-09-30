@@ -1,16 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-/// The BURSAR token: a fixed supply, minted once, split four ways at deployment.
+/// The Bursar token: a fixed supply, minted once, split four ways at deployment.
 ///
 /// The token exists so that the parts of this system that are supposed to have capital at
-/// risk actually do. Staked BRSR takes first loss on the collateralized lane, at a capped rate,
-/// and the lender carries the rest. Resolver bonds are posted in it, a staked balance reduces
-/// the facilitator fee, and the parameters behind all three are governed. Nothing else is
-/// claimed for it.
+/// risk have it. Staked BRSR is slashed, at a capped rate, when the collateral lane writes off
+/// a line. Resolver bonds are posted in it, a staked balance reduces the facilitator fee, and
+/// the parameters behind all three are governed. Nothing else is claimed for it.
 ///
-/// BRSR carries eighteen decimals. The settlement asset does not: USDG is six. The two unit
-/// systems meet inside the staking pool and nowhere else, and they are never added.
+/// BRSR carries eighteen decimals. The settlement asset does not: USDG is six. The two are
+/// never added: contracts that hold both keep separate ledgers or convert at a stated price.
 ///
 /// BRSR is not a claim on USDG, on its issuer or on Robinhood Chain, and none of them endorses
 /// it.

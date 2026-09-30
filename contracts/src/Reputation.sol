@@ -6,9 +6,8 @@ import {IReputation} from "./interfaces/IReputation.sol";
 /// Settlement history for payees, written only by the escrow, and the spending cap derived
 /// from it.
 ///
-/// Nothing here moves value. The contract holds no settlement asset, has no token balance to
-/// account for, and exposes no path that transfers one. The cap it publishes is advice a
-/// caller enforces, never money this contract can lose.
+/// Nothing here moves value. It holds no tokens and has no path that transfers one. The cap
+/// it publishes is advice a caller enforces, never money this contract can lose.
 contract Reputation is IReputation {
     /// Scores are percentages. Held in uint16 rather than uint8 so widening the scale later
     /// changes a constant instead of the ABI.
@@ -106,8 +105,8 @@ contract Reputation is IReputation {
         pendingAdmin = address(0);
     }
 
-    /// Truncating division, so a payee crosses a point only once the ratio has actually
-    /// reached it. Rounding the other way would hand out headroom a job early.
+    /// Truncating division, so a payee crosses a point only once the ratio has reached it.
+    /// Rounding the other way would hand out headroom a job early.
     function score(address payee) external view returns (uint16) {
         return _score(payeeStats[payee]);
     }
@@ -133,7 +132,7 @@ contract Reputation is IReputation {
     }
 
     /// A ceiling below the floor would make `baseCap` unreachable and silently flatten the
-    /// curve to a constant. That reads as a misconfiguration, not a policy.
+    /// curve to a constant.
     function _writeCurve(CapCurve memory curve_) private {
         if (curve_.maxCap < curve_.baseCap) revert BadCurve();
         // A zero ceiling caps every payee at nothing, so every lock reverts and the escrow

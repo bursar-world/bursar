@@ -39,7 +39,7 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
     uint16 private constant BPS = 10_000;
 
     /// The line between "the ruling went my way" and "it did not", for the purpose of
-    /// returning a dispute bond. An even split leaves both sides bonded.
+    /// returning a dispute bond. An even split counts as a win for whichever side disputed.
     uint16 private constant HALF_BPS = 5_000;
 
     /// Ten percent each. Ceilings written into the bytecode, not into a deploy script. Reading
@@ -47,8 +47,8 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
     /// more than a fifth of a disputed lock.
     uint16 private constant MAX_FEE_BPS = 1_000;
 
-    /// A bond above a fifth of the principal prices disputes by balance sheet, not by case.
-    /// That is the opposite of what bonding them is for.
+    /// Capped at a fifth: a larger bond would price out a party with a sound case and a thin
+    /// balance.
     uint16 private constant MAX_DISPUTE_BOND_BPS = 2_000;
 
     /// What the payer's refund hook is allowed to spend. The measured cost of the mandate
@@ -344,12 +344,11 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
 
     /// Conservation, with `bond` the amount the disputer posted at `dispute`:
     ///
-    ///     refunded + paid + protocolFee + resolverFee + bondLeg == amount + bond
+    ///     refunded + paid + protocolFee + reward + bondLeg == amount + bond
     ///
-    /// `bondLeg` is the bond going back to the disputer when the ruling landed on their side,
-    /// and otherwise zero, because a forfeited bond is already inside the resolver reward.
-    /// The resolver fee comes off the principal first and the split divides what is left, so
-    /// every truncated remainder falls through to `paid` and none of it can be counted twice.
+    /// `reward` is the resolver fee plus a forfeited bond, and `bondLeg` is the bond going back
+    /// to the disputer when the ruling landed on their side, so the bond is counted in exactly
+    /// one of them.
     ///
     /// With no shares nobody earned the resolver fee, so it is not taken, and a bond with no
     /// resolver to pay goes back to the disputer whichever way the ruling went.
@@ -466,8 +465,8 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
         return super.paused();
     }
 
-    /// Event only. The slice is encrypted to the resolver it names, and the escrow is just the
-    /// place both parties of a lock can write to.
+    /// Event only. The slice is encrypted to the resolver it names, and the escrow is where
+    /// both parties of a lock can publish it.
     function grantDisclosure(uint256 id, address resolver_, bytes32 sliceCommit, bytes calldata ciphertext) external {
         Lock storage entry = _locks[id];
         if (entry.status != LockStatus.Disputed) revert BadStatus();
@@ -549,14 +548,13 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
         if (balanceAfter < balanceBefore || balanceAfter - balanceBefore != amount) revert TransferMismatch();
     }
 
-    /// The registry credits what arrived, not what it was told. The funds move first, and the
-    /// call that books them follows in the same transaction.
+    /// The fee moves first and `notifyReward` follows in the same transaction, because the
+    /// registry books only what it already holds.
     ///
-    /// A refusal there is a broken pairing, not a settlement failure, and it must not unwind
-    /// the ruling: the escrow is the registry's own caller here, so a revert would propagate
-    /// back into the finalisation that produced the ruling and leave the lock frozen over a
-    /// fee neither party cared about. The fee has left the lock either way, so the identity
-    /// above holds on every branch.
+    /// A refusal there is a broken pairing and must not unwind the ruling: the escrow is the
+    /// registry's own caller here, so a revert would propagate back into the finalisation that
+    /// produced the ruling and leave the lock frozen over a fee neither party cared about. The
+    /// fee has left the lock either way, so the identity above holds on every branch.
     function _rewardResolvers(uint256 id, uint128 amount) private {
         address resolver_ = resolver;
         uint256 disputeId = IOracleRegistry(resolver_).disputeIdOf(id);
@@ -597,8 +595,8 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
     }
 
     /// The resolver fee comes off the top, the refund splits what is left, and the protocol
-    /// fee is charged only on the payee's share. Both divisions truncate toward the payee, so
-    /// the four legs sum to `amount` with nothing left over in the contract.
+    /// fee is charged only on the payee's share. Each division's remainder stays in the legs
+    /// computed after it, so the four legs sum to `amount` exactly.
     function _split(uint128 amount, uint16 refundBps, bool feeEarned) private view returns (Split memory split) {
         if (feeEarned) split.resolverFee = _bps(amount, resolverFeeBps);
 
@@ -640,7 +638,7 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
 
     /// Reputation is advisory, so a registry that reverts or has been self-destructed out from
     /// under the escrow must never strand settlement. A plain call to a codeless address
-    /// succeeds silently. The code length is checked, not the return.
+    /// succeeds silently, so the code length is checked before the call's success counts.
     function _notifyReputation(uint256 id, bytes memory payload) private {
         bool delivered;
         if (reputation.code.length != 0) {
