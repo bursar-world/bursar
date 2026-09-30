@@ -23,7 +23,7 @@ describe('the published ruling policy', () => {
   });
 
   it('names all three resolvers as operated by Bursar', () => {
-    expect(SOURCE).toContain('All three bonded resolvers on both registries are operated by Bursar');
+    expect(SOURCE).toContain('All three bonded resolvers on every registry are operated by Bursar');
     for (const address of ['0xD8D90e4c8f3419B1b8305dF2905eb31d3fBBf599', '0xC284CdA6c6982447f202830f4e969F13cBcB0b94', '0x7062A480732EC7B0F00a3D0c968356e1671dd356']) {
       expect(SOURCE).toContain(address);
     }

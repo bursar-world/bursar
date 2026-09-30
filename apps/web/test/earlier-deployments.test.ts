@@ -4,9 +4,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * The desks read every live deployment on the chain, the current one first. These fixtures are
- * shaped on chain 4663 as it stands: the v2 registry has no dispute yet, and the v1 registry holds
- * dispute 1 (closed) and disputes 2 and 3, open on v1 locks 9 and 10.
+ * shaped on chain 4663 as it stood before v3: the v2 registry has no dispute yet, and the v1
+ * registry holds dispute 1 (closed) and disputes 2 and 3, open on v1 locks 9 and 10. The address
+ * book is pinned to those two records so the scenario holds whatever a later deploy adds.
  */
+vi.mock('@bursar/core', async (importOriginal) => {
+  const core = await importOriginal<typeof import('@bursar/core')>();
+  const { withRecords } = await import('./support/address-book');
+  return withRecords(core, [core.deployment('rhc-mainnet-v2' as never), core.deployment('rhc-mainnet' as never)]);
+});
+
 const V2 = {
   escrow: '0x4315F8be7C9661345710910577Ec31cb867f3c20',
   oracleRegistry: '0xE38349668f0C470C814487E95C14e7652F713B17',

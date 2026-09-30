@@ -79,7 +79,7 @@ function desk(over: Partial<ProviderDesk> = {}): ProviderDesk {
     terms: {
       feeBps: 200,
       disputeWindow: 86_400n,
-      disputeTimeoutPeriod: 604_800n,
+      minLock: micro(10_000n),
       minTtl: 300n,
       maxTtl: 2_592_000n,
       disputeBondBps: 500,
@@ -111,6 +111,7 @@ function desk(over: Partial<ProviderDesk> = {}): ProviderDesk {
       allowance: micro(0n),
     },
     balance: micro(42_000_000n),
+    owed: undefined,
     paidOut: micro(29_400_000n),
     blocked: false,
     tokenPaused: false,
@@ -129,7 +130,7 @@ function desk(over: Partial<ProviderDesk> = {}): ProviderDesk {
 
 describe('a lock read by somebody who is not the payee', () => {
   it('does not tell a stranger the money is coming to them', () => {
-    const detail = stageDetail(lock(), desk().terms, NOW, 'public');
+    const detail = stageDetail(lock(), NOW, 'public');
 
     expect(detail).toContain('is held for this address');
     expect(detail).not.toContain('reaches you');
@@ -137,7 +138,7 @@ describe('a lock read by somebody who is not the payee', () => {
   });
 
   it('still reads in the second person for the payee, which is who it is addressed to', () => {
-    expect(stageDetail(lock(), desk().terms, NOW, 'payee')).toContain('reaches you when you release it');
+    expect(stageDetail(lock(), NOW, 'payee')).toContain('reaches you when you release it');
   });
 
   it('keeps every stage free of the second person on the public reading', () => {
@@ -155,7 +156,6 @@ describe('a lock read by somebody who is not the payee', () => {
     for (const stage of stages) {
       const detail = stageDetail(
         lock({ stage, releasedAt: new Date(NOW.getTime() - DAY * 1000), recordableAt: new Date(NOW.getTime() - 1000) }),
-        desk().terms,
         NOW,
         'public',
       );
@@ -173,13 +173,13 @@ describe('a lock read by somebody who is not the payee', () => {
       disputedAt: new Date(NOW.getTime() - 3_600 * 1000),
     });
 
-    expect(stageDetail(contested, desk().terms, NOW, 'public')).toContain('stayed with the payee');
-    expect(stageDetail(contested, desk().terms, NOW, 'public')).not.toMatch(/\byou\b|\byour\b/i);
-    expect(stageDetail(contested, desk().terms, NOW, 'payee')).toContain('stayed with you');
+    expect(stageDetail(contested, NOW, 'public')).toContain('stayed with the payee');
+    expect(stageDetail(contested, NOW, 'public')).not.toMatch(/\byou\b|\byour\b/i);
+    expect(stageDetail(contested, NOW, 'payee')).toContain('stayed with you');
   });
 
   it('defaults to the reading the payee gets, so an existing call site is unchanged', () => {
-    expect(stageDetail(lock(), desk().terms, NOW)).toBe(stageDetail(lock(), desk().terms, NOW, 'payee'));
+    expect(stageDetail(lock(), NOW)).toBe(stageDetail(lock(), NOW, 'payee'));
   });
 });
 

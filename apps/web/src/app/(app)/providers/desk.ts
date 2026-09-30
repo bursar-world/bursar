@@ -49,9 +49,11 @@ export type LockStage =
   /** A panel took a median and split the lock by it. */
   | 'ruled'
   /**
-   * The lock left the escrow's disputed state without a panel ever producing a median: the quorum
-   * was missed, or nobody closed the dispute and the escrow's own timeout returned the money.
-   * Calling that a ruling is the lie the payee's desk was telling about lock 5.
+   * The lock left the escrow's disputed state without a panel producing a usable median. Calling
+   * that a ruling is the lie the payee's desk was telling about lock 5. On the current contracts
+   * it means the scores had no centre and the payer was refunded; a vote that missed its quorum
+   * puts the lock back on hold instead, so it never lands here. Earlier contracts also refunded a
+   * missed quorum, or closed a dispute nobody ruled on from the escrow's side.
    */
   | 'dispute-closed'
   /** Settled out of a dispute, and how it closed did not come back. */
@@ -130,7 +132,8 @@ export type ProviderLock = {
 export type EscrowTerms = {
   readonly feeBps: number | undefined;
   readonly disputeWindow: bigint | undefined;
-  readonly disputeTimeoutPeriod: bigint | undefined;
+  /** The smallest lock the escrow opens. Undefined on an escrow before v3, which has no floor. */
+  readonly minLock: Micro | undefined;
   readonly minTtl: bigint | undefined;
   readonly maxTtl: bigint | undefined;
   readonly disputeBondBps: number | undefined;
@@ -207,6 +210,12 @@ export type ProviderDesk = {
   readonly standing: ProviderStanding;
   /** USDG the payee address holds. Payouts land here. */
   readonly balance: Micro | undefined;
+  /**
+   * USDG the current escrow is holding for this address because a settlement could not pay it at
+   * the time, usually because the token issuer had frozen it. `claim` pays it out to this address
+   * and nowhere else. Undefined where the escrow is from before v3, which never holds one back.
+   */
+  readonly owed: Micro | undefined;
   /**
    * Net USDG the escrow has released to this address across the jobs read, which is the ids in
    * `scanned` and no further back. Undefined when the escrow did not answer, because a total over
@@ -380,7 +389,9 @@ export async function readProviderDesk(payee: Address, signal?: AbortSignal): Pr
     nextId: head.add<bigint>('escrow.nextId', escrowCall('nextId')),
     feeBps: head.add<number>('escrow.feeBps', escrowCall('feeBps')),
     disputeWindow: head.add<bigint>('escrow.disputeWindow', escrowCall('disputeWindow')),
-    disputeTimeoutPeriod: head.add<bigint>('escrow.disputeTimeoutPeriod', escrowCall('disputeTimeoutPeriod')),
+    // Only a v3 escrow has a floor or holds a payout back, and asking an earlier one reverts.
+    minLock: current.contractSet === 'v3' ? head.add<bigint>('escrow.minLock', escrowCall('minLock')) : undefined,
+    owed: current.contractSet === 'v3' ? head.add<bigint>('escrow.owed', escrowCall('owed', [payee])) : undefined,
     minTtl: head.add<bigint>('escrow.minTtl', escrowCall('minTtl')),
     maxTtl: head.add<bigint>('escrow.maxTtl', escrowCall('maxTtl')),
     disputeBondBps: head.add<number>('escrow.disputeBondBps', escrowCall('disputeBondBps')),
@@ -493,7 +504,7 @@ export async function readProviderDesk(payee: Address, signal?: AbortSignal): Pr
     terms: {
       feeBps,
       disputeWindow,
-      disputeTimeoutPeriod: headResults.get(slots.disputeTimeoutPeriod),
+      minLock: asMicro(headResults.get(slots.minLock)),
       minTtl: headResults.get(slots.minTtl),
       maxTtl: headResults.get(slots.maxTtl),
       disputeBondBps: headResults.get(slots.disputeBondBps),
@@ -516,6 +527,7 @@ export async function readProviderDesk(payee: Address, signal?: AbortSignal): Pr
       allowance: asMicro(headResults.get(slots.allowance)),
     },
     balance: asMicro(headResults.get(slots.balance)),
+    owed: asMicro(headResults.get(slots.owed)),
     // What the escrow moved, across every lock in the scan. A lock that was returned to the payer
     // or refunded by a ruling adds nothing, which is the whole difference between this figure and
     // the one the desk used to show.
@@ -589,7 +601,7 @@ async function readEscrowLocks(
   // A ruling is the moment a lock stops being disputed. Reading the dispute only for locks still
   // sitting in `Disputed` therefore dropped it in the same block its outcome became readable, and
   // the desk fell back to a stage label that claimed a ruling nobody had made. `Resolved` is the
-  // status every closed dispute lands in, whether a panel ruled or the escrow timed it out.
+  // status a ruled lock lands in, and on earlier escrows a lock closed without one.
   const disputeReads = await readDisputes(
     tag.oracleRegistry,
     mine
@@ -723,7 +735,8 @@ function toLock(
  *
  * `release` charges `feeBps` on the whole amount. `resolve` takes the resolver fee off the top
  * first and charges `feeBps` only on what the payee is left with, which is a different base.
- * `timeout`, `cancel` and the escrow's own `disputeTimeout` move nothing to the payee at all.
+ * `timeout` and `cancel` move nothing to the payee at all, and neither does a disputed lock an
+ * earlier escrow closed without a ruling.
  */
 function payoutOf(
   raw: RawLock,
@@ -744,14 +757,14 @@ function payoutOf(
 
     case LockStatus.Disputed:
       // A dispute opened after the release cannot take the money back: `resolve` refuses a lock
-      // whose `releasedAt` is set, and so does `disputeTimeout`. The payee keeps what it was paid.
+      // whose `releasedAt` is set. The payee keeps what it was paid.
       return raw.releasedAt === 0n ? { kind: 'at-stake', amount: micro(amount - fee), fee } : released;
 
     case LockStatus.Resolved: {
       if (dispute === undefined || rates.resolverFeeBps === undefined) return { kind: 'unread' };
-      // The escrow's own `disputeTimeout` moves the lock to `Resolved` without telling the
-      // registry, so an open dispute behind a resolved lock means nobody ruled and the payer took
-      // the whole thing back.
+      // An earlier escrow could close a dispute nobody ruled on from its own side, which moves the
+      // lock to `Resolved` without telling the registry. An open dispute behind a resolved lock
+      // therefore means nobody ruled and the payer took the whole thing back.
       if (!disputeIsClosed(dispute)) return { kind: 'none' };
 
       const split = splitSettlement(amount, dispute.refundBps, rates.resolverFeeBps, rates.feeBps);

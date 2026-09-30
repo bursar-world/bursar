@@ -1,6 +1,7 @@
 'use client';
 
 import type { Micro } from '@bursar/core';
+import { LockStatus } from '@bursar/sdk';
 import type { Address } from 'viem';
 
 import { deploymentLabel, oracleRegistryAbi, shortAddress, splitSettlement } from '@/chain';
@@ -16,7 +17,7 @@ import type { AnyState } from '@/state';
 
 import { CommitForm } from './commit-form';
 import type { DisputeRow, OracleConfig } from './desk';
-import { commitCheck, phaseLabel, phaseLevel, revealCheck, silenceSlash } from './phases';
+import { ROSTER_SEATS, commitCheck, phaseLabel, phaseLevel, revealCheck, silenceSlash } from './phases';
 import type { CommitBlocker, RevealBlocker } from './phases';
 import { resolverFailure } from './refusal';
 import { RevealForm } from './reveal-form';
@@ -112,7 +113,7 @@ export function DisputeCard({
         </FieldGrid>
 
         <FieldGrid columns={4}>
-          <Field label="Sealed scores" hint={config === undefined ? 'Panel size not read' : `Panel takes ${config.maxVoters}, quorum is ${config.quorum}`}>
+          <Field label="Sealed scores" hint={config === undefined ? 'Panel size not read' : panelHint(config)}>
             <span className="tabular">{dispute.commitCount}</span>
           </Field>
           <Field label="Revealed" hint="Published scores. The median of these decides the refund.">
@@ -232,10 +233,30 @@ function decodeInline(uri: string): string | undefined {
  *
  * `refundBps` is applied to the lock after the resolver fee has been taken off it, so a refund of
  * 10,000 basis points returns the lock less that fee. Printing the percentage on its own reads as
- * a whole refund and is off by the fee on every dispute this registry has ever closed.
+ * a whole refund and is off by the fee on every ruling.
+ *
+ * A close without a ruling depends on the set. From v2 on, a vote short of its quorum puts the lock
+ * back on hold with a new deadline, and a vote with no centre refunds the payer in full; neither
+ * takes a resolver fee. The first contracts refunded both less the fee.
  */
 function Outcome({ dispute, resolverFeeBps }: { readonly dispute: DisputeRow; readonly resolverFeeBps: number | undefined }) {
   if (dispute.phase !== 'finalized' && dispute.phase !== 'failed') return null;
+
+  if (dispute.phase === 'failed' && dispute.deployment.contractSet !== 'v1') {
+    return dispute.settlement?.status === LockStatus.Resolved ? (
+      <p className="text-sm">
+        Closed without a ruling. Most of the revealed scores sat far from the median, so the vote had no centre to rule
+        by, and the escrow refunded the payer the whole payment with no resolver fee taken. The contest bond went back
+        to whoever opened the dispute.
+      </p>
+    ) : (
+      <p className="text-sm">
+        Closed without a ruling, because too few resolvers revealed a score to reach the quorum. The payment went back
+        on hold for the payee with a new deadline, the contest bond went back to whoever opened the dispute, and no
+        resolver fee was taken.
+      </p>
+    );
+  }
 
   const settlement = dispute.settlement;
   const money =
@@ -462,40 +483,35 @@ function closeLines(
     return [
       `${dispute.revealCount} of ${dispute.commitCount} sealed scores are revealed, which clears the quorum of ${config.quorum}. Finalising takes the median of them, sets the payer's refund from it, and releases the lock.`,
       feeLine(dispute, resolverFeeBps, 'The median decides how much of what is left goes back to the payer.'),
-      `A resolver who sealed a score and never revealed it is slashed here, and so is one whose revealed score sits more than ${config.maxDeviation} points from the median. If most of the revealed scores sit outside that band the panel is treated as having no centre, nobody is slashed for disagreeing, and the payer is refunded everything the fee left.`,
+      `A resolver who sealed a score and never revealed it is slashed here, and so is one whose revealed score sits more than ${config.maxDeviation} points from the median. If most of the revealed scores sit outside that band the panel is treated as having no centre, nobody is slashed for disagreeing, and the payer is refunded the whole payment with no resolver fee taken.`,
     ];
   }
 
   return [
     dispute.commitCount < config.quorum
-      ? `Only ${dispute.commitCount} ${dispute.commitCount === 1 ? 'resolver' : 'resolvers'} sealed a score and the quorum is ${config.quorum}, so this panel can never reach a result. Closing it releases the lock.`
-      : `${dispute.revealCount} of ${dispute.commitCount} sealed scores were revealed and the quorum is ${config.quorum}, so there is no median to rule on. Closing it releases the lock.`,
-    refundLine(dispute, resolverFeeBps),
+      ? `Only ${dispute.commitCount} ${dispute.commitCount === 1 ? 'resolver' : 'resolvers'} sealed a score and the quorum is ${config.quorum}, so this panel can never reach a result. Closing it puts the payment back on hold for the payee.`
+      : `${dispute.revealCount} of ${dispute.commitCount} sealed scores were revealed and the quorum is ${config.quorum}, so there is no median to rule on. Closing it puts the payment back on hold for the payee.`,
+    reopenLine(dispute),
     slashLine(dispute, config, now),
   ];
 }
 
-/** What the payer gets back, and the fee that is taken before the refund is worked out. */
-function refundLine(dispute: DisputeRow, resolverFeeBps: number | undefined): string {
+/** What a close without a ruling does to the money: nothing moves, and the job carries on. */
+function reopenLine(dispute: DisputeRow): string {
   const settlement = dispute.settlement;
   const bondBack =
     settlement === undefined || settlement.bond === 0n
       ? ''
       : ` The ${usdExact(settlement.bond)} contest bond goes back to the disputer in full.`;
 
-  if (settlement === undefined || resolverFeeBps === undefined) {
-    return `The payer is refunded the lock less the escrow's resolver fee, which comes off the top before the refund is worked out and is charged whether or not this panel produced anybody to pay it to. The amounts behind it were not read here.${bondBack}`;
-  }
-
-  const split = splitSettlement(settlement.amount, 10_000, resolverFeeBps, 0);
-  return `The payer is refunded ${usdExact(split.refunded)} of the ${usd(settlement.amount)} held. The other ${usdExact(split.resolverFee)} is the ${bps(resolverFeeBps)} resolver fee, taken off the lock before the refund is worked out and charged whether or not this panel produced anybody to pay it to.${bondBack}`;
+  return `Nothing is refunded and no resolver fee is taken. The lock gets a new deadline, the payee can still deliver against it, and the payer can take the money back once that deadline passes.${bondBack}`;
 }
 
 /** The same fee, on the branch where the median has not been taken yet. */
 function feeLine(dispute: DisputeRow, resolverFeeBps: number | undefined, tail: string): string {
   const settlement = dispute.settlement;
   if (settlement === undefined || resolverFeeBps === undefined) {
-    return `The escrow takes its resolver fee off the lock before it applies the refund, so the payer can never be refunded the whole of it. The amounts behind it were not read here. ${tail}`;
+    return `The escrow takes its resolver fee off the lock before it applies the refund the median sets. The amounts behind it were not read here. ${tail}`;
   }
 
   const split = splitSettlement(settlement.amount, 10_000, resolverFeeBps, 0);
@@ -521,6 +537,16 @@ function slashLine(dispute: DisputeRow, config: OracleConfig, now: Date): string
   }
 
   return `Nobody is slashed by closing it now: the reveal window runs for another ${formatRelative(dispute.revealEndsAt, now).replace(/^in /u, '')} and a resolver cannot be silent in a window they can still speak in. Closing it after that moment slashes the ${silent} ${scores} still unrevealed, ${share} of the bond behind each.`;
+}
+
+/**
+ * How many resolvers a dispute takes. The current registry seats every bonded resolver, up to the
+ * roster's 64, on every dispute; an earlier one capped each dispute at the first few to commit.
+ */
+function panelHint(config: OracleConfig): string {
+  return config.maxVoters >= ROSTER_SEATS
+    ? `Every seated resolver may vote, quorum is ${config.quorum}`
+    : `Panel takes ${config.maxVoters}, quorum is ${config.quorum}`;
 }
 
 function commitBlockerLine(blocker: CommitBlocker | null, config: OracleConfig): string {

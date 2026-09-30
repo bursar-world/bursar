@@ -66,7 +66,7 @@ function sentenceFor(revert: RevertInfo): string | undefined {
     case 'NotActive':
       return 'This address has asked to unbond, and an unbonding resolver takes no new votes and no top-ups. Cancel the exit to go back to active, which returns the bond to work without moving it.';
     case 'RosterFull':
-      return 'The seats are taken. A dispute takes at most the configured number of voters and the registry itself takes at most 64 resolvers, whichever ran out first. Nothing frees a seat except the panel settling or a resolver leaving.';
+      return 'Every seat on the registry is taken. It holds 64 resolvers, and every one of them may vote on every dispute. A seat frees when a resolver completes its exit or governance evicts one, and registering works again from then.';
     case 'AlreadyCommitted':
       return 'You have already sealed a score on this dispute. One commitment per resolver, and it cannot be replaced. Reveal it when the commit window closes.';
     case 'NoCommitment':
@@ -86,7 +86,9 @@ function sentenceFor(revert: RevertInfo): string | undefined {
     case 'RevealWindowOpen':
       return 'The reveal window is still open and not every sealed score has been published, so the panel is not finished. The dispute can be closed once the window ends or once every commitment has been revealed.';
     case 'QuorumNotMet':
-      return 'Too few resolvers revealed for the panel to produce a result, so there is no ruling to finalise. Close it as a failed dispute instead, which returns the locked money to the payer.';
+      return 'Too few resolvers revealed for the panel to produce a result, so there is no ruling to finalise. Close it without a ruling instead, which puts the payment back on hold for the payee with a new deadline and returns the contest bond.';
+    case 'PartyCannotVote':
+      return 'This wallet is the payer, the payee, or the principal the paying account named when the dispute opened, so the registry will not take its vote on this dispute. Another resolver has to rule on it.';
     case 'BadStatus':
       return 'This dispute has already been closed, so neither exit is open. The reading on this page is behind the chain. Read it again.';
     case 'DisputeNotFound':

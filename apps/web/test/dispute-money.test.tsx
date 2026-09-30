@@ -10,7 +10,7 @@ import type { ContestedSettlement, DisputeRow, ResolverDesk } from '@/app/(app)/
 import type { DeploymentTag } from '@/chain';
 import { DisputeList } from '@/app/(app)/resolvers/dispute-list';
 import { DisputeStatus, silenceSlash } from '@/app/(app)/resolvers/phases';
-import type { DisputeRead, EscrowTerms, ProviderLock } from '@/app/(app)/providers/desk';
+import type { DisputeRead, ProviderLock } from '@/app/(app)/providers/desk';
 import { stageDetail } from '@/app/(app)/providers/stages';
 import { rebateReason, rebateSentence } from '@/app/(app)/token/rebate';
 import { splitSettlement } from '@/chain/settlement';
@@ -109,12 +109,22 @@ function settlement(): ContestedSettlement {
   };
 }
 
+/** The set that answers for the chain. Every set from v2 on closes a short vote the same way. */
 const CURRENT: DeploymentTag = {
-  name: 'rhc-mainnet-v2',
-  contractSet: 'v2',
+  name: 'rhc-mainnet-v3',
+  contractSet: 'v3',
   current: true,
-  escrow: '0x4315F8be7C9661345710910577Ec31cb867f3c20',
-  oracleRegistry: '0xE38349668f0C470C814487E95C14e7652F713B17',
+  escrow: '0x3333333333333333333333333333333333333333',
+  oracleRegistry: '0x4444444444444444444444444444444444444444',
+};
+
+/** Where dispute 1 actually ran, on the first contracts. */
+const V1: DeploymentTag = {
+  name: 'rhc-mainnet',
+  contractSet: 'v1',
+  current: false,
+  escrow: '0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4',
+  oracleRegistry: REGISTRY,
 };
 
 function dispute(over: Partial<DisputeRow> = {}): DisputeRow {
@@ -191,13 +201,13 @@ describe('the resolver desk, before a dispute is closed without a ruling', () =>
     expect(card(dispute(), NOW)).not.toContain('refunds the payer in full');
   });
 
-  it('quotes what the payer gets back, and the fee that took the rest', () => {
+  it('says a close without a ruling puts the payment back on hold and takes no fee', () => {
     const html = card(dispute(), NOW);
 
-    expect(html).toContain('$0.0995');
-    expect(html).toContain('$0.0005');
-    expect(html).toContain('0.50%');
-    expect(html).toContain('charged whether or not this panel produced anybody to pay it to');
+    expect(html).toContain('Closing it puts the payment back on hold for the payee');
+    expect(html).toContain('Nothing is refunded and no resolver fee is taken');
+    expect(html).toContain('once that deadline passes');
+    expect(html).not.toContain('$0.0995');
   });
 
   it('says the contest bond comes back whole, because it does', () => {
@@ -226,9 +236,10 @@ describe('the resolver desk, before a dispute is closed without a ruling', () =>
   });
 
   it('keeps an unread fee apart from a fee of nothing', () => {
+    const ruling = dispute({ resolverFeeBps: undefined, exit: 'finalize', commitCount: 2, revealCount: 2 });
     const html = renderToStaticMarkup(
       <DisputeList
-        desk={desk({ disputes: [dispute({ resolverFeeBps: undefined })], resolverFeeBps: undefined })}
+        desk={desk({ disputes: [ruling], resolverFeeBps: undefined })}
         error={null}
         account={undefined}
         blockedBy={[]}
@@ -241,16 +252,6 @@ describe('the resolver desk, before a dispute is closed without a ruling', () =>
     expect(html).not.toContain('$0.0995');
   });
 });
-
-const TERMS: EscrowTerms = {
-  feeBps: FEE_BPS,
-  disputeWindow: 86_400n,
-  disputeTimeoutPeriod: 604_800n,
-  minTtl: 300n,
-  maxTtl: 2_592_000n,
-  disputeBondBps: 500,
-  resolverFeeBps: RESOLVER_FEE_BPS,
-};
 
 function disputeRead(over: Partial<DisputeRead> = {}): DisputeRead {
   return {
@@ -297,7 +298,7 @@ function providerLock(over: Partial<ProviderLock> = {}): ProviderLock {
 
 describe('the payee reading back a dispute that is over', () => {
   it('does not claim a ruling on a dispute that never reached one', () => {
-    const detail = stageDetail(providerLock(), TERMS, NOW, 'payee');
+    const detail = stageDetail(providerLock({ deployment: V1 }), NOW, 'payee');
 
     expect(detail).not.toContain('A resolver split this lock');
     expect(detail).toContain('closed without a ruling');
@@ -305,7 +306,18 @@ describe('the payee reading back a dispute that is over', () => {
   });
 
   it('names the quorum miss the payer never saw either', () => {
-    expect(stageDetail(providerLock(), TERMS, NOW, 'public')).toContain('1 of 1 sealed score was published');
+    expect(stageDetail(providerLock({ deployment: V1 }), NOW, 'public')).toContain('1 of 1 sealed score was published');
+  });
+
+  // From v2 on a vote short of its quorum puts the lock back on hold, so a lock that closed as
+  // failed was a vote with no centre, which refunded the payer whole.
+  it('says a vote with no centre refunded the payer with no fee taken', () => {
+    const detail = stageDetail(providerLock(), NOW, 'public');
+
+    expect(detail).toContain('nothing to rule by');
+    expect(detail).toContain('with no resolver fee taken');
+    expect(detail).toContain('Nothing reached the payee');
+    expect(detail).not.toContain('less its resolver fee');
   });
 
   it('tells a real ruling apart from a close, and says what it paid', () => {
@@ -315,7 +327,6 @@ describe('the payee reading back a dispute that is over', () => {
         dispute: disputeRead({ status: DisputeStatus.Finalized, medianScore: 60, refundBps: 7_500 }),
         payout: { kind: 'paid', amount: micro(24_377n), fee: micro(497n) },
       }),
-      TERMS,
       NOW,
       'payee',
     );
@@ -327,20 +338,19 @@ describe('the payee reading back a dispute that is over', () => {
 
   it('separates a dispute nobody closed from one the panel failed', () => {
     const detail = stageDetail(
-      providerLock({ dispute: disputeRead({ status: DisputeStatus.Revealing, refundBps: 0 }) }),
-      TERMS,
+      providerLock({ deployment: V1, dispute: disputeRead({ status: DisputeStatus.Revealing, refundBps: 0 }) }),
       NOW,
       'payee',
     );
 
-    expect(detail).toContain("escrow's own timeout returned the lock");
+    expect(detail).toContain('returned the lock to the payer without one');
     expect(detail).toContain('no fee was taken from it');
+    expect(detail).not.toMatch(/timeout/i);
   });
 
   it('says the outcome is unknown rather than nothing when the dispute did not read', () => {
     const detail = stageDetail(
       providerLock({ stage: 'dispute-unread', dispute: undefined, payout: { kind: 'unread' } }),
-      TERMS,
       NOW,
       'payee',
     );

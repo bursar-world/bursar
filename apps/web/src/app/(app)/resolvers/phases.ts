@@ -60,6 +60,12 @@ export type VotingRules = {
 };
 
 /**
+ * The registry's roster cap, `MAX_RESOLVERS`. A registry whose `maxVoters` reaches it seats every
+ * bonded resolver on every dispute, so nobody can be crowded out by whoever commits first.
+ */
+export const ROSTER_SEATS = 64;
+
+/**
  * Which call closes this dispute, or neither.
  *
  * Reveals can never outnumber commitments, so a commit phase that ended short of quorum has

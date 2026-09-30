@@ -54,7 +54,7 @@ export function stageLevel(stage: LockStage): StateLevel {
 }
 
 /** What this lock means for the payee, and what happens next if nobody touches it. */
-export function stageDetail(lock: ProviderLock, terms: EscrowTerms, now: Date, voice: Voice = 'payee'): string {
+export function stageDetail(lock: ProviderLock, now: Date, voice: Voice = 'payee'): string {
   const mine = voice === 'payee';
 
   switch (lock.stage) {
@@ -85,7 +85,7 @@ export function stageDetail(lock: ProviderLock, terms: EscrowTerms, now: Date, v
         : `Paid and counted towards the record${lock.releasedAt ? ` on ${formatInstant(lock.releasedAt)}` : ''}.`;
 
     case 'contested':
-      return contestedDetail(lock, terms, now, mine);
+      return contestedDetail(lock, now, mine);
 
     case 'ruled':
       return ruledDetail(lock, mine);
@@ -138,13 +138,21 @@ function ruledDetail(lock: ProviderLock, mine: boolean): string {
 }
 
 /**
- * A dispute that ended without a median: the panel missed its quorum, or nobody closed it and the
- * escrow's own timeout returned the lock. Both leave the payee with nothing and neither is a
+ * A dispute that ended without a usable median, which leaves the payee with nothing and is never a
  * ruling.
+ *
+ * On the contracts from v2 on that is a vote whose scores had no centre, which refunds the payer
+ * in full and takes no resolver fee. A vote that missed its quorum puts the lock back on hold
+ * instead and never lands here. The first contracts refunded a missed quorum less the resolver fee,
+ * and could also close a dispute nobody ruled on from the escrow's side.
  */
 function closedDetail(lock: ProviderLock, mine: boolean): string {
   const dispute = lock.dispute;
   const you = mine ? 'you' : 'the payee';
+
+  if (dispute !== undefined && dispute.status === DISPUTE_FAILED && lock.deployment.contractSet !== 'v1') {
+    return `Most of the scores the resolvers revealed sat far from the middle, so the vote had nothing to rule by. The dispute closed without a ruling and the escrow returned the whole lock to the payer, with no resolver fee taken. Nothing reached ${you}, and the job counts as disputed on the record.`;
+  }
 
   if (dispute !== undefined && dispute.status === DISPUTE_FAILED) {
     const quorum =
@@ -154,13 +162,13 @@ function closedDetail(lock: ProviderLock, mine: boolean): string {
     return `The panel never reached a result, so the dispute was closed without a ruling. ${quorum}, which leaves no median to split the lock by, and the escrow sends the whole lock back to the payer less its resolver fee. Nothing reached ${you}, and the job counts as disputed on the record.`;
   }
 
-  return `No ruling ever landed on this dispute, so the escrow's own timeout returned the lock to the payer. Nothing reached ${you}, no fee was taken from it, and the job counts as disputed on the record.`;
+  return `No ruling ever landed on this dispute, and the earlier contracts holding it returned the lock to the payer without one. Nothing reached ${you}, no fee was taken from it, and the job counts as disputed on the record.`;
 }
 
 /** `IOracleRegistry.DisputeStatus.Failed`. */
 const DISPUTE_FAILED = 4;
 
-function contestedDetail(lock: ProviderLock, terms: EscrowTerms, now: Date, mine: boolean): string {
+function contestedDetail(lock: ProviderLock, now: Date, mine: boolean): string {
   const byWhom = lock.disputer.toLowerCase() === lock.payer.toLowerCase() ? 'The payer' : shortAddress(lock.disputer);
 
   if (lock.releasedAt !== null && lock.status === LockStatus.Disputed) {
@@ -174,19 +182,18 @@ function contestedDetail(lock: ProviderLock, terms: EscrowTerms, now: Date, mine
     return `${byWhom} contested this lock. The money is frozen until a resolver rules on it.`;
   }
 
-  const timeoutAt =
-    lock.disputedAt !== null && terms.disputeTimeoutPeriod !== undefined
-      ? new Date(lock.disputedAt.getTime() + Number(terms.disputeTimeoutPeriod) * 1000)
-      : null;
-
   const voting =
     dispute.revealEndsAt === null
       ? 'A resolver panel is ruling on it.'
       : `Resolvers vote in two passes: sealed scores first, then the reveal, which closes ${formatRelative(dispute.revealEndsAt, now)}. ${dispute.commitCount} sealed so far, ${dispute.revealCount} revealed.`;
 
-  const stalled = timeoutAt === null ? '' : ` If the vote never lands, the lock returns to the payer after ${formatInstant(timeoutAt)}.`;
+  // From then one of the registry's two exits is always open, to anyone, so nothing holds the lock.
+  const settles =
+    lock.deployment.contractSet === 'v1'
+      ? ' Once the reveal closes anyone can settle it.'
+      : ` Once the reveal closes anyone can settle it: a ruling splits the lock, and a vote too few resolvers revealed in puts it back on hold for ${mine ? 'you' : 'the payee'} with a new deadline.`;
 
-  return `${byWhom} contested this lock, so the money is frozen. ${voting}${stalled}`;
+  return `${byWhom} contested this lock, so the money is frozen. ${voting}${settles}`;
 }
 
 /** The delivery window a payer may choose, in words. */

@@ -10,6 +10,7 @@ import { ADDRESSES, RHC, deploymentLabel, shortAddress } from '@/chain';
 import { Address as AddressView } from '@/components/address';
 import { LevelDot } from '@/components/badge';
 import { Button } from '@/components/button';
+import { ClaimOwedButton } from '@/components/claim-owed';
 import { ErrorSurface } from '@/components/error-surface';
 import { Instant } from '@/components/instant';
 import { Card, EmptyState, Field, FieldGrid, Section, Skeleton } from '@/components/layout';
@@ -112,6 +113,7 @@ export function DeskView({ payee, owned }: { readonly payee: Address; readonly o
             <ReputationPanel desk={desk} owned={owned} />
           </Section>
 
+          <HeldForPayee desk={desk} owned={owned} blockedBy={writeBlockers} onClaimed={refresh} />
           <Work desk={desk} owned={owned} blockedBy={writeBlockers} onTaken={refresh} />
           <Disputes desk={desk} owned={owned} />
           <Settled desk={desk} owned={owned} />
@@ -233,6 +235,50 @@ export function DeskHeadline({ desk, owned }: { readonly desk: ProviderDesk; rea
         />
       </StatGrid>
     </Card>
+  );
+}
+
+/**
+ * A payout the escrow kept aside for this address.
+ *
+ * A settlement pays every party at once. When the token refuses the transfer to one of them,
+ * usually because its issuer has frozen the address, the escrow books that leg as owed rather than
+ * hold up the rest, and it stays there until somebody claims it. The claim is open to anyone and
+ * pays only the address it is owed to.
+ */
+export function HeldForPayee({
+  desk,
+  owned,
+  blockedBy,
+  onClaimed,
+}: {
+  readonly desk: ProviderDesk;
+  readonly owned: boolean;
+  readonly blockedBy: readonly AnyState[];
+  readonly onClaimed: () => void;
+}) {
+  if (desk.owed === undefined || desk.owed === 0n) return null;
+
+  return (
+    <Section
+      title={owned ? 'Held for you' : 'Held for this address'}
+      description="A payout the escrow could not deliver when a payment settled."
+    >
+      <Card>
+        <div className="space-y-4">
+          <p className="max-w-3xl text-sm">
+            The escrow is holding <span className="tabular font-medium">{usdExact(desk.owed)}</span> for{' '}
+            {owned ? 'you' : 'this address'}. When the payment settled, USDG refused the transfer, which is what happens
+            while the token issuer has frozen an address, so the escrow kept the amount aside instead of holding up the
+            rest of the settlement. A claim sends it all to {owned ? 'your address' : 'this address'} and goes through
+            once USDG will move to it again. Anyone can send the claim, and the money only ever goes here.
+          </p>
+          {owned && (
+            <ClaimOwedButton escrow={ADDRESSES.escrow} party={desk.payee} label="Claim it" blockedBy={blockedBy} onClaimed={onClaimed} />
+          )}
+        </div>
+      </Card>
+    </Section>
   );
 }
 
@@ -498,11 +544,17 @@ function Terms({ desk }: { readonly desk: ProviderDesk }) {
           >
             {terms.disputeBondBps === undefined ? 'Reading' : `${bps(terms.disputeBondBps)} of the locked amount`}
           </Field>
-          <Field label="If a ruling never lands" hint="Anyone can make that call, so the money is never stranded.">
-            {terms.disputeTimeoutPeriod === undefined
-              ? 'Reading'
-              : `The lock returns to the payer after ${formatDuration(Number(terms.disputeTimeoutPeriod))}`}
+          <Field
+            label="If the vote falls short"
+            hint="Anyone can close a vote once its reveal window ends, so a quiet panel never holds the money."
+          >
+            The lock goes back on hold for the payee with a new deadline, and the bond is returned
           </Field>
+          {terms.minLock !== undefined && (
+            <Field label="Smallest payment" hint="The escrow opens no lock under this, so contesting one always costs a bond.">
+              <span className="tabular">{usdExact(terms.minLock)}</span>
+            </Field>
+          )}
           <Field label="Transaction fees" hint="Paid in ETH out of the wallet that signs, never out of the payout.">
             Paid by the payee on every transaction it sends, a release and a record included
           </Field>
@@ -558,7 +610,7 @@ function lockColumns(desk: ProviderDesk, owned: boolean, withRuling = false): re
             )}
           </div>
           <p className="max-w-prose text-detail text-[color:var(--color-muted)]">
-            {stageDetail(lock, desk.terms, desk.chainTime, owned ? 'payee' : 'public')}
+            {stageDetail(lock, desk.chainTime, owned ? 'payee' : 'public')}
           </p>
           {withRuling && lock.dispute !== undefined && lock.releasedAt === null && (
             <div className="pt-2">

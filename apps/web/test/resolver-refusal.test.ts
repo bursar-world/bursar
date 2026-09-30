@@ -1,3 +1,4 @@
+import { toFunctionSelector } from 'viem';
 import { describe, expect, it } from 'vitest';
 
 import { ResolverRefusedError, resolverFailure } from '@/app/(app)/resolvers/refusal';
@@ -76,7 +77,22 @@ describe('resolverFailure', () => {
   it('sends a panel that never reached quorum to the other exit by name', () => {
     const failure = resolverFailure(reverted('0xd79e824a'), { action: 'Finalise the ruling' });
     expect(messageOf(failure)).toContain('Too few resolvers revealed');
-    expect(messageOf(failure)).toContain('failed dispute');
+    expect(messageOf(failure)).toContain('Close it without a ruling instead');
+    expect(messageOf(failure)).toContain('back on hold for the payee');
+  });
+
+  // The registry reads the paying account's principal once, when the dispute opens, and bars it
+  // with the two parties.
+  it('tells a party to the payment, or the principal behind it, that it cannot vote on it', () => {
+    const failure = resolverFailure(reverted(toFunctionSelector('PartyCannotVote()')), { action: 'Seal a score' });
+    expect(messageOf(failure)).toContain('the principal the paying account named when the dispute opened');
+    expect(messageOf(failure)).toContain('Another resolver has to rule');
+  });
+
+  it('says a full roster frees a seat on an exit or an eviction, not on a panel settling', () => {
+    const failure = resolverFailure(reverted(toFunctionSelector('RosterFull()')), { action: 'Bond' });
+    expect(messageOf(failure)).toContain('every one of them may vote on every dispute');
+    expect(messageOf(failure)).toContain('governance evicts one');
   });
 
   it('explains the approval step behind a bond rather than quoting the token', () => {

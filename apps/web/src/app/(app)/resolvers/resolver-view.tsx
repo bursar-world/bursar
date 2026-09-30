@@ -17,7 +17,7 @@ import { ConnectModal } from '@/wallet';
 import { BondPanel } from './bond-panel';
 import type { DisputeRow, ResolverDesk } from './desk';
 import { DisputeList, SettledList } from './dispute-list';
-import { ResolverStatus } from './phases';
+import { ROSTER_SEATS, ResolverStatus } from './phases';
 import { countOpen } from './reading';
 import { RewardsPanel } from './rewards-panel';
 import { POLICY_PATH } from './ruling';
@@ -232,8 +232,12 @@ function Rules({ desk }: { readonly desk: ResolverDesk | undefined }) {
           />
           <Stat
             label="Quorum"
-            value={config === undefined ? unread : `${config.quorum} of ${config.maxVoters}`}
-            hint="Revealed scores needed for a ruling, and the size of the panel"
+            value={config === undefined ? unread : config.quorum.toString()}
+            hint={
+              config === undefined || config.maxVoters >= ROSTER_SEATS
+                ? 'Revealed scores needed for a ruling. Every seated resolver may vote on every dispute.'
+                : `Revealed scores needed for a ruling, from a panel of at most ${config.maxVoters}`
+            }
           />
           <Stat
             label="Slash"
@@ -244,13 +248,18 @@ function Rules({ desk }: { readonly desk: ResolverDesk | undefined }) {
 
         <div className="mt-5 max-w-3xl space-y-3 text-sm">
           <p>
-            A dispute has three exits and every one of them releases the lock. Finalising takes the median of the
-            revealed scores and splits the money by it. Closing without a ruling sends the lock back to the payer and is
-            what happens when too few resolvers revealed. Both of those charge the resolver fee first
-            {desk?.resolverFeeBps === undefined ? '' : `, ${bps(desk.resolverFeeBps)} of the lock`}, and the refund is
-            worked out on what is left, so a payer is never refunded the whole of a disputed payment. If neither is
-            called, the escrow&rsquo;s own timeout returns the lock to the payer with no fee taken at all. A panel that
-            could strand a payer&rsquo;s funds would be worse than no panel.
+            A dispute has two exits, and once the reveal window closes one of them is always open to anyone. Finalising
+            takes the median of the revealed scores and splits the money by it, after the resolver fee
+            {desk?.resolverFeeBps === undefined ? '' : ` of ${bps(desk.resolverFeeBps)}`} comes off the top. Closing
+            without a ruling is what happens when too few resolvers revealed: the payment goes back on hold for the
+            payee with a new deadline, the contest bond is returned and no fee is taken. A vote whose scores have no
+            centre refunds the payer in full, also with no fee. A payout the token issuer blocks is kept by the escrow
+            for its recipient to claim, so no party to a payment can hold up the ruling on it.
+          </p>
+          <p>
+            Every bonded resolver may vote on every dispute. The registry seats up to {ROSTER_SEATS}, so nobody can
+            fill a panel ahead of the rest, and the payer, the payee and the principal behind the paying account are
+            barred from voting on their own dispute.
           </p>
           <p>
             The bond is BRSR and the floor that admits it lives in the staking pool, read live on every vote. Governance
