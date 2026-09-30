@@ -53,14 +53,25 @@ jobs:
         with:
           persist-credentials: false
 
+      # contracts/.foundry-version pins the release; the contracts README installs from it too.
+      - name: Read the pinned Foundry release
+        id: foundry
+        run: echo "version=$(cat .foundry-version)" >> "$GITHUB_OUTPUT"
+
       - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
         with:
-          version: v1.8.1
+          version: ${{ steps.foundry.outputs.version }}
 
-      # contracts/lib is not committed. These are the exact tags Release 1 was built from, plus the
-      # upgradeable contracts the vendored Privacy Pools Entrypoint was built against.
+      # contracts/lib is not committed. forge-std v1.9.4 and OpenZeppelin Contracts v5.1.0, which
+      # Release 1 was built from, and OpenZeppelin Contracts Upgradeable v5.0.2, which the vendored
+      # Privacy Pools Entrypoint was built against. Pinned by commit because a tag can be moved; the
+      # contracts README gives the same command.
       - name: Install Solidity dependencies
-        run: forge install --no-git --shallow foundry-rs/forge-std@v1.9.4 OpenZeppelin/openzeppelin-contracts@v5.1.0 OpenZeppelin/openzeppelin-contracts-upgradeable@v5.0.2
+        run: |
+          forge install --no-git --shallow \
+            foundry-rs/forge-std@1eea5bae12ae557d589f9f0f0edae2faa47cb262 \
+            OpenZeppelin/openzeppelin-contracts@69c8def5f222ff96f2b5beff05dfba996368aa79 \
+            OpenZeppelin/openzeppelin-contracts-upgradeable@723f8cab09cdae1aca9ec9cc1cfa040c2d4b06c1
 
       - run: forge fmt --check
       - run: forge build

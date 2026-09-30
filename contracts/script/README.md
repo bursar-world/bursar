@@ -28,12 +28,17 @@ checkout has no `forge-std` and no OpenZeppelin, and every command below fails t
 imports. Install them once, from `contracts/`:
 
 ```sh
-forge install --no-git foundry-rs/forge-std@v1.9.4 OpenZeppelin/openzeppelin-contracts@v5.1.0
+forge install --no-git --shallow \
+  foundry-rs/forge-std@1eea5bae12ae557d589f9f0f0edae2faa47cb262 \
+  OpenZeppelin/openzeppelin-contracts@69c8def5f222ff96f2b5beff05dfba996368aa79 \
+  OpenZeppelin/openzeppelin-contracts-upgradeable@723f8cab09cdae1aca9ec9cc1cfa040c2d4b06c1
 ```
 
-`--no-git` keeps them out of the git index, which is how this repository is arranged, and the
-two tags are the exact sources the Release 1 bytecode was built from. Then `forge build` and
-`forge test` work. The rest of the prerequisites are in the root `README.md`.
+`--no-git` keeps them out of the git index, which is how this repository is arranged. The three
+commits are forge-std v1.9.4, OpenZeppelin Contracts v5.1.0 and OpenZeppelin Contracts
+Upgradeable v5.0.2, the exact sources the deployed bytecode was built from, and CI installs the
+same ones. Then `forge build` and `forge test` work. The rest of the prerequisites are in the root
+`README.md`.
 
 **Keys.** The deploy key signs from a Foundry encrypted keystore. A private key never appears
 in a command, an environment variable, or a file in this repository.
