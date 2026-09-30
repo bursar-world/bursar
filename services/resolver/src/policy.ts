@@ -1,5 +1,5 @@
 /**
- * Ruling policy v1, as published in docs/RULING-POLICY.md. Pure: the evidence comes in already
+ * Ruling policy v2, as published in docs/RULING-POLICY.md. Pure: the evidence comes in already
  * collected and checked, and nothing here reads a clock, a chain or a network.
  *
  * Every score it emits sits in the middle of one of the registry's refund bands, so no median and
@@ -11,7 +11,7 @@
  *   80 and up  no refund        emitted as 90
  */
 
-export const POLICY_VERSION = 'v1';
+export const POLICY_VERSION = 'v2';
 
 export const RULING_SCORES = [0, 60, 72, 90] as const;
 

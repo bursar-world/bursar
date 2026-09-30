@@ -11,8 +11,16 @@ describe('the published ruling policy', () => {
   const blocks = parseMarkdown(SOURCE);
 
   it('parses into the sections the page shows', () => {
-    const headings = blocks.filter((block) => block.kind === 'heading').map((block) => block.text);
-    expect(headings).toEqual(['Ruling policy', 'Who rules', 'What a ruling decides', 'When no ruling is reached', 'The rules', 'Evidence', 'Overrides', 'Timeline', 'Publication', 'Changes']);
+    const headings = blocks.flatMap((block) => (block.kind === 'heading' && block.level < 3 ? [block.text] : []));
+    expect(headings).toEqual(['Ruling policy', 'Who rules', 'What a ruling decides', 'When no ruling is reached', 'The rules', 'Evidence', 'Overrides', 'Timeline', 'Publication', 'Changes', 'Version 1']);
+  });
+
+  it('says which version is in force and keeps the one before it whole at the end', () => {
+    expect(SOURCE).toContain('Version 2, in force from 30 September 2026.');
+    const archived = blocks.slice(blocks.findIndex((block) => block.kind === 'heading' && block.text === 'Version 1'));
+    const sections = archived.flatMap((block) => (block.kind === 'heading' && block.level === 3 ? [block.text] : []));
+    expect(sections).toEqual(['Who rules', 'What a ruling decides', 'When no ruling is reached', 'The rules', 'Evidence', 'Overrides', 'Timeline', 'Publication', 'Changes']);
+    expect(archived.some((block) => block.kind === 'paragraph' && block.text.startsWith('Version 1. It applies to disputes'))).toBe(true);
   });
 
   it('keeps every table row as wide as its header', () => {

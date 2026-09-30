@@ -183,10 +183,10 @@ export type ChainOptions = {
 };
 
 /**
- * H1: `finalize` wraps the escrow call in a try, and a caller who sends it with just enough gas
- * for the outer frame makes the inner call run out, fail quietly, and close the dispute as Failed
- * with the money still frozen. Twice the estimate and never under 1.5M leaves the 1/64 that the
- * EVM holds back far above anything the escrow's `resolve` spends.
+ * The v1 registry's `finalize` wraps the escrow call in a try, and a caller who sends it with just
+ * enough gas for the outer frame makes the inner call run out, fail quietly, and close the dispute
+ * as Failed with the money still frozen. Twice the estimate and never under 1.5M leaves the 1/64
+ * that the EVM holds back far above anything the escrow's `resolve` spends.
  */
 const FINALIZE_GAS_FLOOR = 1_500_000n;
 

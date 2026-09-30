@@ -70,7 +70,7 @@ const FIXTURES: readonly { name: string; evidence: PolicyEvidence; rule: RuleId;
   },
 ];
 
-describe('ruling policy v1', () => {
+describe('ruling policy v2', () => {
   it.each(FIXTURES)('$name', ({ evidence, rule: expected, score }) => {
     const ruling = rule(evidence);
     expect(ruling.ruleId).toBe(expected);
@@ -90,6 +90,6 @@ describe('ruling policy v1', () => {
   });
 
   it('refuses a policy version it does not implement', () => {
-    expect(() => rule(BASE, 'v2')).toThrow(/v2/);
+    expect(() => rule(BASE, 'v3')).toThrow(/v3/);
   });
 });

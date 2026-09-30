@@ -7,7 +7,7 @@ import type { ReactNode } from 'react';
  * library would be a dependency carried for a page this plain.
  */
 export type Block =
-  | { readonly kind: 'heading'; readonly level: 1 | 2; readonly text: string }
+  | { readonly kind: 'heading'; readonly level: 1 | 2 | 3; readonly text: string }
   | { readonly kind: 'paragraph'; readonly text: string }
   | { readonly kind: 'list'; readonly items: readonly string[] }
   | { readonly kind: 'table'; readonly head: readonly string[]; readonly rows: readonly (readonly string[])[] }
@@ -42,9 +42,9 @@ export function parseMarkdown(source: string): Block[] {
       continue;
     }
 
-    const heading = /^(#{1,2})\s+(.*)$/.exec(line);
+    const heading = /^(#{1,3})\s+(.*)$/.exec(line);
     if (heading) {
-      blocks.push({ kind: 'heading', level: heading[1] === '#' ? 1 : 2, text: heading[2] ?? '' });
+      blocks.push({ kind: 'heading', level: (heading[1] ?? '#').length as 1 | 2 | 3, text: heading[2] ?? '' });
       index += 1;
       continue;
     }
@@ -104,10 +104,15 @@ export function Markdown({ blocks }: { readonly blocks: readonly Block[] }): Rea
   return blocks.map((block, index) => {
     switch (block.kind) {
       case 'heading':
-        return block.level === 1 ? null : (
+        if (block.level === 1) return null;
+        return block.level === 2 ? (
           <h2 key={index} className="pt-4 text-lg font-medium">
             <Inline text={block.text} />
           </h2>
+        ) : (
+          <h3 key={index} className="pt-2 text-sm font-medium">
+            <Inline text={block.text} />
+          </h3>
         );
       case 'paragraph':
         return (

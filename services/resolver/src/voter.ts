@@ -584,7 +584,7 @@ export function createVoter(options: VoterOptions): Voter {
 
     if (dispute.status === DisputeStatus.Finalized && lock.status === LockStatus.Resolved) {
       await patch(served, record.disputeId, (r) => ({ ...r, outcome, published: true, stage: advance(advance(r.stage, 'finalized'), 'verified') }));
-      await once(served, record, 'verified', 'INFO', 'dispute_ruled', `Dispute ${record.disputeId} is finalized at a median of ${dispute.medianScore}, refunding ${dispute.refundBps / 100}% to the payer.`, {
+      await once(served, record, 'verified', 'INFO', 'dispute_ruled', `Dispute ${record.disputeId} is finalised at a median of ${dispute.medianScore}, refunding ${dispute.refundBps / 100}% to the payer.`, {
         escrowId: record.escrowId,
       });
       return;
@@ -604,13 +604,13 @@ export function createVoter(options: VoterOptions): Voter {
     }
 
     if (lock.status === LockStatus.Disputed) {
-      // H1, v1 only: the v1 registry wrapped the escrow call in `finalize`, so a starved call could
+      // v1 only: the v1 registry wrapped the escrow call in `finalize`, so a starved call could
       // close the vote while the escrow never ruled. Later registries revert the whole finalize.
       await once(served, record, 'failed-frozen', 'CRITICAL', 'dispute_failed_lock_frozen', `Dispute ${record.disputeId} closed as Failed with lock ${record.escrowId} still Disputed: the escrow never ruled, so the money is still held. Follow the payee-compensation playbook.`);
       return;
     }
 
-    await once(served, record, 'failed', 'CRITICAL', 'dispute_failed', `Dispute ${record.disputeId} closed without a ruling and the lock was refunded in full. This is the outcome the service exists to prevent.`, {
+    await once(served, record, 'failed', 'CRITICAL', 'dispute_failed', `Dispute ${record.disputeId} closed without a ruling and the lock was refunded to the payer${served.contractSet === 'v1' ? ', less the resolver fee' : ' in full'}. This is the outcome the service exists to prevent.`, {
       medianScore: dispute.medianScore,
       refundBps: dispute.refundBps,
     });
@@ -644,7 +644,7 @@ export function createVoter(options: VoterOptions): Voter {
           'watchdog',
           'CRITICAL',
           'dispute_watchdog',
-          `Lock ${dispute.escrowId} is still disputed. The vote on dispute ${disputeId} closed at ${new Date(Number(dispute.revealEndsAt) * 1_000).toISOString()} and nobody has settled it: finalize it, or failDispute it if it missed quorum.`,
+          `Lock ${dispute.escrowId} is still disputed. The vote on dispute ${disputeId} closed at ${new Date(Number(dispute.revealEndsAt) * 1_000).toISOString()} and nobody has settled it: call finalize, or failDispute if it missed quorum.`,
         );
       }
 

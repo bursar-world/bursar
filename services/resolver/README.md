@@ -5,20 +5,20 @@ under the published [ruling policy](../../docs/RULING-POLICY.md).
 
 A party that contests a job before it is paid out freezes the lock and opens a vote on the
 `OracleRegistry`. If fewer than two resolvers commit and reveal, anyone can call `failDispute`.
-On the v1 contracts that refunds the payer in full, whatever was delivered. From v2 on it reopens
-the lock with a new deadline and returns the dispute bond, and a lock can be disputed only once.
-Nothing settles a vote on its own once its reveal window closes: somebody has to call `finalize`
-or `failDispute`, and until then the lock stays frozen. This service makes sure two resolvers
-always vote: it
-reads the job and any delivery evidence, rules by the policy, seals the same score from two keys,
-reveals it, finalizes, and checks the escrow paid out. Every step is taken from the chain as it
-reads at that moment, so a restart, a lost journal or a dead RPC endpoint costs a poll, not a
-vote.
+On the v1 contracts that refunds the payer, less the resolver fee, whatever was delivered. From v2
+on it reopens the lock with a new deadline and returns the dispute bond, and a lock can be disputed
+only once. Nothing settles a vote on its own once its reveal window closes: somebody has to call
+`finalize` or `failDispute`, and until then the lock stays frozen. This service makes sure two
+resolvers always vote: it reads the job and any delivery evidence, rules by the policy, seals the
+same score from two keys, reveals it, finalises, and checks the escrow paid out. Every step is taken
+from the chain as it reads at that moment, so a restart, a lost journal or a dead RPC endpoint costs
+a poll, not a vote.
 
 ## What it does per dispute
 
-Times are from the moment the dispute opens, for the live six-hour windows. They scale with the
-registry's windows if governance changes them.
+Times are from the moment the dispute opens, for six-hour windows, the length the v1 registry
+uses. Each step up to the end of the reveal window scales with the registry's windows: the v2
+registry runs one-hour windows, so those steps come six times sooner.
 
 | When | Step |
 |---|---|
@@ -27,14 +27,14 @@ registry's windows if governance changes them.
 | 3h30 | Commits from the primary pair, `keys[id mod 3]` and `keys[(id+1) mod 3]`. A benched primary, or one that is a party to the dispute, is replaced by the standby at once. The registry bars the payer, the payee and, from v2 on, the payer's principal. |
 | 4h30 | Commits from the standby if fewer than two of ours are in. WARN. |
 | 5h30 | CRITICAL if the dispute is still short of quorum. |
-| 6h00 | Reveals from every key that committed, then finalizes as soon as every commitment is open. |
+| 6h00 | Reveals from every key that committed, then finalises as soon as every commitment is open. |
 | 10h00 | CRITICAL if any of our commitments is still sealed. |
 | 11h00 | Last-chance reveal at three times the estimated fee. CRITICAL: run the backup runner. |
-| 12h00 | If a resolver outside Bursar committed and never revealed, finalizes here. |
-| After | Verifies the dispute is `Finalized` and the lock `Resolved`. If the vote failed, CRITICAL either way: on v1 the lock was refunded, or is still frozen because the escrow never ruled; from v2 on the lock is `Locked` again with a new deadline, which is the contract working as designed. |
+| 12h00 | If a resolver outside Bursar committed and never revealed, finalises here. |
+| After | Verifies the dispute is `Finalized` and the lock `Resolved`. A failed vote on v1 is CRITICAL: the lock was refunded, or is still frozen because the escrow never ruled. From v2 on the lock is `Locked` again with a new deadline. Still CRITICAL: the vote failed. |
 | 13h00 | CRITICAL watchdog for a lock still `Disputed` an hour after the reveal window closed. The alert gives the time the vote closed and asks for `finalize`, or `failDispute` if it missed quorum. |
 
-Every retry of a write is priced a quarter higher than the last. Finalize is sent with at least
+Every retry of a write is priced a quarter higher than the last. `finalize` is sent with at least
 1.5M gas and twice the estimate, so the escrow call inside it cannot be starved.
 
 ## Salts

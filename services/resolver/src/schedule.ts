@@ -1,7 +1,7 @@
 /**
  * When each step of a dispute happens, from the dispute's own clock. Pure.
  *
- * The published timeline is written for the live windows, six hours to commit and six to reveal.
+ * The published timeline is written for six-hour windows, six hours to commit and six to reveal.
  * It is computed here as fractions of those windows so a governance change to either moves every
  * step with it rather than leaving a commit scheduled after the window it belongs to has shut:
  *
@@ -33,7 +33,7 @@ export type Timeline = {
 
 /**
  * How long after the reveal window closes a lock may still be `Disputed` before it pages. The
- * service finalizes as soon as the window shuts and pages at once for a missed quorum, so an hour
+ * service finalises as soon as the window shuts and pages at once for a missed quorum, so an hour
  * is several dozen polls of its own retries; past it, the money is held and nothing is moving it.
  */
 export const WATCHDOG_SECONDS = 3_600n;

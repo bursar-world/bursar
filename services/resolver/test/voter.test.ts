@@ -126,7 +126,7 @@ describe('voter', () => {
     expect(r.chain.locks.get(escrowId)?.status).toBe(LockStatus.Resolved);
 
     const published = await ruling(r, disputeId);
-    expect(published.body).toMatchObject({ status: 'published', rule: 'P2', score: 0, policyVersion: 'v1' });
+    expect(published.body).toMatchObject({ status: 'published', rule: 'P2', score: 0, policyVersion: 'v2' });
     expect((await r.journal.get(REGISTRY, disputeId))?.stage).toBe('verified');
   });
 
@@ -434,7 +434,7 @@ describe('the watchdog', () => {
     expect(pages).toHaveLength(1);
     expect(pages[0]?.level).toBe('CRITICAL');
     expect(pages[0]?.message).toContain(`closed at ${new Date(Number(revealEndsAt) * 1_000).toISOString()}`);
-    expect(pages[0]?.message).toMatch(/finalize it, or failDispute it/);
+    expect(pages[0]?.message).toMatch(/call finalize, or failDispute if it missed quorum/);
     expect(pages[0]?.message).not.toMatch(/timeout/i);
   });
 });
