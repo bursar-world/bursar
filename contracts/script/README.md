@@ -142,10 +142,6 @@ forge script script/DeployShielded.s.sol --rpc-url "$RHC_RPC_URL" --keystore "$K
   --broadcast --slow
 ```
 
-That run builds the libraries with the second compiler profile, the one the vendored Privacy Pools
-code pins, and leaves a second copy of each in the build cache. Run `forge build --force` once
-afterwards, before any `forge test`.
-
 The governance batch is one script run per signer: propose from one, approve from a second, and
 execute from any once the delay has passed. Each step can be run again; a call already proposed,
 approved or applied is skipped. `--sig "status()"` shows where each call stands.

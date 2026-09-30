@@ -22,10 +22,7 @@ if nc -z 127.0.0.1 "$port" 2>/dev/null; then
 fi
 anvil --chain-id 4663 --port "$port" --silent &
 anvil_pid=$!
-# The shielded run links against the Poseidon build of the other compiler profile, which leaves a
-# second copy of each library in the build cache. A clean build afterwards keeps the next
-# `forge test` from tripping over it.
-trap 'kill "$anvil_pid" 2>/dev/null || true; forge build --force >/dev/null 2>&1 || true' EXIT
+trap 'kill "$anvil_pid" 2>/dev/null || true' EXIT
 for _ in $(seq 50); do
   cast chain-id --rpc-url "$rpc" >/dev/null 2>&1 && break
   sleep 0.2

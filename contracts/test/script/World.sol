@@ -127,11 +127,18 @@ abstract contract World is ScriptHarness {
         );
     }
 
+    /// The shielded script builds with the compiler the vendored code pins, so no suite here can
+    /// import it. It is deployed from its artifact, linked against the libraries the record names,
+    /// the way `--libraries` links it for a real run.
     function _deployShieldedScript(address poseidonT3, address poseidonT4) internal returns (address script) {
-        string memory code =
-            vm.parseJsonString(vm.readFile("out/DeployShielded.s.sol/DeployShielded.json"), ".bytecode.object");
-        code = _link(code, "vendor/poseidon-solidity/PoseidonT3.sol:PoseidonT3", poseidonT3);
-        code = _link(code, "vendor/poseidon-solidity/PoseidonT4.sol:PoseidonT4", poseidonT4);
+        string memory t3 = "vendor/poseidon-solidity/PoseidonT3.sol:PoseidonT3";
+        string memory t4 = "vendor/poseidon-solidity/PoseidonT4.sol:PoseidonT4";
+        string memory artifact = vm.readFile("out/DeployShielded.s.sol/DeployShielded.json");
+        string memory code = vm.parseJsonString(artifact, ".bytecode.object");
+        code = _unlink(artifact, code, t3);
+        code = _unlink(artifact, code, t4);
+        code = vm.replace(code, _placeholder(t3), _hex(poseidonT3));
+        code = vm.replace(code, _placeholder(t4), _hex(poseidonT4));
         bytes memory creation = vm.parseBytes(code);
         assembly ("memory-safe") {
             script := create(0, add(creation, 0x20), mload(creation))
@@ -140,18 +147,31 @@ abstract contract World is ScriptHarness {
         IPinnable(script).pinEnvPrefix(_prefix());
     }
 
-    /// The shielded script builds with the compiler the vendored code pins, so no suite here can
-    /// import it. It is deployed from its artifact, linked against the libraries the record names,
-    /// the way `--libraries` links it for a real run. Solidity marks an unlinked library as `__$`
-    /// and the first 34 hex digits of the keccak of its fully qualified name, then `$__`.
-    function _link(string memory code, string memory library_, address at) internal pure returns (string memory) {
+    /// A `forge script` run with `--libraries` leaves the artifact linked against the addresses it
+    /// was given, which its metadata names, and `forge test` never rebuilds a script. Putting the
+    /// placeholder back lets such an artifact be linked like a fresh build.
+    function _unlink(string memory artifact, string memory code, string memory library_)
+        private
+        view
+        returns (string memory)
+    {
+        string memory key = string.concat(".metadata.settings.libraries['", library_, "']");
+        if (!vm.keyExistsJson(artifact, key)) return code;
+        return vm.replace(code, _hex(vm.parseJsonAddress(artifact, key)), _placeholder(library_));
+    }
+
+    /// Solidity marks an unlinked library as `__$` and the first 34 hex digits of the keccak of its
+    /// fully qualified name, then `$__`.
+    function _placeholder(string memory library_) private pure returns (string memory) {
         string memory hash = vm.toString(keccak256(bytes(library_)));
         bytes memory digits = new bytes(34);
         for (uint256 i; i < 34; ++i) {
             digits[i] = bytes(hash)[i + 2];
         }
-        string memory placeholder = string.concat("__$", string(digits), "$__");
-        string memory addr = vm.replace(vm.toLowercase(vm.toString(at)), "0x", "");
-        return vm.replace(code, placeholder, addr);
+        return string.concat("__$", string(digits), "$__");
+    }
+
+    function _hex(address at) private pure returns (string memory) {
+        return vm.replace(vm.toLowercase(vm.toString(at)), "0x", "");
     }
 }

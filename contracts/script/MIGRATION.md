@@ -123,10 +123,6 @@ verify script/VerifyShielded.s.sol
 script refuses to mint a second supply. A check that lists something as **owed** is expected at
 this point, and says which later step settles it. A **mismatch** is not: stop and read it.
 
-After `DeployShielded.s.sol`, run `forge build --force` once before any `forge test`. The shielded
-run builds the Poseidon libraries with the second compiler profile and leaves a copy the tests
-would trip over.
-
 ### 2. Propose the wiring and the handover
 
 Two batches, each proposed by one signer and approved by a second. Both can be run again: a call

@@ -19,6 +19,10 @@ compilation_restrictions = [
     { paths = "src/{[!s],s[!h],sh[!i],shi[!e],shie[!l],shiel[!d],shield[!e],shielde[!d],shielded[!/]}*", version = "=0.8.24" },
     { paths = "vendor/privacy-pools-core/**", version = "=0.8.28", evm_version = "prague" },
     { paths = "src/shielded/**", version = "=0.8.28", evm_version = "prague" },
+    # The libraries the pool links, and the script that deploys it, build only where the pool does.
+    # Left to the catch-all below, each library also got a Cancun build that nothing uses.
+    { paths = "vendor/{poseidon-solidity,zk-kit-lean-imt}/**", version = "=0.8.28", evm_version = "prague" },
+    { paths = "script/DeployShielded.s.sol", version = "=0.8.28", evm_version = "prague" },
     # Tests, scripts and libraries build with whichever of the two their imports need, never with a
     # newer compiler that happens to be installed.
     { paths = "**", version = ">=0.8.24, <=0.8.28" },
