@@ -2598,6 +2598,12 @@ contract RegistryHandler is Test {
 
     bytes32 private constant SALT = keccak256("mandate.invariant.salt");
 
+    /// The staking pool's floor in this fixture.
+    uint128 private constant FLOOR = 1_000e18;
+
+    /// Disputes `drive` took all the way to a ruling. Read by `afterInvariant`.
+    uint256 public finalized;
+
     /// A commitment the registry accepted. Held because a reveal drawn at random from the
     /// actor set and the dispute set almost never lands on one that was committed, and a
     /// campaign that never reveals never reaches finalisation, rewards or slashing either.
@@ -2628,26 +2634,26 @@ contract RegistryHandler is Test {
         return _actors;
     }
 
+    /// One prank per call, never a started one. A call that reverts under `startPrank` leaves
+    /// the prank standing, and every later step in the run then fails on the cheatcode rather
+    /// than on the contract, which is how an earlier version of this suite never reached a
+    /// single ruling.
     function register(uint256 actorSeed, uint128 amount) external {
         address who = _actor(actorSeed);
         amount = uint128(bound(amount, 1, 50_000e18));
 
-        BOND.mint(who, amount);
-        vm.startPrank(who);
-        BOND.approve(address(REGISTRY), amount);
+        _approveBond(who, amount);
+        vm.prank(who);
         REGISTRY.register(amount);
-        vm.stopPrank();
     }
 
     function increaseBond(uint256 actorSeed, uint128 amount) external {
         address who = _actor(actorSeed);
         amount = uint128(bound(amount, 1, 50_000e18));
 
-        BOND.mint(who, amount);
-        vm.startPrank(who);
-        BOND.approve(address(REGISTRY), amount);
+        _approveBond(who, amount);
+        vm.prank(who);
         REGISTRY.increaseBond(amount);
-        vm.stopPrank();
     }
 
     function requestUnbond(uint256 actorSeed) external {
@@ -2742,10 +2748,85 @@ contract RegistryHandler is Test {
         vm.warp(dispute.commitEndsAt);
     }
 
+    /// One dispute the whole way: opened, committed by every actor, revealed, finalised, paid
+    /// and claimed. A random walk lines those six steps up so rarely that a campaign of any
+    /// practical length used to finish without a single ruling, and the reward split, the
+    /// slash and the bond release all sit at the end of them.
+    ///
+    /// Whatever the run did to the actors first, they are seated again with a bond the floor
+    /// accepts. This step is about whether a vote can still be heard, not about who left.
+    function drive(uint256 scoreSeed) external {
+        uint8 score = uint8(bound(scoreSeed, 0, 100));
+        uint256 disputeId = REGISTRY.openDispute(_nextEscrowId++, address(0xA11CE), address(0xB0B));
+        _disputeIds.push(disputeId);
+
+        for (uint256 i; i < _actors.length; ++i) {
+            address who = _actors[i];
+            _seat(who);
+
+            _scores[disputeId][who] = score;
+            bytes32 commitment = REGISTRY.commitmentHash(disputeId, who, score, SALT);
+            vm.prank(who);
+            REGISTRY.commitVote(disputeId, commitment);
+            _commitments.push(Commitment({disputeId: disputeId, voter: who}));
+        }
+
+        vm.warp(REGISTRY.getDispute(disputeId).commitEndsAt);
+        for (uint256 i; i < _actors.length; ++i) {
+            vm.prank(_actors[i]);
+            REGISTRY.revealVote(disputeId, score, SALT);
+        }
+
+        REGISTRY.finalize(disputeId);
+        finalized += 1;
+
+        uint256 pot = 4e6;
+        TOKEN.mint(address(REGISTRY), pot);
+        REGISTRY.notifyReward(disputeId, pot);
+
+        for (uint256 i; i < _actors.length; ++i) {
+            vm.prank(_actors[i]);
+            REGISTRY.claimRewards();
+        }
+    }
+
     /// The registry rules and reopens through this seat.
     function resolve(uint256, uint16, uint8) external {}
 
     function reopen(uint256) external {}
+
+    function disputeIds() external view returns (uint256[] memory) {
+        return _disputeIds;
+    }
+
+    function _seat(address who) private {
+        IOracleRegistry.Resolver memory record = REGISTRY.getResolver(who);
+
+        if (record.status == IOracleRegistry.ResolverStatus.Unbonding) {
+            vm.prank(who);
+            REGISTRY.cancelUnbond();
+        }
+
+        if (
+            record.status == IOracleRegistry.ResolverStatus.None
+                || record.status == IOracleRegistry.ResolverStatus.Exited
+        ) {
+            _approveBond(who, FLOOR);
+            vm.prank(who);
+            REGISTRY.register(FLOOR);
+        } else if (record.bond < FLOOR) {
+            uint128 topUp = FLOOR - record.bond;
+            _approveBond(who, topUp);
+            vm.prank(who);
+            REGISTRY.increaseBond(topUp);
+        }
+    }
+
+    function _approveBond(address who, uint128 amount) private {
+        BOND.mint(who, amount);
+        vm.prank(who);
+        BOND.approve(address(REGISTRY), amount);
+    }
 
     function _actor(uint256 seed) private view returns (address) {
         return _actors[seed % _actors.length];
@@ -2823,6 +2904,35 @@ contract OracleRegistrySolvencyInvariants is Test {
 
     function invariant_unallocatedFeesNeverExceedTheRewardFloat() public view {
         assertLe(registry.unallocatedRewards(), registry.rewardFloat());
+    }
+
+    /// Every open vote is a commitment on a dispute that has not closed, and every such
+    /// commitment is an open vote. A count that drifts either way either pins a bond for good
+    /// or releases one a live vote still needs.
+    function invariant_openVotesEqualTheCommitmentsOnOpenDisputes() public view {
+        uint256[] memory ids = handler.disputeIds();
+        uint256 committed;
+        for (uint256 i; i < ids.length; ++i) {
+            IOracleRegistry.Dispute memory dispute = registry.getDispute(ids[i]);
+            bool open = dispute.status == IOracleRegistry.DisputeStatus.Committing
+                || dispute.status == IOracleRegistry.DisputeStatus.Revealing;
+            if (open) committed += dispute.commitCount;
+        }
+
+        address[4] memory actors = handler.actors();
+        uint256 held;
+        for (uint256 i; i < actors.length; ++i) {
+            held += registry.openVotes(actors[i]);
+        }
+        assertEq(held, committed);
+    }
+
+    /// A run that never reached a ruling proved nothing about the money paths. When the random
+    /// walk did not get there, one more dispute is driven from wherever the run left the
+    /// registry, which also proves a vote can still be heard from that state.
+    function afterInvariant() public {
+        if (handler.finalized() == 0) handler.drive(40);
+        assertGt(handler.finalized(), 0, "no dispute reached a ruling in this run");
     }
 
     function invariant_rosterCountMatchesTheBondedResolvers() public view {
