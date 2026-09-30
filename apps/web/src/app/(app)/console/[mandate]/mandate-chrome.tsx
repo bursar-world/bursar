@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 
+import { onCurrentSet } from '@/chain/deployments';
 import { Address } from '@/components/address';
 import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
@@ -39,6 +40,7 @@ export function MandateChrome({ children }: { readonly children: ReactNode }) {
     );
   }
 
+  const earlier = !onCurrentSet(account.contractSet);
   const tabs = [
     { href: base, label: 'Overview' },
     { href: `${base}/approvals`, label: 'Approvals' },
@@ -69,8 +71,16 @@ export function MandateChrome({ children }: { readonly children: ReactNode }) {
           {account.paused && <Badge>Paused</Badge>}
           {account.revoked && <Badge>Agent revoked</Badge>}
           <Badge tone="quiet">Version {account.version.toString()}</Badge>
+          {earlier && <Badge tone="quiet">Earlier contracts</Badge>}
           <StatusStrip system={system} />
         </div>
+
+        {earlier && (
+          <p className="max-w-3xl text-detail text-[color:var(--color-muted)]">
+            This mandate runs on an earlier set of contracts. Its funds, limits and open payments work as they did, and the
+            stock, parking and collateral panels are not shown for it. New mandates are created on the current contracts.
+          </p>
+        )}
 
         {ownerOffChain && (
           <SwitchNetworkButton reason="Your wallet owns this mandate and is on another network. Switch to Robinhood Chain to change it; until then the controls are hidden." />

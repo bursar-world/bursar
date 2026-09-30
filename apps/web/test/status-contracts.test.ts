@@ -1,6 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { contractGroups } from '@/app/(app)/status/status-view';
+
+// The records as they stood before v3, so the addresses below hold whatever a later deploy adds.
+vi.mock('@bursar/core', async (importOriginal) => {
+  const core = await importOriginal<typeof import('@bursar/core')>();
+  const { withRecords } = await import('./support/address-book');
+  return withRecords(core, [core.deployment('rhc-mainnet-v2' as never), core.deployment('rhc-mainnet' as never)]);
+});
 
 describe('the contracts on the status page', () => {
   const groups = contractGroups();

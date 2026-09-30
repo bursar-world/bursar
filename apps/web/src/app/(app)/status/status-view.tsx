@@ -1,12 +1,12 @@
 'use client';
 
 import { deploymentsForChain, micro, mulBps } from '@bursar/core';
-import type { Micro } from '@bursar/core';
+import type { Deployment, Micro } from '@bursar/core';
 import { useMemo, useState } from 'react';
 import { isAddress } from 'viem';
 import type { Address as EvmAddress } from 'viem';
 
-import { ADDRESSES, CHAIN_ID, RHC, TOKEN_ADDRESSES } from '@/chain';
+import { ADDRESSES, CHAIN_ID, RHC, TOKEN_ADDRESSES, TOKEN_ROLES } from '@/chain';
 import { deployment } from '@/chain/rhc';
 import { Address } from '@/components/address';
 import { LevelDot } from '@/components/badge';
@@ -18,7 +18,7 @@ import { Stat, StatGrid } from '@/components/stat';
 import { StatusList } from '@/components/status';
 import { Table } from '@/components/table';
 import { formatDuration } from '@/lib';
-import { bps, formatEth, usd } from '@/money';
+import { bps, formatEth, usd, usdExact } from '@/money';
 import { DEPLOY_FEE, DEPLOY_GAS, ROUND_TRIP_FEE, ROUND_TRIP_GAS, useSystemState } from '@/state';
 
 type ContractRow = { readonly name: string; readonly address: EvmAddress; readonly role: string };
@@ -114,23 +114,56 @@ export function contractGroups(): readonly ContractGroup[] {
     ],
   });
 
-  for (const d of older) {
+  older.forEach((d, index) => {
+    const administersToken = d.contracts.AdminTimelock.toLowerCase() === TOKEN_ROLES.adminTimelock.toLowerCase();
     groups.push({
-      title: 'Earlier payment contracts',
-      note: 'Still live for the payments, locks and disputes opened against them. New mandates use the contracts above.',
+      title: older.length === 1 ? 'Earlier payment contracts' : `Earlier payment contracts, ${SET_ORDINALS[older.length - 1 - index] ?? 'an earlier'} set`,
+      note: 'Still live for the payments, locks and disputes opened against them, and read only here. New mandates use the contracts above.',
       rows: [
-        { name: 'Mandate accounts', address: d.contracts.MandateAccountFactory, role: 'Created the first mandates, which still hold funds and history.' },
+        { name: 'Mandate accounts', address: d.contracts.MandateAccountFactory, role: 'Created the mandates on this set, which still hold funds and history.' },
         { name: 'Escrow', address: d.contracts.Escrow, role: 'Serves the locks opened against it until they close.' },
-        { name: 'Provider registry', address: d.contracts.AgentRegistry, role: 'Providers registered on the first contracts.' },
-        { name: 'Reputation', address: d.contracts.Reputation, role: 'Scores earned on the first contracts.' },
-        { name: 'Disputes', address: d.contracts.OracleRegistry, role: 'Rules on disputes opened against the first escrow.' },
-        { name: 'Governance delay', address: d.contracts.AdminTimelock, role: 'Changes to the token, staking and the first contracts wait out a 48-hour delay.' },
+        { name: 'Provider registry', address: d.contracts.AgentRegistry, role: 'Providers registered on this set.' },
+        { name: 'Reputation', address: d.contracts.Reputation, role: 'Scores earned on this set.' },
+        { name: 'Disputes', address: d.contracts.OracleRegistry, role: 'Rules on disputes opened against this set’s escrow until they close.' },
+        {
+          name: 'Governance delay',
+          address: d.contracts.AdminTimelock,
+          role: administersToken
+            ? 'Changes to the token, staking and these contracts wait out its delay.'
+            : 'Changes to these contracts wait out its delay.',
+        },
+        ...earlierLanes(d),
       ],
     });
-  }
+  });
 
   return groups;
 }
+
+/**
+ * The lanes an earlier set deployed. Parked value, posted collateral, private mandates and shielded
+ * deposits stay where they were put, so the contracts holding them are listed with their set.
+ */
+function earlierLanes(d: Deployment): readonly ContractRow[] {
+  const rows: ContractRow[] = [];
+  if (d.rwa) rows.push({ name: 'Treasury parking', address: d.rwa.TreasuryPark, role: 'Holds what was parked on this set until it is unparked.' });
+  if (d.rwa?.collateral) {
+    rows.push(
+      { name: 'Collateral vault', address: d.rwa.collateral.CollateralVault, role: 'Holds collateral posted on this set.' },
+      { name: 'Credit pool', address: d.rwa.collateral.CreditPool, role: 'Holds the debt drawn on this set until it is repaid.' },
+    );
+  }
+  if (d.privacy) {
+    rows.push({ name: 'Private mandate accounts', address: d.privacy.CommittedMandateFactory, role: 'Created the private mandates on this set.' });
+  }
+  if (d.privacy?.shielded) {
+    rows.push({ name: 'Shielded pool', address: d.privacy.shielded.ShieldedPool, role: 'Holds what was deposited on this set until it is withdrawn.' });
+  }
+  return rows;
+}
+
+/** How the earlier sets are told apart, oldest first. */
+const SET_ORDINALS = ['first', 'second', 'third', 'fourth'] as const;
 
 /** One hundred USDG, as the worked example the settlement fee is easiest to read against. */
 const EXAMPLE_PAYMENT: Micro = micro(100_000_000n);
@@ -289,6 +322,11 @@ export function StatusView() {
             <Field label="Cost of contesting" hint="Posted as a bond by whoever opens a dispute, returned only if the ruling goes their way.">
               {escrow?.disputeBondBps === undefined ? 'Reading' : `${bps(escrow.disputeBondBps)} of the payment`}
             </Field>
+            {escrow?.minLock !== undefined && (
+              <Field label="Smallest payment" hint="The escrow opens no payment under this, so contesting one always costs a bond.">
+                {usdExact(escrow.minLock)}
+              </Field>
+            )}
             <Field label="Governance delay" hint="Every parameter change a key can make waits this out first.">
               {timelockPeriod === undefined ? 'Reading' : formatDuration(Number(timelockPeriod))}
             </Field>
