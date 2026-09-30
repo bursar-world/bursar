@@ -39,9 +39,10 @@ contract ParkVault {
 /// mandate has to keep at least `buffer(mandate)` in USDG after the move, so spending keeps
 /// working while the market is closed and the treasury price is not trading.
 ///
-/// Value. A position counts at raw × feed, less the asset's haircut, and only while the feed is
-/// inside the asset's valuation bound. Past it the position counts zero. No yield or projected
-/// return enters any figure here.
+/// Value. A position counts at raw × feed, less the asset's haircut, and only while the price
+/// guard calls it fresh: the feed inside the asset's valuation bound, the token, its oracle and
+/// the access registry unpaused, and the pinned pool inside its band of the feed. Otherwise the
+/// position counts zero. No yield or projected return enters any figure here.
 ///
 /// Unparking. The principal or the agent can sell a position back to USDG, delivered to the
 /// mandate. A mandate account that knows this contract calls `unparkFor` from inside a spend
