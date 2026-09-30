@@ -411,6 +411,45 @@ contract RwaTest is Test {
         acct.spend(_req(5e6), new bytes32[](0));
     }
 
+    /// SGOV counts for 100 hours but trades only inside 26, so every Sunday its sale reverts. The
+    /// spend falls through to the USDG reserve instead of failing with it.
+    function test_unparkFor_fallsThroughWhenSgovTradeStale() public {
+        uint256 raw = _park(50e6);
+        _parkUsdg(50e6);
+        vm.prank(principal);
+        acct.withdraw(address(usdg), principal, 100e6);
+        vm.warp(block.timestamp + 30 hours);
+
+        vm.prank(agent);
+        acct.spend(_req(20e6), new bytes32[](0));
+        assertEq(usdg.balanceOf(address(escrow)), 20e6);
+        (uint256 sgovRaw,,,,,) = park.position(address(acct), address(sgovAdapter));
+        assertEq(sgovRaw, raw);
+        (uint256 reserve,,,,,) = park.position(address(acct), address(usdgAdapter));
+        assertEq(reserve, 30e6);
+    }
+
+    /// Asking the pool for a small position's full feed value as an exact output needs more SGOV
+    /// than the position holds once fills land under the feed. The position is sold whole and
+    /// the next adapter covers the rest.
+    function test_unparkFor_drainsSgovThenUsdg() public {
+        _park(10e6);
+        _parkUsdg(50e6);
+        vm.prank(principal);
+        acct.withdraw(address(usdg), principal, 140e6);
+        (,, uint256 worth,,,) = park.position(address(acct), address(sgovAdapter));
+
+        vm.prank(agent);
+        acct.spend(_req(20e6), new bytes32[](0));
+        assertEq(usdg.balanceOf(address(escrow)), 20e6);
+        assertEq(usdg.balanceOf(address(acct)), 0);
+        (uint256 raw, uint256 basis,,,,) = park.position(address(acct), address(sgovAdapter));
+        assertEq(raw, 0);
+        assertEq(basis, 0);
+        (uint256 reserve,,,,,) = park.position(address(acct), address(usdgAdapter));
+        assertApproxEqAbs(reserve, 30e6 + _filled(worth, address(sgov)), 2);
+    }
+
     function test_buy_unparksShortfall() public {
         _park(100e6);
         vm.prank(principal);
@@ -475,6 +514,13 @@ contract RwaTest is Test {
         vm.startPrank(principal);
         acct.withdraw(address(usdg), park.vaultOf(address(acct)), amount);
         raw = park.park(address(acct), address(sgovAdapter), amount, 0);
+        vm.stopPrank();
+    }
+
+    function _parkUsdg(uint256 amount) internal {
+        vm.startPrank(principal);
+        acct.withdraw(address(usdg), park.vaultOf(address(acct)), amount);
+        park.park(address(acct), address(usdgAdapter), amount, amount);
         vm.stopPrank();
     }
 

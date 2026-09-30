@@ -179,8 +179,12 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
         emit Unparked(mandate, adapter, raw, usdgOut);
     }
 
-    /// Called by a mandate account inside a spend. Sells from the first positions that cover
-    /// the shortfall and delivers exactly `usdgNeeded`.
+    /// Called by a mandate account inside a spend. Sells positions in adapter order until the
+    /// shortfall is covered: exactly the remainder from a position worth more, the whole position
+    /// at market from one worth less, since a pool that fills under the feed never returns a
+    /// position's full feed value. An adapter that cannot sell right now is passed over, so SGOV
+    /// out of its trade bound on a Sunday leaves the USDG reserve to pay instead of failing the
+    /// spend.
     function unparkFor(uint256 usdgNeeded) external override nonReentrant {
         address mandate = msg.sender;
         uint256 left = usdgNeeded;
@@ -194,12 +198,12 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
             (uint256 worth,,, bool fresh) = IParkAsset(adapter).value(p.raw);
             if (!fresh || worth == 0) continue;
 
-            uint256 take = worth < left ? worth : left;
-            uint256 rawIn = IParkAsset(adapter).releaseExact(take, p.raw, mandate, mandate);
+            (uint256 rawIn, uint256 usdgOut) = _release(adapter, mandate, p.raw, worth > left ? left : 0);
+            if (rawIn == 0) continue;
             _reduce(adapter, p, rawIn);
-            left -= take;
+            left = usdgOut < left ? left - usdgOut : 0;
 
-            emit Unparked(mandate, adapter, rawIn, take);
+            emit Unparked(mandate, adapter, rawIn, usdgOut);
         }
         if (left != 0) revert NothingToUnpark(left);
     }
@@ -257,6 +261,24 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
     }
 
     // --- internals ---
+
+    /// Sells `exact` USDG out of the position when that is set, falling back to the whole position
+    /// at market when the position turns out too small for it. Zeros mean the adapter could not
+    /// trade (a stale trade price, a paused token, a pool outside its band) and the caller moves
+    /// on to the next one.
+    function _release(address adapter, address mandate, uint256 raw, uint256 exact)
+        private
+        returns (uint256 rawIn, uint256 usdgOut)
+    {
+        if (exact != 0) {
+            try IParkAsset(adapter).releaseExact(exact, raw, mandate, mandate) returns (uint256 spent) {
+                return (spent, exact);
+            } catch {}
+        }
+        try IParkAsset(adapter).release(raw, 0, mandate, mandate) returns (uint256 out) {
+            return (raw, out);
+        } catch {}
+    }
 
     function _book(address mandate, address adapter, uint256 usdgIn) private {
         Position storage p = _positions[mandate][adapter];
