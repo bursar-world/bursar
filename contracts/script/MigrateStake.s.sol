@@ -43,7 +43,11 @@ contract MigrateStake is Migration {
             return;
         }
         if (p.unbondingShares == p.shares) {
-            console2.log("already leaving; the stake can be taken back from", _maturesAt(old, p.unbondingAt));
+            console2.log(
+                string.concat(
+                    "already leaving; the stake can be taken back from ", _utc(_maturesAt(old, p.unbondingAt))
+                )
+            );
             return;
         }
 
@@ -52,7 +56,11 @@ contract MigrateStake is Migration {
         old.requestUnbond(p.shares);
         vm.stopBroadcast();
 
-        console2.log("asked for the whole stake back; it can be taken back from", _maturesAt(old, block.timestamp));
+        console2.log(
+            string.concat(
+                "asked for the whole stake back; it can be taken back from ", _utc(_maturesAt(old, block.timestamp))
+            )
+        );
     }
 
     function complete() external {
@@ -65,7 +73,11 @@ contract MigrateStake is Migration {
         }
         uint256 maturesAt = _maturesAt(old, p.unbondingAt);
         if (block.timestamp < maturesAt) {
-            console2.log("not matured yet; the stake can be taken back from", maturesAt);
+            console2.log(
+                string.concat(
+                    "not matured yet; the stake can be taken back from ", _utc(maturesAt), ", in ", _until(maturesAt)
+                )
+            );
             return;
         }
 

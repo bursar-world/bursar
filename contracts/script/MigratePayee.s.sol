@@ -88,13 +88,32 @@ contract MigratePayee is Migration {
         console2.log("stake returned, micro-USD", usdg.balanceOf(msg.sender) - before);
     }
 
-    /// The name the payee is known by on the registry it registered with last.
-    function _name(IRetiringAgentRegistry v2, IRetiringAgentRegistry v1) private view returns (string memory) {
-        string memory named = vm.envOr(_key("BURSAR_PAYEE_NAME"), string(""));
-        if (bytes(named).length != 0) return named;
-        if (address(v2) != address(0) && v2.isRegistered(msg.sender)) return v2.getAgent(msg.sender).name;
-        if (address(v1) != address(0) && v1.isRegistered(msg.sender)) return v1.getAgent(msg.sender).name;
-        revert MissingEnv(_key("BURSAR_PAYEE_NAME"));
+    /// The name the payee is known by on the registry it registered with last, or
+    /// `BURSAR_PAYEE_NAME`. The new registry takes 3 to 32 characters from A-Z, a-z, 0-9 and the
+    /// underscore, and a name outside that stops the run here rather than at `register`.
+    function _name(IRetiringAgentRegistry v2, IRetiringAgentRegistry v1) private view returns (string memory name) {
+        string memory variable = _key("BURSAR_PAYEE_NAME");
+        name = _envRaw(variable);
+        if (bytes(name).length != 0) {
+            if (!_registrable(name)) revert InvalidEnv(variable, name);
+            return name;
+        }
+        if (address(v2) != address(0) && v2.isRegistered(msg.sender)) name = v2.getAgent(msg.sender).name;
+        else if (address(v1) != address(0) && v1.isRegistered(msg.sender)) name = v1.getAgent(msg.sender).name;
+        else revert MissingEnv(variable);
+        require(
+            _registrable(name), "the name on the old registry does not fit the new one's rule: set BURSAR_PAYEE_NAME"
+        );
+    }
+
+    function _registrable(string memory name) private pure returns (bool) {
+        bytes memory raw = bytes(name);
+        if (raw.length < 3 || raw.length > 32) return false;
+        for (uint256 i; i < raw.length; ++i) {
+            bytes1 c = raw[i];
+            if ((c < "0" || c > "9") && (c < "A" || c > "Z") && (c < "a" || c > "z") && c != "_") return false;
+        }
+        return true;
     }
 
     /// Stops taking new work on an old registry and asks for the whole stake back.
@@ -113,8 +132,18 @@ contract MigratePayee is Migration {
         if (address(old) == address(0) || !old.isRegistered(msg.sender)) return;
         (uint128 pending,) = old.withdrawals(msg.sender);
         if (pending == 0) return;
-        if (block.timestamp < old.withdrawalMaturity(msg.sender)) {
-            console2.log("not matured yet at", address(old));
+        uint256 maturesAt = old.withdrawalMaturity(msg.sender);
+        if (block.timestamp < maturesAt) {
+            console2.log(
+                string.concat(
+                    "not matured yet at ",
+                    vm.toString(address(old)),
+                    ": matures ",
+                    _utc(maturesAt),
+                    ", in ",
+                    _until(maturesAt)
+                )
+            );
             return;
         }
         old.executeWithdrawal();

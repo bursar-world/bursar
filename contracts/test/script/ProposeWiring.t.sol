@@ -11,6 +11,13 @@ import {Buyback} from "../../src/token/Buyback.sol";
 import {Staking} from "../../src/token/Staking.sol";
 import {World} from "./World.sol";
 
+/// What `execute` prints for a call that cannot run yet.
+contract ProposeWiringProbe is ProposeWiring {
+    function whyNot(AdminTimelock timelock, uint256 id, bytes4 reason) external view returns (string memory) {
+        return _whyNot(timelock, id, reason);
+    }
+}
+
 /// The wiring batch through the timelock, one step per signer key, repeated the way an operator
 /// repeats a step whose output they did not see: nothing is proposed or approved twice, nothing
 /// executes early, and a key that cannot sign stops before anything is queued.
@@ -73,6 +80,12 @@ contract ProposeWiringTest is World {
         _propose(signers[0]);
         assertEq(timelock.proposalCount(), before + BATCH);
 
+        // A call that cannot run yet is explained, not printed as the selector `canExecute` returns.
+        ProposeWiringProbe probe = new ProposeWiringProbe();
+        (bool due, bytes4 reason) = timelock.canExecute(before);
+        assertFalse(due);
+        assertEq(probe.whyNot(timelock, before, reason), "1 of 2 approvals: a second signer runs approve() first.");
+
         // A second run, by the same signer or another, finds every call already proposed.
         _propose(signers[0]);
         _propose(signers[1]);
@@ -92,10 +105,19 @@ contract ProposeWiringTest is World {
         // Approved, but the delay runs from the proposal, which the warp above already passed.
         // Propose afresh to see the delay hold.
         _restore();
+        assertEq(block.timestamp, T0);
         _propose(signers[0]);
         _approve(signers[1]);
         _execute(signers[0]);
         _assertUnwired();
+        (due, reason) = timelock.canExecute(before);
+        assertEq(reason, AdminTimelock.TimelockNotExpired.selector);
+        // The restore took the first probe with it.
+        probe = new ProposeWiringProbe();
+        assertEq(
+            probe.whyNot(timelock, before, reason),
+            "The delay ends 2026-09-28 11:53:20 UTC, in 60 minutes: run execute() again then."
+        );
 
         vm.warp(block.timestamp + timelock.timelockPeriod());
         _execute(signers[2]);

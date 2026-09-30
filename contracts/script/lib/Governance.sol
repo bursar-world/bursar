@@ -58,7 +58,7 @@ abstract contract Governance is BursarScript {
                 continue;
             }
             AdminTimelock timelock = AdminTimelock(call.timelock);
-            AdminTimelock.Proposal memory p = timelock.getProposal(id);
+            uint256 executeAfter = timelock.getProposal(id).executeAfter;
             console2.log(
                 string.concat(
                     "proposed  ",
@@ -69,8 +69,13 @@ abstract contract Governance is BursarScript {
                     vm.toString(call.timelock),
                     ", ",
                     vm.toString(timelock.approvals(id)),
-                    " of 2 approvals, executable from ",
-                    vm.toString(uint256(p.executeAfter))
+                    " of ",
+                    vm.toString(timelock.REQUIRED_APPROVALS()),
+                    " approvals, executable from ",
+                    _utc(executeAfter),
+                    " (",
+                    _until(executeAfter),
+                    ")"
                 )
             );
         }
@@ -131,8 +136,16 @@ abstract contract Governance is BursarScript {
             }
             (bool due, bytes4 reason) = AdminTimelock(call.timelock).canExecute(id);
             if (!due) {
-                console2.log(string.concat("not executable yet: #", vm.toString(id), " ", call.label));
-                console2.logBytes4(reason);
+                console2.log(
+                    string.concat(
+                        "not executable yet: #",
+                        vm.toString(id),
+                        " ",
+                        call.label,
+                        ". ",
+                        _whyNot(AdminTimelock(call.timelock), id, reason)
+                    )
+                );
                 continue;
             }
             if (!_ready(call)) {
@@ -143,6 +156,30 @@ abstract contract Governance is BursarScript {
             console2.log(string.concat("executed #", vm.toString(id), " ", call.label));
         }
         vm.stopBroadcast();
+    }
+
+    /// What `canExecute` answered, in words. The timelock answers with the selector of the error
+    /// `execute` would raise; the one an operator meets is the delay, and that comes with its date.
+    function _whyNot(AdminTimelock timelock, uint256 id, bytes4 reason) internal view returns (string memory) {
+        if (reason == AdminTimelock.TimelockNotExpired.selector) {
+            uint256 executeAfter = timelock.getProposal(id).executeAfter;
+            return string.concat(
+                "The delay ends ", _utc(executeAfter), ", in ", _until(executeAfter), ": run execute() again then."
+            );
+        }
+        if (reason == AdminTimelock.InsufficientApprovals.selector) {
+            return string.concat(
+                vm.toString(timelock.approvals(id)),
+                " of ",
+                vm.toString(timelock.REQUIRED_APPROVALS()),
+                " approvals: a second signer runs approve() first."
+            );
+        }
+        if (reason == AdminTimelock.ProposalExpired.selector) return "Its grace period has passed: propose it again.";
+        if (reason == AdminTimelock.AlreadyExecuted.selector) return "It has already executed.";
+        if (reason == AdminTimelock.AlreadyCancelled.selector) return "It was cancelled: propose it again.";
+        if (reason == AdminTimelock.ProposalNotFound.selector) return "The timelock has no such proposal.";
+        return string.concat("canExecute answered ", vm.toString(abi.encodePacked(reason)), ".");
     }
 
     /// The newest proposal on the call's timelock carrying the same target and calldata that can
