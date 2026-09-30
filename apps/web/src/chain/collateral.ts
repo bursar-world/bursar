@@ -14,6 +14,7 @@ import { ADDRESSES, CHAIN_ID } from './rhc';
 
 const stakingAbi = [
   { type: 'function', name: 'creditManager', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
+  { type: 'function', name: 'slasher', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
 ] as const satisfies Abi;
 
 type RawTier = {
@@ -76,6 +77,8 @@ export type PoolState = {
   readonly spreadPaid: bigint | undefined;
   /** True once governance has named the pool as the staking contract's credit manager. */
   readonly spreadLive: boolean | undefined;
+  /** True once governance has named the pool as the staking contract's slasher, so a write-off slashes stakers. */
+  readonly slashLive: boolean | undefined;
 };
 
 export type HaircutSchedule = {
@@ -153,6 +156,7 @@ export async function readHaircutSchedule(): Promise<HaircutSchedule | undefined
     spreadPaid: batch.add<bigint>('pool.spreadPaid', pool('spreadPaid')),
   };
   const managerSlot = batch.add<Address>('staking.creditManager', call(lane.Staking, stakingAbi, 'creditManager'));
+  const slasherSlot = batch.add<Address>('staking.slasher', call(lane.Staking, stakingAbi, 'slasher'));
   const timeSlot = addChainTime(batch);
   const first = await runBatch(rhcClient(), batch);
 
@@ -181,6 +185,7 @@ export async function readHaircutSchedule(): Promise<HaircutSchedule | undefined
   }));
 
   const manager = first.get(managerSlot);
+  const slasher = first.get(slasherSlot);
   const time = first.get(timeSlot);
   return {
     lane,
@@ -196,6 +201,7 @@ export async function readHaircutSchedule(): Promise<HaircutSchedule | undefined
       reserves: first.get(poolSlots.reserves),
       spreadPaid: first.get(poolSlots.spreadPaid),
       spreadLive: manager === undefined ? undefined : manager.toLowerCase() === lane.CreditPool.toLowerCase(),
+      slashLive: slasher === undefined ? undefined : slasher.toLowerCase() === lane.CreditPool.toLowerCase(),
     },
     chainTime: time === undefined ? undefined : new Date(Number(time) * 1000),
     complete: first.failures === 0 && (rest?.failures ?? 0) === 0,

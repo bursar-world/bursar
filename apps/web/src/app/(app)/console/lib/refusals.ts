@@ -164,6 +164,12 @@ const CAUSES: Readonly<Record<string, Omit<RefusalCause, 'errorName'>>> = {
     detail: 'Only the address the current owner named can accept ownership of this mandate.',
     owner: 'principal',
   },
+  AlreadyPrincipal: {
+    state: null,
+    headline: 'That address already owns the mandate',
+    detail: 'Handing a mandate to its own owner would change nothing and withdraw no consent already given. An approval is withdrawn on its own, and a spent or withdrawn approval stays that way whoever owns the mandate.',
+    owner: 'principal',
+  },
   PartyNotAllowed: {
     state: 'permission',
     headline: 'The provider cannot be paid',
@@ -241,6 +247,30 @@ const CAUSES: Readonly<Record<string, Omit<RefusalCause, 'errorName'>>> = {
     headline: 'The delivery deadline was outside the allowed range',
     detail: 'The escrow holds a minimum and a maximum for how long a provider has to answer, and the deadline sat outside both.',
     owner: 'agent',
+  },
+  BelowMinLock: {
+    state: null,
+    headline: 'The payment was under the escrow’s smallest amount',
+    detail: 'The escrow opens no payment under its floor, which keeps every payment large enough that contesting it costs a bond. The mandate’s limits had nothing to do with it; pay at least the floor.',
+    owner: 'agent',
+  },
+  BadMinLock: {
+    state: null,
+    headline: 'The escrow was set up with an unusable floor',
+    detail: 'An escrow has to be deployed with a smallest payment large enough that its contest bond comes to something. This one was refused when it was created, and no payment is involved.',
+    owner: 'operator',
+  },
+  EnforcedPause: {
+    state: null,
+    headline: 'The escrow is paused',
+    detail: 'The guardian has paused the escrow, so it opens no new payment until governance lifts the pause. Payments it already holds can still settle, and nothing about this mandate needs changing.',
+    owner: 'operator',
+  },
+  SafeERC20FailedOperation: {
+    state: 'asset',
+    headline: 'USDG refused the transfer',
+    detail: 'The token turned down a transfer the call needed, so nothing moved. A paused token, a frozen address or a balance short of the amount all come back this way.',
+    owner: 'token-issuer',
   },
   BadBond: {
     state: 'funding',

@@ -121,8 +121,9 @@ function Terms({ schedule }: { readonly schedule: HaircutSchedule }) {
         <ul className="max-w-3xl list-disc space-y-3 pl-5 text-sm">
           <li>Each token counts at its amount times its Chainlink price. The price already includes the token&rsquo;s distributions, so nothing is added on top.</li>
           <li>
-            A price older than {valuationHours ?? 'the valuation bound'} or a paused price feed counts the position as zero. Borrowing against it
-            stops, and any sale of it waits for a fresh price.
+            A position counts as zero while its price is older than {valuationHours ?? 'the valuation bound'}, while the token, its price feed
+            or Robinhood&rsquo;s access registry is paused, or while the token&rsquo;s pinned pool trades outside its band of the price.
+            Nobody can borrow against it then, and any sale of it waits until the price is fresh and the pool agrees with it.
           </li>
           <li>
             After hours means outside the US equities 24/5 session (Monday 01:00 UTC to Saturday 00:00 UTC), or any time a price has not
@@ -131,15 +132,24 @@ function Terms({ schedule }: { readonly schedule: HaircutSchedule }) {
           {terms !== undefined && (
             <>
               <li>
-                Health is collateral value after haircuts divided by debt. A payment can borrow only while health stays at or above{' '}
-                {formatRatio(terms.minBorrowHealth)}, and collateral can be withdrawn on the same condition.
+                Borrowing and withdrawals are checked at the after-hours haircut, whatever the time. A payment can borrow, and collateral can be
+                withdrawn, only while collateral valued that way stays at or above {formatRatio(terms.minBorrowHealth)} times the debt, so a
+                line drawn during market hours does not fall under 1.00 when the market closes.
               </li>
               <li>
-                Below 1.00, anyone can sell part of one asset through its pinned Uniswap pool to repay the debt. The sale stops at the slice that
-                brings health back to {formatRatio(terms.liquidationTarget)}, and the seller keeps {bps(terms.bountyBps)} of the proceeds.
+                Health is collateral after the haircut that applies now, divided by debt. It counts a position whose pool is out of line at its
+                price, so a pool pushed away from the price cannot hide collateral from the check. Below 1.00, anyone can sell part of one
+                asset through its pinned Uniswap pool to repay the debt. The sale stops at the slice that brings health back to{' '}
+                {formatRatio(terms.liquidationTarget)}, and the seller keeps {bps(terms.bountyBps)} of the proceeds. It has to find the pool
+                inside its band before and after the trade, so a stale price or a pool out of line holds the sale until they agree.
               </li>
             </>
           )}
+          <li>
+            A line left with nothing that can be sold has its remaining debt written off. The lender carries that loss in USDG.
+            {schedule.pool.slashLive === true &&
+              ' BRSR stakers cover part of it as well: the loss is converted to BRSR at the buyback’s price ceiling and taken from the staking pool, never more than the pool’s slash allowance at a time.'}
+          </li>
           <li>Only a mandate in the collateral lane can borrow. A prefunded mandate spends the USDG it holds and nothing more.</li>
         </ul>
       </Card>
@@ -166,12 +176,19 @@ function Terms({ schedule }: { readonly schedule: HaircutSchedule }) {
               )}
             </span>
           </Field>
-          <Field label="Where the spread goes" hint="Paid to BRSR stakers as USDG.">
+          <Field label="Where the spread goes" hint="Paid to BRSR stakers as USDG, once a borrower has paid it.">
             {pool.spreadLive === undefined
               ? 'Unread'
               : pool.spreadLive
                 ? `To stakers. ${pool.spreadPaid === undefined ? '' : `${usd(pool.spreadPaid as Micro)} paid so far.`}`
                 : 'Held in the lending pool until the staking contract is set to accept it, then paid to stakers.'}
+          </Field>
+          <Field label="When a line is written off" hint="What happens to debt the collateral could not cover.">
+            {pool.slashLive === undefined
+              ? 'Unread'
+              : pool.slashLive
+                ? 'The lender carries the loss, and stakers cover part of it in BRSR within the slash allowance.'
+                : 'The lender carries the loss. Stakers are not slashed until the staking contract lets the lending pool slash.'}
           </Field>
         </FieldGrid>
         <p className="mt-4 text-note text-[color:var(--color-muted)]">

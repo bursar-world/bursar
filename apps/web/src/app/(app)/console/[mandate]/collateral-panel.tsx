@@ -69,23 +69,25 @@ function CollateralBody({ state, onChange }: { readonly state: CollateralAccount
             <Stat
               label="Collateral value"
               value={state.value === undefined ? 'Unread' : usdExact(state.value as Micro)}
-              hint="Token amount times the Chainlink price. A stale or paused price counts zero."
+              hint="Token amount times the Chainlink price. A position counts zero while its price is stale, the token, its price feed or the access registry is paused, or its pool trades out of line with the price."
             />
             <Stat label="Debt" value={state.debt === undefined ? 'Unread' : usdExact(state.debt as Micro)} hint="Borrowed USDG plus the spread accrued on it." />
             <Stat
               label="Can still borrow"
               value={state.headroom === undefined ? 'Unread' : usdExact(state.headroom as Micro)}
-              hint="The most a payment can draw now without taking health below the floor or past the credit limits."
+              hint="Measured at the after-hours haircut whatever the time, so a draw made in market hours still stands when the market closes. Also held to the credit limits."
             />
             <Stat
               label="Health"
               value={formatHealth(state.healthE18)}
-              hint="Collateral value after haircuts, divided by debt. Below 1.00 anyone can sell part of the collateral to repay."
+              hint="Collateral after the haircut that applies now, divided by debt. It counts a position at its price even while its pool is out of line. Below 1.00 anyone can sell part of the collateral to repay."
             />
           </StatGrid>
 
           {liquidatable(state.healthE18) && (
-            <LevelBadge level="blocked">Health is below 1.00. Part of the collateral can be sold to repay the debt.</LevelBadge>
+            <LevelBadge level="blocked">
+              Health is below 1.00. Part of the collateral can be sold to repay the debt once its price is fresh and its pool is in line.
+            </LevelBadge>
           )}
 
           <Table<CollateralPosition>
@@ -115,7 +117,7 @@ function CollateralBody({ state, onChange }: { readonly state: CollateralAccount
                 header: 'Haircut',
                 cell: (row) =>
                   !row.fresh ? (
-                    <LevelBadge level="attention">Price is stale or paused, counts as zero</LevelBadge>
+                    <LevelBadge level="attention">Not counted: stale price, a pause, or its pool out of line</LevelBadge>
                   ) : (
                     <LevelBadge level={row.afterHours ? 'attention' : 'ok'}>
                       {bps(row.haircutBps)}

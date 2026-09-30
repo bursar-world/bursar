@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { collateralVaultAbi, creditPoolAbi, mandateAccountAbi } from '@bursar/core';
+import { collateralVaultAbi, creditPoolAbi, mandateAccountAbi, priceGuardAbi } from '@bursar/core';
 import { decodeErrorResult } from 'viem';
 import type { Abi, Address } from 'viem';
 
@@ -33,11 +33,17 @@ export const COLLATERAL_REFUSALS: Readonly<Record<string, string>> = {
   InsufficientCash: 'The lending pool does not hold enough USDG for this draw right now.',
   StalePrice: 'The price for this asset is too old, so the sale waits for a fresh one.',
   OraclePaused: 'The price feed for this asset is paused, so the sale waits.',
+  TokenPaused: 'Transfers of this asset are paused by its issuer, so the sale waits.',
+  AccessPaused: 'Trading in these assets is paused by the issuer, so the sale waits.',
+  BadPrice: 'The price feed returned no usable price, so the sale waits.',
+  PoolPriceDeviation: 'The pool price for this asset is too far from the feed, so the sale waits until the two agree again.',
+  Blocked: 'The issuer blocks this account from trading these assets.',
+  NothingToSell: 'Nothing left in this position can be sold for anything, so there is nothing to liquidate.',
   ERC20InsufficientBalance: 'The wallet holds less than the amount.',
   ERC20InsufficientAllowance: 'Approve the amount first.',
 };
 
-const ERRORS = [...(collateralVaultAbi as Abi), ...(creditPoolAbi as Abi), ...(mandateAccountAbi as Abi)].filter(
+const ERRORS = [...(collateralVaultAbi as Abi), ...(creditPoolAbi as Abi), ...(mandateAccountAbi as Abi), ...(priceGuardAbi as Abi)].filter(
   (entry) => entry.type === 'error',
 ) as Abi;
 
