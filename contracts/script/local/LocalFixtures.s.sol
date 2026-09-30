@@ -10,24 +10,27 @@ import {RecordKeys as K} from "../lib/RecordKeys.sol";
 import {RwaConfig} from "../lib/RwaConfig.sol";
 
 import {MockUsdg} from "../../test/mocks/MockUsdg.sol";
-import {MockAccess, MockFeed, MockStock, MockV4} from "../../test/rwa/RwaMocks.sol";
+import {MockAccess, MockFeed, MockStock} from "../../test/rwa/RwaMocks.sol";
+import {LocalPoolManager} from "./LocalPoolManager.sol";
 
 /// Stands in for Robinhood Chain's outside contracts on a local chain, and writes the record a
 /// rehearsal of the deployment starts from.
 ///
 /// USDG is placed at its real address, so the deploy scripts run their Robinhood Chain checks
-/// against it unchanged and shielded pools hash the same asset into their scope. The rest are
-/// deployed fresh and written into the record's `external` section: one mock that is both the v4
-/// pool manager and its StateView, the access registry, and a token and a Chainlink-style feed for
-/// each asset, with each pinned pool priced at its feed.
+/// against it unchanged and shielded pools hash the same asset into their scope. Unlike the live
+/// token, anyone may call its `mint`, which is how a local run funds an account. The rest are
+/// deployed fresh and written into the record's `external` section: `LocalPoolManager`, which is
+/// both the v4 pool manager and its StateView, the access registry, and a token and a
+/// Chainlink-style feed for each asset, with each pinned pool priced at its feed.
 ///
 /// The record is written from scratch at `BURSAR_RECORD`. It says `"local": true`, so every script
-/// that reads it needs `BURSAR_LOCAL=1`, and nothing that reads the mainnet record will accept it.
+/// that reads it needs `BURSAR_LOCAL=1` and an anvil node, and nothing that reads the mainnet record
+/// will accept it. Run it from anvil's account 9, so the deploy key's nonce, and with it every
+/// address the deploy scripts create, starts from zero.
 ///
-///   anvil --chain-id 4663
-///   BURSAR_LOCAL=1 BURSAR_RECORD=cache/bursar/local-4663.json BURSAR_DEPLOYER=<deploy key> \
-///     forge script script/local/LocalFixtures.s.sol --rpc-url http://127.0.0.1:8545 \
-///     --unlocked --sender <any funded account> --broadcast
+///   source script/env/local.env
+///   forge script script/local/LocalFixtures.s.sol --rpc-url http://127.0.0.1:8545 \
+///     --unlocked --sender 0xa0Ee7A142d267C1f36714E4a8F75612F20a79720 --broadcast
 contract LocalFixtures is BursarScript {
     uint256 internal constant SGOV_E8 = 101_17856966;
     uint256 internal constant SPY_E8 = 771_21266423;
@@ -38,7 +41,7 @@ contract LocalFixtures is BursarScript {
     uint256 internal constant DEPLOYER_USDG = 10e6;
 
     struct Fixtures {
-        MockV4 v4;
+        LocalPoolManager v4;
         MockAccess access;
         MockStock[4] tokens;
         MockFeed[4] feeds;
@@ -47,10 +50,11 @@ contract LocalFixtures is BursarScript {
     function run() external returns (Fixtures memory f) {
         _loadPrefix();
         require(_envFlag("BURSAR_LOCAL"), "LocalFixtures writes a rehearsal record and needs BURSAR_LOCAL=1");
+        _requireAnvil();
         address deployer = _envAddress("BURSAR_DEPLOYER");
         string memory path = _recordPath();
         if (!vm.isContext(VmSafe.ForgeContext.ScriptDryRun)) {
-            vm.createDir("cache/bursar", true);
+            vm.createDir(_directoryOf(path), true);
             vm.writeFile(path, _skeleton(deployer));
         }
 
@@ -60,7 +64,7 @@ contract LocalFixtures is BursarScript {
         uint256[4] memory prices = [SGOV_E8, SPY_E8, NVDA_E8, AAPL_E8];
 
         vm.startBroadcast(msg.sender);
-        f.v4 = new MockV4();
+        f.v4 = new LocalPoolManager();
         f.access = new MockAccess();
         for (uint256 i; i < 4; ++i) {
             f.tokens[i] = new MockStock(terms[i].symbol);
@@ -112,6 +116,14 @@ contract LocalFixtures is BursarScript {
             vm.toString(deployer),
             '","contracts":{},"verifiedOnChain":{}}'
         );
+    }
+
+    function _directoryOf(string memory path) private pure returns (string memory directory) {
+        string[] memory parts = vm.split(path, "/");
+        directory = ".";
+        for (uint256 i; i + 1 < parts.length; ++i) {
+            directory = i == 0 ? parts[0] : string.concat(directory, "/", parts[i]);
+        }
     }
 
     /// USDG's code at USDG's address. Against a node that is `anvil_setCode`, which lands at once;

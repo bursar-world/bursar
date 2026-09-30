@@ -7,6 +7,7 @@ import {TokenConfig} from "./lib/TokenConfig.sol";
 
 import {Buyback} from "../src/token/Buyback.sol";
 import {Staking} from "../src/token/Staking.sol";
+import {V4LiquiditySeeder} from "../src/token/V4LiquiditySeeder.sol";
 
 /// The wiring no constructor could do, because each piece is governance's to decide: who may
 /// trigger a buyback, which resolvers may bond and at what floor, the rebate a staked balance
@@ -18,6 +19,9 @@ import {Staking} from "../src/token/Staking.sol";
 /// - `Staking.setTiers`, the rebate table in `TokenConfig`.
 /// - `Staking.setCreditManager` and `Staking.setSlasher`, both to the credit pool, so its spread
 ///   reaches stakers and a written-off line reaches their stake.
+/// - `V4LiquiditySeeder.acceptOwnership`, when the recorded seeder is one `SeedPool.s.sol` opened
+///   the market with and offered to the timelock. A seeder the staking run deployed is the
+///   timelock's already, and the call is left out.
 ///
 /// Run after `DeployCollateral.s.sol`, from signer keys; `Governance.sol` describes the steps.
 /// `VerifyWiring.s.sol` holds every call to done.
@@ -33,7 +37,10 @@ contract ProposeWiring is Governance {
         address[] memory resolvers = _recordAddresses(K.RESOLVERS);
         if (resolvers.length == 0) revert NotRecorded(K.RESOLVERS);
 
-        calls = new Call[](resolvers.length + 4);
+        address seeder = _recordAddress(K.SEEDER);
+        bool acceptSeeder = seeder.code.length != 0 && V4LiquiditySeeder(seeder).pendingOwner() == timelock;
+
+        calls = new Call[](resolvers.length + (acceptSeeder ? 5 : 4));
         calls[0] = Call(timelock, buyback, abi.encodeCall(Buyback.setKeeper, (keeper)), "Buyback.setKeeper");
         for (uint256 i; i < resolvers.length; ++i) {
             calls[1 + i] = Call(
@@ -49,6 +56,14 @@ contract ProposeWiring is Governance {
         calls[n + 1] =
             Call(timelock, staking, abi.encodeCall(Staking.setCreditManager, (pool)), "Staking.setCreditManager");
         calls[n + 2] = Call(timelock, staking, abi.encodeCall(Staking.setSlasher, (pool)), "Staking.setSlasher");
+        if (acceptSeeder) {
+            calls[n + 3] = Call(
+                timelock,
+                seeder,
+                abi.encodeCall(V4LiquiditySeeder.acceptOwnership, ()),
+                "V4LiquiditySeeder.acceptOwnership"
+            );
+        }
     }
 
     function _applied(Call memory call) internal view override returns (bool) {
@@ -69,6 +84,9 @@ contract ProposeWiring is Governance {
             return staking.creditManager() == abi.decode(args, (address));
         }
         if (selector == Staking.setSlasher.selector) return staking.slasher() == abi.decode(args, (address));
+        if (selector == V4LiquiditySeeder.acceptOwnership.selector) {
+            return V4LiquiditySeeder(call.target).owner() == call.timelock;
+        }
         return false;
     }
 

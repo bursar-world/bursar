@@ -7,12 +7,13 @@ import {TokenConfig} from "./lib/TokenConfig.sol";
 
 import {Buyback} from "../src/token/Buyback.sol";
 import {Staking} from "../src/token/Staking.sol";
+import {V4LiquiditySeeder} from "../src/token/V4LiquiditySeeder.sol";
 import {IStaking} from "../src/token/interfaces/IStaking.sol";
 
 /// Holds `ProposeWiring.s.sol` to done: the buyback's keeper is the recorded keeper, every recorded
-/// resolver has its floor and nobody else can bond, the rebate table is in place, and the credit
-/// pool is both the staking pool's credit manager and its slasher. Nothing here is owed; an unset
-/// value is a mismatch.
+/// resolver has its floor and nobody else can bond, the rebate table is in place, the credit pool
+/// is both the staking pool's credit manager and its slasher, and a recorded seeder belongs to the
+/// timelock. Nothing here is owed; an unset value is a mismatch.
 abstract contract WiringChecks is Verifier {
     function _checkWiring() internal {
         address staking = _contract(K.STAKING);
@@ -47,6 +48,12 @@ abstract contract WiringChecks is Verifier {
             "Staking.tiers differs from the rebate table",
             keccak256(abi.encode(live)) == keccak256(abi.encode(intended))
         );
+
+        if (_recordAddress(K.SEEDER) == address(0)) return;
+        address seeder = _contract(K.SEEDER);
+        if (seeder != address(0)) {
+            _is("V4LiquiditySeeder.owner", _recordAddress(K.ADMIN_TIMELOCK), V4LiquiditySeeder(seeder).owner());
+        }
     }
 }
 

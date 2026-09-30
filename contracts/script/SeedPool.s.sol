@@ -31,6 +31,11 @@ interface IStateView {
 /// `sqrtPriceX96` from an operator: it takes a price in micro-USD for one whole BRSR, the unit the
 /// buyback's ceiling uses and a person can check against a screen, and derives the rest twice, by
 /// two routes, refusing to broadcast if they disagree by more than a fifth of a tick.
+///
+/// v4 sorts a pool's two currencies by address, so BRSR is currency0 where its address is below
+/// USDG's, as on Robinhood Chain, and currency1 where it is above, as on a local chain whose deploy
+/// key placed it there. The price is USDG per BRSR in the first case and BRSR per USDG in the
+/// second, and every figure here is worked out for the side BRSR is on.
 abstract contract PoolSeeding is BursarScript {
     uint256 internal constant BRSR_UNIT = 1e18;
     uint8 internal constant BRSR_DECIMALS = 18;
@@ -47,6 +52,7 @@ abstract contract PoolSeeding is BursarScript {
     uint256 internal constant PIPS = 1_000_000;
 
     struct Plan {
+        bool brsrIs0;
         uint160 sqrtPriceX96;
         int24 tickLower;
         int24 tickUpper;
@@ -72,7 +78,7 @@ abstract contract PoolSeeding is BursarScript {
         if (recorded != address(0) && recorded != m.manager) {
             revert RecordMismatch(K.POOL_MANAGER, recorded, m.manager);
         }
-        address named = vm.envOr(_key("BURSAR_BUYBACK_POOL_MANAGER"), address(0));
+        address named = _envAddressOr("BURSAR_BUYBACK_POOL_MANAGER", address(0));
         require(
             named == address(0) || named == m.manager,
             "BURSAR_BUYBACK_POOL_MANAGER is not the manager the buyback trades on"
@@ -93,27 +99,55 @@ abstract contract PoolSeeding is BursarScript {
         view
         returns (Plan memory plan)
     {
+        plan.brsrIs0 = _brsrIs0(buyback);
         plan.sqrtPriceX96 = sqrtPriceX96;
         (plan.tickLower, plan.tickUpper) = V4Math.fullRangeTicks(buyback.poolTickSpacing());
 
         uint160 sqrtA = V4Math.getSqrtPriceAtTick(plan.tickLower);
         uint160 sqrtB = V4Math.getSqrtPriceAtTick(plan.tickUpper);
 
-        plan.liquidity = V4Math.getLiquidityForAmounts(sqrtPriceX96, sqrtA, sqrtB, brsrSide, usdgSide);
+        (uint256 side0, uint256 side1) = _pair(plan.brsrIs0, brsrSide, usdgSide);
+        plan.liquidity = V4Math.getLiquidityForAmounts(sqrtPriceX96, sqrtA, sqrtB, side0, side1);
         require(plan.liquidity != 0, "the amounts back no liquidity");
 
-        plan.brsrNeeded = V4Math.amount0For(sqrtPriceX96, sqrtA, sqrtB, plan.liquidity);
-        plan.usdgNeeded = V4Math.amount1For(sqrtPriceX96, sqrtA, sqrtB, plan.liquidity);
+        (plan.brsrNeeded, plan.usdgNeeded) = _pair(
+            plan.brsrIs0,
+            V4Math.amount0For(sqrtPriceX96, sqrtA, sqrtB, plan.liquidity),
+            V4Math.amount1For(sqrtPriceX96, sqrtA, sqrtB, plan.liquidity)
+        );
         require(plan.brsrNeeded <= brsrSide, "the position wants more BRSR than was offered");
         require(plan.usdgNeeded <= usdgSide, "the position wants more USDG than was offered");
     }
 
+    function _brsrIs0(Buyback buyback) internal view returns (bool) {
+        return !buyback.settlementIsCurrency0();
+    }
+
+    /// A BRSR figure and a USDG figure as the pool orders them, currency0 first, or a pool's pair
+    /// back as BRSR and USDG. The same swap maps either way.
+    function _pair(bool brsrIs0, uint256 a, uint256 b) internal pure returns (uint256, uint256) {
+        return brsrIs0 ? (a, b) : (b, a);
+    }
+
+    /// Approves the seeder for the two maxima and adds the plan's liquidity through it, the maxima
+    /// in the pool's order. Returns what the pool took, BRSR first.
+    function _addThrough(V4LiquiditySeeder seeder, Buyback buyback, Plan memory plan, uint256 maxBrsr, uint256 maxUsdg)
+        internal
+        returns (uint256 brsrIn, uint256 usdgIn)
+    {
+        IERC20(address(buyback.brsr())).approve(address(seeder), maxBrsr);
+        IERC20(address(buyback.settlementAsset())).approve(address(seeder), maxUsdg);
+        (uint256 max0, uint256 max1) = _pair(plan.brsrIs0, maxBrsr, maxUsdg);
+        (uint256 in0, uint256 in1) = seeder.addLiquidity(plan.tickLower, plan.tickUpper, plan.liquidity, max0, max1);
+        return _pair(plan.brsrIs0, in0, in1);
+    }
+
     /// Both derivations, and a refusal if they disagree. One whole BRSR is 1e18 raw units and one
     /// micro-USD is one raw USDG unit, so the pair below is the raw ratio the pool will price.
-    /// currency0 is BRSR on this deployment, which `_preflight` has already established.
-    function _openingSqrtPrice(uint256 priceMicroUsd) internal pure returns (uint160) {
-        uint160 viaQ192 = V4Math.initialSqrtPriceX96(BRSR_UNIT, priceMicroUsd);
-        uint160 viaQ96 = V4Math.initialSqrtPriceX96ViaQ96(BRSR_UNIT, priceMicroUsd);
+    function _openingSqrtPrice(uint256 priceMicroUsd, bool brsrIs0) internal pure returns (uint160) {
+        (uint256 amount0, uint256 amount1) = _pair(brsrIs0, BRSR_UNIT, priceMicroUsd);
+        uint160 viaQ192 = V4Math.initialSqrtPriceX96(amount0, amount1);
+        uint160 viaQ96 = V4Math.initialSqrtPriceX96ViaQ96(amount0, amount1);
 
         uint256 gap = viaQ192 > viaQ96 ? viaQ192 - viaQ96 : viaQ96 - viaQ192;
         require((gap * 1e9) / viaQ192 <= DERIVATION_TOLERANCE_PPB, "the two price derivations disagree");
@@ -122,9 +156,10 @@ abstract contract PoolSeeding is BursarScript {
     }
 
     /// The BRSR a given USDG side is worth at `sqrtPriceX96`, which is what an add at the pool's
-    /// own price has to bring.
-    function _brsrFor(uint256 usdgSide, uint160 sqrtPriceX96) internal pure returns (uint256) {
-        return Math.mulDiv(Math.mulDiv(usdgSide, V4Math.Q96, sqrtPriceX96), V4Math.Q96, sqrtPriceX96);
+    /// own price has to bring. The price squares to currency1 per currency0.
+    function _brsrFor(uint256 usdgSide, uint160 sqrtPriceX96, bool brsrIs0) internal pure returns (uint256) {
+        if (brsrIs0) return Math.mulDiv(Math.mulDiv(usdgSide, V4Math.Q96, sqrtPriceX96), V4Math.Q96, sqrtPriceX96);
+        return Math.mulDiv(Math.mulDiv(usdgSide, sqrtPriceX96, V4Math.Q96), sqrtPriceX96, V4Math.Q96);
     }
 
     /// What the position takes, and what one buyback at the parameters governance set does to the
@@ -178,12 +213,10 @@ abstract contract PoolSeeding is BursarScript {
 
     /// The USDG a full-range position of `liquidity` holds at the plan's price.
     function _virtualUsdg(Plan memory plan, uint128 liquidity) internal pure returns (uint256) {
-        return V4Math.amount1For(
-            plan.sqrtPriceX96,
-            V4Math.getSqrtPriceAtTick(plan.tickLower),
-            V4Math.getSqrtPriceAtTick(plan.tickUpper),
-            liquidity
-        );
+        uint160 sqrtA = V4Math.getSqrtPriceAtTick(plan.tickLower);
+        uint160 sqrtB = V4Math.getSqrtPriceAtTick(plan.tickUpper);
+        if (plan.brsrIs0) return V4Math.amount1For(plan.sqrtPriceX96, sqrtA, sqrtB, liquidity);
+        return V4Math.amount0For(plan.sqrtPriceX96, sqrtA, sqrtB, liquidity);
     }
 
     /// The pool's price and depth after the change, against what was sent. Not optional: a seed
@@ -213,10 +246,10 @@ abstract contract PoolSeeding is BursarScript {
     /// it. A pool pushed away from the market just before an add is a pool somebody wants
     /// liquidity in at the wrong price.
     function _requireNear(uint256 midScaled) internal view {
-        uint256 expected = vm.envOr(_key("BURSAR_SEED_PRICE_MICRO_USD"), uint256(0));
+        uint256 expected = _envUintOr("BURSAR_SEED_PRICE_MICRO_USD", 0);
         if (expected == 0) return;
 
-        uint256 maxBps = vm.envOr(_key("BURSAR_SEED_MAX_DEVIATION_BPS"), DEFAULT_MAX_DEVIATION_BPS);
+        uint256 maxBps = _envUintOr("BURSAR_SEED_MAX_DEVIATION_BPS", DEFAULT_MAX_DEVIATION_BPS);
         uint256 expectedScaled = expected * 1e6;
         uint256 gap = midScaled > expectedScaled ? midScaled - expectedScaled : expectedScaled - midScaled;
         console2.log("expected mid (x1e6)           ", expectedScaled);
@@ -224,10 +257,12 @@ abstract contract PoolSeeding is BursarScript {
     }
 
     /// The pool's mid in micro-USD for one whole BRSR, scaled by a further 1e6. `sqrtPriceX96`
-    /// squares to raw USDG per raw BRSR, and one whole BRSR is 1e18 raw.
-    function _midMicroUsdScaled(uint160 sqrtPriceX96) internal pure returns (uint256) {
+    /// squares to raw USDG per raw BRSR when BRSR is currency0 and to its inverse when it is not,
+    /// and one whole BRSR is 1e18 raw.
+    function _midMicroUsdScaled(uint160 sqrtPriceX96, bool brsrIs0) internal pure returns (uint256) {
         uint256 s = uint256(sqrtPriceX96);
-        return (((s * s) >> 96) * 1e24) >> 96;
+        if (brsrIs0) return Math.mulDiv(Math.mulDiv(s, s, V4Math.Q96), 1e24, V4Math.Q96);
+        return Math.mulDiv(Math.mulDiv(1e24, V4Math.Q96, s), V4Math.Q96, s);
     }
 
     function _poolId(Buyback buyback) internal view returns (bytes32) {
@@ -254,9 +289,10 @@ abstract contract PoolSeeding is BursarScript {
         require(IERC20Metadata(usdg).decimals() == SETTLEMENT_DECIMALS, "USDG is not a six-decimal token");
 
         // v4 reads the zero address as native currency. Neither side of this pool may be it.
-        require(buyback.currency0() != address(0) && buyback.currency1() != address(0), "native currency");
-        // This deployment's BRSR sorts below USDG, which is what makes the ratio USDG per BRSR.
-        require(buyback.currency0() == brsr && buyback.currency1() == usdg, "unexpected currency order");
+        address c0 = buyback.currency0();
+        address c1 = buyback.currency1();
+        require(c0 != address(0) && c1 != address(0), "native currency");
+        require((c0 == brsr && c1 == usdg) || (c0 == usdg && c1 == brsr), "the buyback's pool is not BRSR/USDG");
     }
 
     /// `priceScaled` is micro-USD per whole BRSR, scaled by a further 1e6.
@@ -271,7 +307,7 @@ abstract contract PoolSeeding is BursarScript {
     /// takes a phrase in `BURSAR_ALLOW_MAINNET_SEED`. Without it the run prints and stops.
     function _allowed(string memory phrase) internal view returns (bool) {
         if (!_onRobinhood()) return true;
-        string memory gate = vm.envOr(_key("BURSAR_ALLOW_MAINNET_SEED"), string(""));
+        string memory gate = _envRaw(_key("BURSAR_ALLOW_MAINNET_SEED"));
         if (keccak256(bytes(gate)) == keccak256(bytes(phrase))) return true;
 
         console2.log("");
@@ -311,8 +347,8 @@ contract SeedPool is PoolSeeding {
         _refuseRetired("BURSAR_SEEDER", "the record's token.V4LiquiditySeeder");
         Market memory m = _market();
 
-        uint256 priceMicroUsd = vm.envUint(_key("BURSAR_SEED_PRICE_MICRO_USD"));
-        uint256 usdgSide = vm.envUint(_key("BURSAR_SEED_USDG_MICRO"));
+        uint256 priceMicroUsd = _envUint("BURSAR_SEED_PRICE_MICRO_USD");
+        uint256 usdgSide = _envUint("BURSAR_SEED_USDG_MICRO");
         require(priceMicroUsd != 0, "BURSAR_SEED_PRICE_MICRO_USD is zero");
         _preflight(m.buyback, usdgSide);
         _warnIfCeilingBelow(m.buyback, priceMicroUsd * 1e6);
@@ -326,13 +362,13 @@ contract SeedPool is PoolSeeding {
         address recorded = _recordAddress(K.SEEDER);
         require(recorded == address(0), "the record already names a seeder; its owner opens the pool");
 
-        Plan memory plan =
-            _plan(m.buyback, _openingSqrtPrice(priceMicroUsd), (usdgSide * BRSR_UNIT) / priceMicroUsd, usdgSide);
-        console2.log("--- the opening price ---");
-        console2.log("micro-USD per whole BRSR      ", priceMicroUsd);
-        console2.log("sqrtPriceX96, Q192 route      ", plan.sqrtPriceX96);
-        console2.log("sqrtPriceX96, Q96 route       ", V4Math.initialSqrtPriceX96ViaQ96(BRSR_UNIT, priceMicroUsd));
-        console2.log("fully diluted, micro-USD      ", priceMicroUsd * 1_000_000_000);
+        Plan memory plan = _plan(
+            m.buyback,
+            _openingSqrtPrice(priceMicroUsd, _brsrIs0(m.buyback)),
+            (usdgSide * BRSR_UNIT) / priceMicroUsd,
+            usdgSide
+        );
+        _reportOpening(priceMicroUsd, plan);
         // The protocol fee is fixed when the pool opens, so before then only the LP fee is known.
         _report(m.buyback, plan, usdgSide, 0);
 
@@ -340,12 +376,8 @@ contract SeedPool is PoolSeeding {
 
         vm.startBroadcast(msg.sender);
         V4LiquiditySeeder s = new V4LiquiditySeeder(m.manager, address(m.buyback), msg.sender);
-        IERC20(address(m.buyback.brsr())).approve(address(s), plan.brsrNeeded);
-        IERC20(address(m.buyback.settlementAsset())).approve(address(s), usdgSide);
-
         int24 openedAt = s.initializePool(plan.sqrtPriceX96);
-        (uint256 brsrIn, uint256 usdgIn) =
-            s.addLiquidity(plan.tickLower, plan.tickUpper, plan.liquidity, plan.brsrNeeded, usdgSide);
+        (uint256 brsrIn, uint256 usdgIn) = _addThrough(s, m.buyback, plan, plan.brsrNeeded, usdgSide);
         s.transferOwnership(m.buyback.admin());
         vm.stopBroadcast();
 
@@ -357,6 +389,20 @@ contract SeedPool is PoolSeeding {
         _write(K.SEEDER, address(s));
     }
 
+    function _reportOpening(uint256 priceMicroUsd, Plan memory plan) private pure {
+        (uint256 amount0, uint256 amount1) = _pair(plan.brsrIs0, BRSR_UNIT, priceMicroUsd);
+        console2.log("--- the opening price ---");
+        console2.log("micro-USD per whole BRSR      ", priceMicroUsd);
+        console2.log(
+            plan.brsrIs0
+                ? "BRSR is currency0, so the pool prices USDG per BRSR"
+                : "BRSR is currency1, so the pool prices BRSR per USDG"
+        );
+        console2.log("sqrtPriceX96, Q192 route      ", plan.sqrtPriceX96);
+        console2.log("sqrtPriceX96, Q96 route       ", V4Math.initialSqrtPriceX96ViaQ96(amount0, amount1));
+        console2.log("fully diluted, micro-USD      ", priceMicroUsd * 1_000_000_000);
+    }
+
     /// Adds to a pool that is already open, at the price it stands at. The maxima are the exact
     /// amounts the position costs at that price, so a price that moves between this read and the
     /// transaction landing makes the add revert rather than pay more of either side.
@@ -365,19 +411,20 @@ contract SeedPool is PoolSeeding {
         _requireChain();
         _refuseRetired("BURSAR_SEEDER", "the record's token.V4LiquiditySeeder");
         Market memory m = _market();
-        uint256 usdgSide = vm.envUint(_key("BURSAR_SEED_USDG_MICRO"));
+        uint256 usdgSide = _envUint("BURSAR_SEED_USDG_MICRO");
 
         (uint160 sqrtPriceX96,, uint24 protocolFee,) = m.stateView.getSlot0(m.id);
         require(sqrtPriceX96 != 0, "the pool is not open; run opens it");
-        uint256 midScaled = _midMicroUsdScaled(sqrtPriceX96);
         _preflight(m.buyback, usdgSide);
+        uint256 midScaled = _midMicroUsdScaled(sqrtPriceX96, _brsrIs0(m.buyback));
         _warnIfCeilingBelow(m.buyback, midScaled);
         _requireNear(midScaled);
 
         address recorded = _recordAddress(K.SEEDER);
         if (recorded != address(0)) _requireSeederFor(V4LiquiditySeeder(recorded), m);
 
-        Plan memory plan = _plan(m.buyback, sqrtPriceX96, _brsrFor(usdgSide, sqrtPriceX96), usdgSide);
+        Plan memory plan =
+            _plan(m.buyback, sqrtPriceX96, _brsrFor(usdgSide, sqrtPriceX96, _brsrIs0(m.buyback)), usdgSide);
         uint128 before = m.stateView.getLiquidity(m.id);
 
         console2.log("--- the pool as it stands ---");
@@ -392,10 +439,7 @@ contract SeedPool is PoolSeeding {
         V4LiquiditySeeder s = recorded == address(0)
             ? new V4LiquiditySeeder(m.manager, address(m.buyback), m.buyback.admin())
             : V4LiquiditySeeder(recorded);
-        IERC20(address(m.buyback.brsr())).approve(address(s), plan.brsrNeeded);
-        IERC20(address(m.buyback.settlementAsset())).approve(address(s), plan.usdgNeeded);
-        (uint256 brsrIn, uint256 usdgIn) =
-            s.addLiquidity(plan.tickLower, plan.tickUpper, plan.liquidity, plan.brsrNeeded, plan.usdgNeeded);
+        (uint256 brsrIn, uint256 usdgIn) = _addThrough(s, m.buyback, plan, plan.brsrNeeded, plan.usdgNeeded);
         vm.stopBroadcast();
 
         if (recorded == address(0)) {

@@ -2,7 +2,6 @@
 pragma solidity ^0.8.24;
 
 import {console2} from "forge-std/console2.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {PoolSeeding} from "./SeedPool.s.sol";
 import {Migration} from "./lib/Migration.sol";
@@ -80,14 +79,12 @@ contract MigrateLiquidity is PoolSeeding, Migration {
         console2.log("to                            ", address(next));
         if (!_allowed("i-am-moving-the-market")) return;
 
+        bool brsrIs0 = _brsrIs0(m.buyback);
         vm.startBroadcast(msg.sender);
-        (uint256 brsrOut, uint256 usdgOut) =
-            old.removeLiquidity(mv.lower, mv.upper, mv.held, mv.min0, mv.min1, msg.sender);
+        (uint256 out0, uint256 out1) = old.removeLiquidity(mv.lower, mv.upper, mv.held, mv.min0, mv.min1, msg.sender);
+        (uint256 brsrOut, uint256 usdgOut) = _pair(brsrIs0, out0, out1);
         Plan memory plan = _plan(m.buyback, mv.sqrtPriceX96, brsrOut, usdgOut);
-        IERC20(address(m.buyback.brsr())).approve(address(next), plan.brsrNeeded);
-        IERC20(address(m.buyback.settlementAsset())).approve(address(next), plan.usdgNeeded);
-        (uint256 brsrIn, uint256 usdgIn) =
-            next.addLiquidity(plan.tickLower, plan.tickUpper, plan.liquidity, plan.brsrNeeded, plan.usdgNeeded);
+        (uint256 brsrIn, uint256 usdgIn) = _addThrough(next, m.buyback, plan, plan.brsrNeeded, plan.usdgNeeded);
         vm.stopBroadcast();
 
         uint128 settled = mv.poolBefore - mv.held + plan.liquidity;
@@ -107,7 +104,8 @@ contract MigrateLiquidity is PoolSeeding, Migration {
         if (mv.held == 0) return mv;
 
         (mv.sqrtPriceX96,, mv.protocolFee,) = m.stateView.getSlot0(m.id);
-        uint256 midScaled = _midMicroUsdScaled(mv.sqrtPriceX96);
+        bool brsrIs0 = _brsrIs0(m.buyback);
+        uint256 midScaled = _midMicroUsdScaled(mv.sqrtPriceX96, brsrIs0);
         _requireNear(midScaled);
         mv.poolBefore = m.stateView.getLiquidity(m.id);
 
@@ -117,10 +115,11 @@ contract MigrateLiquidity is PoolSeeding, Migration {
         mv.min0 = (V4Math.amount0For(mv.sqrtPriceX96, sqrtA, sqrtB, mv.held) * keep) / BPS;
         mv.min1 = (V4Math.amount1For(mv.sqrtPriceX96, sqrtA, sqrtB, mv.held) * keep) / BPS;
 
+        (uint256 minBrsr, uint256 minUsdg) = _pair(brsrIs0, mv.min0, mv.min1);
         console2.log("--- the move ---");
         console2.log("mid, micro-USD per BRSR (x1e6)", midScaled);
         console2.log("liquidity to move             ", mv.held);
-        console2.log("at least this BRSR back, wei  ", mv.min0);
-        console2.log("at least this USDG back, micro", mv.min1);
+        console2.log("at least this BRSR back, wei  ", minBrsr);
+        console2.log("at least this USDG back, micro", minUsdg);
     }
 }

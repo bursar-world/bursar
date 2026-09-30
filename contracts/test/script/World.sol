@@ -7,11 +7,14 @@ import {DeployPrivacy} from "../../script/DeployPrivacy.s.sol";
 import {DeployRwa} from "../../script/DeployRwa.s.sol";
 import {DeployStaking} from "../../script/DeployStaking.s.sol";
 import {DeployToken} from "../../script/DeployToken.s.sol";
+import {MigrateCredit} from "../../script/MigrateCredit.s.sol";
 import {ProposeWiring} from "../../script/ProposeWiring.s.sol";
+import {SeedPool} from "../../script/SeedPool.s.sol";
 import {RecordKeys as K} from "../../script/lib/RecordKeys.sol";
 import {LocalFixtures} from "../../script/local/LocalFixtures.s.sol";
 
 import {AdminTimelock} from "../../src/AdminTimelock.sol";
+import {MockUsdg} from "../mocks/MockUsdg.sol";
 import {ScriptHarness} from "./ScriptHarness.sol";
 
 interface IPinnable {
@@ -72,6 +75,23 @@ abstract contract World is ScriptHarness {
 
     function _privacy() internal {
         _run(deployKey, address(new DeployPrivacy()));
+    }
+
+    /// The BRSR/USDG market, opened as the rehearsal opens it: 25 USDG a side at 200 micro-USD a
+    /// BRSR, by the liquidity key, whose USDG the local stand-in mints. The seeder is offered to the
+    /// timelock, which takes it in the wiring batch.
+    function _seed() internal {
+        address liquidity = _readAddress(path, K.LIQUIDITY);
+        MockUsdg(_readAddress(path, K.SETTLEMENT_ASSET)).mint(liquidity, 25e6);
+        _set("BURSAR_SEED_PRICE_MICRO_USD", "200");
+        _set("BURSAR_SEED_USDG_MICRO", "25000000");
+        _run(liquidity, address(new SeedPool()));
+    }
+
+    /// The lender's first cash in the credit pool, from the USDG the fixtures gave the deploy key.
+    function _fundCredit() internal {
+        MigrateCredit credit = MigrateCredit(_pinned(address(new MigrateCredit())));
+        _as(_readAddress(path, K.LENDER), address(credit), abi.encodeCall(credit.fund, (10e6)));
     }
 
     /// Proposed by the first signer, approved by the second, executed by the first once the
