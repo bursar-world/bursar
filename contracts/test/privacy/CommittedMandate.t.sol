@@ -50,7 +50,7 @@ contract CommittedMandateTest is Test {
         address reputation = address(new MockReputation());
         vm.prank(address(0xC0DE03));
         escrow =
-            new Escrow(address(asset), reputation, address(0x7EA5), 100, 50, 500, 5 minutes, 7 days, 1 hours, 2 days);
+            new Escrow(address(asset), reputation, address(0x7EA5), 100, 50, 500, 5 minutes, 7 days, 1 hours, 10_000);
         verifier = new WithinMandateVerifier();
         disclosures = new DisclosureRegistry();
 

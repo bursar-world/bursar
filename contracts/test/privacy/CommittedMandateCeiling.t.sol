@@ -228,7 +228,7 @@ contract CommittedMandateCeilingTest is Test {
         CommittedMandateAccount account = _create(factory, bytes32(uint256(1)));
         uint256 locked;
         for (uint256 i; i < amounts.length; ++i) {
-            uint256 amount = bound(amounts[i], 1, 2 * CEILING);
+            uint256 amount = bound(amounts[i], escrow.minLock(), 2 * CEILING);
             if (locked + amount > CEILING) {
                 _expectOverCeiling(account, amount);
                 continue;
