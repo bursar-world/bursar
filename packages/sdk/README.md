@@ -87,6 +87,14 @@ record chain 4663, or `connect()` refuses it and says which of the two disagrees
 JSON a deploy script wrote, read as it is; [Running against a local chain](#running-against-a-local-chain)
 shows one.
 
+Before the first call on the connection goes out, a record it was given is checked against the
+node. Every contract the record names has to hold code there, or the call fails with
+`NotDeployedError`, which names the first one that does not. A rehearsal record, which the deploy
+scripts mark `local`, also has to find a node that calls itself anvil, and anywhere else fails with
+`NotAnvilError`: a rehearsal answers as chain 4663 too, and on any other node its transactions
+would be real ones. A rehearsal record for any chain but 4663 is refused as soon as `connect()`
+reads it.
+
 One endpoint works. Two get failover with a circuit breaker per provider, which is what a service
 that has to keep paying should run. Leave the account out and the connection is read-only: every
 write path refuses before it reaches the node, and says which call it refused.
@@ -185,18 +193,24 @@ if (!decision.allowed) console.warn(decision.message);
 
 ### Spends that need a person
 
-Above the approval threshold the agent cannot act alone. The principal signs consent out of band,
-from a Safe or a cold wallet, and the agent carries it:
+At or above the approval threshold the agent cannot act alone. The principal signs consent out of
+band, on a client of its own for the same account, and the agent's client carries it into `pay`:
 
 ```ts
+// The principal's own client for the account. A Safe or a hardware wallet comes in as walletClient.
+const principal = await mandateAccount(mandate.address, { account: PRINCIPAL_KEY });
+
+// The account checks the expiry against the chain's clock, so the hour starts at the latest block.
+const { timestamp } = await mandate.connection.publicClient.getBlock();
+
 const consent = await principal.signApproval({
   merchant: provider,
   capability: 'gpu.render:1',
-  amount: usdg('500'),
-  expiry: Math.floor(Date.now() / 1000) + 3600,
+  amount: usdg('25'),
+  expiry: timestamp + 3600n,
 });
 
-await mandate.pay({ to: provider, amount: usdg('480'), capability: 'gpu.render:1', approval: consent });
+await mandate.pay({ to: provider, amount: usdg('24'), capability: 'gpu.render:1', approval: consent });
 ```
 
 The approval is single use and expires on its own. Once used or revoked, its id stays burned for the
@@ -313,7 +327,6 @@ runs:
 
 ```sh
 source script/env/local.env
-export FOUNDRY_BROADCAST="${FOUNDRY_BROADCAST:-cache/bursar/local-broadcast}"
 send() { script=$1 sender=$2; shift 2; forge script "$script" --rpc-url http://127.0.0.1:8545 --unlocked --sender "$sender" --broadcast "$@"; }
 send script/local/LocalFixtures.s.sol 0xa0Ee7A142d267C1f36714E4a8F75612F20a79720
 for step in Deploy DeployToken DeployStaking DeployRwa DeployCollateral; do send "script/$step.s.sol" "$BURSAR_DEPLOYER"; done
@@ -327,7 +340,7 @@ Anvil signs every transaction for the account it names, so no key is read. The l
 governance's wiring through the timelock, which among other things names the bond floor that lets
 each recorded resolver bond. [`contracts/script/README.md`](../../contracts/script/README.md) covers
 each script. The record is written where `BURSAR_RECORD` points, which with the settings in
-`script/env/local.env` is `contracts/cache/bursar/local-4663.json`.
+`script/env/local.env` is `contracts/cache/bursar/local/local-4663.json`.
 
 Hand the record to `connect()` as the scripts wrote it:
 
@@ -345,11 +358,16 @@ collateral vault and the credit pool included, and none of them falls back to th
 this package carries. A lane can also be handed over directly, as `rwa(mandate, record.rwa)` or
 `collateral(mandate, record.rwa)`.
 
+The record holds only on the node it was written against. Pointed at any other node, the first call
+on the connection fails with `NotAnvilError`. Once that anvil node restarts, the chain it held is
+gone, and a connection opened on the record fails with `NotDeployedError` until the deploy scripts
+run again and write a new one.
+
 The examples below run on that chain, from a project that depends on the SDK (see
 [Install](#install)), with the record's path in `BURSAR_RECORD`:
 
 ```sh
-BURSAR_RECORD=/path/to/bursar/contracts/cache/bursar/local-4663.json node buy.mjs
+BURSAR_RECORD=/path/to/bursar/contracts/cache/bursar/local/local-4663.json node buy.mjs
 ```
 
 They share one helper for what only a local chain allows: a fresh funded key, tokens minted from the
@@ -713,13 +731,16 @@ await mandate.disputeSpend(escrowId);
 const opened = await mandate.disputeOf(escrowId);
 console.log('opened   ', `dispute ${opened.disputeId}, ${opened.phase}, bond ${formatUsdg(opened.bond)}`);
 
-// Two of the rehearsal's three seated resolvers bond, seal a score each, and publish it.
+// Two of the rehearsal's three seated resolvers bond, unless an earlier run left them bonded, and
+// each seals a score and publishes it.
 const [first, second] = record.roles.resolvers;
 const panel = [];
 for (const [seat, score] of [[first, 10], [second, 20]]) {
-  await brsrTo(seat, parseBrsr('30000'));
   const judge = await resolver(await impersonate(seat));
-  await judge.bond(parseBrsr('30000'));
+  if ((await judge.status()).standing !== 'active') {
+    await brsrTo(seat, parseBrsr('30000'));
+    await judge.bond(parseBrsr('30000'));
+  }
   const [open] = await judge.openDisputes();
   panel.push({ judge, sealed: await judge.commit({ disputeId: open.disputeId, score }) });
 }
@@ -744,6 +765,9 @@ paid      0.00 USDG to the provider
 bond      returned
 next      The resolvers scored the delivery 15 out of 100 and the escrow has moved the money on that ruling. Nothing further to decide.
 ```
+
+Run again on the same chain, it opens dispute 2, and the two seats the first run bonded vote
+without bonding again.
 
 ## Notes
 
