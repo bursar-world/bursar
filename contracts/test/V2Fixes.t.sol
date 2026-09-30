@@ -123,7 +123,7 @@ contract V2FixesTest is Test {
                 revealWindow: WINDOW,
                 unbondingPeriod: 7 days,
                 quorum: 2,
-                maxVoters: 5,
+                maxVoters: 64,
                 maxDeviation: 20,
                 slashBps: 1_000
             })
@@ -302,9 +302,10 @@ contract V2FixesTest is Test {
         uint256 id = _lockAndDispute(bondedPayer);
         uint256 disputeId = registry.disputeIdOf(id);
 
-        (address p, address q) = registry.partiesOf(disputeId);
+        (address p, address q, address principal_) = registry.partiesOf(disputeId);
         assertEq(p, payer);
         assertEq(q, payee);
+        assertEq(principal_, address(0), "a plain payer has no principal to bar");
 
         bytes32 commitment = registry.commitmentHash(disputeId, bondedPayer, 0, SALT);
         vm.prank(bondedPayer);

@@ -691,7 +691,7 @@ contract EscrowDisputeBondsTest is Test {
                 revealWindow: 1 hours,
                 unbondingPeriod: 7 days,
                 quorum: 3,
-                maxVoters: 5,
+                maxVoters: 64,
                 maxDeviation: 10,
                 slashBps: 500
             })

@@ -603,7 +603,7 @@ contract MandateInvariants is Test {
                 revealWindow: 1 days,
                 unbondingPeriod: 3 days,
                 quorum: 1,
-                maxVoters: 8,
+                maxVoters: 64,
                 maxDeviation: 15,
                 slashBps: 500
             })

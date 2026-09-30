@@ -58,7 +58,6 @@ interface IOracleRegistry {
     error ZeroAmount();
     error NothingToClaim();
     error PartyCannotVote();
-    error NotPauser();
 
     enum ResolverStatus {
         None,
@@ -78,6 +77,10 @@ interface IOracleRegistry {
     /// `maxDeviation` is in score points, not basis points. If more than half the revealed
     /// scores sit further than that from the median, the vote is treated as collusion or
     /// noise, not a result, and the dispute fails to the refund path.
+    ///
+    /// `maxVoters` has to be at least the roster cap of 64, so every seated resolver can vote
+    /// and none can be crowded out by whoever commits first. Both windows are at least ten
+    /// minutes long.
     struct Config {
         uint64 commitWindow;
         uint64 revealWindow;
@@ -101,7 +104,7 @@ interface IOracleRegistry {
 
     /// `rewardShares` is the number of resolvers that revealed inside the deviation band,
     /// fixed when the vote closes and before the escrow pays the fee back. A dispute that
-    /// failed has no shares, so its fee has nobody to go to.
+    /// failed has no shares, and the escrow takes no resolver fee from a ruling with none.
     struct Dispute {
         uint256 escrowId;
         uint64 openedAt;
@@ -155,17 +158,19 @@ interface IOracleRegistry {
     /// Step two, the other way: returns the resolver to active without touching the bond.
     function cancelUnbond() external;
 
-    /// Opened by the escrow when a payer disputes. The commit window starts immediately, never
-    /// on the first vote, so a resolver cannot stall the clock by waiting. The two parties are
-    /// recorded so neither can vote on its own dispute.
+    /// Opened by the escrow when either party contests a lock that still holds its funds. The
+    /// commit window starts immediately, never on the first vote, so a resolver cannot stall
+    /// the clock by waiting. The parties are recorded, with the payer's principal as it reads
+    /// at this moment, so none of them can vote on its own dispute.
     function openDispute(uint256 escrowId, address payer, address payee) external returns (uint256 disputeId);
 
     /// True while the dispute on `escrowId` is still open here, so `finalize` or `failDispute`
     /// can settle it. The escrow reads this before letting its own timeout refund the payer.
     function rulable(uint256 escrowId) external view returns (bool);
 
-    /// The payer and payee of the lock under dispute, barred from voting on it.
-    function partiesOf(uint256 disputeId) external view returns (address payer, address payee);
+    /// The payer, the payee and the payer's principal as it read when the dispute opened, all
+    /// three barred from voting on it. `principal` is zero for a payer that did not answer.
+    function partiesOf(uint256 disputeId) external view returns (address payer, address payee, address principal);
 
     /// Stops new bonds, new votes and new disputes. Reveals and both settlement paths stay
     /// open, so a dispute already running still finishes. Callable by the admin, which is the
@@ -186,14 +191,16 @@ interface IOracleRegistry {
     /// calls the escrow with the resulting refund split.
     function finalize(uint256 disputeId) external;
 
-    /// Permissionless exit for a dispute that never reached quorum. Refunds the payer through
-    /// the escrow, so the lock is never left stranded.
+    /// Permissionless exit for a dispute that never reached quorum. Reopens the lock through
+    /// the escrow, with the bond back to the disputer and a fresh deadline for the payee, so
+    /// the lock is never left stranded and an unheard dispute is never a refund.
     function failDispute(uint256 disputeId) external;
 
     /// Posts the resolver fee the escrow deducted from a settled lock. The escrow transfers
     /// the tokens first and calls this second, inside its own `resolve`, so the call has to
-    /// survive anything: a dispute with no eligible voter parks the fee instead of reverting,
-    /// because a refusal here would strand the lock the vote just ruled on.
+    /// survive anything: a pot too small to split between the resolvers who earned it is
+    /// parked for the sink instead of reverting, because a refusal here would strand the lock
+    /// the vote just ruled on.
     ///
     /// The pot is split evenly between the resolvers that revealed within `maxDeviation` of
     /// the median. Silence and outlier scores earn nothing, which is the same test that

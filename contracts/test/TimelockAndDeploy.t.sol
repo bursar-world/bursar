@@ -1105,7 +1105,7 @@ contract MandateWiringTest is Test {
             revealWindow: REVEAL_WINDOW,
             unbondingPeriod: 1 days,
             quorum: 3,
-            maxVoters: 7,
+            maxVoters: 64,
             maxDeviation: 15,
             slashBps: 2_000
         });
@@ -1695,7 +1695,7 @@ contract MandateDeployScriptTest is Test {
         _set("BURSAR_REVEAL_WINDOW", "3600");
         _set("BURSAR_UNBONDING_PERIOD", "86400");
         _set("BURSAR_RESOLVER_QUORUM", "3");
-        _set("BURSAR_MAX_VOTERS", "7");
+        _set("BURSAR_MAX_VOTERS", "64");
         _set("BURSAR_MAX_DEVIATION", "15");
         _set("BURSAR_RESOLVER_SLASH_BPS", "2000");
 
