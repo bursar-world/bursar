@@ -73,8 +73,9 @@ contract PriceGuard {
 
     /// What `valuationPrice` rests on, for a caller that holds the answer to its own age bound:
     /// the feed answer (zero when it is not positive or is dated after the block), when it was
-    /// written, whether the token's oracle is unpaused, and whether the pinned pool's mid sits
-    /// inside the asset's band of the answer.
+    /// written, whether the token, its oracle and the access registry are all unpaused, and
+    /// whether the pinned pool's mid sits inside the asset's band of the answer. A holding that
+    /// cannot move cannot be sold to cover what was drawn against it.
     function valuation(address asset)
         external
         view
@@ -134,7 +135,8 @@ contract PriceGuard {
         (, answer,, updatedAt,) = IAggregatorV3(a.feed).latestRoundData();
         if (answer <= 0 || updatedAt > block.timestamp) return (0, updatedAt, false, false);
         priceE8 = uint256(answer);
-        unpaused = !IRobinhoodStock(asset).oraclePaused();
+        unpaused =
+            !IRobinhoodStock(asset).oraclePaused() && !IRobinhoodStock(asset).tokenPaused() && !accessRegistry.paused();
         inBand = _agrees(_poolPrice(asset, a), priceE8, a.bandBps);
     }
 

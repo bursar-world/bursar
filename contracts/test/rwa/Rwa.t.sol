@@ -346,6 +346,18 @@ contract RwaTest is Test {
         assertEq(total, 0);
     }
 
+    function test_park_pausedTokenOrAccessCountsZero() public {
+        _park(50e6);
+        sgov.setTokenPaused(true);
+        (uint256 total,) = park.parkedValue(address(acct));
+        assertEq(total, 0);
+        sgov.setTokenPaused(false);
+        access.setPaused(true);
+        (total,) = park.parkedValue(address(acct));
+        assertEq(total, 0);
+        assertEq(park.spendingPower(address(acct)), 150e6);
+    }
+
     /// Parked value off a mis-scaled answer would be spent before anyone noticed; the pool
     /// catches it the way it catches a trade.
     function test_park_misScaledFeedCountsZero() public {

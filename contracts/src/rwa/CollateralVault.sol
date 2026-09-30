@@ -21,10 +21,11 @@ import {ITreasuryPark} from "./interfaces/ITreasuryPark.sol";
 /// a mandate in any other lane cannot open a line or draw.
 ///
 /// Value. Each position counts at raw × feed (the feed already prices one raw token), less the
-/// haircut of its tier, and only while the feed is inside the tier's valuation bound, the
-/// token's oracle is not paused, and the asset's pinned pool trades inside its band of the feed.
-/// A position that fails any of these counts zero, which is what stops a mis-scaled or lagging
-/// answer, fresh by every timestamp test, from backing a draw.
+/// haircut of its tier, and only while the feed is inside the tier's valuation bound, the token,
+/// its oracle and Robinhood's access registry are unpaused, and the asset's pinned pool trades
+/// inside its band of the feed. A position that fails any of these counts zero: collateral no
+/// one can sell backs nothing, and the pool is what shows up a mis-scaled or lagging answer that
+/// is fresh by every timestamp test.
 ///
 /// Haircuts. Every accepted asset sits in a tier with a market-session haircut and a wider
 /// after-hours haircut. After hours is outside the US equities 24/5 session (Monday 01:00 UTC to

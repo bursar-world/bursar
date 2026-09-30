@@ -261,6 +261,26 @@ contract CollateralTest is Test {
         assertEq(value, 0);
     }
 
+    /// A paused token cannot be sold, so it cannot back a draw that a liquidation might need it for.
+    function test_draw_refusedWhileTokenPaused() public {
+        _deposit(spy, 0.01e18);
+        spy.setTokenPaused(true);
+        (uint256 value,,, uint256 headroom,) = vault.account(address(acct));
+        assertEq(value, 0);
+        assertEq(headroom, 0);
+        vm.expectRevert(abi.encodeWithSelector(CollateralVault.HealthTooLow.selector, 0, 1.25e18));
+        _spendOnCredit(4e6);
+
+        spy.setTokenPaused(false);
+        access.setPaused(true);
+        vm.expectRevert(abi.encodeWithSelector(CollateralVault.HealthTooLow.selector, 0, 1.25e18));
+        _spendOnCredit(4e6);
+
+        access.setPaused(false);
+        _spendOnCredit(4e6);
+        assertEq(pool.debtOf(address(acct)), 4e6);
+    }
+
     /// The 2026-06-23 rounds were 1e8 too large and fresh by every timestamp test. With the pool
     /// at its real mid the position backs nothing: no draw, no withdrawal, no inflated value.
     function test_draw_refusedOnMisScaledFeed() public {
