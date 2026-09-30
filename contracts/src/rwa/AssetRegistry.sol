@@ -35,8 +35,8 @@ contract AssetRegistry {
         uint16 bandBps;
         /// Taken off parked value before it counts as spending power.
         uint16 haircutBps;
-        /// Collateral terms, published now and read by the collateral lane later.
-        uint8 collateralTier;
+        /// A floor under the collateral lane's haircut for this asset; it can only tighten the
+        /// tier the vault puts the asset in.
         uint16 collateralHaircutBps;
         uint8 decimals;
         bool eligible;

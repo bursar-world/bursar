@@ -801,7 +801,6 @@ contract CollateralTest is Test {
             valuationStaleness: 100 hours,
             bandBps: band,
             haircutBps: 50,
-            collateralTier: 0,
             collateralHaircutBps: 0,
             decimals: 0,
             eligible: true,

@@ -701,7 +701,6 @@ contract RwaTest is Test {
             valuationStaleness: valuation,
             bandBps: band,
             haircutBps: haircut,
-            collateralTier: 0,
             collateralHaircutBps: 0,
             decimals: 0,
             eligible: true,
