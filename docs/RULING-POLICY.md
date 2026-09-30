@@ -1,19 +1,16 @@
 # Ruling policy
 
 Version 1. It applies to disputes heard by the Bursar dispute registries on Robinhood Chain
-(chain 4663):
+(chain 4663): the v3 set, which takes new payments, and the earlier v2 and v1 sets, which still
+settle the disputes opened on them. The [status page](https://app.bursar.world/status) lists the
+registry and escrow of each set.
 
-| Set | Registry | Escrow |
-|---|---|---|
-| v2, current (development deployment) | `0xE38349668f0C470C814487E95C14e7652F713B17` | `0x4315F8be7C9661345710910577Ec31cb867f3c20` |
-| v1, previous | `0xCb7c60037eC43b9692A5dDcA42A500181Cf549FF` | `0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4` |
-
-The rules and scores are the same on both. Where the two registries behave differently, the
+The rules and scores are the same on every set. Where the registries behave differently, the
 difference is stated below.
 
 ## Who rules
 
-All three bonded resolvers on both registries are operated by Bursar:
+All three bonded resolvers on every registry are operated by Bursar:
 
 | Resolver | Address |
 |---|---|
@@ -21,15 +18,18 @@ All three bonded resolvers on both registries are operated by Bursar:
 | resolver-2 | `0xC284CdA6c6982447f202830f4e969F13cBcB0b94` |
 | resolver-3 | `0x7062A480732EC7B0F00a3D0c968356e1671dd356` |
 
-Each has 25,000 BRSR bonded in the shared `Staking` pool. Bursar is therefore the arbiter of every
-dispute on either registry.
+Each has BRSR bonded through the `Staking` pool, at or above the floor that pool sets. Bursar is
+therefore the arbiter of every dispute on every registry. On v3 every bonded resolver may vote on
+every dispute; the v2 and v1 registries seat the first five resolvers to seal a score.
 Every vote follows the rules below, every resolver casts the same score, and the reasons for each
 ruling are published once the votes are revealed.
 
 ## What a ruling decides
 
-A payer who disputes a job before the provider has been paid freezes the payment. The resolvers
-score the delivery from 0 to 100, and the median score sets how much goes back to the payer:
+A payer who disputes a job before the provider has been paid freezes the payment. On v3 that has
+to happen before the payment's deadline: once the deadline has passed, the payer is owed its
+refund and the escrow takes no dispute. The resolvers score the delivery from 0 to 100, and the
+median score sets how much goes back to the payer:
 
 | Score | Refund to the payer |
 |---|---|
@@ -49,26 +49,35 @@ On a payment of 1.00 USDG disputed by the payer:
 - At a score of 0, the payer receives 0.995000 USDG and the bond back. The resolvers receive
   0.005000 USDG.
 
+On v3, a share the token cannot deliver, because its issuer has frozen the receiving address, is
+held by the escrow for that address and paid out once the address can receive. It does not hold
+up the rest of the ruling.
+
 A complaint made after the provider has been paid is recorded against the provider's history.
 There is nothing left to split, so it is never ruled on.
 
-On the v2 registry, a payment can be disputed once, and the payer and provider of a disputed
-payment cannot vote on it, even when they are bonded resolvers.
+From v2 on, a payment can be disputed once, and the payer and provider of a disputed payment
+cannot vote on it, even when they are bonded resolvers. On v3 the owner of a paying mandate is
+barred too, as the mandate named its owner when the dispute opened.
 
 ## When no ruling is reached
 
 A dispute needs two revealed votes. If fewer than two resolvers seal a score before sealing
 closes, or fewer than two reveal before the reveal window closes, the dispute fails:
 
-- On v2, the payment goes back to being held, with a new deadline no earlier than five minutes
-  from the moment the dispute fails. The dispute bond is returned to whoever opened the dispute,
-  and no resolver fee is taken. The provider can still deliver before the new deadline, and the
-  payer is refunded by the ordinary timeout if it does not. The payment cannot be disputed again.
+- On v3 and v2, the payment goes back to being held, with a new deadline no earlier than the
+  shortest one the escrow accepts, five minutes on v2, counted from the moment the dispute fails.
+  The dispute bond is returned to whoever opened the dispute, and no resolver fee is taken. The
+  provider can still deliver before the new deadline, and the payer is refunded by the ordinary
+  timeout if it does not. The payment cannot be disputed again.
 - On v1, the payer is refunded.
 
-The escrow's own dispute timeout, 48 hours after a dispute opens, returns the payment to the payer
-if the registry cannot settle it at all. On v2 it cannot be used while the registry can still
-settle the dispute.
+A vote does not settle itself. Once the reveal window closes, or every sealed score has been
+revealed, anyone can close it: with two or more revealed votes the ruling is applied, and with
+fewer the dispute fails as above. Bursar's resolvers apply each ruling as soon as the vote allows.
+The v1 and v2 escrows also return a disputed payment to the payer 48 hours after the dispute opened
+if the registry cannot settle it at all, and on v2 only once the registry can no longer settle it.
+The v3 escrow has no such timeout: every dispute ends in a ruling or a failed vote.
 
 ## The rules
 
@@ -129,10 +138,11 @@ Those disputes are ruled by P0 to P5 alone, and the published ruling marks them 
 
 ## Timeline
 
-Times are counted from the moment the dispute opens. The table is for the v1 registry, whose
-sealing and reveal windows are six hours each. The v2 registry is a development deployment with
-one-hour windows, and every step moves in proportion: the evidence cutoff is at 30 minutes,
-sealing closes at 1 hour, and the ruling settles by 2 hours at the latest.
+Times are counted from the moment the dispute opens. The table is for sealing and reveal windows
+of six hours each, the length the v1 registry uses. A registry with other windows moves every step
+in proportion: the v2 registry is a development deployment with one-hour windows, so there the
+evidence cutoff is at 30 minutes, sealing closes at 1 hour, and the ruling settles by 2 hours at
+the latest.
 
 | When | What happens |
 |---|---|
