@@ -305,6 +305,14 @@ export function disputeNext(state: {
     case 'revealing':
       return 'Resolvers are publishing the scores they sealed. Read this again for the ruling.';
     case 'failed':
+      // A vote with no centre is closed by finalize and refunds in full on every set; only a vote
+      // short of quorum puts the payment back on hold, and only after v1.
+      if (state.status === 'resolved') {
+        return (
+          'The vote produced no usable result, so the escrow refunded the mandate in full and the ' +
+          'provider was paid nothing. Nothing further to decide.'
+        );
+      }
       if (state.reopens) {
         return (
           `${REOPENED} ` +
@@ -314,11 +322,10 @@ export function disputeNext(state: {
             : FUNDS[state.status])
         );
       }
-      return state.status === 'resolved'
-        ? 'The vote produced no usable result, so the escrow refunded the mandate in full and the ' +
-            'provider was paid nothing. Nothing further to decide.'
-        : 'The vote produced no usable result. The escrow refunds the mandate in full when the dispute ' +
-            'is closed, and anyone can close it.';
+      return (
+        'The vote produced no usable result. The escrow refunds the mandate in full when the dispute ' +
+        'is closed, and anyone can close it.'
+      );
     default:
       return state.hasResolver
         ? 'The escrow is holding the funds and no vote is open on them. They return to the mandate, ' +

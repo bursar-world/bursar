@@ -184,7 +184,7 @@ const RESOLVER: Readonly<Record<OracleErrorName, Written>> = {
     owner: 'caller',
     message:
       'Most of the revealed scores sit outside the deviation band, so the vote has no centre to rule ' +
-      'from. Close it with failDispute, which puts the payment back on hold with a new deadline. ' +
+      'from. Finalizing it fails the dispute and refunds the payer in full, with no resolver fee. ' +
       'Nobody is slashed for disagreeing, because nothing here can tell which side was honest.',
   },
   NothingToClaim: {

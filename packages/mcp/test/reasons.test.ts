@@ -154,12 +154,18 @@ describe('what the hardened contracts changed in the sentences', () => {
     expect(refusalForName('PartyCannotVote', 'resolver')?.message).toContain('the principal the paying account named');
   });
 
-  it('says a vote with no result reopens the payment rather than refunding it', () => {
-    for (const name of ['QuorumNotMet', 'QuorumSuspect']) {
-      const message = refusalForName(name, 'resolver')?.message ?? '';
-      expect(message).toContain('back on hold with a new deadline');
-      expect(message).not.toMatch(/refund/iu);
-    }
+  it('says a vote short of quorum reopens the payment rather than refunding it', () => {
+    const message = refusalForName('QuorumNotMet', 'resolver')?.message ?? '';
+    expect(message).toContain('back on hold with a new deadline');
+    expect(message).not.toMatch(/refund/iu);
+  });
+
+  // A quorum that met and has no centre is finalized, not failed: the escrow refunds the payer in
+  // full and takes no fee, and nothing reopens.
+  it('says a vote with no centre refunds the payer in full', () => {
+    const message = refusalForName('QuorumSuspect', 'resolver')?.message ?? '';
+    expect(message).toContain('refunds the payer in full');
+    expect(message).not.toContain('back on hold');
   });
 });
 

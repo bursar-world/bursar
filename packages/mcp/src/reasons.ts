@@ -479,8 +479,8 @@ const RESOLVER_REFUSALS: Readonly<Record<OracleErrorName, Omit<Refusal, 'code'>>
     subject: 'dispute',
     message:
       'Most of the published scores sit outside the deviation band, so the vote has no centre to rule ' +
-      'from. resolver_fail_dispute closes it and puts the payment back on hold with a new deadline. ' +
-      'Nobody is slashed for disagreeing, because nothing here can tell which side was honest.',
+      'from. resolver_finalize_dispute closes it as failed and refunds the payer in full, with no ' +
+      'resolver fee. Nobody is slashed for disagreeing, because nothing here can tell which side was honest.',
   },
   NothingToClaim: {
     subject: 'reward',

@@ -192,6 +192,18 @@ describe('reading a contested payment and its ruling', () => {
     expect(view.next).toContain('refunded the mandate in full');
   });
 
+  // A vote that met quorum with no centre is closed by finalize: a full refund, nothing reopened.
+  it('says a vote with no centre refunded the mandate in full on the current escrow too', async () => {
+    state.locks.set(42n, lock({ amount: 2_500_000n, status: 6, disputedAt: OPENED_AT, disputer: ACCOUNT }));
+    state.oracle.disputes.set(4n, { ...state.oracle.disputes.get(4n)!, status: 4, refundBps: 10_000 });
+
+    const view = await gatewayFor(createFakeNode(state)).dispute(42n);
+
+    expect(view.phase).toBe('failed');
+    expect(view.next).toContain('refunded the mandate in full');
+    expect(view.next).not.toContain('back on hold');
+  });
+
   it('reads a payment put back on hold and then delivered as a failed vote, not a complaint', async () => {
     state.locks.set(
       42n,
