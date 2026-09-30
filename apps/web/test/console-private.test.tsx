@@ -9,6 +9,7 @@ import {
   viewingKeyMessage,
   writeTerms,
 } from '@bursar/sdk';
+import { stringToHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { describe, expect, it } from 'vitest';
 
@@ -107,7 +108,12 @@ describe('the terms the viewing key opens', () => {
     const key = deriveViewingKey(await owner.signMessage({ message: viewingKeyMessage(owner.address) }));
     const doc = writeTerms({ ...readPrivateForm(filled, NOW).terms!, label: 'Render budget' });
     const sealed = await sealTerms(key.termsKey, { account: MANDATE, version: 1 }, doc);
-    expect(sealed).not.toContain('5210');
+    // Whole strings, as raw bytes and as text: a four-digit fragment turns up in random bytes a few
+    // runs in a hundred.
+    expect(sealed.toLowerCase()).not.toContain(PROVIDER.slice(2).toLowerCase());
+    for (const clear of ['Render budget', PROVIDER, PROVIDER.toLowerCase()]) {
+      expect(sealed.toLowerCase()).not.toContain(stringToHex(clear).slice(2));
+    }
 
     const record = { account: MANDATE, version: 1n, termsCommitment: commit(doc).termsCommitment, ciphertext: sealed };
     const opened = await openTerms(key.termsKey, record);
