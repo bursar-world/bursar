@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {StdStorage, stdStorage} from "forge-std/StdStorage.sol";
 
 import {Verify} from "../../script/Verify.s.sol";
+import {VerifyCore} from "../../script/VerifyCore.s.sol";
 import {VerifyWiring} from "../../script/VerifyWiring.s.sol";
 import {RecordKeys as K} from "../../script/lib/RecordKeys.sol";
 import {Verifier} from "../../script/lib/Verifier.sol";
@@ -16,6 +17,12 @@ import {World} from "./World.sol";
 
 /// The full check with its tallies readable after a run that passes.
 contract VerifyProbe is Verify {
+    function tally() external view returns (uint256, uint256) {
+        return (mismatches, owed);
+    }
+}
+
+contract VerifyCoreProbe is VerifyCore {
     function tally() external view returns (uint256, uint256) {
         return (mismatches, owed);
     }
@@ -69,6 +76,7 @@ contract VerifyTest is World {
         _aGovernedValueSetWrongIsAMismatch();
         _aRecordThatDisagreesWithTheChainFails();
         _aRecordedContractWithNoCodeFails();
+        _theWrongContractIsAListOfMismatchesNotTheEndOfTheRun();
     }
 
     function _verify() private returns (Outcome memory) {
@@ -161,6 +169,29 @@ contract VerifyTest is World {
         Outcome memory o = _verify();
         assertFalse(o.passed);
         assertEq(o.mismatches, 1);
+    }
+
+    /// A record naming the wrong kind of contract meets reads that contract lacks. Each is a
+    /// mismatch naming the read and the address, and every other question is still asked.
+    function _theWrongContractIsAListOfMismatchesNotTheEndOfTheRun() private {
+        _restore();
+        Outcome memory o = _outcome(address(new VerifyCoreProbe()));
+        assertTrue(o.passed);
+
+        // The escrow's entry names the reputation contract. Of the escrow's sixteen reads,
+        // reputation answers only `deployer`: fifteen mismatches. The reputation contract, the
+        // resolver registry and the factory each name the real escrow: three more.
+        vm.writeJson(vm.toString(_readAddress(path, K.REPUTATION)), path, K.ESCROW);
+        o = _outcome(address(new VerifyCoreProbe()));
+        assertFalse(o.passed);
+        assertEq(o.mismatches, 18);
+
+        // An address with no code at all is one mismatch, and the rest of the set still checks.
+        _restore();
+        vm.writeJson(vm.toString(makeAddr("noTimelockHere")), path, K.ADMIN_TIMELOCK);
+        o = _outcome(address(new VerifyCoreProbe()));
+        assertFalse(o.passed);
+        assertGt(o.mismatches, 1);
     }
 
     function _aRecordedContractWithNoCodeFails() private {

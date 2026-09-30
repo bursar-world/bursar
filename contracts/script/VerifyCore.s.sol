@@ -10,12 +10,14 @@ import {Escrow} from "../src/Escrow.sol";
 import {MandateAccountFactory} from "../src/MandateAccountFactory.sol";
 import {OracleRegistry} from "../src/OracleRegistry.sol";
 import {Reputation} from "../src/Reputation.sol";
-import {IOracleRegistry} from "../src/interfaces/IOracleRegistry.sol";
-import {IReputation} from "../src/interfaces/IReputation.sol";
 
 /// Asks the chain what `Deploy.s.sol` asked its simulation, against what the record says it
 /// deployed: every one-shot pairing closed, every admin the timelock with nothing pending, the
 /// deploy key holding no seat, and every figure the one recorded as applied.
+///
+/// Each contract is checked on its own, and every read goes through `_ask`, so a record that names
+/// a missing contract, an empty address or the wrong kind of contract yields a list of mismatches
+/// and the run still asks everything else before it fails.
 abstract contract CoreChecks is Verifier {
     function _checkCore() internal {
         address timelock = _contract(K.ADMIN_TIMELOCK);
@@ -24,123 +26,138 @@ abstract contract CoreChecks is Verifier {
         address registry = _contract(K.ORACLE_REGISTRY);
         address agents = _contract(K.AGENT_REGISTRY);
         address factory = _contract(K.FACTORY);
-        if (timelock == address(0) || reputation == address(0) || escrow == address(0) || registry == address(0)) {
-            return;
-        }
 
-        address asset = _settlementAsset();
         address deployer = _recordAddress(K.DEPLOYER);
-        _checkTimelock(AdminTimelock(timelock), deployer);
-        _checkReputation(Reputation(reputation), timelock, escrow, deployer);
-        _checkEscrow(Escrow(escrow), asset, timelock, reputation, registry, agents, deployer);
-        _checkRegistry(OracleRegistry(registry), asset, timelock, escrow, deployer);
-        if (agents != address(0)) _checkAgents(AgentRegistry(agents), asset, timelock);
-        if (factory != address(0)) {
-            MandateAccountFactory f = MandateAccountFactory(factory);
-            _is("MandateAccountFactory.escrow", escrow, f.escrow());
-            _is("MandateAccountFactory.settlementAsset", asset, f.settlementAsset());
-            _isTrue("MandateAccountFactory.blueprint holds no code", f.blueprint().code.length != 0);
-        }
+        if (timelock != address(0)) _checkTimelock(timelock, deployer);
+        if (reputation != address(0)) _checkReputation(reputation, deployer);
+        if (escrow != address(0)) _checkEscrow(escrow, deployer);
+        if (registry != address(0)) _checkRegistry(registry, deployer);
+        if (agents != address(0)) _checkAgents(agents);
+        if (factory != address(0)) _checkFactory(factory);
     }
 
-    function _checkTimelock(AdminTimelock timelock, address deployer) private {
-        _isUint("AdminTimelock.timelockPeriod", _param("AdminTimelock.timelockPeriod"), timelock.timelockPeriod());
-        _is("AdminTimelock.guardian", _recordAddress(K.GUARDIAN), timelock.guardian());
+    function _checkTimelock(address timelock, address deployer) private {
+        AdminTimelock t = AdminTimelock(timelock);
+        _isParamAt("AdminTimelock.timelockPeriod", timelock, _sig(t.timelockPeriod.selector));
+        (bool hasGuardian, address guardian) =
+            _askAddress("AdminTimelock.guardian", timelock, _sig(t.guardian.selector));
+        if (hasGuardian) _is("AdminTimelock.guardian", _recordAddress(K.GUARDIAN), guardian);
+
         address[] memory signers = _recordAddresses(K.SIGNERS);
-        address[3] memory live = timelock.getSigners();
         _isUint("roles.timelockSigners", 3, signers.length);
-        for (uint256 i; i < 3 && i < signers.length; ++i) {
-            _is("AdminTimelock.signer", signers[i], live[i]);
+        (bool ok, bytes memory answer) = _ask("AdminTimelock.getSigners", timelock, _sig(t.getSigners.selector), 3);
+        if (ok) {
+            uint256[3] memory live = abi.decode(answer, (uint256[3]));
+            for (uint256 i; i < 3 && i < signers.length; ++i) {
+                (bool isAddress, address signer) = _asAddress("AdminTimelock.signer", timelock, live[i]);
+                if (isAddress) _is("AdminTimelock.signer", signers[i], signer);
+            }
         }
-        _isTrue("the deploy key holds a signer seat", !timelock.isSigner(deployer));
-        _isTrue("the guardian holds a signer seat", !timelock.isSigner(timelock.guardian()));
+        _isUintAt("the deploy key holds a signer seat", 0, timelock, abi.encodeCall(t.isSigner, (deployer)));
+        if (hasGuardian) {
+            _isUintAt("the guardian holds a signer seat", 0, timelock, abi.encodeCall(t.isSigner, (guardian)));
+        }
     }
 
-    function _checkReputation(Reputation reputation, address timelock, address escrow, address deployer) private {
-        _is("Reputation.admin", timelock, reputation.admin());
-        _is("Reputation.pendingAdmin", address(0), reputation.pendingAdmin());
-        _is("Reputation.escrow", escrow, reputation.escrow());
-        _is("Reputation.deployer", deployer, reputation.deployer());
-        IReputation.CapCurve memory curve = reputation.curve();
-        _isUint("Reputation.baseCap", _param("Reputation.baseCap"), curve.baseCap);
-        _isUint("Reputation.capPerScore", _param("Reputation.capPerScore"), curve.capPerScore);
-        _isUint("Reputation.maxCap", _param("Reputation.maxCap"), curve.maxCap);
+    function _checkReputation(address reputation, address deployer) private {
+        Reputation r = Reputation(reputation);
+        _isAt("Reputation.admin", _recordAddress(K.ADMIN_TIMELOCK), reputation, _sig(r.admin.selector));
+        _isAt("Reputation.pendingAdmin", address(0), reputation, _sig(r.pendingAdmin.selector));
+        _isAt("Reputation.escrow", _recordAddress(K.ESCROW), reputation, _sig(r.escrow.selector));
+        _isAt("Reputation.deployer", deployer, reputation, _sig(r.deployer.selector));
+
+        (bool ok, bytes memory answer) = _ask("Reputation.curve", reputation, _sig(r.curve.selector), 3);
+        if (!ok) return;
+        (uint256 baseCap, uint256 capPerScore, uint256 maxCap) = abi.decode(answer, (uint256, uint256, uint256));
+        _isParam("Reputation.baseCap", baseCap);
+        _isParam("Reputation.capPerScore", capPerScore);
+        _isParam("Reputation.maxCap", maxCap);
         // The ceiling has to be one a perfect score reaches, or the top of the curve is decoration.
         _isTrue(
             "Reputation.maxCap is above what a perfect score reaches",
-            uint256(curve.baseCap) + 100 * uint256(curve.capPerScore) >= curve.maxCap
+            baseCap <= type(uint128).max && capPerScore <= type(uint128).max && baseCap + 100 * capPerScore >= maxCap
         );
     }
 
-    function _checkEscrow(
-        Escrow escrow,
-        address asset,
-        address timelock,
-        address reputation,
-        address registry,
-        address agents,
-        address deployer
-    ) private {
-        _is("Escrow.settlementAsset", asset, escrow.settlementAsset());
-        _is("Escrow.reputation", reputation, escrow.reputation());
-        _is("Escrow.resolver", registry, escrow.resolver());
-        _is("Escrow.registry", agents, address(escrow.registry()));
-        _is("Escrow.pauser", timelock, escrow.pauser());
-        _is("Escrow.treasury", _recordAddress(K.TREASURY), escrow.treasury());
-        _is("Escrow.pendingTreasury", address(0), escrow.pendingTreasury());
-        _is("Escrow.deployer", deployer, escrow.deployer());
-        _isUint("Escrow.feeBps", _param("Escrow.feeBps"), escrow.feeBps());
-        _isUint("Escrow.resolverFeeBps", _param("Escrow.resolverFeeBps"), escrow.resolverFeeBps());
-        _isUint("Escrow.disputeBondBps", _param("Escrow.disputeBondBps"), escrow.disputeBondBps());
-        _isUint("Escrow.minTtl", _param("Escrow.minTtl"), escrow.minTtl());
-        _isUint("Escrow.maxTtl", _param("Escrow.maxTtl"), escrow.maxTtl());
-        _isUint("Escrow.disputeWindow", _param("Escrow.disputeWindow"), escrow.disputeWindow());
-        _isUint("Escrow.minLock", _param("Escrow.minLock"), escrow.minLock());
-        _isTrue("Escrow is paused", !escrow.paused());
+    function _checkEscrow(address escrow, address deployer) private {
+        Escrow e = Escrow(escrow);
+        _isAt("Escrow.settlementAsset", _settlementAsset(), escrow, _sig(e.settlementAsset.selector));
+        _isAt("Escrow.reputation", _recordAddress(K.REPUTATION), escrow, _sig(e.reputation.selector));
+        _isAt("Escrow.resolver", _recordAddress(K.ORACLE_REGISTRY), escrow, _sig(e.resolver.selector));
+        _isAt("Escrow.registry", _recordAddress(K.AGENT_REGISTRY), escrow, _sig(e.registry.selector));
+        _isAt("Escrow.pauser", _recordAddress(K.ADMIN_TIMELOCK), escrow, _sig(e.pauser.selector));
+        _isAt("Escrow.treasury", _recordAddress(K.TREASURY), escrow, _sig(e.treasury.selector));
+        _isAt("Escrow.pendingTreasury", address(0), escrow, _sig(e.pendingTreasury.selector));
+        _isAt("Escrow.deployer", deployer, escrow, _sig(e.deployer.selector));
+        _isParamAt("Escrow.feeBps", escrow, _sig(e.feeBps.selector));
+        _isParamAt("Escrow.resolverFeeBps", escrow, _sig(e.resolverFeeBps.selector));
+        _isParamAt("Escrow.disputeBondBps", escrow, _sig(e.disputeBondBps.selector));
+        _isParamAt("Escrow.minTtl", escrow, _sig(e.minTtl.selector));
+        _isParamAt("Escrow.maxTtl", escrow, _sig(e.maxTtl.selector));
+        _isParamAt("Escrow.disputeWindow", escrow, _sig(e.disputeWindow.selector));
+        _isParamAt("Escrow.minLock", escrow, _sig(e.minLock.selector));
+        _isUintAt("Escrow is paused", 0, escrow, _sig(e.paused.selector));
     }
 
-    function _checkRegistry(OracleRegistry registry, address asset, address timelock, address escrow, address deployer)
-        private
-    {
-        _is("OracleRegistry.escrow", escrow, registry.escrow());
-        _is("OracleRegistry.admin", timelock, registry.admin());
-        _is("OracleRegistry.pendingAdmin", address(0), registry.pendingAdmin());
-        _is("OracleRegistry.slashSink", _recordAddress(K.SLASH_SINK), registry.slashSink());
-        _is("OracleRegistry.settlementAsset", asset, registry.settlementAsset());
-        _is("OracleRegistry.deployer", deployer, registry.deployer());
-        _isTrue("OracleRegistry is paused", !registry.paused());
+    function _checkRegistry(address registry, address deployer) private {
+        OracleRegistry o = OracleRegistry(registry);
+        _isAt("OracleRegistry.escrow", _recordAddress(K.ESCROW), registry, _sig(o.escrow.selector));
+        _isAt("OracleRegistry.admin", _recordAddress(K.ADMIN_TIMELOCK), registry, _sig(o.admin.selector));
+        _isAt("OracleRegistry.pendingAdmin", address(0), registry, _sig(o.pendingAdmin.selector));
+        _isAt("OracleRegistry.slashSink", _recordAddress(K.SLASH_SINK), registry, _sig(o.slashSink.selector));
+        _isAt("OracleRegistry.settlementAsset", _settlementAsset(), registry, _sig(o.settlementAsset.selector));
+        _isAt("OracleRegistry.deployer", deployer, registry, _sig(o.deployer.selector));
+        _isUintAt("OracleRegistry is paused", 0, registry, _sig(o.paused.selector));
 
-        IOracleRegistry.Config memory c = registry.config();
-        _isUint("OracleRegistry.commitWindow", _param("OracleRegistry.commitWindow"), c.commitWindow);
-        _isUint("OracleRegistry.revealWindow", _param("OracleRegistry.revealWindow"), c.revealWindow);
-        _isUint("OracleRegistry.unbondingPeriod", _param("OracleRegistry.unbondingPeriod"), c.unbondingPeriod);
-        _isUint("OracleRegistry.quorum", _param("OracleRegistry.quorum"), c.quorum);
-        _isUint("OracleRegistry.maxVoters", _param("OracleRegistry.maxVoters"), c.maxVoters);
-        _isUint("OracleRegistry.maxDeviation", _param("OracleRegistry.maxDeviation"), c.maxDeviation);
-        _isUint("OracleRegistry.slashBps", _param("OracleRegistry.slashBps"), c.slashBps);
+        (bool ok, bytes memory answer) = _ask("OracleRegistry.config", registry, _sig(o.config.selector), 7);
+        if (ok) {
+            uint256[7] memory c = abi.decode(answer, (uint256[7]));
+            _isParam("OracleRegistry.commitWindow", c[0]);
+            _isParam("OracleRegistry.revealWindow", c[1]);
+            _isParam("OracleRegistry.unbondingPeriod", c[2]);
+            _isParam("OracleRegistry.quorum", c[3]);
+            _isParam("OracleRegistry.maxVoters", c[4]);
+            _isParam("OracleRegistry.maxDeviation", c[5]);
+            _isParam("OracleRegistry.slashBps", c[6]);
+        }
 
         // The one pairing the core run cannot close. Until the staking run does, no resolver can
         // bond, and that is owed rather than wrong.
+        (bool answered, address wired) = _askAddress("OracleRegistry.staking", registry, _sig(o.staking.selector));
+        if (!answered) return;
         address staking = _recordAddress(K.STAKING);
-        address wired = address(registry.staking());
         if (staking == address(0) || wired == address(0)) {
             if (wired == address(0)) _owe("OracleRegistry.staking is unset: DeployStaking.s.sol closes it");
             else _mismatch("OracleRegistry.staking names a pool the record does not");
             return;
         }
         _is("OracleRegistry.staking", staking, wired);
-        _is("OracleRegistry.bondAsset", _recordAddress(K.BRSR), address(registry.bondAsset()));
+        _isAt("OracleRegistry.bondAsset", _recordAddress(K.BRSR), registry, _sig(o.bondAsset.selector));
     }
 
-    function _checkAgents(AgentRegistry agents, address asset, address timelock) private {
-        _is("AgentRegistry.settlementAsset", asset, address(agents.settlementAsset()));
-        _is("AgentRegistry.admin", timelock, agents.admin());
-        _is("AgentRegistry.pendingAdmin", address(0), agents.pendingAdmin());
+    function _checkAgents(address agents) private {
+        AgentRegistry a = AgentRegistry(agents);
+        _isAt("AgentRegistry.settlementAsset", _settlementAsset(), agents, _sig(a.settlementAsset.selector));
+        _isAt("AgentRegistry.admin", _recordAddress(K.ADMIN_TIMELOCK), agents, _sig(a.admin.selector));
+        _isAt("AgentRegistry.pendingAdmin", address(0), agents, _sig(a.pendingAdmin.selector));
         // No contract can take agent collateral. The only path to it is a proposal.
-        _is("AgentRegistry.slasher", address(0), agents.slasher());
-        _is("AgentRegistry.slashSink", _recordAddress(K.SLASH_SINK), agents.slashSink());
-        _isUint("AgentRegistry.minStake", _param("AgentRegistry.minStake"), agents.minStake());
-        _isUint("AgentRegistry.slashBps", _param("AgentRegistry.slashBps"), agents.slashBps());
+        _isAt("AgentRegistry.slasher", address(0), agents, _sig(a.slasher.selector));
+        _isAt("AgentRegistry.slashSink", _recordAddress(K.SLASH_SINK), agents, _sig(a.slashSink.selector));
+        _isParamAt("AgentRegistry.minStake", agents, _sig(a.minStake.selector));
+        _isParamAt("AgentRegistry.slashBps", agents, _sig(a.slashBps.selector));
+    }
+
+    function _checkFactory(address factory) private {
+        MandateAccountFactory f = MandateAccountFactory(factory);
+        _isAt("MandateAccountFactory.escrow", _recordAddress(K.ESCROW), factory, _sig(f.escrow.selector));
+        _isAt("MandateAccountFactory.settlementAsset", _settlementAsset(), factory, _sig(f.settlementAsset.selector));
+        (bool ok, address blueprint) =
+            _askAddress("MandateAccountFactory.blueprint", factory, _sig(f.blueprint.selector));
+        if (ok) _isTrue("MandateAccountFactory.blueprint holds no code", blueprint.code.length != 0);
+    }
+
+    function _sig(bytes4 selector) private pure returns (bytes memory) {
+        return abi.encodePacked(selector);
     }
 }
 

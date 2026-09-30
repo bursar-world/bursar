@@ -93,4 +93,62 @@ abstract contract Verifier is BursarScript {
     function _param(string memory key) internal view returns (uint256) {
         return _recordUint(string.concat(".parameters.", key));
     }
+
+    /// A read asked so that a contract unable to answer it is a finding, not the end of the run.
+    /// A record that names the wrong contract meets a bare revert on the first read that contract
+    /// lacks. Here the read is named with the address, counted as a mismatch, and every other
+    /// question is still asked.
+    function _ask(string memory what, address target, bytes memory call, uint256 words)
+        internal
+        returns (bool ok, bytes memory answer)
+    {
+        (ok, answer) = target.staticcall(call);
+        if (ok && answer.length >= words * 32) return (true, answer);
+        _mismatch(string.concat(what, ": ", vm.toString(target), " does not answer"));
+        return (false, "");
+    }
+
+    function _askUint(string memory what, address target, bytes memory call) internal returns (bool, uint256) {
+        (bool ok, bytes memory answer) = _ask(what, target, call, 1);
+        return ok ? (true, abi.decode(answer, (uint256))) : (false, 0);
+    }
+
+    function _askAddress(string memory what, address target, bytes memory call) internal returns (bool, address) {
+        (bool ok, uint256 word) = _askUint(what, target, call);
+        if (!ok) return (false, address(0));
+        return _asAddress(what, target, word);
+    }
+
+    function _asAddress(string memory what, address target, uint256 word) internal returns (bool, address) {
+        // forge-lint: disable-next-line(unsafe-typecast)
+        if (word <= type(uint160).max) return (true, address(uint160(word)));
+        _mismatch(string.concat(what, ": ", vm.toString(target), " answers with something other than an address"));
+        return (false, address(0));
+    }
+
+    function _isAt(string memory what, address expected, address target, bytes memory call) internal {
+        (bool ok, address actual) = _askAddress(what, target, call);
+        if (ok) _is(what, expected, actual);
+    }
+
+    function _isUintAt(string memory what, uint256 expected, address target, bytes memory call) internal {
+        (bool ok, uint256 actual) = _askUint(what, target, call);
+        if (ok) _isUint(what, expected, actual);
+    }
+
+    /// The figure recorded as applied under `.parameters.<what>`, held to what the chain answers.
+    /// A record that carries no such figure is a mismatch of its own.
+    function _isParam(string memory what, uint256 actual) internal {
+        string memory key = string.concat(".parameters.", what);
+        if (!_recorded(key)) {
+            _mismatch(string.concat(what, ": the record carries no ", key));
+            return;
+        }
+        _isUint(what, _recordUint(key), actual);
+    }
+
+    function _isParamAt(string memory what, address target, bytes memory call) internal {
+        (bool ok, uint256 actual) = _askUint(what, target, call);
+        if (ok) _isParam(what, actual);
+    }
 }
