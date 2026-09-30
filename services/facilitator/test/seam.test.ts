@@ -47,6 +47,7 @@ const DOMAIN_SEPARATOR = '0x7a3d7400b27830f4f91c2c16a082486d67c1befecaec2f53b33f
 const DEPLOYMENT: Deployment = {
   network: 'rhc-seam',
   chainId: RHC_MAINNET.chainId,
+  status: 'live',
   rpc: RHC_MAINNET.rpcUrl,
   explorer: RHC_MAINNET.explorer,
   settlementAsset: RHC_MAINNET.usdg,

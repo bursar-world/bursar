@@ -83,6 +83,7 @@ export const ADDRESSES: MandateAddresses = {
 export const RHC_DEPLOYMENT: Deployment = {
   network: 'rhc-mainnet',
   chainId: RHC_MAINNET.chainId,
+  status: 'live',
   rpc: RHC_MAINNET.rpcUrl,
   explorer: RHC_MAINNET.explorer,
   settlementAsset: RHC_MAINNET.usdg,

@@ -11,7 +11,11 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { isRetiredDeploymentRecord, selectDeploymentRecords } from '../src/deployment-record.js';
+import {
+  isPlannedDeploymentRecord,
+  isRetiredDeploymentRecord,
+  selectDeploymentRecords,
+} from '../src/deployment-record.js';
 import type { DeploymentRecordFile } from '../src/deployment-record.js';
 
 const packageRoot = fileURLToPath(new URL('..', import.meta.url));
@@ -176,13 +180,19 @@ function writeDeployments(): void {
     }));
 
   const selected = selectDeploymentRecords(files);
-  const skipped = files.filter((file) => !selected.includes(file)).map((file) => file.name);
+  const planned = files.filter((file) => isPlannedDeploymentRecord(file.json)).map((file) => file.name);
+  const skipped = files
+    .filter((file) => !selected.includes(file) && !isPlannedDeploymentRecord(file.json))
+    .map((file) => file.name);
   const retired = selected.filter((file) => isRetiredDeploymentRecord(file.json)).map((f) => f.name);
 
   writeFileSync(join(generatedDir, 'deployments.ts'), renderDeploymentsModule(selected));
   console.log(`deployments.ts: ${selected.map((file) => file.name).join(', ') || 'nothing deployed yet'}`);
   if (retired.length > 0) {
     console.log(`  retired, kept as history and never resolved by chain: ${retired.join(', ')}`);
+  }
+  if (planned.length > 0) {
+    console.log(`  planned, left out until they go live: ${planned.join(', ')}`);
   }
   if (skipped.length > 0) {
     console.log(`  skipped, not the BURSAR contract set: ${skipped.join(', ')}`);

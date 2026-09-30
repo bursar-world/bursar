@@ -10,6 +10,7 @@ import {
   deploymentForChain,
   deploymentsForChain,
   isMandateDeploymentRecord,
+  isPlannedDeploymentRecord,
   isSuperseded,
   isRetiredDeploymentRecord,
   parseDeployment,
@@ -49,6 +50,7 @@ function exampleRecord(overrides: Record<string, unknown> = {}): Record<string, 
   return {
     network: 'example-net',
     chainId: EXAMPLE_CHAIN,
+    status: 'live',
     rpc: 'https://rpc.example.invalid',
     explorer: 'https://explorer.example.invalid',
     settlementAsset: fill('a'),
@@ -80,6 +82,7 @@ function retiredRecord(overrides: Record<string, unknown> = {}): Record<string, 
   return exampleRecord({
     network: 'example-old',
     chainId: OTHER_EXAMPLE_CHAIN,
+    status: 'retired',
     retired: RETIRED_REASON,
     contracts: {
       AdminTimelock: fill('f'),
@@ -102,6 +105,11 @@ const tokenRecord = {
 
 const raw = exampleRecord();
 
+/** `raw` once `by` has replaced it on its chain: still read, no longer answering for the chain. */
+function supersededBy(by: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return { ...raw, status: 'superseded', supersededBy: by, ...overrides };
+}
+
 /**
  * A record as the v3 deploy scripts write it: the chain's endpoints left to the chain, what was
  * applied under `parameters` rather than `verifiedOnChain`, a token section, and the flags a run
@@ -113,7 +121,7 @@ function scriptedRecord(overrides: Record<string, unknown> = {}): Record<string,
     ...rest,
     network: 'rhc-mainnet-v3',
     chainId: 4663,
-    status: 'deployed',
+    status: 'live',
     local: false,
     fromBlock: 1,
     supersedes: 'rhc-mainnet-v2',
@@ -140,8 +148,27 @@ describe('deployment records', () => {
   it('accepts a complete record', () => {
     const parsed = parseDeployment(raw);
     expect(parsed.chainId).toBe(EXAMPLE_CHAIN);
+    expect(parsed.status).toBe('live');
     expect(parsed.contracts.AdminTimelock).toBe(fill('1'));
     expect(parsed.retired).toBeUndefined();
+  });
+
+  it('reads what superseded a record', () => {
+    const parsed = parseDeployment(supersededBy('example-net-v2'));
+    expect(parsed.status).toBe('superseded');
+    expect(parsed.supersededBy).toBe('example-net-v2');
+  });
+
+  it('refuses a record with no status, or one the schema does not list', () => {
+    const { status: _dropped, ...unmarked } = raw;
+    expect(() => parseDeployment(unmarked)).toThrow(/no "status"/);
+    expect(() => parseDeployment({ ...raw, status: 'deployed' })).toThrow(/status is deployed/);
+  });
+
+  it('refuses a status its other fields contradict', () => {
+    expect(() => parseDeployment({ ...raw, status: 'retired' })).toThrow(/does not say why/);
+    expect(() => parseDeployment({ ...raw, retired: RETIRED_REASON })).toThrow(/its status is live/);
+    expect(() => parseDeployment({ ...raw, status: 'superseded' })).toThrow(/does not name what superseded it/);
   });
 
   it('reads a record the v3 deploy scripts write, with the chain its own endpoints', () => {
@@ -238,9 +265,10 @@ describe('retired deployments', () => {
     const book = await withAddressBook({ 'example-net': raw, 'example-old': retiredRecord() });
     const old = book.deployment('example-old' as never);
 
+    expect(old.status).toBe('retired');
     expect(old.retired).toBe(RETIRED_REASON);
     expect(isRetiredDeploymentRecord(retiredRecord())).toBe(true);
-    expect(isRetiredDeploymentRecord({ ...retiredRecord(), retired: undefined })).toBe(false);
+    expect(isRetiredDeploymentRecord(supersededBy('example-net-v2'))).toBe(false);
   });
 
   it('is still readable by name, with its addresses intact', async () => {
@@ -268,9 +296,9 @@ describe('retired deployments', () => {
     expect(live).not.toContain('example-old');
   });
 
-  it('answers for a chain with the superseding record and keeps the older one live', async () => {
+  it('answers for a chain with the superseding record and keeps the older one in service', async () => {
     const v2 = { ...raw, network: 'example-net-v2', supersedes: 'example-net' };
-    const book = await withAddressBook({ 'example-net-v2': v2, 'example-net': raw });
+    const book = await withAddressBook({ 'example-net-v2': v2, 'example-net': supersededBy('example-net-v2') });
 
     expect(book.deploymentForChain(EXAMPLE_CHAIN).network).toBe('example-net-v2');
     expect(book.deploymentsForChain(EXAMPLE_CHAIN).map((d) => d.network)).toEqual([
@@ -282,9 +310,13 @@ describe('retired deployments', () => {
   });
 
   it('reads a third set on top of two, newest first, and lets only the newest answer', async () => {
-    const v2 = { ...raw, network: 'example-net-v2', supersedes: 'example-net' };
+    const v2 = supersededBy('example-net-v3', { network: 'example-net-v2', supersedes: 'example-net' });
     const v3 = { ...raw, network: 'example-net-v3', supersedes: 'example-net-v2' };
-    const book = await withAddressBook({ 'example-net': raw, 'example-net-v2': v2, 'example-net-v3': v3 });
+    const book = await withAddressBook({
+      'example-net': supersededBy('example-net-v2'),
+      'example-net-v2': v2,
+      'example-net-v3': v3,
+    });
 
     expect(book.deploymentForChain(EXAMPLE_CHAIN).network).toBe('example-net-v3');
     expect(book.deploymentsForChain(EXAMPLE_CHAIN).map((d) => d.network)).toEqual([
@@ -297,8 +329,9 @@ describe('retired deployments', () => {
   // Retiring a set stops new work on it. Its open locks and disputes are still on chain, so the
   // services that settle them keep reading it for as long as a newer set names it.
   it('keeps retired sets readable behind the one that superseded them', async () => {
-    const v1 = { ...raw, retired: RETIRED_REASON };
-    const v2 = { ...raw, network: 'example-net-v2', supersedes: 'example-net', retired: RETIRED_REASON };
+    const retired = { status: 'retired', retired: RETIRED_REASON };
+    const v1 = { ...raw, ...retired };
+    const v2 = { ...raw, ...retired, network: 'example-net-v2', supersedes: 'example-net' };
     const v3 = { ...raw, network: 'example-net-v3', supersedes: 'example-net-v2' };
     const book = await withAddressBook({ 'example-net': v1, 'example-net-v2': v2, 'example-net-v3': v3 });
 
@@ -309,6 +342,14 @@ describe('retired deployments', () => {
       'example-net',
     ]);
     expect(book.liveDeployments().map((d) => d.network)).toEqual(['example-net-v3']);
+  });
+
+  // Marked superseded, it has handed the chain on, whether or not its successor is in the book.
+  it('never answers for a chain with a superseded record', async () => {
+    const book = await withAddressBook({ 'example-net': supersededBy('example-net-v2') });
+
+    expect(book.deploymentsForChain(EXAMPLE_CHAIN).map((d) => d.network)).toEqual(['example-net']);
+    expect((capture(() => book.deploymentForChain(EXAMPLE_CHAIN)) as BursarError).code).toBe('deployment_retired');
   });
 
   it('leaves out a retired record nothing supersedes', async () => {
@@ -349,11 +390,26 @@ describe('selecting what the address book may hold', () => {
     for (const file of rejected) expect(() => parseDeployment(file.json, file.name)).toThrow();
   });
 
-  it('leaves the token record on disk out of the address book', () => {
+  it('leaves the token record and any planned record on disk out of the address book', () => {
     const selected = selectDeploymentRecords(onDisk).map((file) => file.name);
-    for (const file of onDisk.filter((f) => !isMandateDeploymentRecord(f.json))) {
-      expect(selected).not.toContain(file.name);
-    }
+    const left = onDisk.filter((f) => !isMandateDeploymentRecord(f.json) || isPlannedDeploymentRecord(f.json));
+    for (const file of left) expect(selected).not.toContain(file.name);
+  });
+
+  // Its contracts can be deployed and recorded while the old set still holds money. Until it goes
+  // live, it must not take the chain from the record it will supersede, or clash with it.
+  it('keeps a planned record out, whatever it has recorded so far', () => {
+    const files = [
+      { name: 'example-net', json: raw },
+      {
+        name: 'example-net-v2',
+        json: { ...raw, network: 'example-net-v2', status: 'planned', supersedes: 'example-net' },
+      },
+      { name: 'example-net-v3', json: { network: 'example-net-v3', status: 'planned', contracts: {} } },
+    ];
+
+    expect(isPlannedDeploymentRecord(files[1]?.json)).toBe(true);
+    expect(selectDeploymentRecords(files).map((file) => file.name)).toEqual(['example-net']);
   });
 
   it('keeps a rehearsal record out of the address book, whatever chain it names', () => {
@@ -399,6 +455,24 @@ describe('selecting what the address book may hold', () => {
     expect(selectDeploymentRecords(pair)).toHaveLength(2);
   });
 
+  it('lets a superseded record share a chain with the live one', () => {
+    const pair = [
+      { name: 'example-net', json: supersededBy('example-net-v2') },
+      { name: 'example-net-v2', json: { ...raw, network: 'example-net-v2', supersedes: 'example-net' } },
+    ];
+
+    expect(selectDeploymentRecords(pair)).toHaveLength(2);
+  });
+
+  it('parses every record it keeps, so a malformed one stops the generator rather than every service', () => {
+    const files = [
+      { name: 'example-net', json: raw },
+      { name: 'example-old', json: { ...retiredRecord(), retired: undefined } },
+    ];
+
+    expect(() => selectDeploymentRecords(files)).toThrow(/does not say why/);
+  });
+
   it('still stops a third live record that nothing supersedes', () => {
     const three = [
       { name: 'example-net', json: raw },
@@ -414,7 +488,13 @@ describe('selecting what the address book may hold', () => {
       { name: 'example-net', json: raw },
       {
         name: 'example-net-v2',
-        json: { ...raw, network: 'example-net-v2', supersedes: 'example-net', retired: RETIRED_REASON },
+        json: {
+          ...raw,
+          network: 'example-net-v2',
+          supersedes: 'example-net',
+          status: 'retired',
+          retired: RETIRED_REASON,
+        },
       },
       { name: 'example-net-v3', json: { ...raw, network: 'example-net-v3', supersedes: 'example-net-v2' } },
     ];

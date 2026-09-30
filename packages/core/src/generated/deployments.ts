@@ -7,6 +7,7 @@ export const RAW_DEPLOYMENTS: Readonly<Record<RawDeploymentName, unknown>> = {
   "rhc-mainnet-v2": {
   "network": "rhc-mainnet-v2",
   "chainId": 4663,
+  "status": "live",
   "dev": true,
   "rpc": "https://rpc.mainnet.chain.robinhood.com",
   "rpcUsedForThisRun": "https://rpc.mainnet.chain.robinhood.com",
@@ -827,6 +828,8 @@ export const RAW_DEPLOYMENTS: Readonly<Record<RawDeploymentName, unknown>> = {
   "rhc-mainnet": {
   "network": "rhc-mainnet",
   "chainId": 4663,
+  "status": "superseded",
+  "supersededBy": "rhc-mainnet-v2",
   "rpc": "https://rpc.mainnet.chain.robinhood.com",
   "rpcUsedForThisRun": "https://rpc.mainnet.chain.robinhood.com",
   "explorer": "https://robinhoodchain.blockscout.com",

@@ -17,6 +17,7 @@ export function v3Record(
   return core.parseDeployment({
     network: 'rhc-mainnet-v3',
     chainId: 4663,
+    status: 'live',
     rpc: 'https://rpc.example.invalid',
     explorer: 'https://explorer.example.invalid',
     settlementAsset: core.RHC_MAINNET.usdg,
@@ -56,17 +57,19 @@ export function v3Lanes(): Record<string, unknown> {
  * answers from these records, by the same rules the real one follows; the rest is the real module.
  */
 export function withRecords(core: CoreModule, records: readonly Deployment[]): CoreModule {
+  const inService = (d: Deployment) => d.status === 'live' || d.status === 'superseded';
   const line = (chainId: number): readonly Deployment[] => {
     const onChain = records.filter((d) => d.chainId === chainId);
-    const superseded = (d: Deployment) => onChain.some((other) => other.supersedes === d.network);
+    const superseded = (d: Deployment) =>
+      d.status === 'superseded' || onChain.some((other) => other.supersedes === d.network);
     const ordered: Deployment[] = [];
-    let next = onChain.find((d) => d.retired === undefined && !superseded(d));
+    let next = onChain.find((d) => d.status === 'live' && !superseded(d));
     while (next !== undefined && !ordered.includes(next)) {
       ordered.push(next);
       const older = next.supersedes;
       next = older === undefined ? undefined : onChain.find((d) => d.network === older);
     }
-    return [...ordered, ...onChain.filter((d) => d.retired === undefined && !ordered.includes(d))];
+    return [...ordered, ...onChain.filter((d) => inService(d) && !ordered.includes(d))];
   };
 
   const head = (chainId: number): Deployment => {
@@ -96,7 +99,7 @@ export function withRecords(core: CoreModule, records: readonly Deployment[]): C
     },
     deploymentForChain: head,
     deploymentsForChain: line,
-    liveDeployments: () => records.filter((d) => d.retired === undefined),
+    liveDeployments: () => records.filter(inService),
     deploymentByContract: byContract,
     contractSetOfEscrow: (escrow: Address) => {
       const found = byContract('Escrow', escrow);

@@ -10,7 +10,7 @@ loading. Nothing else in the workspace hard-codes an address or talks to an RPC 
 | Module | What it gives you |
 |---|---|
 | `chain` | Chain 4663 as read from the chain: USDG, Permit2, Multicall3, the minimum fee cap, the USDG EIP-712 domain. Testnet 46630 is described and refused, because USDG has no contract there. |
-| `deployments` | The address book, generated from `contracts/deployments/*.json`. `deploymentForChain(4663)` returns the live record; a retired record is never returned by chain id. |
+| `deployments` | The address book, generated from `contracts/deployments/*.json`. `deploymentForChain(4663)` returns the live record; a superseded or retired record is never returned by chain id, and a planned one stays out of the address book until it goes live. |
 | `generated/abi` | ABIs for the seven core contracts and the settlement asset, generated from the Foundry build. |
 | `money` | `Micro`, a `bigint` in six-decimal micro-USD, with parsing, formatting and arithmetic. No float touches money. |
 | `rpc` | `RpcPool` with per-provider rate limits, a circuit breaker and failover, and `createRhcClient`, a viem client on top of it. |

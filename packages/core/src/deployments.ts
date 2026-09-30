@@ -8,6 +8,7 @@ import type { Deployment, MandateContractName } from './deployment-record.js';
 export {
   BURSAR_CONTRACT_NAMES,
   isMandateDeploymentRecord,
+  isPlannedDeploymentRecord,
   isRetiredDeploymentRecord,
   parseDeployment,
   selectDeploymentRecords,
@@ -16,6 +17,7 @@ export type {
   Deployment,
   DeploymentRecordFile,
   DeploymentRoles,
+  DeploymentStatus,
   MandateContractName,
   RwaAssetKind,
   RwaAssetRecord,
@@ -39,9 +41,16 @@ export const DEPLOYMENTS: Readonly<Record<DeploymentName, Deployment>> = Object.
   ) as Record<DeploymentName, Deployment>,
 );
 
-/** Everything still in service. A retired record is history and is excluded. */
+/**
+ * Everything still in service: the records that answer for their chains and the superseded ones
+ * behind them. A retired record is history and is excluded.
+ */
 export function liveDeployments(): readonly Deployment[] {
-  return Object.values(DEPLOYMENTS).filter((d) => d.retired === undefined);
+  return Object.values(DEPLOYMENTS).filter(inService);
+}
+
+function inService(d: Deployment): boolean {
+  return d.status === 'live' || d.status === 'superseded';
 }
 
 function nameOf(d: Deployment): string {
@@ -49,13 +58,19 @@ function nameOf(d: Deployment): string {
 }
 
 /**
- * Whether a newer record on the same chain names this one in `supersedes`. A superseded record's
- * contracts still hold locks and disputes that have to be read and settled, so it stays readable;
- * it only stops answering for its chain.
+ * Whether the record is marked superseded, or a newer record on the same chain names it in
+ * `supersedes`. A superseded record's contracts still hold locks and disputes that have to be read
+ * and settled, so it stays readable; it only stops answering for its chain.
  */
 export function isSuperseded(d: Deployment): boolean {
+  if (d.status === 'superseded') return true;
   const name = nameOf(d);
   return Object.values(DEPLOYMENTS).some((other) => other.chainId === d.chainId && other.supersedes === name);
+}
+
+/** The record that answers for a chain: live, and superseded by nothing. */
+function answering(chainId: number): Deployment | undefined {
+  return Object.values(DEPLOYMENTS).find((d) => d.chainId === chainId && d.status === 'live' && !isSuperseded(d));
 }
 
 /**
@@ -69,15 +84,14 @@ export function isSuperseded(d: Deployment): boolean {
  */
 export function deploymentsForChain(chainId: number): readonly Deployment[] {
   const onChain = Object.values(DEPLOYMENTS).filter((d) => d.chainId === chainId);
-  const live = onChain.filter((d) => d.retired === undefined);
   const ordered: Deployment[] = [];
-  let next = live.find((d) => !isSuperseded(d));
+  let next = answering(chainId);
   while (next !== undefined && !ordered.includes(next)) {
     ordered.push(next);
     const older = next.supersedes;
     next = older === undefined ? undefined : onChain.find((d) => nameOf(d) === older);
   }
-  return [...ordered, ...live.filter((d) => !ordered.includes(d))];
+  return [...ordered, ...onChain.filter((d) => inService(d) && !ordered.includes(d))];
 }
 
 /**
@@ -125,7 +139,7 @@ export function deployment(name: DeploymentName): Deployment {
  */
 export function deploymentForChain(chainId: number): Deployment {
   const live = liveDeployments();
-  const found = deploymentsForChain(chainId)[0];
+  const found = answering(chainId);
   if (found) return found;
 
   const retired = Object.values(DEPLOYMENTS).find((d) => d.chainId === chainId);

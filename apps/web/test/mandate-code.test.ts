@@ -73,6 +73,7 @@ function v3Record(overrides: { network?: string; escrow?: string; settlementAsse
   return parseDeployment({
     network: overrides.network ?? 'rhc-mainnet-v3',
     chainId: 4663,
+    status: 'live',
     rpc: 'https://rpc.example.invalid',
     explorer: 'https://explorer.example.invalid',
     settlementAsset: overrides.settlementAsset ?? RHC_MAINNET.usdg,

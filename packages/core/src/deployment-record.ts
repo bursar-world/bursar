@@ -34,9 +34,20 @@ export type DeploymentRoles = {
   readonly slashSink: Address;
 };
 
+/**
+ * Where a record stands, as contracts/deployments/schema.json defines it. A planned record's
+ * contracts are not all deployed yet. A live one answers for its chain. A superseded one no longer
+ * does and is still read, because its contracts still hold money. A retired one is the account of
+ * what ran.
+ */
+export type DeploymentStatus = 'planned' | 'live' | 'superseded' | 'retired';
+
+const STATUSES: readonly DeploymentStatus[] = ['planned', 'live', 'superseded', 'retired'];
+
 export type Deployment = {
   readonly network: string;
   readonly chainId: number;
+  readonly status: DeploymentStatus;
   /** The chain's own public endpoints when the record names none, as the v3 records do. */
   readonly rpc: string;
   readonly explorer: string;
@@ -54,9 +65,9 @@ export type Deployment = {
   /** Anything the deploy left unfinished. Present means a human still owes an action. */
   readonly pending?: string;
   /**
-   * Why this deployment takes no new work, in a sentence. Present means it never answers a lookup
-   * by chain id again. A retired record a newer one supersedes is still read, because its locks and
-   * disputes are still on chain; one nothing supersedes is kept only as the record of what ran.
+   * Why this deployment takes no new work, in a sentence. Present exactly when the status is
+   * retired. A retired record a newer one supersedes is still read, because its locks and disputes
+   * are still on chain; one nothing supersedes is kept only as the record of what ran.
    */
   readonly retired?: string;
   /**
@@ -65,6 +76,8 @@ export type Deployment = {
    * longer answers a lookup by chain id.
    */
   readonly supersedes?: string;
+  /** The record that replaced this one. Present whenever the status is superseded. */
+  readonly supersededBy?: string;
   /** A development deployment: live on its chain, with settings that change before launch. */
   readonly dev?: boolean;
   /** Gas cost of the deploy, in ETH. What a Robinhood Chain deploy writes. */
@@ -201,6 +214,20 @@ export function parseDeployment(json: unknown, label = 'record'): Deployment {
     );
   }
 
+  const status = field(record, name, 'status');
+  if (!STATUSES.includes(status as DeploymentStatus)) {
+    throw new DeploymentError(name, `status is ${String(status)}, not one of ${STATUSES.join(', ')}.`);
+  }
+  const reason = typeof record['retired'] === 'string';
+  if (status === 'retired' && !reason) throw new DeploymentError(name, 'is retired and does not say why.');
+  // A reason on a record still in service would read as retired to anything that checks for one.
+  if (status !== 'retired' && reason) {
+    throw new DeploymentError(name, `says why it retired, and its status is ${String(status)}.`);
+  }
+  if (status === 'superseded' && typeof record['supersededBy'] !== 'string') {
+    throw new DeploymentError(name, 'is superseded and does not name what superseded it.');
+  }
+
   const contractsRecord = object(field(record, name, 'contracts'), name, 'contracts');
   const contracts: Record<string, Address> = {};
   for (const contract of BURSAR_CONTRACT_NAMES) {
@@ -249,6 +276,7 @@ export function parseDeployment(json: unknown, label = 'record'): Deployment {
   return Object.freeze({
     network: name,
     chainId,
+    status: status as DeploymentStatus,
     rpc: endpoint('rpc'),
     explorer: endpoint('explorer'),
     settlementAsset: address(record, name, 'settlementAsset'),
@@ -265,6 +293,7 @@ export function parseDeployment(json: unknown, label = 'record'): Deployment {
     ...(optionalString('pending') === undefined ? {} : { pending: optionalString('pending') }),
     ...(optionalString('retired') === undefined ? {} : { retired: optionalString('retired') }),
     ...(optionalString('supersedes') === undefined ? {} : { supersedes: optionalString('supersedes') }),
+    ...(optionalString('supersededBy') === undefined ? {} : { supersededBy: optionalString('supersededBy') }),
     ...(record['dev'] === true ? { dev: true } : {}),
     ...(optionalString('deployCostEth') === undefined
       ? {}
@@ -380,14 +409,26 @@ function parseCollateral(json: unknown, parent: string): CollateralDeployment {
   });
 }
 
+function statusOf(json: unknown): unknown {
+  if (typeof json !== 'object' || json === null || Array.isArray(json)) return undefined;
+  return (json as { status?: unknown }).status;
+}
+
 /**
  * Whether a record is history. A retired deployment keeps its addresses so the account of what ran
  * survives, and stops answering a lookup by chain id: the contracts are still on that chain and
  * would still take a call.
  */
 export function isRetiredDeploymentRecord(json: unknown): boolean {
-  if (typeof json !== 'object' || json === null || Array.isArray(json)) return false;
-  return typeof (json as { retired?: unknown }).retired === 'string';
+  return statusOf(json) === 'retired';
+}
+
+/**
+ * Whether a record describes a deployment still under way. Some of its contracts may not exist yet,
+ * and the ones that do take no work until the record goes live.
+ */
+export function isPlannedDeploymentRecord(json: unknown): boolean {
+  return statusOf(json) === 'planned';
 }
 
 export type DeploymentRecordFile = {
@@ -416,23 +457,18 @@ export function isMandateDeploymentRecord(json: unknown): boolean {
 }
 
 /**
- * The name of the record a live record replaces, if any.
- */
-function supersededName(json: unknown): string | undefined {
-  if (typeof json !== 'object' || json === null || Array.isArray(json)) return undefined;
-  const value = (json as { supersedes?: unknown }).supersedes;
-  return typeof value === 'string' ? value : undefined;
-}
-
-/**
  * The records this package may serve, in the order given.
  *
  * Emitting anything else is what turns a new file in contracts/deployments into an import-time
- * crash in every service, since the address book is parsed on load. Two live records answering to
- * one chain stop here as well, unless one names the other in `supersedes`: then the newer one
- * answers for the chain and the older one stays readable by name. Two records left unclaimed on
- * one chain means a lookup by chain id would depend on directory order, and that is not a lookup.
- * Retired records are exempt because nothing resolves them by chain.
+ * crash in every service, since the address book is parsed on load, so every record kept is parsed
+ * here first. A planned record is left out: until it goes live it must not answer for its chain, or
+ * take the chain from the record it will supersede. Superseded and retired records stay, readable
+ * by name.
+ *
+ * Two live records answering to one chain stop here as well, unless one names the other in
+ * `supersedes`: then the newer one answers for the chain and the older one stays readable by name.
+ * Two records left unclaimed on one chain means a lookup by chain id would depend on directory
+ * order, and that is not a lookup. Only a live record answers for a chain, so no other can clash.
  *
  * An empty result is allowed. The workspace has to build before anything is
  * deployed, and it has to build on a checkout whose only records are retired ones; a throw here
@@ -441,30 +477,30 @@ function supersededName(json: unknown): string | undefined {
 export function selectDeploymentRecords(
   files: readonly DeploymentRecordFile[],
 ): readonly DeploymentRecordFile[] {
-  const selected = files.filter((file) => isMandateDeploymentRecord(file.json));
-  const live = selected.filter((file) => !isRetiredDeploymentRecord(file.json));
+  const selected = files.filter(
+    (file) => isMandateDeploymentRecord(file.json) && !isPlannedDeploymentRecord(file.json),
+  );
+  const parsed = selected.map((file) => ({ name: file.name, record: parseDeployment(file.json, file.name) }));
 
   const heads = new Map<number, string>();
-  for (const file of live) {
-    const { chainId } = parseDeployment(file.json, file.name);
+  for (const { name, record } of parsed) {
+    if (record.status !== 'live') continue;
     // A retired successor still replaces what it names: retiring it later does not hand its
     // chain back to the record it took over from.
-    const replaced = selected.some(
-      (other) =>
-        supersededName(other.json) === file.name &&
-        parseDeployment(other.json, other.name).chainId === chainId,
+    const replaced = parsed.some(
+      ({ record: other }) => other.supersedes === name && other.chainId === record.chainId,
     );
     if (replaced) continue;
-    const clash = heads.get(chainId);
+    const clash = heads.get(record.chainId);
     if (clash !== undefined) {
       throw new BursarError(
         'deployment_ambiguous',
-        `${file.name} and ${clash} both claim chain ${chainId}. One of them has to go, or name the ` +
+        `${name} and ${clash} both claim chain ${record.chainId}. One of them has to go, or name the ` +
           'other in "supersedes": a service asks for a chain, not for a file.',
-        { chainId, records: [clash, file.name] },
+        { chainId: record.chainId, records: [clash, name] },
       );
     }
-    heads.set(chainId, file.name);
+    heads.set(record.chainId, name);
   }
 
   return selected;
