@@ -115,6 +115,9 @@ describe('relayer', () => {
     [{ amount: 9_999n }, 'below_minimum'],
     [{ context: 1n }, 'context_mismatch'],
     [{ aspRoot: 1n }, 'stale_association_set'],
+    [{ recipient: RELAY }, 'bad_recipient'],
+    [{ recipient: config.pool }, 'bad_recipient'],
+    [{ recipient: config.entrypoint }, 'bad_recipient'],
   ] as const)('refuses %o before sending', async (overrides, code) => {
     const { relayer, wallet } = setup();
     expect((await refusal(relayer.relay(request(overrides)))).code).toBe(code);

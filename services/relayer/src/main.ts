@@ -4,7 +4,8 @@
  * Environment: RHC_RPC_URL (default the public endpoint); RELAYER_PRIVATE_KEY, or
  * RELAYER_KEYSTORE and RELAYER_PASSWORD_FILE; PORT (default 4321); RELAYER_FEE_BPS (default 50);
  * RELAYER_FEE_RECIPIENT (default the relayer address); RELAYER_GAS_DROP_ETH (default 0.00015);
- * RELAYER_GAS_DROPS_PER_HOUR (default 20); RELAYER_MIN_WITHDRAWAL (atomic USDG, default 10000).
+ * RELAYER_GAS_DROPS_PER_HOUR (default 20); RELAYER_MIN_WITHDRAWAL (atomic USDG, default the pool's
+ * minimum deposit from the deployment record).
  */
 import process from 'node:process';
 

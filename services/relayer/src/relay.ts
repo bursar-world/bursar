@@ -152,6 +152,15 @@ export class Relayer {
     if (!isAddressEqual(data.feeRecipient, c.feeRecipient)) {
       throw new RelayRefusal(400, 'wrong_fee_recipient', `The fee recipient must be ${c.feeRecipient}.`);
     }
+    // The relay refuses these on chain too. Paid to one of them, a withdrawal would sit with no note
+    // behind it and nothing that could ever pay it out again.
+    if ([c.relay, c.pool, c.entrypoint].some((contract) => isAddressEqual(data.recipient, contract))) {
+      throw new RelayRefusal(
+        400,
+        'bad_recipient',
+        'A withdrawal cannot pay the relay, the pool or the Entrypoint. Name the address that should receive the funds.',
+      );
+    }
     if (data.relayFeeBPS < BigInt(c.feeBps)) {
       throw new RelayRefusal(400, 'fee_too_low', `This relayer asks ${c.feeBps} basis points.`);
     }
