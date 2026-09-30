@@ -108,7 +108,12 @@ contract ProposeWiringTest is World {
         assertEq(block.timestamp, T0);
         _propose(signers[0]);
         _approve(signers[1]);
-        _execute(signers[0]);
+        // Run early, execute() sends nothing and fails, so a shell running it stops there.
+        address early = _pinned(address(new ProposeWiring()));
+        vm.expectRevert(
+            abi.encodeWithSelector(Governance.DelayNotPassed.selector, "2026-09-28 11:53:20 UTC, in 60 minutes")
+        );
+        _as(signers[0], early, abi.encodeWithSignature("execute()"));
         _assertUnwired();
         (due, reason) = timelock.canExecute(before);
         assertEq(reason, AdminTimelock.TimelockNotExpired.selector);

@@ -357,7 +357,7 @@ addresses the record already names. The rehearsals and local runs keep their log
 | `RecordMismatch` | The shell names an address the record disagrees with. Unset the variable, or correct whichever of the two is wrong. |
 | `NotSigner` | The keystore is not one of the timelock's signers. |
 | `NotTheKey` | The step has to be signed by the key it names: the lender, or the owner of the old seeder. |
-| `not executable yet` | The call cannot run yet. The line says why: the delay, with the UTC date it ends and the time left, or an approval still missing. Run `execute()` again then. |
+| `not executable yet`, `DelayNotPassed` | The call cannot run yet. The line says why: the delay, with the UTC date it ends and the time left, or an approval still missing. When the delay held every call back, `execute()` sent nothing and fails with `DelayNotPassed`, which names when the delay ends. Run `execute()` again then. |
 | `not matured yet` | An old bond, stake or withdrawal is still unbonding. Run the same step again on the date it prints. |
 | `MissingEnv`, `InvalidEnv` | A variable is unset, or holds something that does not read as its type. The error names the variable, and `InvalidEnv` the value. |
 | `StillOpen` | Something on the old sets is still open. The run lists each item above the error. |

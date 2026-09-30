@@ -157,11 +157,17 @@ forge script script/ProposeWiring.s.sol --sig "approve()" --rpc-url "$RHC_RPC_UR
 forge script script/ProposeWiring.s.sol --sig "execute()" --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/signer-1" --broadcast
 ```
 
-Run early, `execute()` sends nothing and says for each call when it can run:
+Run early, `execute()` sends nothing, says for each call when it can run, and fails:
 
 ```text
 not executable yet: #0 Buyback.setKeeper. The delay ends 2026-09-28 11:53:20 UTC, in 60 minutes: run execute() again then.
+Error: script failed: DelayNotPassed("2026-09-28 11:53:20 UTC, in 60 minutes")
 ```
+
+`DelayNotPassed` means the run executed nothing while at least one call was still inside its delay,
+and it names when the soonest delay ends. Forge exits with status 1 for any script that fails, so a
+shell running the steps in a row stops here, and the error's name is what tells this failure from
+another. A run that executes some calls and finds others still waiting succeeds.
 
 ## 5. Parameters
 
@@ -283,6 +289,7 @@ that runs before anything is broadcast.
 | `NoTier`, `BuybackStakingMismatch` | A collateral asset has no tier, or the buyback compounds into a different staking pool than the one the credit pool slashes. |
 | `WiringFailed`, `ParameterNotApplied` | A setter or constructor argument did not take effect. The error gives the value expected and the value found. |
 | `NotSigner` | The governance batch was run from a key that is not a signer. |
+| `DelayNotPassed` | `execute()` ran nothing because the timelock's delay has not passed. The error names when it ends. |
 
 The token script's own refusals are in [`TOKEN-README.md`](TOKEN-README.md), and the move's in
 [`MIGRATION.md`](MIGRATION.md).

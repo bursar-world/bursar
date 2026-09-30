@@ -13,7 +13,8 @@ import {AdminTimelock} from "../../src/AdminTimelock.sol";
 /// Each step is its own run, from the signer's own key, and each one can be repeated. A call whose
 /// effect is already on chain is skipped, and so is one with a live proposal carrying the same
 /// target and calldata, so running `propose` twice proposes nothing twice. Proposals are read from
-/// the timelock itself, so a batch proposed by hand is picked up too.
+/// the timelock itself, so a batch proposed by hand is picked up too. An `execute` run before the
+/// delay ends sends nothing and fails with `DelayNotPassed`, which names the time it ends.
 ///
 ///   forge script <script> --sig "status()"  --rpc-url "$RHC_RPC_URL"
 ///   forge script <script> --sig "propose()" --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/signer-1" [--broadcast]
@@ -28,6 +29,10 @@ abstract contract Governance is BursarScript {
     }
 
     error NotSigner(address timelock, address caller);
+    /// `execute()` ran nothing while a call in the batch was still inside its delay. The script
+    /// fails on it, so a shell stops there instead of going on to check a batch that has not
+    /// landed. `endsAt` is when the soonest of those delays ends.
+    error DelayNotPassed(string endsAt);
 
     /// The batch, in the order it has to execute in.
     function _calls() internal virtual returns (Call[] memory);
@@ -124,6 +129,8 @@ abstract contract Governance is BursarScript {
         _requireChain();
         Call[] memory calls = _calls();
         _requireSigner(calls);
+        uint256 executed;
+        uint256 delayEnds;
         vm.startBroadcast(msg.sender);
         for (uint256 i; i < calls.length; ++i) {
             Call memory call = calls[i];
@@ -133,28 +140,32 @@ abstract contract Governance is BursarScript {
                 console2.log(string.concat("not proposed yet: ", call.label));
                 continue;
             }
-            (bool due, bytes4 reason) = AdminTimelock(call.timelock).canExecute(id);
+            AdminTimelock timelock = AdminTimelock(call.timelock);
+            (bool due, bytes4 reason) = timelock.canExecute(id);
             if (!due) {
                 console2.log(
                     string.concat(
-                        "not executable yet: #",
-                        vm.toString(id),
-                        " ",
-                        call.label,
-                        ". ",
-                        _whyNot(AdminTimelock(call.timelock), id, reason)
+                        "not executable yet: #", vm.toString(id), " ", call.label, ". ", _whyNot(timelock, id, reason)
                     )
                 );
+                if (reason == AdminTimelock.TimelockNotExpired.selector) {
+                    uint256 executeAfter = timelock.getProposal(id).executeAfter;
+                    if (delayEnds == 0 || executeAfter < delayEnds) delayEnds = executeAfter;
+                }
                 continue;
             }
             if (!_ready(call)) {
                 console2.log(string.concat("waiting on an earlier call: #", vm.toString(id), " ", call.label));
                 continue;
             }
-            AdminTimelock(call.timelock).execute(id);
+            timelock.execute(id);
+            ++executed;
             console2.log(string.concat("executed #", vm.toString(id), " ", call.label));
         }
         vm.stopBroadcast();
+        if (executed == 0 && delayEnds != 0) {
+            revert DelayNotPassed(string.concat(_utc(delayEnds), ", in ", _until(delayEnds)));
+        }
     }
 
     /// What `canExecute` answered, in words. The timelock answers with the selector of the error
