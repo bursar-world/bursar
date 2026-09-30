@@ -93,3 +93,13 @@ describe('the input shared with a resolver', () => {
     expect(readableInput('')).toBeNull();
   });
 });
+
+describe('returnable', () => {
+  it('offers a private payment back only once it is still locked and past its deadline', async () => {
+    const { returnable } = await import('@/chain/private');
+    const { LockStatus } = await import('@bursar/sdk');
+    expect(returnable({ status: LockStatus.Locked, deadline: 100n }, 101n)).toBe(true);
+    expect(returnable({ status: LockStatus.Locked, deadline: 100n }, 100n)).toBe(false);
+    expect(returnable({ status: LockStatus.Released, deadline: 100n }, 200n)).toBe(false);
+  });
+});

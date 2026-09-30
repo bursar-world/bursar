@@ -1,3 +1,4 @@
+import { LockStatus } from '@bursar/sdk';
 import { committedMandateAccountAbi, committedMandateFactoryAbi, escrowAbi, privacyDeployment, settlementAssetAbi } from '@bursar/core';
 import type { PrivacyDeployment } from '@bursar/core';
 import type { CommittedClass, TermsInput } from '@bursar/sdk';
@@ -178,8 +179,15 @@ export type ProvenPayment = {
   readonly inputURI: string;
   readonly inputCommit: `0x${string}`;
   readonly outputCommit: `0x${string}`;
+  /** Unix seconds. Past it, the escrow gives a still-locked payment back to anyone who asks. */
+  readonly deadline: bigint;
   readonly hash: `0x${string}`;
 };
+
+/** A payment the provider let run past its deadline, which the escrow returns to the mandate. */
+export function returnable(payment: Pick<ProvenPayment, 'status' | 'deadline'>, nowSeconds: bigint): boolean {
+  return payment.status === LockStatus.Locked && payment.deadline < nowSeconds;
+}
 
 /** Every payment the account opened with a proof, newest first, with what the escrow says of each. */
 export async function readProvenPayments(mandate: CommittedRead, fromBlock: bigint): Promise<readonly ProvenPayment[]> {
@@ -197,6 +205,7 @@ export async function readProvenPayments(mandate: CommittedRead, fromBlock: bigi
         inputURI: lock.inputURI,
         inputCommit: lock.inputCommit,
         outputCommit: lock.outputCommit,
+        deadline: BigInt(lock.deadline),
         hash: log.transactionHash,
       };
     }),

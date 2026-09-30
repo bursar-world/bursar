@@ -7,11 +7,12 @@ import { erc20Abi } from 'viem';
 import type { Address } from 'viem';
 import { useSignMessage } from 'wagmi';
 import { committedMandateAccountAbi, micro } from '@bursar/core';
+import { escrowAbi } from '@/chain/abi';
 import { LockStatus, TermsLockedError, deriveViewingKey, latestSealedTerms, openTerms, viewingKeyMessage } from '@bursar/sdk';
 import type { TermsDocument } from '@bursar/sdk';
 
 import { rhcClient } from '@/chain/client';
-import { PERIODS, privateContracts, readProvenPayments } from '@/chain/private';
+import { PERIODS, privateContracts, readProvenPayments, returnable } from '@/chain/private';
 import type { CommittedRead } from '@/chain/private';
 import { ADDRESSES, sameAddress, shortAddress } from '@/chain/rhc';
 import { AmountInput } from '@/components/amount-input';
@@ -165,6 +166,16 @@ function PaymentAction({
     );
   }
   if (payment.status !== LockStatus.Locked) return null;
+  if (returnable(payment, BigInt(Math.floor(Date.now() / 1000)))) {
+    return (
+      <TxButton
+        label="Return the money"
+        tone="secondary"
+        send={() => writeContractAsync({ address: mandate.escrow, abi: escrowAbi, functionName: 'timeout', args: [payment.escrowId] })}
+        onContinue={onDone}
+      />
+    );
+  }
   return (
     <TxButton
       label="Contest"
