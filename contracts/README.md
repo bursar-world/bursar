@@ -4,8 +4,10 @@ The Solidity contracts that hold and move money in Bursar. A principal's spendin
 `MandateAccount`, so a payment past them reverts on chain rather than at a service. Payments to
 providers go through an `Escrow` that holds each one for the life of one job, with an on-chain
 dispute path. Everything that can be administered is administered by a two-of-three
-`AdminTimelock` with a 48-hour delay. The set is deployed on Robinhood Chain mainnet (chain 4663)
-and settles in USDG.
+`AdminTimelock`, whose delay is one hour in this development deployment and 48 hours at launch.
+Agent stakes, resolver bonds and BRSR stakes take seven days to withdraw whatever the delay, so
+for a staked party a pending change is notice rather than a way out. The set is deployed on
+Robinhood Chain mainnet (chain 4663) and settles in USDG.
 
 Read the status section of the root [README](../README.md) before funding anything on mainnet,
 and [SECURITY.md](../SECURITY.md) before reporting a problem.

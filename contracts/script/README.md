@@ -117,7 +117,7 @@ reading each other's parameters.
 | `BURSAR_TIMELOCK_SIGNER_2` | Second timelock signer. |
 | `BURSAR_TIMELOCK_SIGNER_3` | Third timelock signer. |
 | `BURSAR_TIMELOCK_GUARDIAN` | Holds the brake. Can pause an administered contract immediately, and can do nothing else. Must not be one of the three signers. |
-| `BURSAR_TIMELOCK_PERIOD` | Seconds between a proposal reaching two approvals and becoming executable. The contract accepts 48 hours to 30 days. |
+| `BURSAR_TIMELOCK_PERIOD` | Seconds between a proposal reaching two approvals and becoming executable. The contract accepts one hour to 30 days in this development deployment; the floor is 48 hours at launch. Staked parties need seven days to withdraw whatever the delay. |
 | `BURSAR_ADMIN_TIMELOCK` | Optional. A live `AdminTimelock` for this run to join instead of deploying one. Leave it unset, or set it to the zero address, on a chain with no governance yet. |
 | `BURSAR_ALLOW_EOA_GOVERNANCE` | Optional, and the only way to deploy with three plain keys. Must read exactly `i-accept-eoa-governance`. Anything else, `true` included, stops the run. |
 
@@ -143,7 +143,7 @@ holds them against the four variables above. A period, a guardian or a signer th
 stops the run. Fix whichever of the two is wrong before continuing.
 
 The guardian is the one exception to the delay: its `pause` call lands in the same block,
-skipping the queue. Restarting a paused contract goes through the full 48 hours, so a stolen
+skipping the queue. Restarting a paused contract goes through the full delay, so a stolen
 guardian key costs an outage and nothing more. Keep it off the signer set. A key that has to be
 reachable in seconds is the one most likely to be sitting warm, and the script stops on the
 overlap with `RoleCollision("guardian", "timelockSigner", ...)`. `GOVERNANCE.md` at the
@@ -238,7 +238,7 @@ export BURSAR_TIMELOCK_SIGNER_1=0x...
 export BURSAR_TIMELOCK_SIGNER_2=0x...
 export BURSAR_TIMELOCK_SIGNER_3=0x...
 export BURSAR_TIMELOCK_GUARDIAN=0x...       # pause-only key, not a signer
-export BURSAR_TIMELOCK_PERIOD=172800        # 48h, the contract floor
+export BURSAR_TIMELOCK_PERIOD=172800        # 48h, the floor at launch (1h in development)
 # Unset on a first deploy. On a redeploy, the live timelock this run joins.
 # export BURSAR_ADMIN_TIMELOCK=0x...
 

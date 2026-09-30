@@ -5,9 +5,14 @@ pragma solidity ^0.8.24;
 /// deployment until control is handed to a multisig.
 ///
 /// The delay is the product: two signers agreeing is what authorises a change, and the wait
-/// between authorisation and execution is what gives everyone else time to read it and
-/// leave. A timelock that can execute in the same block is a multisig with extra steps, so
-/// the period is fixed at construction, floored, and has no setter.
+/// between authorisation and execution is what gives everyone else time to read it and act.
+/// A timelock that can execute in the same block is a multisig with extra steps, so the
+/// period is fixed at construction, floored, and has no setter.
+///
+/// The floor is one hour in this development deployment and forty-eight hours at launch. A
+/// principal can pause a mandate or pull its funds inside either. A staked party cannot leave
+/// inside either: agent stakes, resolver bonds and BRSR stakes take seven days to come out
+/// whatever the delay, so for them a pending change is notice, not an exit.
 ///
 /// Proposals carry calldata only. Value moves in the settlement asset, so a treasury
 /// transfer is a proposal whose target is the token, and this contract never holds or sends
@@ -58,8 +63,8 @@ contract AdminTimelock {
     uint256 public constant REQUIRED_APPROVALS = 2;
     uint256 public constant SIGNER_COUNT = 3;
 
-    /// The floor for a development deployment. Public launch raises it to forty-eight hours,
-    /// long enough for anyone watching a mandate to act on a pending change before it lands.
+    /// One hour in this development deployment. Launch raises it to forty-eight hours, long
+    /// enough for anyone watching a mandate to act on a pending change before it lands.
     uint64 public constant MIN_TIMELOCK_PERIOD = 1 hours;
 
     /// A delay past this stops being governance and starts being an outage.
