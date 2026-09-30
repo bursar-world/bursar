@@ -71,7 +71,9 @@ contract DeployScriptTest is ScriptHarness {
         _caseARecordForAnotherChain();
         _caseALocalRecordNeedsTheLocalFlag();
         _caseSentinelAddressReadsAsUnset();
-        _caseSentinelAmountReadsAsUnset();
+        _caseEmptyAmountReadsAsUnset();
+        _caseAmountThatIsNotANumber();
+        _caseAddressThatIsNotAnAddress();
         _caseEmptyBoolean();
         _caseBooleanThatIsNotSpelledOut();
         _caseValueTooWideForItsField();
@@ -161,11 +163,33 @@ contract DeployScriptTest is ScriptHarness {
         script.run();
     }
 
-    function _caseSentinelAmountReadsAsUnset() private {
+    function _caseEmptyAmountReadsAsUnset() private {
         _setBaseEnv();
-        _set("BURSAR_FEE_BPS", vm.toString(type(uint256).max));
+        _set("BURSAR_FEE_BPS", "");
 
         vm.expectRevert(abi.encodeWithSelector(BursarScript.MissingEnv.selector, _key("BURSAR_FEE_BPS")));
+        script.run();
+    }
+
+    /// A value that is set but does not parse is named with what it holds. Foundry's own reader
+    /// would have answered it as unset, and the run would have called it missing.
+    function _caseAmountThatIsNotANumber() private {
+        _setBaseEnv();
+        _set("BURSAR_FEE_BPS", "1%");
+
+        vm.expectRevert(abi.encodeWithSelector(BursarScript.InvalidEnv.selector, _key("BURSAR_FEE_BPS"), "1%"));
+        script.run();
+    }
+
+    function _caseAddressThatIsNotAnAddress() private {
+        _setBaseEnv();
+        _set("BURSAR_TREASURY", "0x9965507D1a55bcC2695C58ba16FB37d819B0A4");
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                BursarScript.InvalidEnv.selector, _key("BURSAR_TREASURY"), "0x9965507D1a55bcC2695C58ba16FB37d819B0A4"
+            )
+        );
         script.run();
     }
 

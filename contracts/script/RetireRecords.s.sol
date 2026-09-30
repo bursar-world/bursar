@@ -86,9 +86,9 @@ contract RetireRecords is Migration {
         _checkToken();
         if (open != 0 && !_envFlag("BURSAR_FORCE")) revert StillOpen(open);
 
-        string memory v1 = vm.envString(_key("BURSAR_V1_RECORD"));
-        string memory v2 = vm.envString(_key("BURSAR_V2_RECORD"));
-        string memory token = vm.envString(_key("BURSAR_TOKEN_RECORD"));
+        string memory v1 = _envString("BURSAR_V1_RECORD");
+        string memory v2 = _envString("BURSAR_V2_RECORD");
+        string memory token = _envString("BURSAR_TOKEN_RECORD");
         string memory next = vm.parseJsonString(_json(), K.NETWORK);
 
         _retire(

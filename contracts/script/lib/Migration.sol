@@ -30,8 +30,7 @@ abstract contract Migration is BursarScript {
     /// An address from a retiring record, which has to hold code: the migration only ever moves
     /// money out of contracts that are there.
     function _old(string memory recordEnv, string memory key) internal view returns (address at) {
-        string memory path = vm.envOr(_key(recordEnv), string(""));
-        if (bytes(path).length == 0) revert MissingEnv(_key(recordEnv));
+        string memory path = _envString(recordEnv);
         string memory json = vm.readFile(path);
         if (!vm.keyExistsJson(json, key)) revert NotRecorded(string.concat(path, " ", key));
         at = vm.parseJsonAddress(json, key);
@@ -40,7 +39,7 @@ abstract contract Migration is BursarScript {
 
     /// The same, for an entry that may be missing: an example mandate some records never had.
     function _oldOptional(string memory recordEnv, string memory key) internal view returns (address) {
-        string memory path = vm.envOr(_key(recordEnv), string(""));
+        string memory path = _envRaw(_key(recordEnv));
         if (bytes(path).length == 0) return address(0);
         string memory json = vm.readFile(path);
         return vm.keyExistsJson(json, key) ? vm.parseJsonAddress(json, key) : address(0);

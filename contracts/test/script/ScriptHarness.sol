@@ -77,7 +77,7 @@ abstract contract ScriptHarness is Test {
     }
 
     /// Applies a parameter file the way `source` would, under this suite's prefix: every
-    /// `export KEY=VALUE` line, quotes stripped. A value the shell has to compute is skipped, and
+    /// `export KEY=VALUE` line, quotes stripped. A value the shell has to expand is skipped, and
     /// the suite sets it itself.
     function _source(string memory file) internal {
         string[] memory lines = vm.split(vm.readFile(file), "\n");
@@ -88,7 +88,7 @@ abstract contract ScriptHarness is Test {
             uint256 at = vm.indexOf(assignment, "=");
             string[] memory parts = vm.split(assignment, "=");
             string memory value = vm.replace(vm.replace(parts.length > 1 ? parts[1] : "", '"', ""), "'", "");
-            if (at == type(uint256).max || vm.indexOf(value, "$(") != type(uint256).max) continue;
+            if (at == type(uint256).max || vm.indexOf(value, "$") != type(uint256).max) continue;
             _set(parts[0], value);
         }
     }

@@ -8,6 +8,19 @@ import {ScriptHarness} from "./ScriptHarness.sol";
 
 /// The record helpers every script shares, called one at a time.
 contract RecordProbe is BursarScript {
+    string internal node;
+    bool internal answers;
+
+    /// What the node calls itself, as though a fork of it were running.
+    function answerAs(string calldata node_) external {
+        node = node_;
+        answers = true;
+    }
+
+    function _clientVersion() internal override returns (string memory) {
+        return answers ? node : super._clientVersion();
+    }
+
     function writeAddress(string calldata key, address value) external {
         _write(key, value);
     }
@@ -56,7 +69,7 @@ contract RecordProbe is BursarScript {
         return _recordAddresses(key);
     }
 
-    function requireChain() external view {
+    function requireChain() external {
         _requireChain();
     }
 
@@ -78,6 +91,26 @@ contract RecordProbe is BursarScript {
 
     function settlementAsset() external view returns (address) {
         return _settlementAsset();
+    }
+
+    function envUint(string calldata key) external view returns (uint256) {
+        return _envUint(key);
+    }
+
+    function envAddressList(string calldata key) external view returns (address[] memory) {
+        return _envAddressList(key);
+    }
+
+    function envInt24(string calldata key) external view returns (int24) {
+        return _envInt24(key);
+    }
+
+    function utc(uint256 timestamp) external pure returns (string memory) {
+        return _utc(timestamp);
+    }
+
+    function until(uint256 timestamp) external view returns (string memory) {
+        return _until(timestamp);
     }
 }
 
@@ -115,6 +148,8 @@ contract RecordTest is ScriptHarness {
     function test_record_writesReadsAndRefusesInTheOrderAScriptMeetsThem() public {
         _whatIsWrittenIsWhatIsRead();
         _theChainTheFlagAndTheRecordHaveToAgree();
+        _aRehearsalRecordRunsOnlyOnAnvil();
+        _aValueThatDoesNotParseIsNamed();
         _whatIsRecordedIsNotDeployedTwice();
         _laterScriptsAreHeldToTheRecordedDeployKey();
         _aRoleIsReadOnceAndThenTheRecordAnswers();
@@ -218,6 +253,73 @@ contract RecordTest is ScriptHarness {
         probe.requireChain();
     }
 
+    /// A rehearsal chain answers as 4663, so the chain id cannot tell it from Robinhood Chain. The
+    /// node's own name can, and a rehearsal record runs only where that name is anvil.
+    function _aRehearsalRecordRunsOnlyOnAnvil() private {
+        _fresh();
+        RecordProbe node = new RecordProbe();
+        node.pinEnvPrefix(_prefix());
+
+        // A suite that has not forked a node runs on Foundry's own EVM, which nothing leaves.
+        node.requireChain();
+
+        string memory mainnet = "nitro/v3.12.0-rc.3+ebe9e83-20260916T211740Z/linux-amd64/go1.25.12";
+        node.answerAs(mainnet);
+        vm.expectRevert(abi.encodeWithSelector(BursarScript.NotAnvil.selector, mainnet));
+        node.requireChain();
+
+        node.answerAs("anvil/v1.8.1");
+        node.requireChain();
+
+        // A mainnet record never asks: the chain id and the flag already hold it to 4663.
+        path = _useRecord("record", _baseRecord("record", 4663, false, USDG));
+        _set("BURSAR_LOCAL", "0");
+        node.answerAs(mainnet);
+        node.requireChain();
+    }
+
+    /// Foundry reads a value it cannot parse as though the variable were unset. The scripts parse
+    /// each one themselves, so a typo is named with what was typed rather than reported missing.
+    function _aValueThatDoesNotParseIsNamed() private {
+        _fresh();
+        _set("BURSAR_FEE_BPS", "1%");
+        vm.expectRevert(abi.encodeWithSelector(BursarScript.InvalidEnv.selector, _key("BURSAR_FEE_BPS"), "1%"));
+        probe.envUint("BURSAR_FEE_BPS");
+
+        _set("BURSAR_FEE_BPS", " 100 ");
+        assertEq(probe.envUint("BURSAR_FEE_BPS"), 100);
+        _set("BURSAR_FEE_BPS", "");
+        vm.expectRevert(abi.encodeWithSelector(BursarScript.MissingEnv.selector, _key("BURSAR_FEE_BPS")));
+        probe.envUint("BURSAR_FEE_BPS");
+
+        address one = address(0x1001);
+        address two = address(0x1002);
+        _set("BURSAR_RESOLVERS", string.concat(vm.toString(one), ", ", vm.toString(two)));
+        address[] memory list = probe.envAddressList("BURSAR_RESOLVERS");
+        assertEq(list.length, 2);
+        assertEq(list[1], two);
+        string memory doubled = string.concat(vm.toString(one), ",,", vm.toString(two));
+        _set("BURSAR_RESOLVERS", doubled);
+        vm.expectRevert(abi.encodeWithSelector(BursarScript.InvalidEnv.selector, _key("BURSAR_RESOLVERS"), doubled));
+        probe.envAddressList("BURSAR_RESOLVERS");
+        _set("BURSAR_RESOLVERS", string.concat(vm.toString(one), ",resolver-2"));
+        vm.expectRevert(
+            abi.encodeWithSelector(BursarScript.InvalidEnv.selector, _key("BURSAR_RESOLVERS"), "resolver-2")
+        );
+        probe.envAddressList("BURSAR_RESOLVERS");
+        _unset("BURSAR_RESOLVERS");
+
+        _set("BURSAR_BUYBACK_POOL_TICK_SPACING", "-60");
+        assertEq(probe.envInt24("BURSAR_BUYBACK_POOL_TICK_SPACING"), -60);
+        _set("BURSAR_BUYBACK_POOL_TICK_SPACING", "sixty");
+        vm.expectRevert(
+            abi.encodeWithSelector(BursarScript.InvalidEnv.selector, _key("BURSAR_BUYBACK_POOL_TICK_SPACING"), "sixty")
+        );
+        probe.envInt24("BURSAR_BUYBACK_POOL_TICK_SPACING");
+        _unset("BURSAR_BUYBACK_POOL_TICK_SPACING");
+        _unset("BURSAR_FEE_BPS");
+    }
+
     /// A contract the record holds is not deployed a second time unless the operator says so, and
     /// an entry whose broadcast never landed is replaced without asking.
     function _whatIsRecordedIsNotDeployedTwice() private {
@@ -294,6 +396,24 @@ contract RecordTest is ScriptHarness {
         );
         probe.settlementAsset();
         _unset("BURSAR_SETTLEMENT_ASSET");
+    }
+
+    /// Dates a delay or an unbonding period ends on, as an operator reads them.
+    function test_record_datesReadTheWayACalendarDoes() public {
+        assertEq(probe.utc(0), "1970-01-01 00:00:00 UTC");
+        assertEq(probe.utc(951_782_400), "2000-02-29 00:00:00 UTC");
+        assertEq(probe.utc(1_709_164_800), "2024-02-29 00:00:00 UTC");
+        assertEq(probe.utc(1_790_592_800), "2026-09-28 10:53:20 UTC");
+        assertEq(probe.utc(4_102_444_799), "2099-12-31 23:59:59 UTC");
+        assertEq(probe.utc(253_402_300_799), "9999-12-31 23:59:59 UTC");
+
+        vm.warp(1_790_592_800);
+        assertEq(probe.until(block.timestamp), "now");
+        assertEq(probe.until(block.timestamp + 1), "1 second");
+        assertEq(probe.until(block.timestamp + 90), "90 seconds");
+        assertEq(probe.until(block.timestamp + 3600), "60 minutes");
+        assertEq(probe.until(block.timestamp + 48 hours - 1), "47 hours 59 minutes");
+        assertEq(probe.until(block.timestamp + 7 days + 1 hours), "7 days 1 hour");
     }
 
     /// The records in `deployments/`: every one on Robinhood Chain, none a rehearsal, each with a

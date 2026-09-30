@@ -127,7 +127,7 @@ contract DeployStaking is BursarScript {
         // The manager is Uniswap's, not ours, so it lives with the chain's other outside
         // contracts. A parameter file that still names one has to name the same.
         poolManager = _upstream(K.POOL_MANAGER);
-        address named = vm.envOr(_key("BURSAR_BUYBACK_POOL_MANAGER"), address(0));
+        address named = _envAddressOr("BURSAR_BUYBACK_POOL_MANAGER", address(0));
         if (named != address(0) && named != poolManager) revert RecordMismatch(K.POOL_MANAGER, poolManager, named);
         stateView = _upstream(K.STATE_VIEW);
 
@@ -151,7 +151,7 @@ contract DeployStaking is BursarScript {
         poolTickSpacing = _envInt24("BURSAR_BUYBACK_POOL_TICK_SPACING");
         // Zero is the ordinary case for a pool with no hook, so this one read takes the sentinel
         // and accepts the zero address.
-        poolHooks = vm.envOr(_key("BURSAR_BUYBACK_POOL_HOOKS"), UNSET_ADDRESS);
+        poolHooks = _envAddressOr("BURSAR_BUYBACK_POOL_HOOKS", UNSET_ADDRESS);
         if (poolHooks == UNSET_ADDRESS) revert MissingEnv(_key("BURSAR_BUYBACK_POOL_HOOKS"));
 
         (address c0, address c1) = asset < brsr ? (asset, brsr) : (brsr, asset);

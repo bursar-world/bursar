@@ -149,7 +149,7 @@ contract Deploy is BursarScript {
         // that never landed, and this run replaces it.
         address recorded = _recordAddress(K.ADMIN_TIMELOCK);
         if (recorded.code.length == 0) recorded = address(0);
-        address named = vm.envOr(_key("BURSAR_ADMIN_TIMELOCK"), address(0));
+        address named = _envAddressOr("BURSAR_ADMIN_TIMELOCK", address(0));
         if (recorded != address(0) && named != address(0) && named != recorded) {
             revert RecordMismatch(K.ADMIN_TIMELOCK, recorded, named);
         }
@@ -209,7 +209,7 @@ contract Deploy is BursarScript {
         address[] memory recorded = _recordAddresses(K.SIGNERS);
         string[3] memory names = ["BURSAR_TIMELOCK_SIGNER_1", "BURSAR_TIMELOCK_SIGNER_2", "BURSAR_TIMELOCK_SIGNER_3"];
         for (uint256 i; i < 3; ++i) {
-            address named = vm.envOr(_key(names[i]), address(0));
+            address named = _envAddressOr(names[i], address(0));
             if (recorded.length == 3) {
                 if (named != address(0) && named != recorded[i]) revert RecordMismatch(K.SIGNERS, recorded[i], named);
                 signers[i] = recorded[i];
@@ -320,7 +320,7 @@ contract Deploy is BursarScript {
     /// deploys. What lifts it is a phrase and not a boolean, because `true` is a word that
     /// arrives in a shell by accident and `i-accept-eoa-governance` is not.
     function _requireEoaGovernanceAccepted() private view {
-        string memory given = vm.envOr(_key("BURSAR_ALLOW_EOA_GOVERNANCE"), string(""));
+        string memory given = _envRaw(_key("BURSAR_ALLOW_EOA_GOVERNANCE"));
         if (bytes(given).length == 0) revert GovernanceHasNoMultisig();
         if (keccak256(bytes(given)) != keccak256(bytes(EOA_GOVERNANCE_ACK))) {
             revert EoaGovernanceNotAcknowledged(given, EOA_GOVERNANCE_ACK);

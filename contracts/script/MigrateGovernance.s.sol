@@ -117,8 +117,7 @@ contract MigrateGovernance is Governance {
     }
 
     function _oldAddress(string memory recordEnv, string memory key) private view returns (address at) {
-        string memory path = vm.envOr(_key(recordEnv), string(""));
-        if (bytes(path).length == 0) revert MissingEnv(_key(recordEnv));
+        string memory path = _envString(recordEnv);
         at = vm.parseJsonAddress(vm.readFile(path), key);
         if (at.code.length == 0) revert NotContract(key, at);
     }
