@@ -15,19 +15,7 @@ import {CollateralVault} from "../../src/rwa/CollateralVault.sol";
 import {CreditPool} from "../../src/rwa/CreditPool.sol";
 import {IAccessRegistry, IStateView} from "../../src/rwa/interfaces/IRwaExternal.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
-import {MockAccess, MockEscrow, MockFeed, MockStock, MockV4} from "./RwaMocks.sol";
-
-contract MockAccounts {
-    mapping(address => address[]) internal _list;
-
-    function add(address principal, address account) external {
-        _list[principal].push(account);
-    }
-
-    function accountsOf(address principal) external view returns (address[] memory) {
-        return _list[principal];
-    }
-}
+import {MockAccess, MockAccounts, MockEscrow, MockFeed, MockStock, MockV4} from "./RwaMocks.sol";
 
 contract MockStaking {
     IERC20 public immutable usdg;

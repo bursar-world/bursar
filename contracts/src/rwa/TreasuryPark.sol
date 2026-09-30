@@ -8,6 +8,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import {IMandateAccount} from "../interfaces/IMandateAccount.sol";
+import {IMandateAccountFactory} from "../interfaces/IMandateAccountFactory.sol";
 import {IParkAsset} from "./interfaces/IParkAsset.sol";
 import {ITreasuryPark} from "./interfaces/ITreasuryPark.sol";
 
@@ -37,7 +38,9 @@ contract ParkVault {
 /// Parking. The principal sends USDG from the mandate to `vaultOf(mandate)` with the mandate's
 /// own `withdraw`, then calls `park`. Only the amount above the principal's buffer can go: the
 /// mandate has to keep at least `buffer(mandate)` in USDG after the move, so spending keeps
-/// working while the market is closed and the treasury price is not trading.
+/// working while the market is closed and the treasury price is not trading. Only a mandate one
+/// of `factories` created can park; any other contract that answers `principal()` would book
+/// against the caps every mandate shares.
 ///
 /// Value. A position counts at raw × feed, less the asset's haircut, and only while the price
 /// guard calls it fresh: the feed inside the asset's valuation bound, the token, its oracle and
@@ -65,6 +68,7 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
     address public pendingAdmin;
 
     address[] private _adapters;
+    IMandateAccountFactory[] private _factories;
     mapping(address adapter => bool) public isAdapter;
     mapping(address mandate => mapping(address adapter => Position)) private _positions;
     mapping(address adapter => uint256) public totalBasis;
@@ -83,6 +87,7 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
     error NotDeployer();
     error NotOperator();
     error NotPrincipal();
+    error NotFactoryAccount(address mandate);
     error UnknownAdapter(address adapter);
     error ZeroAmount();
     error VaultShort(uint256 held, uint256 needed);
@@ -97,10 +102,11 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
         _;
     }
 
-    constructor(address usdg_, address admin_) {
+    constructor(address usdg_, address admin_, IMandateAccountFactory[] memory factories_) {
         usdg = IERC20(usdg_);
         admin = admin_;
         deployer = msg.sender;
+        _factories = factories_;
         emit AdminTransferred(address(0), admin_);
     }
 
@@ -145,6 +151,7 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
         returns (uint256 rawOut)
     {
         _onlyOperator(mandate);
+        if (!_fromFactory(mandate)) revert NotFactoryAccount(mandate);
         if (!isAdapter[adapter]) revert UnknownAdapter(adapter);
         if (usdgIn == 0) revert ZeroAmount();
 
@@ -225,6 +232,10 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
         return _adapters;
     }
 
+    function factories() external view returns (IMandateAccountFactory[] memory) {
+        return _factories;
+    }
+
     function vaultOf(address mandate) public view returns (address) {
         return Create2.computeAddress(bytes32(uint256(uint160(mandate))), keccak256(type(ParkVault).creationCode));
     }
@@ -298,6 +309,20 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
         p.raw -= uint128(raw);
         p.basis -= uint128(cut);
         totalBasis[adapter] -= cut;
+    }
+
+    /// The test `CollateralVault.openLine` applies: the mandate is on its principal's list at one
+    /// of the known factories.
+    function _fromFactory(address mandate) private view returns (bool) {
+        address principal = IMandateAccount(mandate).principal();
+        uint256 n = _factories.length;
+        for (uint256 i; i < n; ++i) {
+            address[] memory list = _factories[i].accountsOf(principal);
+            for (uint256 j; j < list.length; ++j) {
+                if (list[j] == mandate) return true;
+            }
+        }
+        return false;
     }
 
     function _onlyOperator(address mandate) private view {

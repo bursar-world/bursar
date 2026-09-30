@@ -179,6 +179,30 @@ contract MockV4 {
     }
 }
 
+/// The one factory read the RWA lane makes: which accounts a principal created.
+contract MockAccounts {
+    mapping(address => address[]) internal _list;
+
+    function add(address principal, address account) external {
+        _list[principal].push(account);
+    }
+
+    function accountsOf(address principal) external view returns (address[] memory) {
+        return _list[principal];
+    }
+}
+
+/// Answers `principal()` and `agent()` like a mandate and is nothing else.
+contract FakeMandate {
+    address public principal;
+    address public agent;
+
+    constructor(address p) {
+        principal = p;
+        agent = p;
+    }
+}
+
 contract MockEscrow {
     IERC20 public immutable asset;
     uint256 public next;

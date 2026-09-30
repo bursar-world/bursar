@@ -7,6 +7,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {MandateAccount} from "../../src/MandateAccount.sol";
 import {IMandateAccount} from "../../src/interfaces/IMandateAccount.sol";
+import {IMandateAccountFactory} from "../../src/interfaces/IMandateAccountFactory.sol";
 import {IPoolManager, PoolKey} from "../../src/token/Buyback.sol";
 import {AssetRegistry} from "../../src/rwa/AssetRegistry.sol";
 import {PriceGuard} from "../../src/rwa/PriceGuard.sol";
@@ -17,7 +18,7 @@ import {RobinhoodStockAdapter} from "../../src/rwa/adapters/RobinhoodStockAdapte
 import {UsdgAdapter} from "../../src/rwa/adapters/UsdgAdapter.sol";
 import {IAccessRegistry, IStateView} from "../../src/rwa/interfaces/IRwaExternal.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
-import {MockAccess, MockEscrow, MockFeed, MockStock, MockV4} from "./RwaMocks.sol";
+import {FakeMandate, MockAccess, MockAccounts, MockEscrow, MockFeed, MockStock, MockV4} from "./RwaMocks.sol";
 
 contract RwaTest is Test {
     uint256 internal constant SPY_E8 = 771_21266423;
@@ -34,6 +35,7 @@ contract RwaTest is Test {
     MockAccess access;
     MockV4 v4;
     MockEscrow escrow;
+    MockAccounts accounts;
 
     AssetRegistry reg;
     PriceGuard guard;
@@ -81,7 +83,10 @@ contract RwaTest is Test {
 
         guard = new PriceGuard(reg, IAccessRegistry(address(access)), IStateView(address(v4)));
         router = new StockSpendRouter(reg, guard, IPoolManager(address(v4)));
-        park = new TreasuryPark(address(usdg), admin);
+        accounts = new MockAccounts();
+        IMandateAccountFactory[] memory factories = new IMandateAccountFactory[](1);
+        factories[0] = IMandateAccountFactory(address(accounts));
+        park = new TreasuryPark(address(usdg), admin, factories);
         sgovAdapter = new RobinhoodStockAdapter(address(park), address(sgov), reg, guard, IPoolManager(address(v4)));
         usdgAdapter = new UsdgAdapter(address(park), address(usdg), 100e6, 1_000e6);
         address[] memory ads = new address[](2);
@@ -90,6 +95,7 @@ contract RwaTest is Test {
         park.initAdapters(ads);
 
         acct = new MandateAccount(principal, agent, address(usdg), address(escrow), _limits(7));
+        accounts.add(principal, address(acct));
         usdg.mint(address(acct), 200e6);
 
         vm.startPrank(principal);
@@ -457,6 +463,24 @@ contract RwaTest is Test {
         vm.prank(agent);
         uint256 out = acct.buy(address(spy), 2e6, 0, SPY_E8);
         assertGt(out, 0);
+    }
+
+    /// Anything that answers `principal()` could otherwise book against the caps every mandate
+    /// shares, and a real account the factory never made is no different.
+    function test_park_refusesNonFactoryMandate() public {
+        address griefer = makeAddr("griefer");
+        FakeMandate fake = new FakeMandate(griefer);
+        usdg.mint(park.vaultOf(address(fake)), 100e6);
+        vm.prank(griefer);
+        vm.expectRevert(abi.encodeWithSelector(TreasuryPark.NotFactoryAccount.selector, address(fake)));
+        park.park(address(fake), address(sgovAdapter), 100e6, 0);
+
+        MandateAccount stray = new MandateAccount(principal, agent, address(usdg), address(escrow), _limits(7));
+        usdg.mint(park.vaultOf(address(stray)), 10e6);
+        vm.prank(principal);
+        vm.expectRevert(abi.encodeWithSelector(TreasuryPark.NotFactoryAccount.selector, address(stray)));
+        park.park(address(stray), address(sgovAdapter), 10e6, 0);
+        assertEq(park.totalBasis(address(sgovAdapter)), 0);
     }
 
     function test_park_onlyOperators() public {
