@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { BaseError, RawContractError, decodeFunctionData, toFunctionSelector } from 'viem';
-import type { Address } from 'viem';
+import {
+  BaseError,
+  RawContractError,
+  decodeFunctionData,
+  encodeAbiParameters,
+  encodeEventTopics,
+  toFunctionSelector,
+} from 'viem';
+import type { Address, Log } from 'viem';
 import { escrowAbi, micro } from '@bursar/core';
 
 import { canonicalStringify, commitCanonical, toDataUri } from '../src/commit.js';
@@ -11,6 +18,21 @@ import { ADDRESSES, fakeConnection, type ReadCall } from './helpers/fake-connect
 
 const PAYER: Address = '0x1111111111111111111111111111111111111111';
 const PAYEE: Address = '0x2222222222222222222222222222222222222222';
+const V2_ESCROW: Address = '0x4315F8be7C9661345710910577Ec31cb867f3c20';
+
+function owedClaimed(party: Address, amount: bigint): Log {
+  return {
+    address: ADDRESSES.escrow,
+    topics: encodeEventTopics({ abi: escrowAbi, eventName: 'OwedClaimed', args: { party } }),
+    data: encodeAbiParameters([{ type: 'uint128' }], [amount]),
+    blockHash: `0x${'00'.repeat(32)}`,
+    blockNumber: 1n,
+    logIndex: 0,
+    transactionHash: `0x${'ab'.repeat(32)}`,
+    transactionIndex: 0,
+    removed: false,
+  } as Log;
+}
 
 const LOCK = {
   payer: PAYER,
@@ -43,8 +65,10 @@ function answers(overrides: Record<string, unknown> = {}) {
         return 86_400n;
       case 'disputeWindow':
         return 3_600n;
-      case 'disputeTimeoutPeriod':
-        return 86_400n;
+      case 'minLock':
+        return 10_000n;
+      case 'owed':
+        return 1_250_000n;
       case 'feeBps':
         return 50;
       case 'resolverFeeBps':
@@ -70,7 +94,60 @@ describe('escrow', () => {
     const jobs = await escrow(fakeConnection({ read: answers() }).connection);
 
     expect(jobs.address).toBe(ADDRESSES.escrow);
-    expect(jobs.terms).toMatchObject({ minTtl: 60n, maxTtl: 86_400n, feeBps: 50, disputeBondBps: 500 });
+    expect(jobs.terms).toMatchObject({ minTtl: 60n, maxTtl: 86_400n, minLock: 10_000n, feeBps: 50, disputeBondBps: 500 });
+  });
+
+  /** The v2 escrow on chain 4663 has no floor to read, and asking it for one reverts. */
+  it('reads an earlier escrow without asking it for a floor it does not have', async () => {
+    const fake = fakeConnection({ read: answers() });
+    const jobs = await escrow(fake.connection, V2_ESCROW);
+
+    expect(jobs.contractSet).toBe('v2');
+    expect(jobs.terms.minLock).toBe(1n);
+    expect(fake.reads.map((read) => read.functionName)).not.toContain('minLock');
+    expect(await jobs.owed(PAYEE)).toBe(0n);
+    await expect(jobs.claim(PAYEE)).rejects.toThrow(/Nothing is owed on this escrow/);
+  });
+
+  it('reads what a settlement could not pay a party', async () => {
+    const fake = fakeConnection({ read: answers() });
+    const jobs = await escrow(fake.connection);
+
+    expect(await jobs.owed(PAYEE)).toBe(1_250_000n);
+    expect(fake.reads.find((read) => read.functionName === 'owed')?.args).toEqual([PAYEE]);
+  });
+
+  it('claims for the party it names and reports what arrived', async () => {
+    const fake = fakeConnection({ read: answers(), logs: [owedClaimed(PAYEE, 1_250_000n)] });
+    const jobs = await escrow(fake.connection);
+
+    const receipt = await jobs.claim(PAYEE);
+
+    expect(decodeFunctionData({ abi: escrowAbi, data: fake.sent[0]?.data ?? '0x' })).toEqual({
+      functionName: 'claim',
+      args: [PAYEE],
+    });
+    expect(receipt.party).toBe(PAYEE);
+    expect(receipt.amount).toBe(1_250_000n);
+  });
+
+  it('claims for the signer when no party is named', async () => {
+    const fake = fakeConnection({ read: answers(), logs: [owedClaimed(PAYER, 5n)] });
+    const jobs = await escrow(fake.connection);
+
+    await jobs.claim();
+
+    expect(decodeFunctionData({ abi: escrowAbi, data: fake.sent[0]?.data ?? '0x' }).args).toEqual([
+      fake.account.address,
+    ]);
+  });
+
+  it('says so when nothing is owed rather than quoting the zero-amount error', async () => {
+    const jobs = await escrow(
+      fakeConnection({ read: answers(), simulate: reverting(toFunctionSelector('ZeroAmount()')) }).connection,
+    );
+
+    await expect(jobs.claim(PAYEE)).rejects.toThrow(`Nothing is owed to ${PAYEE} here.`);
   });
 
   it('decodes a lock into the six-decimal amounts the asset counts in', async () => {
@@ -144,7 +221,6 @@ describe('escrow', () => {
     await jobs.cancel(7n);
     await jobs.dispute(7n);
     await jobs.finalizeRelease(7n);
-    await jobs.disputeTimeout(7n);
 
     expect(
       fake.sent.map((transaction) => decodeFunctionData({ abi: escrowAbi, data: transaction.data })),
@@ -153,7 +229,6 @@ describe('escrow', () => {
       { functionName: 'cancel', args: [7n] },
       { functionName: 'dispute', args: [7n] },
       { functionName: 'finalizeRelease', args: [7n] },
-      { functionName: 'disputeTimeout', args: [7n] },
     ]);
   });
 

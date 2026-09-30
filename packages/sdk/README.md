@@ -150,7 +150,9 @@ const receipt = await mandate.pay({
 
 The payment goes into escrow against a deadline. The provider claims it by committing to what it
 delivered; a provider that never answers leaves the funds to be reclaimed with `timeout`, and the
-allowance the spend consumed is credited back to the window it came from.
+allowance the spend consumed is credited back to the window it came from. The escrow opens no lock
+under its floor, `terms.minLock` on the escrow client, and `pay` refuses a smaller amount before
+anything is sent.
 
 `receipt` carries the escrow id, the transaction hash, an explorer link, what each window now
 holds, and what is left.
@@ -276,6 +278,11 @@ await jobs.release({ id: escrowId, output: result, outputURI: 'ipfs://…' });
 
 Releasing commits to the delivered output and pays out in the same transaction. `timeout`,
 `cancel`, `dispute` and `finalizeRelease` are the other exits.
+
+A payout the token issuer blocks, because it has frozen the receiving address, does not hold up the
+rest of the settlement. The escrow keeps it as owed to that address: `jobs.owed(address)` reads it
+and `jobs.claim(address)` pays it out once the address can receive. Anyone can send the claim, and
+the money only ever goes to the address it is owed to.
 
 ## Notes
 

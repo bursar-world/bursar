@@ -39,7 +39,10 @@ export type FeedPrice = {
   /** USD per whole token, eight decimals. */
   readonly priceE8: bigint;
   readonly updatedAt: Date;
-  /** Inside the asset's valuation bound and the oracle is not paused. */
+  /**
+   * Inside the asset's valuation bound, with the token, its oracle and the access registry
+   * unpaused and the asset's pinned pool trading inside its band of the feed.
+   */
   readonly fresh: boolean;
 };
 
@@ -65,7 +68,7 @@ export type ParkedPosition = {
   readonly raw: bigint;
   /** USDG put in, less the share already unparked. */
   readonly basis: Micro;
-  /** raw × feed price. Zero when the price is stale. */
+  /** raw × feed price. Zero when the price is not fresh. */
   readonly value: Micro;
   readonly priceE8: bigint;
   readonly updatedAt: Date;
@@ -385,7 +388,10 @@ export class RwaClient {
     return { withdraw, park };
   }
 
-  /** Principal or agent. Sells `raw` (or the whole position) back to USDG, delivered to the mandate. */
+  /**
+   * Principal or agent. Sells `raw` (or the whole position) back to USDG, delivered to the mandate.
+   * Open from an adapter governance has disabled too: disabling one stops new parks, never exits.
+   */
   async unpark(from = 'SGOV', raw?: bigint): Promise<Sent> {
     const adapter = this.adapter(from);
     const amount = raw ?? (await this.parked()).find((p) => p.adapter === adapter)?.raw ?? 0n;

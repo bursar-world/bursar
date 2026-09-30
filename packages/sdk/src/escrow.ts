@@ -1,13 +1,14 @@
-import { encodeFunctionData, getContract } from 'viem';
+import { encodeFunctionData, getContract, parseEventLogs } from 'viem';
 import type { Address, Chain, GetContractReturnType, Hex, PublicClient, Transport } from 'viem';
-import { escrowAbi, micro } from '@bursar/core';
-import type { Micro } from '@bursar/core';
+import { CURRENT_CONTRACT_SET, ZERO_MICRO, contractSetOfEscrow, escrowAbi, micro } from '@bursar/core';
+import type { ContractSet, Micro } from '@bursar/core';
 
 import { canonicalStringify, commitCanonical, toDataUri } from './commit.js';
-import { connectFor, type Connection, type ConnectOptions } from './connection.js';
-import { CallRefusedError, InvalidArgumentError } from './errors.js';
+import { connectFor, requireSigner, type Connection, type ConnectOptions } from './connection.js';
+import { CallRefusedError, InvalidArgumentError, MissingEventError } from './errors.js';
 import { formatDuration, toDate } from './format.js';
-import { checkBytes32, checkEscrowId } from './guards.js';
+import { checkAddress, checkBytes32, checkEscrowId } from './guards.js';
+import { logsFrom } from './receipt.js';
 import { sendCall, type ExplainRevert, type Sent } from './send.js';
 import { toLockStatus, type Lock } from './types.js';
 
@@ -37,11 +38,21 @@ export type EscrowTerms = {
   readonly minTtl: bigint;
   readonly maxTtl: bigint;
   readonly disputeWindow: bigint;
-  readonly disputeTimeoutPeriod: bigint;
+  /**
+   * The smallest lock the escrow opens, sized so that contesting one always costs a bond. Escrows
+   * before v3 refuse only an empty lock, so theirs reads as one micro-USDG.
+   */
+  readonly minLock: Micro;
   readonly feeBps: number;
   readonly resolverFeeBps: number;
   readonly disputeBondBps: number;
 };
+
+/** A payout the escrow booked and has now paid. */
+export type OwedClaimReceipt = Sent & { readonly party: Address; readonly amount: Micro };
+
+/** What an escrow before v3 answers for `minLock`: it refuses a lock of zero and nothing else. */
+const ONE_MICRO = micro(1n);
 
 /**
  * The escrow from the provider's side of the trade.
@@ -54,13 +65,16 @@ export class EscrowClient {
   readonly address: Address;
   readonly connection: Connection;
   readonly terms: EscrowTerms;
+  /** The build this escrow runs. Only v3 books payouts as owed. */
+  readonly contractSet: ContractSet;
 
   readonly #escrow: EscrowContract;
 
-  constructor(init: { address: Address; connection: Connection; terms: EscrowTerms }) {
+  constructor(init: { address: Address; connection: Connection; terms: EscrowTerms; contractSet?: ContractSet }) {
     this.address = init.address;
     this.connection = init.connection;
     this.terms = init.terms;
+    this.contractSet = init.contractSet ?? CURRENT_CONTRACT_SET;
     this.#escrow = getContract({
       address: init.address,
       abi: escrowAbi,
@@ -171,21 +185,58 @@ export class EscrowClient {
   }
 
   /**
-   * Permissionless refund of a dispute no resolver ruled on. Without it, a resolver that stops
-   * answering would hold the payer's funds indefinitely.
+   * What the escrow is holding for `party` because a settlement could not pay it at the time,
+   * usually because the token issuer had frozen the address. Zero on an escrow before v3, which
+   * paid every leg at once or not at all.
    */
-  async disputeTimeout(id: bigint): Promise<Sent> {
-    return this.#send(
-      'disputeTimeout',
-      encodeFunctionData({ abi: escrowAbi, functionName: 'disputeTimeout', args: [checkEscrowId('id', id)] }),
+  async owed(party?: Address): Promise<Micro> {
+    const who = this.#party('owed', party);
+    if (this.contractSet !== 'v3') return ZERO_MICRO;
+    return micro(await this.#escrow.read.owed([who]));
+  }
+
+  /**
+   * Pays out what the escrow is holding for `party`, the caller's own address unless another is
+   * named. Anyone may send it and the money only ever goes to `party`, which is what lets a mandate
+   * account or a frozen-then-cleared wallet be paid without a call of its own.
+   */
+  async claim(party?: Address): Promise<OwedClaimReceipt> {
+    const who = this.#party('claim', party);
+
+    if (this.contractSet !== 'v3') {
+      throw new CallRefusedError(
+        'ZeroAmount',
+        'Nothing is owed on this escrow. It pays each party when a settlement goes through, and a ' +
+          'settlement it cannot pay does not go through, so it never holds a payout for later.',
+        { escrow: this.address, party: who },
+      );
+    }
+
+    const sent = await this.#send(
+      'claim',
+      encodeFunctionData({ abi: escrowAbi, functionName: 'claim', args: [who] }),
+      who,
     );
+
+    const claimed = parseEventLogs({
+      abi: escrowAbi,
+      eventName: 'OwedClaimed',
+      logs: logsFrom(sent.receipt.logs, this.address),
+    })[0];
+    if (!claimed) throw new MissingEventError('OwedClaimed', this.address, sent.hash);
+
+    return { ...sent, party: claimed.args.party, amount: micro(claimed.args.amount) };
   }
 
-  #send(action: string, data: Hex): Promise<Sent> {
-    return sendCall(this.connection, { to: this.address, data, action, explain: this.#explain(action) });
+  #party(action: string, party: Address | undefined): Address {
+    return party === undefined ? requireSigner(this.connection, action).account.address : checkAddress('party', party);
   }
 
-  #explain(action: string): ExplainRevert {
+  #send(action: string, data: Hex, party?: Address): Promise<Sent> {
+    return sendCall(this.connection, { to: this.address, data, action, explain: this.#explain(action, party) });
+  }
+
+  #explain(action: string, party?: Address): ExplainRevert {
     return async (revert) => {
       switch (revert?.errorName) {
         case 'NotPayee':
@@ -233,6 +284,15 @@ export class EscrowClient {
               'the locked amount, and the escrow has to be approved to take it first.',
           );
 
+        case 'ZeroAmount':
+          return action === 'claim'
+            ? new CallRefusedError(
+                revert.errorName,
+                `Nothing is owed to ${party ?? 'this address'} here. The escrow holds a payout only when a ` +
+                  'settlement could not deliver it, and pays it out once.',
+              )
+            : undefined;
+
         default:
           return undefined;
       }
@@ -250,40 +310,25 @@ export async function escrow(
 ): Promise<EscrowClient> {
   const connection = connectFor(options, 'escrow()');
   const address = at ?? connection.addresses.escrow;
+  const contractSet = contractSetOfEscrow(address) ?? CURRENT_CONTRACT_SET;
   const read = getContract({ address, abi: escrowAbi, client: connection.publicClient }).read;
 
-  const [
-    settlementAsset,
-    minTtl,
-    maxTtl,
-    disputeWindow,
-    disputeTimeoutPeriod,
-    feeBps,
-    resolverFeeBps,
-    disputeBondBps,
-  ] = await Promise.all([
-    read.settlementAsset(),
-    read.minTtl(),
-    read.maxTtl(),
-    read.disputeWindow(),
-    read.disputeTimeoutPeriod(),
-    read.feeBps(),
-    read.resolverFeeBps(),
-    read.disputeBondBps(),
-  ]);
+  const [settlementAsset, minTtl, maxTtl, disputeWindow, minLock, feeBps, resolverFeeBps, disputeBondBps] =
+    await Promise.all([
+      read.settlementAsset(),
+      read.minTtl(),
+      read.maxTtl(),
+      read.disputeWindow(),
+      contractSet === 'v3' ? read.minLock().then(micro) : Promise.resolve(ONE_MICRO),
+      read.feeBps(),
+      read.resolverFeeBps(),
+      read.disputeBondBps(),
+    ]);
 
   return new EscrowClient({
     address,
     connection,
-    terms: {
-      settlementAsset,
-      minTtl,
-      maxTtl,
-      disputeWindow,
-      disputeTimeoutPeriod,
-      feeBps,
-      resolverFeeBps,
-      disputeBondBps,
-    },
+    contractSet,
+    terms: { settlementAsset, minTtl, maxTtl, disputeWindow, minLock, feeBps, resolverFeeBps, disputeBondBps },
   });
 }

@@ -2,6 +2,7 @@ import { encodeFunctionData, getContract, parseEventLogs } from 'viem';
 import type { Address, GetContractReturnType, Hex, PublicClient, Transport, Chain, TypedDataDomain } from 'viem';
 import {
   CLASS_MASK_ALL,
+  CURRENT_CONTRACT_SET,
   DEFAULT_CLASS_MASK,
   SPEND_CLASS_BIT,
   SpendClassError,
@@ -249,6 +250,8 @@ export type WithdrawArgs = {
 type EscrowBounds = {
   readonly minTtl: bigint;
   readonly maxTtl: bigint;
+  /** The smallest lock the escrow opens. One micro-USDG on an escrow before v3. */
+  readonly minLock: Micro;
   readonly reputation: Address;
   readonly registry: Address;
 };
@@ -419,7 +422,7 @@ export class MandateAccountClient {
     terms: EscrowBounds;
     contractSet?: ContractSet;
   }) {
-    this.contractSet = init.contractSet ?? 'v2';
+    this.contractSet = init.contractSet ?? CURRENT_CONTRACT_SET;
     this.address = init.address;
     this.connection = init.connection;
     this.escrow = init.escrow;
@@ -727,6 +730,14 @@ export class MandateAccountClient {
     // Before the deadline read, so a read-only client is told it cannot pay under the name of the
     // call it made, not the contract function underneath it.
     requireSigner(this.connection, action);
+    // The account's own preview does not know the escrow's floor, so a payment under it would pass
+    // every limit and then revert inside the lock.
+    if (amount < this.#terms.minLock) {
+      throw new CallRefusedError('BelowMinLock', belowMinLock(amount, this.#terms.minLock), {
+        amount: amount.toString(),
+        minLock: this.#terms.minLock.toString(),
+      });
+    }
     const { commit: inputCommit, uri: inputURI } = this.#input(request);
     const deadline = await this.#deadline(request);
     const proof = request.merchantProof === undefined ? [] : checkProof('merchantProof', request.merchantProof);
@@ -1389,6 +1400,15 @@ export class MandateAccountClient {
         );
       }
 
+      if (revert?.errorName === 'AlreadyPrincipal') {
+        return new CallRefusedError(
+          revert.errorName,
+          'That address is already the principal. Naming it again would revoke nothing it has signed; ' +
+            'withdraw an approval with revokeApproval instead.',
+          { mandate: this.address },
+        );
+      }
+
       if (revert?.errorName === 'NotPendingPrincipal') {
         const pending = await this.#account.read.pendingPrincipal();
         return new CallRefusedError(
@@ -1523,6 +1543,12 @@ export class MandateAccountClient {
           { minTtl: this.#terms.minTtl.toString(), maxTtl: this.#terms.maxTtl.toString() },
         );
 
+      case 'BelowMinLock':
+        return new CallRefusedError(revert.errorName, belowMinLock(context.amount, this.#terms.minLock), {
+          amount: context.amount.toString(),
+          minLock: this.#terms.minLock.toString(),
+        });
+
       case 'TransferMismatch':
         return new CallRefusedError(
           revert.errorName,
@@ -1637,12 +1663,18 @@ export async function mandateAccount(
     () => new NotAMandateAccountError({ address: account, contract: 'account' }),
   );
 
-  const [minTtl, maxTtl, reputation, registry] = await discover(
+  // An escrow no record names is a local or forked deployment, which runs the current source.
+  const contractSet = contractSetOfEscrow(escrow) ?? CURRENT_CONTRACT_SET;
+
+  const [minTtl, maxTtl, reputation, registry, minLock] = await discover(
     Promise.all([
       client.readContract({ address: escrow, abi: escrowAbi, functionName: 'minTtl' }),
       client.readContract({ address: escrow, abi: escrowAbi, functionName: 'maxTtl' }),
       client.readContract({ address: escrow, abi: escrowAbi, functionName: 'reputation' }),
       client.readContract({ address: escrow, abi: escrowAbi, functionName: 'registry' }),
+      contractSet === 'v3'
+        ? client.readContract({ address: escrow, abi: escrowAbi, functionName: 'minLock' })
+        : Promise.resolve(1n),
     ]),
     () => new NotAMandateAccountError({ address: escrow, contract: 'escrow', account }),
   );
@@ -1652,10 +1684,17 @@ export async function mandateAccount(
     connection,
     escrow,
     settlementAsset,
-    terms: { minTtl, maxTtl, reputation, registry },
-    // An escrow no record names is a local or forked deployment, which runs the current source.
-    contractSet: contractSetOfEscrow(escrow) ?? 'v2',
+    terms: { minTtl, maxTtl, minLock: micro(minLock), reputation, registry },
+    contractSet,
   });
+}
+
+function belowMinLock(amount: Micro, minLock: Micro): string {
+  return (
+    `The escrow opens no lock under ${usd(minLock)}, and this payment is ${usd(amount)}. The floor ` +
+    'keeps every payment large enough that contesting it costs a bond. Nothing was sent; pay at ' +
+    'least the floor.'
+  );
 }
 
 /**

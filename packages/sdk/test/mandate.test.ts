@@ -73,6 +73,8 @@ function answers(overrides: Record<string, unknown> = {}) {
         return 60n;
       case 'maxTtl':
         return 86_400n;
+      case 'minLock':
+        return 10_000n;
       case 'reputation':
         return ADDRESSES.reputation;
       case 'registry':
@@ -333,6 +335,17 @@ describe('pay', () => {
 
     // One second over the floor reverts BadTtl as soon as the spend waits a block to land.
     expect((call.args?.[0] as { deadline: bigint }).deadline).toBe(CHAIN_NOW + 660n);
+  });
+
+  it('refuses a payment under the escrow floor before the transaction is paid for', async () => {
+    const { mandate, sent } = await client();
+
+    const failure = await failureOf(mandate.pay({ to: PROVIDER, amount: usdg('0.005'), capability: CAPABILITY }));
+
+    expect(failure).toBeInstanceOf(CallRefusedError);
+    expect((failure as CallRefusedError).errorName).toBe('BelowMinLock');
+    expect(failure.message).toContain('opens no lock under 0.01 USDG, and this payment is 0.005 USDG');
+    expect(sent).toHaveLength(0);
   });
 
   it('refuses a ttl the escrow would reject, before the transaction is paid for', async () => {
@@ -691,6 +704,12 @@ describe('principal calls', () => {
     ).rejects.toThrow('passed its deadline before it reached the chain');
   });
 
+  it('refuses to hand the mandate to the principal it already has', async () => {
+    const { mandate } = await client({ simulate: reverting(toFunctionSelector('AlreadyPrincipal()')) });
+
+    await expect(mandate.transferPrincipal(PRINCIPAL)).rejects.toThrow('That address is already the principal.');
+  });
+
   it('names the call that was handed a zero address', async () => {
     const { mandate } = await client({ simulate: reverting(toFunctionSelector('ZeroAddress()')) });
 
@@ -926,6 +945,8 @@ describe('contract sets', () => {
 
     expect(mandate.contractSet).toBe('v2');
     expect(await mandate.total()).toEqual({ cap: 1_000_000n, spent: 250_000n, remaining: 750_000n });
+    // A v2 escrow has no floor to read; asking it for one would revert.
+    expect(reads.map((call) => call.functionName)).not.toContain('minLock');
 
     await mandate.preview({ to: PROVIDER, amount: usdg('0.10'), capability: CAPABILITY, spendClass: 'hire' });
     expect(reads.find((call) => call.functionName === 'previewSpend')?.args[3]).toBe(1);

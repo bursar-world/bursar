@@ -1,6 +1,6 @@
 import { domainSeparator } from 'viem';
 import type { Address, Hex, TypedDataDomain } from 'viem';
-import { BursarError, mandateAccountAbi } from '@bursar/core';
+import { BursarError, CURRENT_CONTRACT_SET, mandateAccountAbi } from '@bursar/core';
 import type { ContractSet } from '@bursar/core';
 
 import { requireSigner, type Connection } from './connection.js';
@@ -154,7 +154,7 @@ export async function signLimitsAuthorization(
   limits: MandateLimits,
   nonce: bigint,
   deadline: bigint,
-  contractSet: ContractSet = 'v2',
+  contractSet: ContractSet = CURRENT_CONTRACT_SET,
 ): Promise<LimitsAuthorization> {
   const { walletClient, account } = requireSigner(connection, 'signLimits');
   const domain = await assertMandateDomain(connection, mandate);

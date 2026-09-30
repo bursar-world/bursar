@@ -469,6 +469,8 @@ describe('the message a refused spend produces', () => {
         return 300n;
       case 'maxTtl':
         return 86_400n;
+      case 'minLock':
+        return 10_000n;
       case 'limits':
         return {
           perCallCap: 2_000_000n,

@@ -56,9 +56,14 @@ export type CollateralPosition = {
   readonly raw: bigint;
   readonly priceE8: bigint;
   readonly updatedAt: Date;
+  /**
+   * The position counts: its price is inside the valuation bound, the token, its oracle and the
+   * access registry are unpaused, and the asset's pool trades inside its band of the feed.
+   */
   readonly fresh: boolean;
+  /** The haircut that applies now. Draws and withdrawals are checked at the after-hours one. */
   readonly haircutBps: number;
-  /** raw × feed price. Zero when the price is stale or the oracle is paused. */
+  /** raw × feed price. Zero whenever the position is not fresh. */
   readonly value: Micro;
   /** Value after the haircut. */
   readonly adjusted: Micro;
@@ -71,9 +76,17 @@ export type CollateralAccount = {
   readonly value: Micro;
   readonly adjusted: Micro;
   readonly debt: Micro;
-  /** What the mandate can still draw on credit. */
+  /**
+   * What the mandate can still draw on credit. Measured with every position at its after-hours
+   * haircut whatever the clock says, so a line drawn in session does not fall under 1.0 when the
+   * market closes.
+   */
   readonly headroom: Micro;
-  /** 1e18 = 1.0. The maximum uint256 when nothing is owed. */
+  /**
+   * The liquidation trigger, 1e18 = 1.0, at the haircuts that apply now. It counts a position whose
+   * pool has left its band at the feed, so it can read higher than `adjusted` over `debt`. The
+   * maximum uint256 when nothing is owed.
+   */
   readonly healthE18: bigint;
   /** Health as a ratio, or null when nothing is owed. */
   readonly health: number | null;
@@ -282,7 +295,10 @@ export class CollateralClient {
     return { ...(approve ? { approve } : {}), deposit };
   }
 
-  /** Principal only. Takes collateral back; refused if what stays would not carry the debt. */
+  /**
+   * Principal only. Takes collateral back; refused if what stays would not carry the debt with every
+   * position at its after-hours haircut.
+   */
   async withdraw(assetOrSymbol: string, raw: bigint, to: Address): Promise<Sent> {
     const asset = this.resolve(assetOrSymbol);
     return sendCall(this.mandate.connection, {
@@ -320,7 +336,12 @@ export class CollateralClient {
     return { ...(approve ? { approve } : {}), repay, amount: micro(value) };
   }
 
-  /** Anyone. Sells the slice of `asset` that restores health, through the asset's pinned pool, for a bounty. */
+  /**
+   * Anyone. Sells the slice of `asset` that restores health, through the asset's pinned pool, for a
+   * bounty. The sale needs a fresh, unpaused price with the pool inside its band before and after the
+   * trade; otherwise it reverts and the sale waits for the price. A line with nothing left to sell
+   * has its debt written off instead.
+   */
   async liquidate(assetOrSymbol: string): Promise<Sent> {
     return sendCall(this.mandate.connection, {
       to: this.lane.CollateralVault,

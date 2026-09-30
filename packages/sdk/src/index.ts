@@ -43,7 +43,7 @@ export type {
 } from './collateral.js';
 
 export { EscrowClient, escrow } from './escrow.js';
-export type { EscrowTerms, ReleaseArgs } from './escrow.js';
+export type { EscrowTerms, OwedClaimReceipt, ReleaseArgs } from './escrow.js';
 
 export {
   MAX_JOB_BYTES,

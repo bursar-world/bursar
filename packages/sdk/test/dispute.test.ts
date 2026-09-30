@@ -63,8 +63,6 @@ function answers(overrides: Record<string, unknown> = {}) {
         return 50;
       case 'disputeBondBps':
         return 500;
-      case 'disputeTimeoutPeriod':
-        return 172_800n;
       case 'config':
         return CONFIG;
       case 'getLock':
@@ -105,7 +103,8 @@ describe('a contested payment, from the side that paid', () => {
     expect(record?.openedBy).toBe(PAYER);
     expect(record?.bond).toBe(125_000n);
     expect(record?.commitEndsAt?.toISOString()).toBe(new Date(Number(OPENED_AT + 21_600n) * 1000).toISOString());
-    expect(record?.resolveBy?.toISOString()).toBe(new Date(Number(OPENED_AT + 172_800n) * 1000).toISOString());
+    // The vote closes at the end of the reveal window, and from then anyone can settle it.
+    expect(record?.resolveBy?.toISOString()).toBe(new Date(Number(VOTE.revealEndsAt) * 1000).toISOString());
     expect(record?.ruling).toBeNull();
     expect(record?.next).toContain('sealing their scores');
   });

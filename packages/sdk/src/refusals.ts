@@ -53,9 +53,9 @@ const RESOLVER: Readonly<Record<OracleErrorName, Written>> = {
   RosterFull: {
     owner: 'clock',
     message:
-      'Every seat is taken: the roster is capped so one finalisation stays inside a block, and a ' +
-      'dispute is capped at maxVoters commitments. Read the dispute again once a seat frees up, or ' +
-      'wait for the next one.',
+      'Every seat on the roster is taken. It holds 64 resolvers so one finalisation stays inside a ' +
+      'block, and every seated resolver may vote on every dispute. A seat frees when a resolver ' +
+      'completes its exit or governance evicts one; register again then.',
   },
   BondTooSmall: {
     owner: 'caller',
@@ -74,9 +74,9 @@ const RESOLVER: Readonly<Record<OracleErrorName, Written>> = {
   BondLocked: {
     owner: 'clock',
     message:
-      'This bond is backing a vote that has not settled, so it cannot leave. The cooldown alone does ' +
-      'not release it. Finalize the disputes this resolver committed to, or wait for someone else ' +
-      'to, and complete the unbonding after.',
+      'This bond is backing a vote that has not settled, so it cannot leave and governance cannot ' +
+      'evict it. The cooldown alone does not release it. Finalize the disputes this resolver ' +
+      'committed to, or wait for someone else to, and complete the unbonding after.',
   },
   StakingNotSet: {
     owner: 'deployment',
@@ -177,20 +177,22 @@ const RESOLVER: Readonly<Record<OracleErrorName, Written>> = {
     owner: 'caller',
     message:
       'Too few resolvers revealed for this vote to be a result. Close it with failDispute instead, ' +
-      'which refunds the payer in full and leaves the provider unpaid.',
+      'which puts the payment back on hold with a new deadline and returns the bond to whoever ' +
+      'contested it.',
   },
   QuorumSuspect: {
     owner: 'caller',
     message:
       'Most of the revealed scores sit outside the deviation band, so the vote has no centre to rule ' +
-      'from. The dispute fails and the payer is refunded. Nobody is slashed for disagreeing, because ' +
-      'nothing here can tell which side was honest.',
+      'from. Close it with failDispute, which puts the payment back on hold with a new deadline. ' +
+      'Nobody is slashed for disagreeing, because nothing here can tell which side was honest.',
   },
   NothingToClaim: {
     owner: 'caller',
     message:
-      'No rewards are owed to this address. A share of the resolver fee lands only on the resolvers ' +
-      'who revealed inside the deviation band of a dispute that produced a result.',
+      'There is nothing here to pay out. A share of the resolver fee lands only on the resolvers ' +
+      'who revealed inside the deviation band of a dispute that produced a result, and a sweep ' +
+      'finds nothing when the registry holds no more than the rewards it owes.',
   },
   NotEscrow: {
     owner: 'caller',
@@ -201,12 +203,8 @@ const RESOLVER: Readonly<Record<OracleErrorName, Written>> = {
   PartyCannotVote: {
     owner: 'caller',
     message:
-      'This address is the payer or the payee on the payment under dispute, so it cannot vote on it. ' +
-      'Another bonded resolver has to rule.',
-  },
-  NotPauser: {
-    owner: 'governance',
-    message: 'Only the guardian set on the registry can pause or unpause it.',
+      'This address is the payer, the payee, or the principal the paying account named when the ' +
+      'dispute opened, so it cannot vote on it. Another bonded resolver has to rule.',
   },
   EnforcedPause: {
     owner: 'governance',
@@ -243,9 +241,10 @@ const RESOLVER: Readonly<Record<OracleErrorName, Written>> = {
   BadConfig: {
     owner: 'governance',
     message:
-      'The proposed voting parameters are not usable together: the windows have to be non-zero, ' +
-      'quorum has to fit inside maxVoters, maxVoters inside the roster, the slash has to be more ' +
-      'than nothing, and the cooldown has to outlast a whole vote. The parameters in force are unchanged.',
+      'The proposed voting parameters are not usable together: each window has to be at least ten ' +
+      'minutes, quorum has to be at least one and fit inside the 64-seat roster, maxVoters has to ' +
+      'seat the whole roster, the slash has to be more than nothing, and the cooldown has to outlast ' +
+      'a whole vote. The parameters in force are unchanged.',
   },
   ZeroAmount: {
     owner: 'caller',

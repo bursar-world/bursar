@@ -67,6 +67,8 @@ function answers(overrides: Record<string, unknown> = {}) {
         return 60n;
       case 'maxTtl':
         return 86_400n;
+      case 'minLock':
+        return 10_000n;
       case 'reputation':
         return ADDRESSES.reputation;
       case 'registry':

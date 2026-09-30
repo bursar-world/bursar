@@ -89,8 +89,9 @@ export type DisputeRecord = {
   readonly commitCount: number;
   readonly revealCount: number;
   /**
-   * When the held funds and the bond come back to the payer if no ruling has landed. The escrow
-   * enforces it, so a resolver quorum that goes quiet cannot hold a payment indefinitely.
+   * When the vote closes. From then anyone can settle it: `finalize` applies the ruling, and
+   * `failDispute` puts the payment back on hold with a new deadline and returns the bond when too
+   * few resolvers revealed, so a quiet quorum cannot hold a payment. Null when no vote was opened.
    */
   readonly resolveBy: Date | null;
   readonly ruling: DisputeRuling | null;
@@ -131,7 +132,6 @@ type EscrowFees = {
   readonly feeBps: number;
   readonly resolverFeeBps: number;
   readonly disputeBondBps: number;
-  readonly disputeTimeoutPeriod: bigint;
 };
 
 /**
@@ -248,7 +248,7 @@ export class DisputeClient {
       revealEndsAt: vote === null ? null : toDate(vote.revealEndsAt),
       commitCount: vote?.commitCount ?? 0,
       revealCount: vote?.revealCount ?? 0,
-      resolveBy: recordOnly ? null : toDate(lock.disputedAt + this.fees.disputeTimeoutPeriod),
+      resolveBy: vote === null ? null : toDate(vote.revealEndsAt),
       ruling,
       settlementStatus: lock.status,
       next: nextFor({ phase, recordOnly, ruling, status: lock.status, hasResolver: this.hasResolver }),
@@ -300,7 +300,10 @@ function nextFor(state: {
     case 'committing':
       return 'Resolvers are sealing their scores. Nothing to decide until the vote closes.';
     case 'revealing':
-      return 'Resolvers are publishing the scores they sealed. Read this again for the ruling.';
+      return (
+        'Resolvers are publishing the scores they sealed. Once the reveal window closes anyone can ' +
+        'settle the vote, and the escrow moves the money on the result. Read this again for the ruling.'
+      );
     case 'failed':
       if (state.status === LockStatus.Locked) {
         return (
@@ -339,12 +342,11 @@ export async function disputes(
     client: connection.publicClient,
   }).read;
 
-  const [registry, feeBps, resolverFeeBps, disputeBondBps, disputeTimeoutPeriod] = await Promise.all([
+  const [registry, feeBps, resolverFeeBps, disputeBondBps] = await Promise.all([
     read.resolver(),
     read.feeBps(),
     read.resolverFeeBps(),
     read.disputeBondBps(),
-    read.disputeTimeoutPeriod(),
   ]);
 
   return new DisputeClient({
@@ -352,7 +354,7 @@ export async function disputes(
     escrow: escrowAddress,
     registry,
     terms: await readTerms(connection.publicClient, registry),
-    fees: { feeBps, resolverFeeBps, disputeBondBps, disputeTimeoutPeriod },
+    fees: { feeBps, resolverFeeBps, disputeBondBps },
   });
 }
 
