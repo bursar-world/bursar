@@ -61,10 +61,12 @@ grep BURSAR_EXAMPLE_PAYEE script/env/rhc-mainnet-v3.env            # payee
 **Balances.** Every key above needs ETH for gas. In the rehearsal the deploy key spent about 53
 million gas across all its steps, the payer about 11 million, the first signer about 3 million and
 every other key under 1 million. At the 0.025 gwei the chain charged when this was written, that is
-0.0013 ETH for the deploy key and well under 0.001 ETH for each of the others. The treasury needs
-90,000 BRSR for the three new bonds and gets 150,000 back a week later, when the six old bonds
-mature. The payee needs 5 USDG, the new agent registry's minimum stake: step 3 sends it from the
-credit pool's returned cash, and its two old stakes, 10 USDG, come back a week later.
+0.0013 ETH for the deploy key and well under 0.001 ETH for each of the others. The deploy key also
+needs at least 1 USDG before step 1: `Deploy.s.sol` refuses to run with less, as proof that the
+record's settlement asset is the USDG the set will settle in, and spends none of it. The treasury
+needs 90,000 BRSR for the three new bonds and gets 150,000 back a week later, when the six old
+bonds mature. The payee needs 5 USDG, the new agent registry's minimum stake: step 3 sends it from
+the credit pool's returned cash, and its two old stakes, 10 USDG, come back a week later.
 
 **The shell.** Every command below runs in one shell set up like this. Start it fresh: a shell
 where `script/env/local.env` was sourced points the scripts at a local chain.
@@ -130,7 +132,7 @@ the earlier records `retired` and the new one `live`. If the chain has moved sin
 | 2. Propose the wiring and the handover | signer 1, signer 2 | |
 | 3. Move what needs no governance | deploy key, payer, payee, liquidity key | |
 | 4. The wiring lands; resolvers bond | any signer, treasury, resolvers, payer | one hour after step 2 |
-| 5. The handover lands | any signer | 48 hours after step 2 |
+| 5. The handover lands | any signer | 48 hours after step 2, and within 14 days of it |
 | 6. Old bonds and stakes come back; the old records retire | payer, resolvers, payee, deploy key | seven days after step 4 |
 
 ### 1. Deploy the new set
@@ -227,7 +229,7 @@ readback "$(jq -r .rwa.collateral.CreditPool "$BURSAR_RECORD")" "cash()(uint256)
 readback "$(jq -r .contracts.AgentRegistry "$BURSAR_RECORD")" "isActive(address)(bool)" "$BURSAR_EXAMPLE_PAYEE"   # true
 readback "$(jq -r .contracts.V4LiquiditySeeder "$BURSAR_TOKEN_RECORD")" "liquidityOf(int24,int24)(uint128)" -- -887220 887220   # 0
 readback "$(jq -r .token.V4LiquiditySeeder "$BURSAR_RECORD")" "liquidityOf(int24,int24)(uint128)" -- -887220 887220   # the position
-readback "$(jq -r .contracts.Staking "$BURSAR_TOKEN_RECORD")" "positionOf(address)((uint256,uint256,uint256,uint256,uint64,uint32))" "$PAYER"   # first two numbers equal
+readback "$(jq -r .contracts.Staking "$BURSAR_TOKEN_RECORD")" "positionOf(address)((uint256,uint256,uint256,uint256,uint64,uint32))" "$PAYER"   # shares = unbondingShares
 readback "$(jq -r .privacy.shielded.ShieldedPool "$BURSAR_V2_RECORD")" "dead()(bool)"                  # true
 ```
 
@@ -242,7 +244,9 @@ set, it also refuses a pool further than one percent from that price.
 registries for the payee's stake back.
 
 `MigrateStake.s.sol leave()` asks the old pool for the whole position back, replacing any request
-already open for part of it.
+already open for part of it. The old pool's `positionOf` answers six numbers: `shares`,
+`unbondingShares`, `rewardDebt`, `rewards`, `unbondingAt` and `epoch`. Once the whole position is
+leaving, the first two are equal, and `unbondingAt` is when the seven days began.
 
 `retireShielded()` refuses while the old shielded pool still holds notes. Every note can still be
 withdrawn after the pool stops taking deposits.
@@ -285,7 +289,7 @@ the same signature, in the console or with the SDK's `openTerms`. Without the th
 
 ### 5. The handover lands
 
-48 hours after step 2:
+48 hours after step 2, and within 14 days of it:
 
 ```sh
 send script/MigrateGovernance.s.sol signer-1 --sig "execute()"
@@ -293,9 +297,34 @@ BURSAR_VERIFY_STRICT=1 verify script/Verify.s.sol
 ```
 
 `execute()` runs the two calls on the first deployment's timelock and then the new timelock's
-acceptance, in one run. The strict check must end `0 mismatched, 0 owed`. The buyback's price
-ceiling is trusted for seven days after governance sets it; `DeployStaking.s.sol` set it in step 1,
-so from day seven the check lists it as owed until governance restates it with `Buyback.setParams`.
+acceptance, in one run. The strict check must end `0 mismatched, 0 owed`.
+
+Both timelocks keep a proposal open for 14 days after its delay ends, their grace period, and refuse
+it after that. The first timelock's two calls lapse 16 days after step 2. The new timelock's
+acceptance, whose delay is an hour, lapses 14 days and one hour after step 2, and that is this
+step's deadline. Past it, `propose()` and `approve()` from step 2 put up again whatever lapsed, and
+it waits out its delay afresh.
+
+The buyback's price ceiling is trusted for seven days after it is set, and `DeployStaking.s.sol` set
+it in step 1. If this step lands after day seven, the strict check lists the ceiling as owed. Restate
+it through the new timelock with the figures the buyback holds now, which starts its seven days
+again: one signer proposes `Buyback.setParams`, a second approves, and once the delay has passed a
+signer executes it. Then run the strict check again.
+
+```sh
+timelock="$(jq -r .contracts.AdminTimelock "$BURSAR_RECORD")"
+buyback="$(jq -r .token.Buyback "$BURSAR_RECORD")"
+PARAMS="(uint128,uint128,uint128,uint128,uint64,uint64)"
+params="$(cast call "$buyback" "params()($PARAMS)" --json --rpc-url "$RHC_RPC_URL" | jq -r '.[0] | map(tostring) | "(" + join(",") + ")"')"
+cast send "$timelock" "propose(address,bytes)" "$buyback" "$(cast calldata "setParams($PARAMS)" "$params")" \
+  --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/signer-1"
+id="$(( $(cast call "$timelock" "proposalCount()(uint256)" --rpc-url "$RHC_RPC_URL") - 1 ))"
+cast send "$timelock" "approve(uint256)" "$id" --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/signer-2"
+
+# An hour later, once the new timelock's delay has passed:
+cast send "$timelock" "execute(uint256)" "$id" --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/signer-1"
+BURSAR_VERIFY_STRICT=1 verify script/Verify.s.sol
+```
 
 ### 6. Old bonds and stakes come back; the old records retire
 
