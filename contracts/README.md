@@ -81,9 +81,19 @@ BURSAR_RHC_FORK_RPC=https://rpc.mainnet.chain.robinhood.com forge test --match-p
 ```
 
 `test/script/LocalChain.t.sol` runs the lanes against a local rehearsal and skips unless
-`BURSAR_LOCAL_RPC` is set; `script/local/rehearse.sh` sets it.
+`BURSAR_LOCAL_RPC` is set; `script/local/rehearse.sh` sets it. A suite that skips prints the
+reason next to `SKIP` in the test output.
 
-`forge build` does not run the linter. Run `forge lint` for its findings.
+`forge build` does not run the linter. CI runs it over the code that deploys, at high severity:
+
+```sh
+forge lint --severity high --deny warnings src script
+```
+
+It passes, printing nothing and exiting 0, when no high-severity finding is left in `src/` or
+`script/`. Any finding fails it, and names the file and line. A finding that is there by design
+carries an inline `forge-lint: disable-next-line(<lint>)` comment saying why. `forge lint` on its
+own lists every finding, informational ones included.
 
 After changing a contract's interface, regenerate the TypeScript ABIs with
 `pnpm --filter @bursar/core codegen` from the repository root.

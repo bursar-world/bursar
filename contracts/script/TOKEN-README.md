@@ -113,16 +113,21 @@ the new set shifts the existing position into it. When it is not, there is no po
 ## 3. The market: `SeedPool.s.sol`
 
 `run()` opens the BRSR/USDG pool at a price you name and puts the first position in it, from a
-seeder it deploys and offers to governance. `seedExisting()` adds to an open pool at the price it
-stands at, through the recorded seeder, which is governance's. Anyone may add; what is added is
-governance's to take out.
+seeder it deploys and offers to the timelock, which takes it in the next wiring batch.
+`seedExisting()` adds to an open pool at the price it stands at, through the recorded seeder,
+which is governance's. Anyone may add; what is added is governance's to take out.
+
+v4 orders a pool's two tokens by address. On Robinhood Chain BRSR sorts below USDG, so the pool
+prices USDG per BRSR. On a local chain the deploy key may put BRSR above USDG, and the pool prices
+BRSR per USDG. You name the price the same way either way, in micro-USD for one BRSR: the script
+works every figure out for the side BRSR is on and prints which side that is.
 
 | Variable | Meaning |
 |---|---|
 | `BURSAR_SEED_USDG_MICRO` | The USDG side of the position, in micro-USD. The BRSR side is what that is worth at the price. |
 | `BURSAR_SEED_PRICE_MICRO_USD` | `run()`: the opening price of one whole BRSR. `seedExisting()`: optional, the price you expect the pool to be at. |
 | `BURSAR_SEED_MAX_DEVIATION_BPS` | `seedExisting()`: how far from that price the pool may be, 100 unless set. |
-| `BURSAR_ALLOW_MAINNET_SEED` | Required on Robinhood Chain: `i-am-opening-the-market` for `run()`, `i-am-adding-to-the-market` for `seedExisting()`. Without it the run prints the plan and sends nothing. |
+| `BURSAR_ALLOW_MAINNET_SEED` | Required on Robinhood Chain, and a different phrase for each way of changing the market: `i-am-opening-the-market` for `run()`, `i-am-adding-to-the-market` for `seedExisting()`, and `i-am-moving-the-market` for `MigrateLiquidity.s.sol`, which moves the existing position into governance's seeder in the move to the new set. Without it the run prints the plan and sends nothing. |
 
 The script never takes a raw `sqrtPriceX96`. It derives the opening price twice, by two routes,
 and refuses when they disagree by more than a fifth of a tick. Before anything is sent it prints
@@ -138,7 +143,7 @@ BURSAR_SEED_USDG_MICRO=5000000 BURSAR_ALLOW_MAINNET_SEED=i-am-adding-to-the-mark
 
 ## 4. What governance does next
 
-`ProposeWiring.s.sol` puts five decisions to the signers in one batch, and `VerifyWiring.s.sol`
+`ProposeWiring.s.sol` puts these decisions to the signers in one batch, and `VerifyWiring.s.sol`
 holds them all to done:
 
 - `Buyback.setKeeper`, to the recorded keeper;
@@ -146,7 +151,9 @@ holds them all to done:
 - `Staking.setTiers`, the rebate table in `script/lib/TokenConfig.sol`: 25,000 BRSR staked takes 5%
   off the facilitator fee, 100,000 takes 10%, 500,000 takes 20% and 2,500,000 takes 30%;
 - `Staking.setCreditManager` and `Staking.setSlasher`, both to the credit pool, so the lane's spread
-  reaches stakers and a written-off line reaches their stake.
+  reaches stakers and a written-off line reaches their stake;
+- `V4LiquiditySeeder.acceptOwnership`, where `SeedPool.s.sol` opened the market and offered its
+  seeder to the timelock.
 
 Then, before the buyback does anything:
 
@@ -173,9 +180,13 @@ Nothing is claimable in the first year. At the cliff a quarter of the grant beco
 once, and the rest accrues every second until the fourth year ends.
 
 ```sh
-cast call "$VESTING" "claimableOf(address)(uint128)" "$ME" --rpc-url "$RHC_RPC_URL"
-cast call "$VESTING" "scheduleOf(address)(uint64,uint64)" "$ME" --rpc-url "$RHC_RPC_URL"
-cast send "$VESTING" "claim()" --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/<beneficiary>"
+source script/env/rhc-mainnet-v3.env
+VESTING="$(jq -r .token.Vesting "$BURSAR_RECORD")"
+ME="$(jq -r '.roles.vestingBeneficiaries[0]' deployments/rhc-mainnet-token.json)"   # the team grant's beneficiary
+
+cast call "$VESTING" "claimableOf(address)(uint128)" "$ME" --rpc-url "$RHC_RPC_URL"     # BRSR wei claimable now
+cast call "$VESTING" "scheduleOf(address)(uint64,uint64)" "$ME" --rpc-url "$RHC_RPC_URL" # the cliff and the end, unix times
+cast send "$VESTING" "claim()" --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/brsr-team-1"    # the beneficiary's own key
 ```
 
 A grant belongs to the address it was written for and cannot be moved: losing the key loses the

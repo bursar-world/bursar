@@ -27,7 +27,9 @@ and the whole sequence has been rehearsed on a copy of mainnet with the same com
 ## Before you start
 
 **Tools.** Foundry 1.8.1 and the dependencies, installed as [`../README.md`](../README.md)
-describes, and `jq`. Run everything from `contracts/`.
+describes, and `jq`. Run everything from `contracts/`. The committed example mandate in step 4
+also needs Node 22 and the SDK, built once from the repository root with
+`pnpm install && pnpm --filter @bursar/sdk build`.
 
 **Keys.** Each key signs from its own encrypted keystore. None is ever typed, and no private key
 appears in a command, a variable or a file. The operations key tooling (`ops/rhc-env.sh` in the
@@ -42,7 +44,19 @@ password, and Foundry reads it on its own.
 | `treasury` | `roles.treasury` | the BRSR each resolver bonds |
 | `resolver-1` to `resolver-3` | `roles.resolvers` | each resolver's own bond |
 | `payee` | `BURSAR_EXAMPLE_PAYEE` | the payee's registration |
-| `payer` | principal of the example mandates | the example mandates, and its own stake |
+| `payer` | `exampleMandate.principal` in the v2 record, `0x877c349EFb5926082C413833E8055F0991185c61` | the example mandates, and its own stake |
+
+Every address in the table is read from a record or the parameter file rather than copied:
+
+```sh
+jq -r .deployer deployments/rhc-mainnet-v3.json                    # rh-deployer
+jq -r '.roles.timelockSigners[]' deployments/rhc-mainnet-v3.json   # the three signers
+jq -r .roles.liquidity deployments/rhc-mainnet-v3.json             # brsr-liquidity
+jq -r .roles.treasury deployments/rhc-mainnet-v3.json              # treasury
+jq -r '.roles.resolvers[]' deployments/rhc-mainnet-v3.json         # resolver-1 to resolver-3
+jq -r .exampleMandate.principal deployments/rhc-mainnet-v2.json    # payer
+grep BURSAR_EXAMPLE_PAYEE script/env/rhc-mainnet-v3.env            # payee
+```
 
 **Balances.** Every key above needs ETH for gas. In the rehearsal the deploy key spent about 53
 million gas across all its steps, the payer about 11 million, the first signer about 3 million and
@@ -52,16 +66,18 @@ every other key under 1 million. At the 0.025 gwei the chain charged when this w
 mature. The payee needs 5 USDG, the new agent registry's minimum stake: step 3 sends it from the
 credit pool's returned cash, and its two old stakes, 10 USDG, come back a week later.
 
-**The shell.** Every command below runs in one shell set up like this:
+**The shell.** Every command below runs in one shell set up like this, started fresh rather than
+from one where `script/env/local.env` was sourced, which points the scripts at a local chain:
 
 ```sh
 cd contracts
-source script/env/rhc-mainnet-v3.env        # the figures, and BURSAR_RECORD
+source script/env/rhc-mainnet-v3.env        # the figures, BURSAR_RECORD and RHC_RPC_URL
 export BURSAR_V1_RECORD=deployments/rhc-mainnet.json
 export BURSAR_V2_RECORD=deployments/rhc-mainnet-v2.json
 export BURSAR_TOKEN_RECORD=deployments/rhc-mainnet-token.json
 export BURSAR_ALLOW_EOA_GOVERNANCE=i-accept-eoa-governance   # the signer set is three plain keys
 export KEYS="$HOME/.config/bursar/keystore"
+export PAYER="$(jq -r .exampleMandate.principal "$BURSAR_V2_RECORD")"
 
 # Simulates against the live chain and sends nothing. Every check in the script still runs.
 simulate() { local script="$1" key="$2"; shift 2; forge script "$script" --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/$key" "$@"; }
@@ -71,8 +87,24 @@ send() { simulate "$@" --broadcast --slow; }
 verify() { forge script "$@" --rpc-url "$RHC_RPC_URL"; }
 ```
 
-Run every `send` as a `simulate` first, with the same arguments, and read what it prints. The
-deploy scripts write the new record as they go; a simulation writes nothing.
+`RHC_RPC_URL` is Robinhood Chain's public endpoint unless the shell already names another. Run
+every `send` as a `simulate` first, with the same arguments, and read what it prints. The deploy
+scripts write the new record as they go; a simulation writes nothing.
+
+**Check every keystore once.** The rehearsal below signs through the fork's impersonation and
+never opens a keystore, so the keystores are first used by the real run. Before step 1, open each
+one and sign with it, sending nothing:
+
+```sh
+key=rh-deployer                       # then each keystore in the table in turn
+address="$(cast wallet address --keystore "$KEYS/$key")" && echo "$address"
+signed="$(cast mktx "$address" --value 0 --keystore "$KEYS/$key" --rpc-url "$RHC_RPC_URL")"
+cast to-check-sum-address "$(cast decode-transaction "$signed" | jq -r 'fromjson | .signer')"
+```
+
+The first address proves the password file opens the keystore, and has to be the one the table
+gives for it. The second is who signed a transaction built for Robinhood Chain and never sent, and
+has to be the same.
 
 ## Rehearse first
 
@@ -80,11 +112,15 @@ deploy scripts write the new record as they go; a simulation writes nothing.
 script/local/rehearse-mainnet.sh
 ```
 
-It forks mainnet as it stands and runs every step below, in this order, with these commands. Each
-key signs as itself through the fork's impersonation, so no key is read, and the delays are skipped
-on the fork's clock. It writes copies of the four records under `cache/bursar/fork` and ends by
-printing their status. Start only when it ends with the earlier records `retired` and the new one
-`live`. If the chain has moved since, run it again.
+It forks mainnet as it stands and runs every step below, in this order, with these commands, with
+one difference: each key signs as itself through the fork's impersonation, forge's
+`--unlocked --sender` in place of `--keystore`. No keystore is opened and no key is read, which is
+why each keystore is checked on its own above. The delays are skipped on the fork's clock, and the
+committed example mandate is left out, because the fork cannot sign as the payer. It writes copies
+of the four records under `cache/bursar/fork`, and builds and logs its transactions there too,
+never in `out/`, `broadcast/` or `cache/`, where the real run keeps the logs `--resume` reads. It
+ends by printing the records' status and one line saying it passed. Start only when it ends with
+the earlier records `retired` and the new one `live`. If the chain has moved since, run it again.
 
 ## The steps
 
@@ -176,12 +212,34 @@ send script/MigrateStake.s.sol payer --sig "leave()"
 send script/MigrateGovernance.s.sol rh-deployer --sig "retireShielded()"
 ```
 
+Then read each move back. The comment on each line says what it has to print.
+
+```sh
+readback() { cast call --rpc-url "$RHC_RPC_URL" "$@"; }
+usdg="$(jq -r .settlementAsset "$BURSAR_RECORD")"
+
+readback "$(jq -r .contracts.Escrow "$BURSAR_V2_RECORD")" "feesAccrued()(uint128)"                     # 0
+readback "$(jq -r .contracts.Escrow "$BURSAR_V1_RECORD")" "feesAccrued()(uint128)"                     # 0
+readback "$usdg" "balanceOf(address)(uint256)" "$(jq -r .exampleMandate.address "$BURSAR_V2_RECORD")"   # 0
+readback "$(jq -r .rwa.collateral.CreditPool "$BURSAR_V2_RECORD")" "cash()(uint256)"                    # 0
+readback "$(jq -r .rwa.collateral.CreditPool "$BURSAR_RECORD")" "cash()(uint256)"                       # 25000000
+readback "$(jq -r .contracts.AgentRegistry "$BURSAR_RECORD")" "isActive(address)(bool)" "$BURSAR_EXAMPLE_PAYEE"   # true
+readback "$(jq -r .contracts.V4LiquiditySeeder "$BURSAR_TOKEN_RECORD")" "liquidityOf(int24,int24)(uint128)" -- -887220 887220   # 0
+readback "$(jq -r .token.V4LiquiditySeeder "$BURSAR_RECORD")" "liquidityOf(int24,int24)(uint128)" -- -887220 887220   # the position
+readback "$(jq -r .contracts.Staking "$BURSAR_TOKEN_RECORD")" "positionOf(address)((uint256,uint256,uint256,uint256,uint64,uint32))" "$PAYER"   # first two numbers equal
+readback "$(jq -r .privacy.shielded.ShieldedPool "$BURSAR_V2_RECORD")" "dead()(bool)"                  # true
+```
+
 `MigrateLiquidity.s.sol` runs without `--slow` on purpose: the removal and the add go out back to
 back, so nothing can trade between them. It plans the add at the price the pool stands at and
 refuses to pay more of either token than that price asks for. With `BURSAR_SEED_PRICE_MICRO_USD`
 set, it also refuses a pool further than one percent from that price.
 
-`MigratePayee.s.sol` also asks both old agent registries for the payee's stake back.
+`MigratePayee.s.sol` registers the payee under the name it carries on the old registry, or under
+`BURSAR_PAYEE_NAME` when that is set. The new registry takes 3 to 32 characters from `A-Z`, `a-z`,
+`0-9` and `_`, and the script refuses any other name before it sends. It also asks both old agent
+registries for the payee's stake back.
+
 `MigrateStake.s.sol leave()` asks the old pool for the whole position back, replacing any request
 already open for part of it.
 
@@ -203,15 +261,26 @@ send script/MigrateResolvers.s.sol resolver-1 --sig "bond()"
 send script/MigrateResolvers.s.sol resolver-2 --sig "bond()"
 send script/MigrateResolvers.s.sol resolver-3 --sig "bond()"
 
-# New example mandates: one that pays the payee and may buy stocks, and one on the collateral lane
-# with the stock the old one held posted as collateral.
+# New example mandates: one that pays the payee and may buy stocks, one on the collateral lane
+# with the stock the old one held posted as collateral, and a committed one, whose terms the payer
+# first seals to its own viewing key.
+signature="$(cast wallet sign --keystore "$KEYS/payer" "$(node script/committed-example.mjs message "$PAYER")")"
+eval "$(node script/committed-example.mjs terms "$PAYER" "$signature")"
 send script/MigrateExamples.s.sol payer --sig "create()"
 ```
 
 Until the wiring lands no resolver can bond: the floor for anyone without one of their own is more
-BRSR than exists. The committed example mandate is created only when its sealed terms are supplied
-from the console as `BURSAR_COMMITTED_TERMS`, `BURSAR_COMMITTED_COUNTER` and
-`BURSAR_COMMITTED_CIPHERTEXT`; without them `create()` says so and skips it.
+BRSR than exists.
+
+The committed example keeps its terms behind a commitment, so they are written and sealed before
+`create()` sees them. `script/committed-example.mjs` does it with the SDK, the way the console does
+it for a private mandate: `message` prints the text the payer signs for its viewing key, and
+`terms` writes the terms, commits to them, seals them to that key for the account `create()` will
+make, and prints `BURSAR_COMMITTED_TERMS`, `BURSAR_COMMITTED_COUNTER` and
+`BURSAR_COMMITTED_CIPHERTEXT` as export lines. The terms are the public example's: 0.10 USDG a
+call, 0.50 a day and 1.00 in all, to the registered payee, for a year. The payer reopens them with
+the same signature, in the console or with the SDK's `openTerms`. Without the three variables
+`create()` says so and skips the committed example.
 
 ### 5. The handover lands
 
@@ -275,8 +344,10 @@ before it broadcasts. Fix what it names and run the same command again. A step t
 says so and sends nothing.
 
 A broadcast that stops partway, on a dropped connection or a key that ran out of gas, is finished
-with the same command and `--resume`: Forge sends the transactions that did not land, from its own
-log, to the addresses the record already names.
+with the same command and `--resume`: Forge sends the transactions that did not land, from its log
+in `broadcast/<script>/4663/`, to the endpoint it saved in `cache/<script>/4663/`, and to the
+addresses the record already names. The rehearsals and local runs keep their logs under
+`cache/bursar`, so neither can replace what a resume reads.
 
 | It says | What to do |
 |---|---|
@@ -285,7 +356,8 @@ log, to the addresses the record already names.
 | `RecordMismatch` | The shell names an address the record disagrees with. Unset the variable, or correct whichever of the two is wrong. |
 | `NotSigner` | The keystore is not one of the timelock's signers. |
 | `NotTheKey` | The step has to be signed by the key it names: the lender, or the owner of the old seeder. |
-| `not executable yet` | The timelock's delay has not passed. Wait, and run `execute()` again. |
+| `not executable yet` | The call cannot run yet. The line says why: the delay, with the UTC date it ends and the time left, or an approval still missing. Run `execute()` again then. |
 | `not matured yet` | An old bond, stake or withdrawal is still unbonding. Run the same step again on the date it prints. |
+| `MissingEnv`, `InvalidEnv` | A variable is unset, or holds something that does not read as its type. The error names the variable, and `InvalidEnv` the value. |
 | `StillOpen` | Something on the old sets is still open. The run lists each item above the error. |
 | `VerificationFailed` | A check found a mismatch, or, under `BURSAR_VERIFY_STRICT=1`, something still owed. Each one is listed above the error. |

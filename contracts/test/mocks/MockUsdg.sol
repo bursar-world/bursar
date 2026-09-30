@@ -101,6 +101,8 @@ contract MockUsdg is ERC20, IERC20Permit, EIP712 {
         _frozen[account] = frozen_;
     }
 
+    /// Open to anyone, unlike the live token's. It is how the local rehearsal and the lane tests
+    /// fund an account: `cast send <USDG> "mint(address,uint256)" <account> <micro-USD>`.
     function mint(address to, uint256 amount) external {
         _mint(to, amount);
     }
