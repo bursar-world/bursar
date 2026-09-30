@@ -87,7 +87,7 @@ send() {
 }
 
 check() {
-  forge script "$1" --rpc-url "$rpc"
+  forge script "$@" --rpc-url "$rpc"
 }
 
 later() {

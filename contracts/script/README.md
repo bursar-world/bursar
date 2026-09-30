@@ -332,7 +332,7 @@ Then, from `contracts/` in a second terminal:
 source script/env/local.env
 rpc=http://127.0.0.1:8545
 send() { local script="$1" sender="$2"; shift 2; forge script "$script" --rpc-url "$rpc" --unlocked --sender "$sender" --broadcast "$@"; }
-check() { forge script "$1" --rpc-url "$rpc"; }
+check() { forge script "$@" --rpc-url "$rpc"; }
 
 # The stand-ins and the local record, from anvil's account 9, so the deploy key starts at nonce 0.
 send script/local/LocalFixtures.s.sol 0xa0Ee7A142d267C1f36714E4a8F75612F20a79720
@@ -387,6 +387,9 @@ run writing there would replace the log a stopped mainnet step resumes from. The
 new shell builds from scratch. `local.env` also clears `ETH_PASSWORD`, because while it is set forge
 expects a keystore and refuses `--unlocked`. The record is `cache/bursar/local/local-4663.json`, and
 `LocalFixtures.s.sol` writes it afresh, so against a new anvil start again from that line.
+
+`send` and `check` hand everything after the script to forge, so the same two helpers run any other
+entry point: `check script/ProposeWiring.s.sol --sig "status()"` shows where each wiring call stands.
 
 The same deployment runs in process in `forge test`: `test/script/EndToEnd.t.sol` takes it through
 the same steps, each deploy script has a suite of its own, and the suites under `test/script/fork`
