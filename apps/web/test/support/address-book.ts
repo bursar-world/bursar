@@ -10,7 +10,10 @@ const fill = (digit: string) => `0x${digit.repeat(40)}` as Address;
  * A v3 record for chain 4663 on top of v2, with every address made up. The committed records say
  * whatever the last deploy wrote, so a test about three sets brings its own third one.
  */
-export function v3Record(core: CoreModule, overrides: { escrow?: Address; oracleRegistry?: Address } = {}): Deployment {
+export function v3Record(
+  core: CoreModule,
+  overrides: { escrow?: Address; oracleRegistry?: Address; rwa?: Record<string, unknown> } = {},
+): Deployment {
   return core.parseDeployment({
     network: 'rhc-mainnet-v3',
     chainId: 4663,
@@ -30,7 +33,21 @@ export function v3Record(core: CoreModule, overrides: { escrow?: Address; oracle
     roles: { timelockSigners: [fill('7')], guardian: fill('c'), treasury: fill('d'), slashSink: fill('e') },
     verifiedOnChain: {},
     supersedes: 'rhc-mainnet-v2',
+    ...(overrides.rwa === undefined ? {} : { rwa: overrides.rwa }),
   });
+}
+
+/** An RWA section for `v3Record`, with a treasury park and a collateral lane and every address made up. */
+export function v3Lanes(): Record<string, unknown> {
+  return {
+    AssetRegistry: fill('7'),
+    PriceGuard: fill('8'),
+    StockSpendRouter: fill('9'),
+    TreasuryPark: fill('a'),
+    adapters: { SGOV: `0x${'16'.repeat(20)}` },
+    assets: { SGOV: { address: `0x${'17'.repeat(20)}`, feed: `0x${'18'.repeat(20)}`, kind: 'treasury' } },
+    collateral: { CreditPool: fill('b'), CollateralVault: fill('c'), Staking: `0x${'19'.repeat(20)}`, fromBlock: 1 },
+  };
 }
 
 /**

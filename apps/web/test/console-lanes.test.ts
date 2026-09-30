@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { exampleMandate, laneAvailable, laneParkOf, laneValue, mandateFactories, newMandateFactory, readFundingLane } from '@/chain/mandates';
 import { readDraft } from '@/app/(app)/console/limits-form';
@@ -6,6 +6,13 @@ import { newDraft, readWorkspace } from '@/workspace/model';
 import { readableExport } from '@/workspace/readable';
 
 const V21 = '0x669366d0Ae3C6b51fEDcf451A01bF741Fd2ed08D';
+
+// The lanes as v2 deployed them. A v3 head is covered in console-lanes-v3.
+vi.mock('@bursar/core', async (importOriginal) => {
+  const core = await importOriginal<typeof import('@bursar/core')>();
+  const { withRecords } = await import('./support/address-book');
+  return withRecords(core, [core.deployment('rhc-mainnet-v2' as never), core.deployment('rhc-mainnet' as never)]);
+});
 
 describe('funding lanes', () => {
   it('reads the lane a link asks for and nothing else', () => {
