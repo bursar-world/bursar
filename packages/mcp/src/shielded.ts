@@ -107,7 +107,7 @@ const STATUS_NOTE =
   'trace of the wallet that deposited. How private that is depends on how many deposits the pool holds.';
 
 const BALANCE_NOTE =
-  'A deposit can be spent once the association-set provider has approved it; until then it can only be ' +
+  'A deposit can be spent once the association-set service has approved it; until then it can only be ' +
   'returned to the wallet that made it.';
 
 export function createShieldedGateway(options: {
@@ -243,7 +243,8 @@ export function createShieldedGateway(options: {
                 throw new ToolError(
                   'association_set_unavailable',
                   'The association-set root on chain could not be matched to a set of deposits, so no withdrawal ' +
-                    'can be proven right now. Try again after the provider posts its next root.',
+                    'can be proven right now. Try again after the association-set service posts its next ' +
+                    'root.',
                 );
               }
               const note = pickNote(spendable, approved, withdrawn);

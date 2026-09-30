@@ -405,10 +405,10 @@ export const TOOLS: readonly ToolDefinition[] = [
       'Contest a settlement this mandate paid for. While the funds are still held and the delivery deadline ' +
       'has not passed, this hands the split to the resolvers and posts a bond from the mandate balance. The ' +
       'escrow sizes the bond against the amount at stake, and it comes back only if the ruling lands on the ' +
-      'side of the mandate or the vote produces no result. Past the deadline the funds go back to the mandate ' +
-      'instead, so there is nothing to contest. Once the provider has been paid there is nothing left to ' +
-      'split: the complaint is recorded against the provider rather than ruled on, and only while the dispute ' +
-      'window that mandate_get_settlement reports is still open. Contesting a payment is a decision for the ' +
+      'side of the mandate or the vote produces no result. Past the deadline the funds go back to the mandate, ' +
+      'so there is nothing to contest. Once the provider has been paid there is nothing left to split: the ' +
+      'complaint goes on the provider’s record without a ruling, and only while the dispute window that ' +
+      'mandate_get_settlement reports is still open. Contesting a payment is a decision for the ' +
       'principal, so it works only where the signer is authorised to act for the principal. Read the ' +
       'settlement again afterwards for the ruling and for when the vote closes.',
     inputSchema: settlementIdSchema(),
@@ -582,7 +582,7 @@ export const TOOLS: readonly ToolDefinition[] = [
     writes: false,
     description:
       'Read the shielded balance this agent was handed: each deposit it can spend from, what is left in it, ' +
-      'and whether the association-set provider has approved it yet. Only approved deposits can pay. The ' +
+      'and whether the association-set service has approved it yet. Only approved deposits can pay. The ' +
       'balance is rebuilt from public chain data with the keys in the key file; nothing is stored. Nothing ' +
       'is spent.',
     inputSchema: NO_ARGUMENTS,
@@ -744,11 +744,12 @@ export const TOOLS: readonly ToolDefinition[] = [
     role: 'resolver',
     writes: true,
     description:
-      'Close a vote that never reached quorum, or whose scores had no centre to rule from. The escrow puts ' +
-      'the payment back on hold with a new deadline for the provider and returns the bond to whoever ' +
-      'contested it; no resolver fee is paid on a dispute that produced no result. Resolvers that sealed a ' +
-      'score and never published one are slashed for it, but only once the window they could have spoken ' +
-      'in has shut. Anyone can send it.',
+      'Close a vote that never reached quorum. The escrow puts the payment back on hold with a new deadline ' +
+      'for the provider, returns the bond to whoever contested it and pays no resolver fee. On the first ' +
+      'contract set it refunds the payer, less the resolver fee. Resolvers that sealed a score and never ' +
+      'published one are slashed for it, but only once the window they could have spoken in has shut. ' +
+      'Anyone can send it. A vote with no centre is closed by resolver_finalize_dispute and refunds the ' +
+      'payer in full, or less the resolver fee on the first contract set.',
     inputSchema: disputeIdSchema(),
   },
   {
@@ -812,8 +813,8 @@ export const TOOLS: readonly ToolDefinition[] = [
       'Read the settlement history this provider has earned and the ceiling it buys: how many jobs were ' +
       'delivered and paid, how many timed out, how many were contested, and the largest single payment the ' +
       'escrow will hold for it right now. The ceiling rises with delivered work and falls with work that ' +
-      'times out or is contested. A delivery only counts once it has been finalized, which happens after ' +
-      'the window to contest it closes, so a provider that never finalizes holds its own ceiling down. ' +
+      'times out or is contested. A delivery only counts once it has been finalised, which happens after ' +
+      'the window to contest it closes, so a provider that never finalises holds its own ceiling down. ' +
       'Nothing is sent.',
     inputSchema: NO_ARGUMENTS,
   },
@@ -1172,7 +1173,10 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
 function collateralOf(context: ToolContext): CollateralGateway {
   const gateway = context.collateral ?? null;
   if (gateway === null) {
-    throw new ToolError('collateral_unavailable', 'This server is not bound to a mandate on a chain with a collateral lane.');
+    throw new ToolError(
+      'collateral_unavailable',
+      'This server is not bound to a mandate on a chain that offers collateral-backed credit.',
+    );
   }
   return gateway;
 }

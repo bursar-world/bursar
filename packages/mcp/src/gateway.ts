@@ -560,7 +560,10 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
 
     const lane = options.rwa ?? null;
     if (lane === null) {
-      throw new ToolError('rwa_unavailable', 'The deployment record this server reads has no stock lane, so it cannot buy stocks.');
+      throw new ToolError(
+        'rwa_unavailable',
+        'The deployment record this server reads has no stock purchase contracts, so it cannot buy stocks.',
+      );
     }
 
     const wanted = order.asset.toLowerCase();
@@ -930,7 +933,7 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
 
 /**
  * How a ruling cut the settlement, derived exactly as `Escrow._split` derives it. The resolver fee
- * comes off the top, the refund splits what is left, and the protocol fee is charged only on the
+ * comes off the top, the refund splits what is left, and the settlement fee is charged only on the
  * provider's share, so the four legs add back up to the locked amount with nothing over.
  */
 function rulingOf(
@@ -1033,8 +1036,7 @@ function assertContestable(settlementId: bigint, lock: EscrowLock, terms: Contes
     throw new ToolError(
       'not_contestable',
       `The delivery deadline for settlement ${settlementId.toString()} passed at ${instant(lock.deadline)} with ` +
-        'nothing delivered, so the funds go back to the mandate instead of to a vote. The escrow takes no ' +
-        'dispute on it now.',
+        'nothing delivered, so the funds go back to the mandate. The escrow takes no dispute on it now.',
     );
   }
 

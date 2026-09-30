@@ -144,7 +144,7 @@ describe('the history a provider earns and the ceiling it buys', () => {
     expect(view.maxCap).toEqual({ micro: '250000000', usdg: '250.00' });
     expect(view.next).toContain('90 of every 100 settled jobs');
     expect(view.next).toContain('115.00 USDG');
-    expect(view.next).toContain('only counts once it is finalized');
+    expect(view.next).toContain('only counts once it is finalised');
   });
 
   it('says a new provider starts at the floor of the curve rather than at nothing', async () => {

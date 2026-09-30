@@ -275,6 +275,7 @@ export type DisputeRulingView = {
   readonly refundedToMandate: MoneyView;
   readonly paidToProvider: MoneyView;
   readonly resolverFee: MoneyView;
+  /** The settlement fee, charged on the provider's share alone. */
   readonly protocolFee: MoneyView;
   readonly bondReturned: boolean;
 };

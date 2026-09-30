@@ -179,7 +179,7 @@ describe('reading a contested payment and its ruling', () => {
     expect(view.next).toContain('The provider can still deliver');
   });
 
-  it('says a failed vote on the v1 escrow refunded the mandate, which is what v1 does', async () => {
+  it('says a failed vote on the v1 escrow refunded the mandate less the resolver fee, which is what v1 does', async () => {
     const v1 = deployment('rhc-mainnet').contracts.Escrow;
     state.escrow = v1;
     state.terms.minLock = null;
@@ -189,11 +189,11 @@ describe('reading a contested payment and its ruling', () => {
     const view = await gatewayFor(createFakeNode(state), [ESCROW, v1]).dispute(42n);
 
     expect(view.phase).toBe('failed');
-    expect(view.next).toContain('refunded the mandate in full');
+    expect(view.next).toContain('refunded the mandate, less the resolver fee,');
   });
 
   // A vote that met quorum with no centre is closed by finalize: a full refund, nothing reopened.
-  it('says a vote with no centre refunded the mandate in full on the current escrow too', async () => {
+  it('says a vote with no centre refunded the mandate in full on the current escrow', async () => {
     state.locks.set(42n, lock({ amount: 2_500_000n, status: 6, disputedAt: OPENED_AT, disputer: ACCOUNT }));
     state.oracle.disputes.set(4n, { ...state.oracle.disputes.get(4n)!, status: 4, refundBps: 10_000 });
 

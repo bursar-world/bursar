@@ -12,7 +12,7 @@
  * hash before the transaction goes and read back off the chain after it lands.
  */
 
-import { escrowAbi, oracleRegistryAbi } from '@bursar/core';
+import { contractSetOfRegistry, escrowAbi, oracleRegistryAbi } from '@bursar/core';
 import type { RhcPublicClient } from '@bursar/core';
 import { encodeAbiParameters, keccak256 } from 'viem';
 import type { Address, Hex } from 'viem';
@@ -105,6 +105,9 @@ export function createResolverGateway(options: ResolverGatewayOptions): Resolver
 
   const registryContract = { address: registry, abi: oracleRegistryAbi } as const;
   const escrowContract = { address: escrow, abi: escrowAbi } as const;
+  // A vote that misses quorum refunds the payer on the first set and reopens the payment on every
+  // later one. An address no record names is taken as the current set, as the mandate reads are.
+  const firstSet = contractSetOfRegistry(registry) === 'v1';
 
   function requireRelay(): RoleRelay {
     if (relay === null) {
@@ -416,9 +419,12 @@ export function createResolverGateway(options: ResolverGatewayOptions): Resolver
 
     fail: (disputeId) =>
       send({ resolver, action: 'fail', disputeId: disputeId.toString() }, 'resolver_fail_dispute',
-        'The vote is closed as unusable. The escrow has put the payment back on hold with a new deadline ' +
-          'for the provider and returned the bond to whoever contested it. No resolver fee is paid on a ' +
-          'dispute that produced no result.'),
+        firstSet
+          ? 'The vote is closed as unusable. On this first contract set the escrow has refunded the payer, ' +
+              'less the resolver fee, and returned the bond to whoever contested it.'
+          : 'The vote is closed as unusable. The escrow has put the payment back on hold with a new ' +
+              'deadline for the provider and returned the bond to whoever contested it. No resolver fee is ' +
+              'paid on a dispute that produced no result.'),
 
     claimRewards: () =>
       send({ resolver, action: 'claim-rewards' }, 'resolver_claim_rewards',

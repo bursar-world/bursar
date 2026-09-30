@@ -255,13 +255,14 @@ const REOPENED =
   'and returned the bond.';
 
 /**
- * What a vote that produced no result does to the payment. v1 refunds the mandate in full; later
- * sets put the payment back on hold with a new deadline, so an unheard dispute is never a refund.
+ * What a vote that produced no result does to the payment. v1 refunds the mandate, less the resolver
+ * fee; later sets put the payment back on hold with a new deadline, so an unheard dispute is never
+ * a refund.
  */
 function unheard(reopens: boolean): string {
   return reopens
     ? 'puts the payment back on hold with a new deadline and returns the bond'
-    : 'refunds the mandate in full';
+    : 'refunds the mandate, less the resolver fee';
 }
 
 export function disputeNext(state: {
@@ -272,7 +273,7 @@ export function disputeNext(state: {
   hasResolver: boolean;
   /** The reveal window has shut, so anyone can settle the vote now. */
   closed: boolean;
-  /** Whether a vote with no result reopens the payment rather than refunding it. False on v1. */
+  /** Whether a vote with no result puts the payment back on hold. False on v1, which refunds it. */
   reopens: boolean;
 }): string {
   if (state.recordOnly) {
@@ -305,12 +306,13 @@ export function disputeNext(state: {
     case 'revealing':
       return 'Resolvers are publishing the scores they sealed. Read this again for the ruling.';
     case 'failed':
-      // A vote with no centre is closed by finalize and refunds in full on every set; only a vote
-      // short of quorum puts the payment back on hold, and only after v1.
+      // A vote with no centre is closed by finalize and refunds the mandate, in full after v1. Only a
+      // vote short of quorum puts the payment back on hold, and only after v1.
       if (state.status === 'resolved') {
+        const refund = state.reopens ? 'refunded the mandate in full' : 'refunded the mandate, less the resolver fee,';
         return (
-          'The vote produced no usable result, so the escrow refunded the mandate in full and the ' +
-          'provider was paid nothing. Nothing further to decide.'
+          `The vote produced no usable result, so the escrow ${refund} and the provider was paid nothing. ` +
+          'Nothing further to decide.'
         );
       }
       if (state.reopens) {
@@ -323,8 +325,8 @@ export function disputeNext(state: {
         );
       }
       return (
-        'The vote produced no usable result. The escrow refunds the mandate in full when the dispute ' +
-        'is closed, and anyone can close it.'
+        'The vote produced no usable result. The escrow refunds the mandate, less the resolver fee, when ' +
+        'the dispute is closed, and anyone can close it.'
       );
     default:
       return state.hasResolver

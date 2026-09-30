@@ -132,8 +132,8 @@ function gatewayFor(options: CollateralGatewayOptions, lane: CollateralDeploymen
     if (current !== COLLATERAL_LANE) {
       throw new ToolError(
         'mandate_refused',
-        `This mandate is in lane ${current}, not the collateral lane, so it cannot borrow or post collateral. ` +
-          'Prefunded mandates spend only what they hold.',
+        `This mandate is in lane ${current}, and only lane 1 carries collateral-backed credit, so it cannot ` +
+          'borrow or post collateral. Prefunded mandates spend only what they hold.',
         { revert: 'NotCollateralLane', subject: 'mandate' },
       );
     }
@@ -235,7 +235,7 @@ function gatewayFor(options: CollateralGatewayOptions, lane: CollateralDeploymen
         afterHoursHaircutBps: t.afterHoursHaircutBps,
       })),
       next: !isCollateral
-        ? 'This mandate is not in the collateral lane and cannot borrow. It spends what it holds.'
+        ? 'This mandate was not created for collateral-backed credit and cannot borrow. It spends what it holds.'
         : !lineOpen
           ? 'The principal has not opened a collateral line for this mandate yet.'
           : uncountedNote(uncounted) + standingNote(health, headroom),
@@ -369,8 +369,8 @@ export const COLLATERAL_TOOLS: readonly {
     name: 'mandate_collateral',
     writes: false,
     description:
-      "Read this mandate's collateral lane: the stock and treasury tokens posted, what they count for after " +
-      'the haircut, the debt, how much more it can draw on credit, and its health (after-haircut collateral ' +
+      "Read this mandate's collateral-backed credit: the stock and treasury tokens posted, what they count " +
+      'for after the haircut, the debt, how much more it can draw, and its health (after-haircut collateral ' +
       'over debt; null when nothing is owed). How much more it can draw is measured with every position at ' +
       'its after-hours haircut, whatever the time. A position counts for nothing while its price is stale, ' +
       "its token, its oracle or Robinhood's access registry is paused, or its trading pool is out of line " +
@@ -383,8 +383,8 @@ export const COLLATERAL_TOOLS: readonly {
     writes: true,
     description:
       'Post a registered stock or treasury token from this server\'s key as collateral for the mandate. The ' +
-      'mandate has to be in the collateral lane with a line open. The amount is in raw token units ' +
-      '(18 decimals for the Robinhood tokens).',
+      'mandate has to be one created for collateral-backed credit, with a line open. The amount is in raw ' +
+      'token units (18 decimals for the Robinhood tokens).',
     inputSchema: {
       type: 'object',
       required: ['asset', 'raw'],

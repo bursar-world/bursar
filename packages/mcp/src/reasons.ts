@@ -168,8 +168,8 @@ const REFUSALS: Readonly<Record<MandateErrorName, Omit<Refusal, 'code'>>> = {
   AlreadyPrincipal: {
     subject: 'mandate',
     message:
-      'The principal named itself as the next principal, which changes nothing. An approval it signed is ' +
-      'withdrawn by revoking it, not by handing the mandate back to itself. Nothing was changed.',
+      'The principal named itself as the next principal, which changes nothing. To withdraw an approval ' +
+      'it signed, revoke that approval. Nothing was changed.',
   },
   BadWindow: {
     subject: 'limits',
@@ -275,8 +275,8 @@ const REFUSALS: Readonly<Record<MandateErrorName, Omit<Refusal, 'code'>>> = {
   BadLane: {
     subject: 'limits',
     message:
-      'The limits name a settlement lane the mandate does not know: 0 escrow, 1 treasury or 2 collateral. ' +
-      'The limits in force are unchanged.',
+      'The limits set a lane above 2, and the mandate accepts only 0, 1 and 2. The limits in force are ' +
+      'unchanged.',
   },
   RouterNotSet: {
     subject: 'mandate',
@@ -480,7 +480,8 @@ const RESOLVER_REFUSALS: Readonly<Record<OracleErrorName, Omit<Refusal, 'code'>>
     message:
       'Most of the published scores sit outside the deviation band, so the vote has no centre to rule ' +
       'from. resolver_finalize_dispute closes it as failed and refunds the payer in full, with no ' +
-      'resolver fee. Nobody is slashed for disagreeing, because nothing here can tell which side was honest.',
+      'resolver fee; the first contract set keeps the resolver fee back. Nobody is slashed for disagreeing, ' +
+      'because nothing here can tell which side was honest.',
   },
   NothingToClaim: {
     subject: 'reward',
@@ -753,7 +754,7 @@ const COLLATERAL_REFUSALS: Readonly<Record<string, Omit<Refusal, 'code'>>> = {
   HealthTooLow: {
     subject: 'mandate',
     message:
-      'This would leave the collateral health under the lane minimum of 1.25. A draw or a withdrawal is ' +
+      'This would leave the collateral health under the vault’s minimum of 1.25. A draw or a withdrawal is ' +
       'checked with every position at its after-hours haircut, whatever the time, and a position counts ' +
       'for nothing while its price is stale, its token, its oracle or the access registry is paused, or its ' +
       'trading pool is out of line with its reference price. Post more collateral, repay some debt, or spend less.',
@@ -761,8 +762,8 @@ const COLLATERAL_REFUSALS: Readonly<Record<string, Omit<Refusal, 'code'>>> = {
   NotCollateralLane: {
     subject: 'mandate',
     message:
-      'This mandate is not in the collateral lane, so it cannot borrow. Prefunded mandates spend only what ' +
-      'they hold.',
+      'This mandate was not created for collateral-backed credit, so it cannot borrow. Prefunded mandates ' +
+      'spend only what they hold.',
   },
   NoLine: {
     subject: 'mandate',
@@ -783,7 +784,9 @@ const COLLATERAL_REFUSALS: Readonly<Record<string, Omit<Refusal, 'code'>>> = {
   },
   TotalCapExceeded: {
     subject: 'limits',
-    message: 'The collateral lane has reached its total credit limit. Repay or wait until other debt is repaid.',
+    message:
+      'Collateral-backed credit has reached its total limit across every mandate. Repay, or wait until other ' +
+      'debt is repaid.',
   },
   InsufficientCash: {
     subject: 'amount',
@@ -804,7 +807,7 @@ const COLLATERAL_REFUSALS: Readonly<Record<string, Omit<Refusal, 'code'>>> = {
 /**
  * What the escrow refuses a lock or a dispute for. A spend opens its lock inside the mandate's own
  * `spend` and a dispute goes through `disputeSpend`, so these reach the pay, hire and dispute tools
- * with the escrow's name on them rather than the account's.
+ * with the escrow's name on them.
  */
 const ESCROW_REFUSALS: Readonly<Record<string, Omit<Refusal, 'code'>>> = {
   BelowMinLock: {
@@ -823,7 +826,7 @@ const ESCROW_REFUSALS: Readonly<Record<string, Omit<Refusal, 'code'>>> = {
     subject: 'dispute',
     message:
       'Too late for this call. A held payment can be contested only until its delivery deadline, after ' +
-      'which it goes back to the mandate instead, and a delivered one only inside the dispute window ' +
+      'which it goes back to the mandate. A delivered one can be contested only inside the dispute window ' +
       'mandate_get_settlement reports.',
   },
   PayeeCapExceeded: {

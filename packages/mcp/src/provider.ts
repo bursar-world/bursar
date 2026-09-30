@@ -285,7 +285,7 @@ function reputationNote(settled: bigint, score: number, cap: bigint, maxCap: big
     `${score} of every 100 settled jobs were delivered and paid, across ${settled.toString()} of them. ` +
     `The escrow will hold at most ${moneyFromUint(cap).usdg} USDG in a single payment for this ` +
     `provider right now, against a ceiling of ${moneyFromUint(maxCap).usdg}. A delivery only counts ` +
-    'once it is finalized, which happens after the window to contest it closes, so a provider that ' +
-    'never finalizes holds its own ceiling down.'
+    'once it is finalised, which happens after the window to contest it closes, so a provider that ' +
+    'never finalises holds its own ceiling down.'
   );
 }

@@ -1,5 +1,5 @@
-import { RHC_MAINNET, createRhcClient } from '@bursar/core';
-import type { Hex } from 'viem';
+import { RHC_MAINNET, createRhcClient, deployment } from '@bursar/core';
+import type { Address, Hex } from 'viem';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { ToolError } from '../src/errors.js';
@@ -62,6 +62,7 @@ function gatewayFor(
   node: FakeNode,
   relay: (RoleRelay & { sent: ResolverRequest[] }) | null = relayDouble(),
   salt: Hex = SALT,
+  registry: Address = ORACLE_REGISTRY,
 ): ResolverGateway {
   const { client } = createRhcClient({
     chain: RHC_MAINNET,
@@ -75,7 +76,7 @@ function gatewayFor(
   return createResolverGateway({
     client,
     resolver: VOTER,
-    registry: ORACLE_REGISTRY,
+    registry,
     escrow: ESCROW,
     relay,
     randomSalt: () => salt,
@@ -355,6 +356,15 @@ describe('the rest of the lifecycle', () => {
       'cancel-unbond',
     ]);
     expect(relay.sent.every((entry) => entry.resolver === VOTER)).toBe(true);
+  });
+
+  it('says what a failed vote did on the set its registry belongs to', async () => {
+    const current = await gatewayFor(createFakeNode()).fail(4n);
+    const first = await gatewayFor(createFakeNode(), relayDouble(), SALT, deployment('rhc-mainnet').contracts.OracleRegistry).fail(4n);
+
+    expect(current.next).toContain('back on hold with a new deadline');
+    expect(first.next).toContain('refunded the payer, less the resolver fee');
+    expect(first.next).not.toContain('back on hold');
   });
 
   it('says a claim pays USDG and leaves the bond alone', async () => {

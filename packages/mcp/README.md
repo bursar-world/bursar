@@ -89,7 +89,7 @@ BURSAR_ASP_URL=https://asp.example        # optional
 | Tool | What it does |
 | --- | --- |
 | `shielded_pool_status` | Whether the pool takes deposits, what it holds, the per-deposit and pool caps and the room left, the association-set root in force, and the relayer's fee. Offered on every server on Robinhood Chain. |
-| `shielded_balance` | Each deposit the key file can spend from, what is left in it, and whether the association-set provider has approved it. |
+| `shielded_balance` | Each deposit the key file can spend from, what is left in it, and whether the association-set service has approved it. |
 | `shielded_pay` | Proves a withdrawal from the smallest approved deposit that covers the amount and hands it to the relayer. The recipient receives the full amount; the relayer's fee is drawn on top. `gasDrop` asks the relayer to send a fresh recipient its first ETH. |
 
 One payment draws on one deposit, so an amount above the largest approved deposit is refused with
@@ -114,7 +114,7 @@ spend the balance.
 | `resolver_post_bond`, `resolver_add_bond` | Join the roster, and top the bond back up after a slash or a raised floor. |
 | `resolver_commit_score` | Seal a score. The reply carries the salt that opens it. |
 | `resolver_reveal_score` | Publish the sealed score, with the exact salt it was sealed under. |
-| `resolver_finalize_dispute`, `resolver_fail_dispute` | Close a vote that reached quorum, or one that did not, which puts the payment back on hold with a new deadline. |
+| `resolver_finalize_dispute`, `resolver_fail_dispute` | Close a vote. With quorum, `resolver_finalize_dispute` splits the payment on the median score, or refunds the payer in full when the scores have no centre. Without quorum, `resolver_fail_dispute` puts the payment back on hold with a new deadline. The first contract set refunds the payer in both of those cases, less the resolver fee. |
 | `resolver_claim_rewards` | Take the share of the resolver fee this resolver earned, in USDG. |
 | `resolver_request_unbond`, `resolver_complete_unbond`, `resolver_cancel_unbond` | The three steps of leaving. |
 
@@ -196,7 +196,7 @@ the mandate's writes and leaves the resolver's and the provider's off, because i
 | `RHC_RPC_PRIMARY_MAX_RPS`, `RHC_RPC_FALLBACK_MAX_RPS`, `RHC_RPC_TERTIARY_MAX_RPS` | no | Caps requests per second at that provider. Unset leaves the pace the pool already holds for the host. |
 | `RHC_RPC_PRIMARY_MAX_CONCURRENCY`, `RHC_RPC_FALLBACK_MAX_CONCURRENCY`, `RHC_RPC_TERTIARY_MAX_CONCURRENCY` | no | Caps calls in flight at that provider. |
 | `RHC_NETWORK` | no | `mainnet`, which is the default and the only value that works. Naming `testnet` is refused: chain 46630 has no USDG contract, so nothing on it can settle. Chain values are overridden through `RHC_MAINNET_CHAIN_ID`, `RHC_MAINNET_RPC_URL`, `RHC_MAINNET_EXPLORER`, `RHC_MAINNET_USDG`, `RHC_MAINNET_PERMIT2`, `RHC_MAINNET_MULTICALL3` and `RHC_MAINNET_MIN_FEE_CAP`, which is also how a local fork of 4663 is configured. |
-| `BURSAR_RECORD` | no | Path to a deployment record as the deploy scripts write it, for a deployment this package does not carry, such as a rehearsal on a local chain. The escrow, the settlement asset, the registries, the stock and collateral lanes and the shielded pool all come from that record. A local chain answers as 4663 too, so nothing the record leaves out is filled in from mainnet. Unset, the server reads the record this package carries for the chain. |
+| `BURSAR_RECORD` | no | Path to a deployment record as the deploy scripts write it, for a deployment this package does not carry, such as a rehearsal on a local chain. The escrow, the settlement asset, the registries, the shielded pool and the stock, treasury and collateral contracts all come from that record. A local chain answers as 4663 too, so nothing the record leaves out is filled in from mainnet. Unset, the server reads the record this package carries for the chain. |
 | `MANDATE_ACCOUNT` | one role required | The mandate account this server spends through. One server, one mandate. |
 | `BURSAR_RESOLVER_ACCOUNT` | one role required | The address this server votes as. It has to be the address the signer holds: it sits inside every commitment a resolver seals, and a mismatch writes commitments nobody can reveal. |
 | `BURSAR_PROVIDER_ACCOUNT` | one role required | The address this server is listed under in the provider registry. |
