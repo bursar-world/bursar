@@ -303,6 +303,7 @@ describe('relaying against a moving association set', () => {
     const replies = [
       answer(409, { error: 'stale_association_set', detail: 'The association set changed since this proof was made.' }),
       answer(400, { error: 'would_revert', detail: 'The pool would refuse this withdrawal: IncorrectASPRoot.' }),
+      answer(400, { error: 'would_revert', detail: 'The pool would refuse this withdrawal: UnknownStateRoot.' }),
       answer(200, { transactionHash: `0x${'cc'.repeat(32)}`, gasDropWei: '0' }),
     ];
     vi.stubGlobal('fetch', async (_url: URL, init: RequestInit) => {
@@ -317,10 +318,11 @@ describe('relaying against a moving association set', () => {
         attempts.push(attempt);
         return proofFor(attempt);
       },
+      attempts: 4,
     });
     expect(result.transactionHash).toBe(`0x${'cc'.repeat(32)}`);
-    expect(attempts).toEqual([1, 2, 3]);
-    expect(sent.map((body) => (body as { proof: { pubSignals: string[] } }).proof.pubSignals[5])).toEqual(['1', '2', '3']);
+    expect(attempts).toEqual([1, 2, 3, 4]);
+    expect(sent.map((body) => (body as { proof: { pubSignals: string[] } }).proof.pubSignals[5])).toEqual(['1', '2', '3', '4']);
   });
 
   it('gives up after the last attempt, and never retries a refusal about anything else', async () => {

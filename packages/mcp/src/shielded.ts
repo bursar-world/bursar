@@ -13,7 +13,6 @@ import {
   leanRoot,
   proofToWire,
   recoverNotes,
-  ShieldedServiceError,
   shieldedEntrypointAbi,
   shieldedPoolAbi,
   submitRelay,
@@ -267,9 +266,9 @@ export function createShieldedGateway(options: {
             try {
               result = await attempt();
             } catch (error) {
-              if (!provedAgainstMovedRoot(error)) throw error;
+              if (!isStaleSetRefusal(error)) throw error;
               result = await attempt().catch((again: unknown) => {
-                if (!provedAgainstMovedRoot(again)) throw again;
+                if (!isStaleSetRefusal(again)) throw again;
                 throw new ToolError(
                   'shielded_roots_moved',
                   'The pool refused this payment twice because its roots moved while the proof was being made. ' +
@@ -342,16 +341,6 @@ async function rootPosting(
   } catch {
     return { index: null, postedAt: null };
   }
-}
-
-/**
- * Whether the relayer turned a withdrawal away because a root it was proved against has moved: the
- * association set is no longer the latest, or the pool's state root has aged out of the history it
- * keeps. Either way nothing was spent, and a proof made against the current roots can go through.
- */
-function provedAgainstMovedRoot(error: unknown): boolean {
-  if (isStaleSetRefusal(error)) return true;
-  return error instanceof ShieldedServiceError && error.code === 'would_revert' && error.message.includes('UnknownStateRoot');
 }
 
 /** The withdrawal that leaves `amount` with the recipient after the relayer's cut. */

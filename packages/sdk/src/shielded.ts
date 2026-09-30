@@ -928,13 +928,16 @@ async function json<T>(response: Response): Promise<T> {
 }
 
 /**
- * Whether a relayer turned a withdrawal away because the association set moved after its proof was
- * made. The pool only accepts proofs against the newest root, so the proof has to be made again.
+ * Whether a relayer turned a withdrawal away because a root its proof was made against has moved:
+ * the association set is no longer the newest, or the pool's state root has aged out of the recent
+ * roots it keeps. Nothing was spent, and a proof made against the roots as they stand now can go
+ * through.
  */
 export function isStaleSetRefusal(error: unknown): boolean {
   return (
     error instanceof ShieldedServiceError &&
-    (error.code === 'stale_association_set' || (error.code === 'would_revert' && error.message.includes('IncorrectASPRoot')))
+    (error.code === 'stale_association_set' ||
+      (error.code === 'would_revert' && /\b(IncorrectASPRoot|UnknownStateRoot)\b/u.test(error.message)))
   );
 }
 
@@ -957,10 +960,11 @@ export async function fetchAssociationSet(aspUrl: string): Promise<AssociationSe
 }
 
 /**
- * Proves a withdrawal and hands it to the relayer. The provider posts new roots on its own cadence,
- * and one that lands between the proof and the submission makes the pool refuse the proof, so on
- * that refusal `prove` runs again (it should read the set afresh) and the new proof is submitted,
- * up to `attempts` times in all. Nothing is spent by a refused submission.
+ * Proves a withdrawal and hands it to the relayer. The provider posts new roots on its own cadence
+ * and deposits move the pool's own root, and a root that moves between the proof and the submission
+ * makes the pool refuse the proof, so on that refusal `prove` runs again (it should read the pool
+ * and the set afresh) and the new proof is submitted, up to `attempts` times in all. Nothing is
+ * spent by a refused submission.
  */
 export async function relayWithFreshProof(args: {
   readonly relayerUrl: string;
