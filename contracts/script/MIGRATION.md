@@ -46,7 +46,7 @@ password, and Foundry reads it on its own.
 | `payee` | `BURSAR_EXAMPLE_PAYEE` | the payee's registration |
 | `payer` | `exampleMandate.principal` in the v2 record, `0x877c349EFb5926082C413833E8055F0991185c61` | the example mandates, and its own stake |
 
-Every address in the table is read from a record or the parameter file rather than copied:
+Every address in the table can be read from a record or the parameter file:
 
 ```sh
 jq -r .deployer deployments/rhc-mainnet-v3.json                    # rh-deployer
@@ -66,8 +66,8 @@ every other key under 1 million. At the 0.025 gwei the chain charged when this w
 mature. The payee needs 5 USDG, the new agent registry's minimum stake: step 3 sends it from the
 credit pool's returned cash, and its two old stakes, 10 USDG, come back a week later.
 
-**The shell.** Every command below runs in one shell set up like this, started fresh rather than
-from one where `script/env/local.env` was sourced, which points the scripts at a local chain:
+**The shell.** Every command below runs in one shell set up like this. Start it fresh: a shell
+where `script/env/local.env` was sourced points the scripts at a local chain.
 
 ```sh
 cd contracts
