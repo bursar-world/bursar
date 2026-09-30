@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useState } from 'react';
@@ -142,6 +142,7 @@ function useSet(contracts: ShieldedDeployment, reading: PoolReading | undefined)
     queryKey: ['shielded', 'set', contracts.ShieldedPool, reading?.events.toBlock.toString(), asp ?? 'local'],
     queryFn: () => readAssociationSet(contracts, reading as PoolReading, asp),
     enabled: reading !== undefined,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -196,6 +197,9 @@ function Connected({ contracts, wallet }: { readonly contracts: ShieldedDeployme
     queryKey: ['shielded', 'notes', wallet, pool.data?.events.toBlock.toString()],
     queryFn: () => ownNotes((unlocked as Unlocked).keys, contracts, (pool.data as PoolReading).events),
     enabled: unlocked !== undefined && pool.data !== undefined,
+    // The pool is read again every thirty seconds and the notes with it. Without the last answer held
+    // while the next one loads, the forms below unmount on every read and lose what was typed.
+    placeholderData: keepPreviousData,
   });
 
   const unlock = async () => {
