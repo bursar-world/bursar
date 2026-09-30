@@ -18,15 +18,19 @@ and [SECURITY.md](../SECURITY.md) before reporting a problem.
 |---|---|
 | `src/MandateAccount.sol` | One principal's mandate: per-call, daily and monthly caps, allowed payees and capabilities, an approval threshold above which a human signs, and an agent key that can spend inside all of it. |
 | `src/MandateAccountFactory.sol` | Creates mandate accounts at addresses a principal can compute before funding them. No admin. |
-| `src/Escrow.sol` | Locks one payment per job, releases it to the payee, refunds on timeout or cancellation, and freezes it for a ruling on dispute. No admin; its fee and windows are fixed at construction. |
+| `src/Escrow.sol` | Locks one payment per job, releases it to the payee, refunds on timeout or cancellation, and freezes it for a ruling on dispute. Its fee and windows are fixed at construction; the timelock can stop new payments and disputes, and nothing else. |
 | `src/Reputation.sol` | Settlement history per payee, and the spending cap derived from it. |
 | `src/OracleRegistry.sol` | Bonded resolvers who rule on disputes by commit-reveal vote, and their rewards and slashing. |
-| `src/AgentRegistry.sol` | Optional staked directory of the counterparties a mandate may name. |
+| `src/AgentRegistry.sol` | Staked directory of the payees a mandate may pay. |
 | `src/AdminTimelock.sol` | Two-of-three governance with a delay, and a guardian that can only pause. |
-| `src/token/` | `BRSR` (fixed supply), `Vesting`, `Staking` (resolver bonds and fee rebates) and `Buyback`. |
-| `script/` | `Deploy.s.sol` for the core set, `DeployToken.s.sol` for the token set, `SeedPool.s.sol` for the BRSR/USDG pool. |
-| `deployments/` | What was deployed on 4663: addresses, transactions, parameters and the state read back from chain. `@bursar/core` generates its address book from these files. |
-| `test/` | Unit, fuzz and invariant tests, plus fork tests against 4663. |
+| `src/token/` | `BRSR` (fixed supply), `Vesting`, `Staking` (resolver bonds, first-loss stake and fee rebates), `Buyback`, and `V4LiquiditySeeder`, which holds the BRSR/USDG position. |
+| `src/rwa/` | Stock purchases and the treasury park, priced by feeds and checked against pinned pools, and the collateral lane: `CreditPool` lends to mandates against stock posted in `CollateralVault`. |
+| `src/privacy/`, `src/zk/` | Committed mandates, whose terms are a commitment and whose spends are proven within them, disclosure grants and the solvency log. |
+| `src/shielded/` | Shielded settlement on Privacy Pools: a USDG pool and a relay that screens recipients. |
+| `script/` | The deploy scripts, each with a verify companion, the scripts that move one deployment into the next, and two rehearsals. [`script/README.md`](script/README.md) starts there. |
+| `deployments/` | One record per deployment on 4663: addresses, roles, the parameters applied, and the state read back. `schema.json` describes them. `@bursar/core` generates its address book from these files. |
+| `test/` | Unit, fuzz and invariant tests. `test/script/` deploys through the real scripts and runs every lane; `test/script/fork/` does the same on a fork of Robinhood Chain. |
+| `verification/` | The compiler input for each deployed contract, for source verification. |
 
 ## Build and test
 
@@ -65,15 +69,19 @@ forge test
 forge fmt --check
 ```
 
-Five tests fork Robinhood Chain and are skipped unless `BURSAR_RHC_FORK_RPC` names an RPC endpoint
-for chain 4663. They fork at a pinned block, so the endpoint has to serve historical state, which
-means an archive node. The public endpoint at `rpc.mainnet.chain.robinhood.com` is not one: it
-answers a read at that block with `historical state ... is not available`, and the fork tests fail
-there.
+The suites under `test/script/fork/` deploy the contract set through the scripts onto a fork of
+Robinhood Chain and run the lanes against live state: the feeds, the pinned pools, USDG and the
+BRSR/USDG market. They skip unless `BURSAR_RHC_FORK_RPC` names an endpoint for chain 4663. They
+fork the latest block, so the public endpoint serves them. A stock purchase needs the equities
+feeds inside their trade bound, which they are through the 24/5 session, so the lanes that buy skip
+at weekends.
 
 ```sh
-BURSAR_RHC_FORK_RPC=<archive RPC for 4663> forge test --match-path test/token/TokenRailFork.t.sol
+BURSAR_RHC_FORK_RPC=https://rpc.mainnet.chain.robinhood.com forge test --match-path 'test/script/fork/*'
 ```
+
+`test/script/LocalChain.t.sol` runs the lanes against a local rehearsal and skips unless
+`BURSAR_LOCAL_RPC` is set; `script/local/rehearse.sh` sets it.
 
 `forge build` does not run the linter. Run `forge lint` for its findings.
 
@@ -82,11 +90,28 @@ After changing a contract's interface, regenerate the TypeScript ABIs with
 
 ## Deploying
 
-[`script/README.md`](script/README.md) covers the core set: every parameter, the order of
-deployment, and each condition under which the script refuses to run.
-[`script/TOKEN-README.md`](script/TOKEN-README.md) covers the token set and the governance calls
-that follow it. Both use a Foundry encrypted keystore; no private key is ever passed on the
-command line.
+[`script/README.md`](script/README.md) covers how a deployment is described, every script in
+order, every parameter and each condition under which a script refuses to run.
+[`script/TOKEN-README.md`](script/TOKEN-README.md) covers BRSR, staking, the buyback and the market.
+[`script/MIGRATION.md`](script/MIGRATION.md) is the runbook for moving the current deployment on
+Robinhood Chain to the new contract set. Every key signs from an encrypted keystore; no private key
+is ever passed on the command line.
+
+## Source verification
+
+`script/verify.mjs` submits each contract in `verification/manifest.json` to Sourcify, to
+Blockscout's shared verification store and to the Robinhood Chain explorer, then waits until the
+explorer shows the source. It needs `BLOCKSCOUT_API_KEY`.
+
+```sh
+node script/verify.mjs --only <name,name>      # submit, then wait
+node script/verify.mjs --status                # only report
+```
+
+Each entry names the contract's address, compiler, constructor arguments and linked libraries, and
+its compiler input sits beside the manifest as `<name>.json`. For a newly deployed contract, write
+that input with `forge verify-contract <address> <path>:<Contract> --show-standard-json-input`, and
+take the constructor arguments from the run's transaction log.
 
 ## License
 

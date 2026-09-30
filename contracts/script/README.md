@@ -1,421 +1,296 @@
 # Deploying Bursar
 
-`Deploy.s.sol` brings up the whole contract set in one run and refuses to start when the
-parameters you gave it do not hold together. Read this before the first deploy on any chain.
-You do not need to have read the contracts.
+The scripts in this directory deploy the Bursar contract set, check it against what was intended,
+and move an earlier deployment's state into a new one. Every script stops before it sends anything
+when what it was given does not hold together, and every deploy script has a companion that asks
+the chain the same questions afterwards. You do not need to have read the contracts.
 
-What gets deployed:
-
-| Contract | What it is |
+| Document | Covers |
 |---|---|
-| `AdminTimelock` | Two-of-three governance with a mandatory waiting period. Admin of `Reputation`, `OracleRegistry` and `AgentRegistry`. |
-| `Reputation` | Settlement history per payee, and the spending cap derived from it. |
-| `Escrow` | Holds one payment for the life of one job. Locks, releases, refunds, disputes. No admin role: its fee, TTL bounds and dispute windows are fixed at construction. |
-| `OracleRegistry` | Bonded resolvers who rule on disputes by commit-reveal vote, and their rewards. |
-| `AgentRegistry` | Optional. Staked directory of the counterparties a mandate may name. |
-| `MandateAccountFactory` | Creates mandate accounts at addresses a principal can compute before funding them. No admin role: everything it holds is immutable. |
+| This page | How a deployment is described, the scripts in order, every parameter, the checks, and what each refusal means. |
+| [`TOKEN-README.md`](TOKEN-README.md) | BRSR, vesting, staking, the buyback and the BRSR/USDG market. |
+| [`MIGRATION.md`](MIGRATION.md) | Moving from the current deployment on Robinhood Chain to the new set, step by step. |
 
-`deployments/rhc-mainnet.json` records who administers each contract in Release 1 under
-`governance.adminOf`, including the token contracts the second deploy adds.
+Amounts in USDG are micro-USD: USDG has six decimals, so `1000000` is one dollar. BRSR has
+eighteen, so `1e18` is one token. Durations are seconds and rates are basis points.
 
-Every amount below is in settlement-asset units. On Robinhood Chain that is USDG at six
-decimals, so `1_000000` is one dollar. Every duration is in seconds.
+## 1. How a deployment is described
 
-## 1. Before you start
+**The record.** One JSON file per deployment, under `deployments/`, validated by
+[`deployments/schema.json`](../deployments/schema.json). It names the chain, the settlement asset,
+the contracts the deployment uses but did not deploy (`external`), who holds each role (`roles`),
+and, as the scripts run, every contract they deploy and every figure they applied (`parameters`).
+`BURSAR_RECORD` points the scripts at it.
 
-**Dependencies.** `contracts/lib/` is not committed and there are no submodules, so a fresh
-checkout has no `forge-std` and no OpenZeppelin, and every command below fails to resolve its
-imports. Install them once, from `contracts/`:
+**The parameter file.** The figures each script applies: fees, windows, caps, bonds, and the few
+operators a script records the first time it needs them. `script/env/rhc-mainnet-v3.env` holds
+the Robinhood Chain values and `script/env/local.env` the local rehearsal's.
+
+Four rules follow from that split.
+
+- **Addresses come from the record.** A script reads the contracts earlier scripts deployed from
+  the record, never from the shell. It stops with `NotRecorded` when one is missing and with
+  `NotContract` when the record names an address with no code.
+- **A role is read from the shell once.** When the record does not name a role yet, the first
+  script that needs it reads it from the environment and records it. After that the record
+  answers, and a shell that names a different address stops the run with `RecordMismatch`.
+- **Nothing is deployed twice.** A script refuses to deploy what the record already names, with
+  `AlreadyRecorded`. An entry with no code behind it is a broadcast that never landed and is
+  replaced without asking. `BURSAR_FORCE=1` replaces a live one.
+- **A simulation writes nothing.** Without `--broadcast`, every check runs against the live chain
+  and the record is left as it was, so the next script reads what is really there.
+
+**The chain.** Every script checks that the record's `chainId` is the chain it is talking to. A
+record with `"local": true` is a rehearsal: scripts accept it only with `BURSAR_LOCAL=1`, and refuse
+it without, so a rehearsal record cannot be pointed at mainnet and a mainnet record cannot be
+rehearsed against by a stray flag. Without the flag the chain has to be Robinhood Chain, 4663.
+Testnet 46630 answers, but USDG holds no contract there, so nothing on it can settle.
+
+**The deploy key.** The record names the key the deployment signs with as `deployer`, or the first
+script records the key it ran with, and every deploy script refuses any other key with
+`WrongDeployer`. The one-shot setters that wire the contracts together answer only to the key that
+deployed them.
+
+**Records over time.** `status` is `planned` while contracts are still to deploy, `live` while the
+deployment answers for its chain, and `superseded` or `retired` once another has replaced it. A
+retired record keeps its history, names its successor in `supersededBy` and says why in `retired`.
+The address book the apps read resolves addresses from live records only.
+
+**Namespaces.** Every variable can carry a prefix. Set `BURSAR_ENV_PREFIX` and each script reads
+`<prefix>BURSAR_RECORD` and so on, which is how two deployments share one shell.
+
+## 2. Before you start
+
+**Tools.** Foundry 1.8.1 and the dependencies, as [`../README.md`](../README.md) describes, and
+`jq`. Run every command from `contracts/`.
+
+**Keys.** Each key signs from a Foundry encrypted keystore. No private key appears in a command, a
+variable or a file in this repository. Point Foundry at the password file with `ETH_PASSWORD` and
+name the keystore with `--keystore`; Foundry reads the rest on its own.
+
+**Funding.** Gas is ETH and settlement is USDG, two different assets held at different scales. The
+deploy key needs ETH for gas and at least 1 USDG, which the core run checks as proof that the
+record's settlement asset is the one the system will settle in. It spends none.
+
+**Governance.** Three timelock signers and a guardian. The deploy key may not be a signer, the
+guardian may not be one either, and at least one signer has to be a contract unless the run
+acknowledges a signer set of three plain keys (section 5).
+
+## 3. The scripts, in order
+
+| Script | Deploys | Then |
+|---|---|---|
+| `Deploy.s.sol` | `AdminTimelock`, `Reputation`, `Escrow`, `OracleRegistry`, `AgentRegistry`, `MandateAccountFactory` | `VerifyCore.s.sol` |
+| `DeployToken.s.sol` | `BRSR` and `Vesting`, on a chain that has neither | `VerifyToken.s.sol` |
+| `DeployStaking.s.sol` | `Staking`, `Buyback`, and a `V4LiquiditySeeder` when the BRSR/USDG pool is open | `VerifyStaking.s.sol` |
+| `SeedPool.s.sol` | opens the BRSR/USDG market on a chain where it is not open, or adds to it | |
+| `DeployRwa.s.sol` | `AssetRegistry`, `PriceGuard`, `StockSpendRouter`, `TreasuryPark` and its two adapters | `VerifyRwa.s.sol` |
+| `DeployCollateral.s.sol` | `CreditPool` and `CollateralVault`, bound to each other | `VerifyCollateral.s.sol` |
+| `DeployPrivacy.s.sol` | `WithinMandateVerifier`, `CommittedMandateFactory`, `DisclosureRegistry`, `SolvencyLog` | `VerifyPrivacy.s.sol` |
+| `DeployShielded.s.sol` | the Privacy Pools verifiers and `Entrypoint`, `ShieldedPool` and `ShieldedRelay` | `VerifyShielded.s.sol` |
+| `ProposeWiring.s.sol` | nothing: puts governance's wiring to the signers | `VerifyWiring.s.sol` |
+
+`Verify.s.sol` runs every check in one pass. The `Migrate*.s.sol` scripts and
+`RetireRecords.s.sol` move an earlier deployment into this one; [`MIGRATION.md`](MIGRATION.md)
+gives their order.
+
+Every contract answers to the timelock from its constructor, so no part of the set is ever
+administered by the deploy key. What the deploy key keeps is the one-shot calls no constructor can
+make, and each script spends them in its own run:
+
+- `Deploy.s.sol` closes the three pairings between reputation, escrow and resolver registry, and
+  names the timelock the escrow's pauser.
+- `DeployToken.s.sol` writes the team's vesting schedule and closes it.
+- `DeployStaking.s.sol` names the staking pool on the resolver registry, which puts resolver bonds
+  in BRSR.
+- `DeployCollateral.s.sol` binds the credit pool to its vault.
+- `DeployShielded.s.sol` registers the pool on the Entrypoint, then hands the Entrypoint's owner
+  role to the timelock and renounces it.
+
+What is left is governance's, and `ProposeWiring.s.sol` puts all of it to the signers in one
+batch: the buyback's keeper, each vetted resolver's bond floor, the staking rebate table, and the
+credit pool's two roles on the staking pool, credit manager and slasher.
+
+## 4. Running a script
+
+Simulate first. Without `--broadcast` nothing is sent and nothing is written, and every check still
+runs against the live chain.
 
 ```sh
-forge install --no-git --shallow \
-  foundry-rs/forge-std@1eea5bae12ae557d589f9f0f0edae2faa47cb262 \
-  OpenZeppelin/openzeppelin-contracts@69c8def5f222ff96f2b5beff05dfba996368aa79 \
-  OpenZeppelin/openzeppelin-contracts-upgradeable@723f8cab09cdae1aca9ec9cc1cfa040c2d4b06c1
+source script/env/rhc-mainnet-v3.env
+export ETH_PASSWORD=...      # the keystore password file, from the ops key tooling
+export KEYS="$HOME/.config/bursar/keystore"
+
+forge script script/Deploy.s.sol --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/rh-deployer"
 ```
 
-`--no-git` keeps them out of the git index, which is how this repository is arranged. The three
-commits are forge-std v1.9.4, OpenZeppelin Contracts v5.1.0 and OpenZeppelin Contracts
-Upgradeable v5.0.2, the exact sources the deployed bytecode was built from, and CI installs the
-same ones. Then `forge build` and `forge test` work. The rest of the prerequisites are in the root
-`README.md`.
-
-**Keys.** The deploy key signs from a Foundry encrypted keystore. A private key never appears
-in a command, an environment variable, or a file in this repository.
-
-Import the key once. `cast` prompts for the private key and for a password, and writes an
-encrypted keystore to `~/.foundry/keystores/bursar-deployer`:
+Then send it, one transaction at a time, and ask the chain what landed:
 
 ```sh
-cast wallet import bursar-deployer --interactive
+forge script script/Deploy.s.sol --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/rh-deployer" --broadcast --slow
+forge script script/VerifyCore.s.sol --rpc-url "$RHC_RPC_URL"
 ```
 
-For each run, point Foundry at the keystore and at a file holding its password. Keep the
-password file outside the repository, readable only by you, and delete it when you are done.
-Foundry reads both variables on its own, so no key or password is passed on the command line.
+The shielded pool hashes with two Poseidon libraries that are already on chain. The record names
+them under `external`, the command links them, and the run stops unless the pool's code names
+exactly those two:
 
 ```sh
-export ETH_KEYSTORE="$HOME/.foundry/keystores/bursar-deployer"
-export ETH_PASSWORD="$HOME/.bursar-deployer.pass"      # chmod 600
-
-export RHC_RPC_URL=https://rpc.mainnet.chain.robinhood.com
-export RHC_USDG=0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168
-export RHC_DEPLOYER="$(cast wallet address --keystore "$ETH_KEYSTORE" --password-file "$ETH_PASSWORD")"
+forge script script/DeployShielded.s.sol --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/rh-deployer" \
+  --libraries "vendor/poseidon-solidity/PoseidonT3.sol:PoseidonT3:$(jq -r .external.PoseidonT3 "$BURSAR_RECORD")" \
+  --libraries "vendor/poseidon-solidity/PoseidonT4.sol:PoseidonT4:$(jq -r .external.PoseidonT4 "$BURSAR_RECORD")" \
+  --broadcast --slow
 ```
 
-A hardware wallet works the same way with `--ledger` or `--trezor` in place of the keystore.
+That run builds the libraries with the second compiler profile, the one the vendored Privacy Pools
+code pins, and leaves a second copy of each in the build cache. Run `forge build --force` once
+afterwards, before any `forge test`.
 
-**Funding.** Gas is ETH and settlement is USDG. Two different assets, so topping up the gas
-float never touches the settlement balance and neither figure tells you anything about the
-other. The deploy key needs both: ETH to send the transactions, and enough USDG that the
-preflight can see the asset is real and the first mandate can be funded.
+The governance batch is one script run per signer: propose from one, approve from a second, and
+execute from any once the delay has passed. Each step can be run again; a call already proposed,
+approved or applied is skipped. `--sig "status()"` shows where each call stands.
 
 ```sh
-cast balance "$RHC_DEPLOYER" --rpc-url "$RHC_RPC_URL"                                  # gas, wei
-cast call "$RHC_USDG" "balanceOf(address)(uint256)" "$RHC_DEPLOYER" --rpc-url "$RHC_RPC_URL"
+forge script script/ProposeWiring.s.sol --sig "propose()" --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/signer-1" --broadcast
+forge script script/ProposeWiring.s.sol --sig "approve()" --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/signer-2" --broadcast
+forge script script/ProposeWiring.s.sol --sig "execute()" --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/signer-1" --broadcast
 ```
 
-The treasury, the slash sink and the deploy key are three separate addresses, and the script
-stops if any two of them are the same.
+## 5. Parameters
 
-**Governance.** Decide the three timelock signers before you deploy. They cannot be changed
-without a timelocked proposal, and the deploy key is not allowed to be one of them. At least
-one signer has to be a contract, in practice a multisig, unless the run explicitly
-acknowledges an all-EOA signer set. See section 2.
+Every figure below is in `script/env/rhc-mainnet-v3.env`, with the value the Robinhood Chain
+deployment uses. Where the value says `record`, the Robinhood Chain record already names the
+address under `roles`, and the variable is read only on a chain whose record does not. A variable a
+script needs and cannot find stops it with `MissingEnv`, so nothing is deployed on a value nobody
+chose. Each script writes the figures it applied into the record's
+`parameters`, which is what the verify scripts hold the chain to.
 
-## 2. Environment
+### `Deploy.s.sol`
 
-Nothing has a default. An unset variable stops the run with `MissingEnv("NAME")`, so the script
-can never deploy something you did not choose.
+| Variable | Value | Meaning |
+|---|---|---|
+| `BURSAR_TIMELOCK_PERIOD` | `3600` | Seconds between two signers agreeing and the change taking effect. One hour in this development deployment. Stakes and bonds take seven days to leave whatever it is. |
+| `BURSAR_TIMELOCK_SIGNER_1` to `_3` | record | The three signers, recorded under `roles.timelockSigners`. |
+| `BURSAR_TIMELOCK_GUARDIAN` | record | Pauses an administered contract at once and can do nothing else. |
+| `BURSAR_TREASURY` | record | Receives the protocol fee, swept from the escrow by anyone and only ever to this address. |
+| `BURSAR_SLASH_SINK` | record | Receives slashed resolver bonds and agent stake. |
+| `BURSAR_ALLOW_EOA_GOVERNANCE` | set in the shell | Must read `i-accept-eoa-governance` for a signer set with no contract in it. A phrase rather than `true`, because `true` arrives in a shell by accident. |
+| `BURSAR_ADMIN_TIMELOCK` | optional | A live timelock to join instead of deploying one. The record's, when it names one, and the two have to agree. |
+| `BURSAR_FEE_BPS` | `100` | The protocol's share of a settlement, taken from the payee's side only. |
+| `BURSAR_RESOLVER_FEE_BPS` | `50` | Taken from a disputed payment for the resolvers who ruled on it. |
+| `BURSAR_DISPUTE_BOND_BPS` | `500` | What opening a dispute costs, as a share of the disputed amount. |
+| `BURSAR_MIN_TTL`, `BURSAR_MAX_TTL` | `300`, `604800` | The shortest and longest deadline a payment may carry. |
+| `BURSAR_DISPUTE_WINDOW` | `3600` | How long after a release the payer may dispute. |
+| `BURSAR_MIN_LOCK` | `10000` | The smallest payment, one cent, so the bond on any disputed payment is at least one unit. |
+| `BURSAR_CAP_BASE`, `BURSAR_CAP_PER_SCORE`, `BURSAR_CAP_MAX` | `25000000`, `2250000`, `250000000` | What one payee can be paid: 25 USDG with no history, 2.25 USDG more per point of reputation, up to 250 USDG at a perfect score of 100. |
+| `BURSAR_COMMIT_WINDOW`, `BURSAR_REVEAL_WINDOW` | `3600`, `3600` | An hour to commit a sealed score and an hour to reveal it. |
+| `BURSAR_UNBONDING_PERIOD` | `604800` | Seven days between a resolver asking for its bond back and collecting it. |
+| `BURSAR_RESOLVER_QUORUM` | `2` | Reveals needed for a ruling to count. |
+| `BURSAR_MAX_VOTERS` | `64` | Commitments admitted per dispute, so every seated resolver can vote. |
+| `BURSAR_MAX_DEVIATION` | `20` | Score points from the consensus before a vote is an outlier. |
+| `BURSAR_RESOLVER_SLASH_BPS` | `1000` | Share of an outlier's or a silent resolver's bond taken. |
+| `BURSAR_DEPLOY_AGENT_REGISTRY` | `true` | Deploys the agent registry. With it, the escrow pays registered, active payees only. |
+| `BURSAR_AGENT_MIN_STAKE`, `BURSAR_AGENT_SLASH_BPS` | `5000000`, `1000` | Providers stake 5 USDG to take work and lose a tenth of it on a ruling against them. |
 
-### Chain and asset
+A payment that is disputed leaves through the resolver registry, which always has an exit open once
+the reveal window closes, so there is no dispute timeout to set.
 
-| Variable | Meaning |
-|---|---|
-| `BURSAR_CHAIN_ID` | The chain you intend to deploy to. Checked against the chain the RPC actually serves. |
-| `BURSAR_SETTLEMENT_ASSET` | ERC-20 address of the settlement asset. Must answer `decimals() == 6`. On chain 4663 it must be USDG at `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168`. |
+### `DeployStaking.s.sol`
 
-Chain `4663` is the only deploy target. Testnet `46630` answers, but USDG holds no contract
-there, so nothing on it can settle.
+| Variable | Value | Meaning |
+|---|---|---|
+| `BURSAR_STAKING_UNBONDING_PERIOD` | `604800` | Seven days to leave the staking pool. |
+| `BURSAR_STAKING_MIN_BOND` | `1e27` | The bond floor for anyone governance has not named one for. More BRSR than exists, so nobody can bond until governance names a floor for a vetted resolver. |
+| `BURSAR_RESOLVER_BOND_FLOOR` | `30000e18` | The floor governance names for each recorded resolver: 30,000 BRSR. |
+| `BURSAR_RESOLVERS` | record | The vetted resolvers, recorded under `roles.resolvers`. |
+| `BURSAR_BUYBACK_KEEPER` | first resolver | The only key that can trigger a buyback. Named by governance in the wiring batch. |
+| `BURSAR_BUYBACK_POOL_FEE`, `_TICK_SPACING`, `_HOOKS` | `3000`, `60`, zero | The BRSR/USDG pool the buyback trades, fixed in the buyback for good. The manager and the StateView come from the record's `external`. |
+| `BURSAR_BUYBACK_SPEND_PER_CALL` | `500000` | 0.50 USDG a buy. |
+| `BURSAR_BUYBACK_MAX_SPEND_PER_WINDOW` | `5000000` | 5 USDG a window. |
+| `BURSAR_BUYBACK_MIN_SPEND` | `100000` | Nothing under 0.10 USDG. |
+| `BURSAR_BUYBACK_MAX_PRICE_MICRO_USD_PER_BRSR` | `240` | Never more than 240 micro-USD for one BRSR: the pool's price of 200 plus a fifth. Trusted for seven days after governance sets it. |
+| `BURSAR_BUYBACK_WINDOW`, `BURSAR_BUYBACK_MIN_INTERVAL` | `86400`, `3600` | The spend cap resets daily, and buys are at least an hour apart. |
 
-On 4663 the run also reads the part of USDG's compliance surface that answers. USDG is a
-diamond proxy: it routes `paused()` and `isFrozen(address)`, and it reverts `FacetNotFound` on
-anything it does not route, `isBlacklisted` and `version` included. So the preflight checks that
-the asset is not paused, that neither the deploy key nor the treasury is frozen, and that the
-deploy key holds at least 1 USDG. All three are read straight, with no gas stipend and no
-try/catch, because there is no precompile in the path.
+### The lanes
 
-Every variable on this page can be namespaced. Set `BURSAR_ENV_PREFIX` and the script reads
-`<prefix>BURSAR_CHAIN_ID` and so on, which is how two deployments share one shell without
-reading each other's parameters.
+| Variable | Value | Meaning |
+|---|---|---|
+| `BURSAR_LENDER` | the deploy key | `DeployCollateral.s.sol`. The only address that can take unlent USDG out of the credit pool, and the one that carries its losses. Never inferred from the key that signs. |
+| `BURSAR_SOLVENCY_POSTER` | the deploy key | `DeployPrivacy.s.sol`. The key the solvency service posts with. |
+| `BURSAR_ASP_POSTMAN` | `0x731F…4bbe` | `DeployShielded.s.sol`. The key the association-set service posts roots with. Never the deploy key or the timelock. |
+| `BURSAR_SHIELDED_RELAYER` | `0xc8FB…9630` | `DeployShielded.s.sol`. The relayer the apps send withdrawals through. |
 
-### Governance
+The RWA assets come from the record's `external.assets`, and the terms each trades under from
+`script/lib/RwaConfig.sol`: the treasury fund SGOV with a 0.5% band, and SPY, NVDA and AAPL as
+stocks, each on its pinned pool. The collateral lane's caps, rates and tiers are in
+`script/lib/CollateralConfig.sol`: 100 USDG of debt in total, 10 USDG per mandate. Committed
+mandates share a lifetime ceiling of 25 USDG each. The shielded pool takes deposits from 1 to 100
+USDG, holds at most 1,000 USDG, keeps 0.10% of each deposit, and lets a relayer charge up to 5%.
 
-| Variable | Meaning |
-|---|---|
-| `BURSAR_TIMELOCK_SIGNER_1` | First timelock signer. |
-| `BURSAR_TIMELOCK_SIGNER_2` | Second timelock signer. |
-| `BURSAR_TIMELOCK_SIGNER_3` | Third timelock signer. |
-| `BURSAR_TIMELOCK_GUARDIAN` | Holds the brake. Can pause an administered contract immediately, and can do nothing else. Must not be one of the three signers. |
-| `BURSAR_TIMELOCK_PERIOD` | Seconds between a proposal reaching two approvals and becoming executable. The contract accepts one hour to 30 days in this development deployment; the floor is 48 hours at launch. Staked parties need seven days to withdraw whatever the delay. |
-| `BURSAR_ADMIN_TIMELOCK` | Optional. A live `AdminTimelock` for this run to join instead of deploying one. Leave it unset, or set it to the zero address, on a chain with no governance yet. |
-| `BURSAR_ALLOW_EOA_GOVERNANCE` | Optional, and the only way to deploy with three plain keys. Must read exactly `i-accept-eoa-governance`. Anything else, `true` included, stops the run. |
+## 6. Checking a deployment
 
-**Deploying without a multisig.** The script refuses a signer set in which no signer is a
-contract, because three hot keys hold a treasury no better than one. Release 1 governance is
-three plain keys until a multisig replaces them, so that refusal has to be liftable. It lifts on
-a phrase rather than a boolean, because `true` is a word that ends up in a shell by accident and
-`i-accept-eoa-governance` is not. A run that
-lifts it prints what it means before it deploys anything.
+Each verify script reads the record and asks the chain what its deploy script asked its own
+simulation, and sends nothing. Every question has one of three answers:
 
-Two of the three signers authorise a change; any one of them can cancel a pending one. A
-proposal that sits unexecuted for 14 days after its delay expires has to be proposed again.
+- **match**: nothing to say;
+- **owed**: a value governance or a later step still has to set, found unset. Listed, and fatal
+  only with `BURSAR_VERIFY_STRICT=1`, which is how the last check of a deployment runs;
+- **mismatch**: anything else, including a governed value set to something other than what the
+  record intends. A proposal that named the wrong address is worse than none.
 
-**Joining governance that is already live.** A first deployment brings its own timelock. A
-redeploy of the money path, which is what a change to `Escrow` or `OracleRegistry` forces,
-should join the one already holding the rest of the system: the delay only means anything if
-there is one of it, and two timelocks over one deployment are two answers to the question of
-who may change a parameter. `BURSAR_ADMIN_TIMELOCK` names it, and it is the same variable the
-token deployment reads, so one address describes governance for both runs.
+A run asks every question before it fails, so one run names every problem, and ends with a line
+such as `staking: 0 mismatched, 6 owed`. Any mismatch, or anything owed under strict, fails it
+with `VerificationFailed(mismatches, owed)`.
 
-The run never sets the terms of governance it joins, so it reads them off the contract and
-holds them against the four variables above. A period, a guardian or a signer that disagrees
-stops the run. Fix whichever of the two is wrong before continuing.
+## 7. What the scripts refuse
 
-The guardian is the one exception to the delay: its `pause` call lands in the same block,
-skipping the queue. Restarting a paused contract goes through the full delay, so a stolen
-guardian key costs an outage and nothing more. Keep it off the signer set. A key that has to be
-reachable in seconds is the one most likely to be sitting warm, and the script stops on the
-overlap with `RoleCollision("guardian", "timelockSigner", ...)`. `GOVERNANCE.md` at the
-repository root describes the brake and the rest of the timelock.
-
-### Money sinks
-
-| Variable | Meaning |
-|---|---|
-| `BURSAR_TREASURY` | Receives the protocol fee. Swept from the escrow by anyone willing to pay the gas, and only ever to this address. |
-| `BURSAR_SLASH_SINK` | Receives slashed resolver bonds, which are BRSR, and slashed agent stake, which is the settlement asset. |
-
-The treasury can hand itself over later in two steps, from its own key. The deploy script does
-not do that for you.
-
-### Escrow economics
-
-| Variable | Meaning |
-|---|---|
-| `BURSAR_FEE_BPS` | Protocol fee in basis points, charged against the payee's side of a settlement only. A refund, a timeout and a cancellation return the payer whole. Ceiling 1000. |
-| `BURSAR_RESOLVER_FEE_BPS` | Taken off a disputed lock before the split and paid to the resolvers who ruled on it. Ceiling 1000. |
-| `BURSAR_DISPUTE_BOND_BPS` | What opening a dispute costs, as a share of the locked amount, pulled from whoever opens it. Returned when the ruling lands on their side, or when no resolver ever ruled. Ceiling 2000. |
-| `BURSAR_MIN_TTL` | Shortest job deadline a lock may carry. |
-| `BURSAR_MAX_TTL` | Longest job deadline a lock may carry. Must exceed `MIN_TTL` by more than one second. |
-| `BURSAR_DISPUTE_WINDOW` | How long after a release the payer may still dispute. The money is gone by then, so a late dispute records against the payee's history and settles nothing. |
-| `BURSAR_MIN_LOCK` | Smallest amount a lock may carry. The dispute bond on it has to come to at least one unit, so contesting a lock is never free; the escrow refuses a smaller floor at construction. |
-
-`BURSAR_DISPUTE_TIMEOUT` is retired. A disputed lock leaves through the resolver registry, which
-always has one exit open once the reveal window closes, and a run that finds the variable still
-set stops with `RetiredEnv`.
-
-Both fees come out of the same locked principal, so their sum has to stay below 100%.
-
-### Reputation cap curve
-
-A payee's cap is `baseCap + capPerScore * score`, capped at `maxCap`, with the score running
-from 0 to 100. A payee with no history scores zero and gets `baseCap`, so a zero base cap
-rejects every first job on the network. The script stops if you set one.
-
-| Variable | Meaning |
-|---|---|
-| `BURSAR_CAP_BASE` | Cap for a payee with no settlement history. Must be non-zero. |
-| `BURSAR_CAP_PER_SCORE` | Extra cap per score point earned. |
-| `BURSAR_CAP_MAX` | Ceiling the curve never exceeds. Must be at least `BURSAR_CAP_BASE` and no more than `BURSAR_CAP_BASE + 100 * BURSAR_CAP_PER_SCORE`, the cap a perfect score reaches. |
-
-### Resolvers
-
-Resolver bonds are posted in BRSR, not in the settlement asset. The floor that admits one lives
-in `Staking`, so this deployment sets no figure for it; the token deployment sets it from
-`BURSAR_STAKING_MIN_BOND`. Governance can raise it later, per resolver or for everyone. A
-resolver below the new floor loses its vote in the block the change lands, and keeps its bond. A
-bond denominated in a moving asset needs that lever.
-
-`BURSAR_RESOLVER_MIN_BOND` is retired. A run that finds it still set in the shell stops with
-`RetiredEnv`.
-
-Until the token deployment runs and calls `OracleRegistry.setStaking`, nobody can bond and no
-dispute can be voted on. The core run prints the pending call and leaves it to that second run.
-
-| Variable | Meaning |
-|---|---|
-| `BURSAR_COMMIT_WINDOW` | How long resolvers have to commit to a sealed score. At least ten minutes. |
-| `BURSAR_REVEAL_WINDOW` | How long they then have to reveal it. At least ten minutes. |
-| `BURSAR_UNBONDING_PERIOD` | Cooldown between asking to withdraw a bond and collecting it. Must be at least the commit and reveal windows combined, so a bond cannot mature before the dispute it voted on settles. |
-| `BURSAR_RESOLVER_QUORUM` | Reveals needed for a vote to count. Below it the dispute fails and the lock goes back to the payee with a fresh deadline; nobody is refunded. |
-| `BURSAR_MAX_VOTERS` | Commitments admitted per dispute. At least 64, the size of the roster, so every seated resolver can vote and none can be crowded out. |
-| `BURSAR_MAX_DEVIATION` | How far a revealed score may sit from the median, in score points, before it is treated as an outlier. Outliers are slashed and earn no reward. |
-| `BURSAR_RESOLVER_SLASH_BPS` | Share of a resolver's bond taken for staying silent after committing, or for ruling outside the deviation band. Must be non-zero: a slash of zero still emits a slashing event, which reads as enforcement to anyone watching the logs. |
-
-### Agent registry (optional)
-
-| Variable | Meaning |
-|---|---|
-| `BURSAR_DEPLOY_AGENT_REGISTRY` | `true` or `false`, spelled out. Anything else, including an empty value, stops the run. |
-| `BURSAR_AGENT_MIN_STAKE` | Stake required to register and to stay active. Required when the registry is deployed. |
-| `BURSAR_AGENT_SLASH_BPS` | Share of an agent's stake taken by one ruling. Ceiling 5000. |
-
-With the registry deployed, the escrow gates every lock on the payee: a payee that is barred
-or not active cannot be paid. Without it the escrow admits any payee, which is the right shape
-for a minimal deployment. The choice is one-way. The escrow accepts the registry once and
-cannot be re-pointed at another.
-
-### Example, Robinhood Chain mainnet
-
-These are the Release 1 values, as read back from chain after the deploy and recorded under
-`verifiedOnChain` in `deployments/rhc-mainnet.json`. The role addresses are left as `0x...`
-because they belong to whoever runs the deploy; Release 1's own are under `roles` in the same
-file. Save the block to a file outside the repository, `bursar-mainnet.env` below, fill in the
-roles, and source it rather than retyping the values.
-
-```sh
-export BURSAR_CHAIN_ID=4663
-export BURSAR_SETTLEMENT_ASSET=0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168
-
-export BURSAR_TIMELOCK_SIGNER_1=0x...
-export BURSAR_TIMELOCK_SIGNER_2=0x...
-export BURSAR_TIMELOCK_SIGNER_3=0x...
-export BURSAR_TIMELOCK_GUARDIAN=0x...       # pause-only key, not a signer
-export BURSAR_TIMELOCK_PERIOD=172800        # 48h, the floor at launch (1h in development)
-# Unset on a first deploy. On a redeploy, the live timelock this run joins.
-# export BURSAR_ADMIN_TIMELOCK=0x...
-
-export BURSAR_TREASURY=0x...
-export BURSAR_SLASH_SINK=0x...
-
-export BURSAR_FEE_BPS=100                   # 1.00%
-export BURSAR_RESOLVER_FEE_BPS=50           # 0.50%
-export BURSAR_DISPUTE_BOND_BPS=500          # 5% of the locked amount
-export BURSAR_MIN_TTL=300                   # 5m
-export BURSAR_MAX_TTL=604800                # 7d
-export BURSAR_DISPUTE_WINDOW=3600           # 1h after release
-export BURSAR_MIN_LOCK=10000                # 0.01 USDG, a bond of 0.0005 at 5%
-
-export BURSAR_CAP_BASE=25000000             # 25 USDG for an unproven payee
-export BURSAR_CAP_PER_SCORE=2250000         # +2.25 USDG per score point
-export BURSAR_CAP_MAX=250000000             # 250 USDG
-
-export BURSAR_COMMIT_WINDOW=21600           # 6h
-export BURSAR_REVEAL_WINDOW=21600           # 6h
-export BURSAR_UNBONDING_PERIOD=604800       # 7d
-export BURSAR_RESOLVER_QUORUM=2
-export BURSAR_MAX_VOTERS=64
-export BURSAR_MAX_DEVIATION=20
-export BURSAR_RESOLVER_SLASH_BPS=1000       # 10% of the bond
-
-export BURSAR_DEPLOY_AGENT_REGISTRY=true
-export BURSAR_AGENT_MIN_STAKE=5000000       # 5 USDG
-export BURSAR_AGENT_SLASH_BPS=1000          # 10% of the stake
-
-# Release 1 only. Unset, the run refuses a signer set of three plain keys.
-export BURSAR_ALLOW_EOA_GOVERNANCE=i-accept-eoa-governance
-```
-
-## 3. Running it
-
-Simulate first. Without `--broadcast` nothing is sent, and every check in the script still
-runs against the live chain state.
-
-```sh
-source bursar-mainnet.env     # the parameters from section 2
-cd contracts
-
-forge script script/Deploy.s.sol:Deploy \
-  --rpc-url "$RHC_RPC_URL" \
-  --sender "$RHC_DEPLOYER" \
-  -vvv
-```
-
-Then deploy:
-
-```sh
-forge script script/Deploy.s.sol:Deploy \
-  --rpc-url "$RHC_RPC_URL" \
-  --sender "$RHC_DEPLOYER" \
-  --broadcast --slow -vvv
-```
-
-`--sender` has to be the keystore address. The script reads back on chain that the contracts
-were in fact deployed by it, because three pairings can only ever be closed by that address.
-
-`--slow` sends one transaction at a time and waits for each receipt, which keeps a mispriced
-batch from spending the gas float on transactions that then fail.
-
-Simulated against live 4663 on 2026-09-22: eleven transactions, about 16.3M gas, which is
-0.00088 ETH at the 0.054 gwei the chain has held at. Foundry's own estimate carries a 1.3x
-buffer on top and reports 21.2M gas and 0.00223 ETH.
-
-Addresses and transaction hashes land in `broadcast/Deploy.s.sol/<chainId>/run-latest.json`.
-The script also prints every address at the end of the run.
-
-## 4. The order, and why it is that order
-
-1. **`AdminTimelock`** first, so no contract is ever admin-controlled by the deploy key. Each
-   constructor below names the timelock directly, which leaves no window in which the deploy
-   key could act as admin. With `BURSAR_ADMIN_TIMELOCK` set, this step reads the live
-   contract instead of deploying one, and everything below is unchanged.
-2. **`Reputation`**, with the timelock as admin and the cap curve fixed at construction.
-3. **`Escrow`**, which needs the reputation address.
-4. **`OracleRegistry`**, with the timelock as admin and the slash sink as the destination for
-   slashed bonds.
-5. **`AgentRegistry`**, if enabled. It takes the deploy key as admin for the length of this
-   run only, because it has to name a resolver that does not exist until step 4.
-6. **The three one-shot pairings**, all from the deploy key, all in this run:
-   `Reputation.setEscrow`, `Escrow.setResolver`, `OracleRegistry.setEscrow`. Each accepts one
-   call and there is no second chance. A deployment that stops before this point cannot be
-   finished and has to be redone.
-7. **`Escrow.setRegistry`**, when the registry is deployed, then `transferAdmin` to the
-   timelock. Also one shot.
-8. **`MandateAccountFactory`**, last, because it bakes the escrow and the asset into every
-   account it creates.
-
-`AgentRegistry.setSlasher` is left uncalled, and the run asserts that `slasher` is the zero
-address. A resolver rules on a job and produces a quality score. The escrow turns that score
-into a refund split, and the reputation curve lowers the cap on the agent's next lock. Nothing
-in that path reaches an agent's balance, so naming a slasher here would advertise a capability
-the system does not have. Agent collateral moves on a timelock proposal, with a person naming
-the amount.
-
-`OracleRegistry.setStaking` is the fourth pairing and the one this run cannot make, because the
-pool that prices a resolver bond is deployed with the token set. The same deploy key closes it
-from there. See `TOKEN-README.md`.
-
-## 5. What the script refuses to do
-
-These are the cross-contract conditions no single constructor can see. Each one stops the run
-with a named error.
+Each refusal is a named error, raised before the first transaction is sent or in the simulation
+that runs before anything is broadcast.
 
 | Error | What it means |
 |---|---|
-| `WrongChain` | `BURSAR_CHAIN_ID` does not match the chain behind `--rpc-url`. Usually an RPC pointed at the wrong network. |
-| `AssetNotContract` | The settlement asset holds no code, or does not answer `decimals()`. |
-| `AssetDecimalsMismatch` | The settlement asset reports something other than six decimals. |
-| `AssetNotUsdg` | On chain 4663 the asset must be USDG at the verified address. |
-| `AssetPaused` | USDG is paused. Every transfer would revert, so a run that started would strand a half-wired deployment. |
-| `AddressFrozen` | USDG has frozen the deploy key or the treasury. A frozen treasury can never be swept, and the escrow names it immutably. |
-| `SettlementBalanceTooLow` | The deploy key holds less than 1 USDG. The run spends none, so this is the check that the address in the parameter file is the asset the system settles in. |
-| `FeeSplitTooLarge` | Protocol fee plus resolver fee reaches 100%. There would be nothing left to pay the payee from. |
-| `DisputeBondTooLarge` | A bond at or above the locked amount cannot be posted. |
-| `TimelockPeriodZero` | A timelock that executes immediately is a multisig with extra steps. |
-| `TimelockNotContract` | `BURSAR_ADMIN_TIMELOCK` names an address with no code. Every admin call in the deployment would revert. |
-| `BaseCapZero` | Every payee with no history would be capped at zero, so no first job could ever be locked. |
-| `DeployerIsTimelockSigner` | The deploy key signs from a shell with an unlocked keystore. Governance weight on that key puts the delay and the hot key in one hand. |
-| `RoleCollision` | Two roles share an address: the deploy key, the treasury and the slash sink each need their own, and the guardian cannot also be a timelock signer. |
-| `GovernanceHasNoMultisig` | None of the three signers is a contract, and `BURSAR_ALLOW_EOA_GOVERNANCE` is unset. Three hot keys hold a treasury no better than one. |
-| `EoaGovernanceNotAcknowledged` | `BURSAR_ALLOW_EOA_GOVERNANCE` is set to something other than `i-accept-eoa-governance`. The error prints what was given and what is required. |
-| `MissingEnv`, `EnvOutOfRange`, `EnvNotBoolean` | A variable is unset, too large for its field, or not spelled `true` or `false`. |
-| `RetiredEnv` | A variable from an older parameter set is still in the shell. Its value is in a unit nothing reads any more, so the run names it and what replaced it, if anything did. |
-| `WiringFailed`, `ParameterNotApplied` | A setter or constructor argument did not take effect on chain. The run stops with the value expected and the value found. |
+| `MissingEnv`, `EnvOutOfRange`, `EnvIntOutOfRange`, `EnvNotBoolean` | A variable is unset, too large for its field, or not spelled `true` or `false`. |
+| `RetiredEnv` | A variable from an older parameter set is still in the shell. The error names it and what replaced it. |
+| `WrongChain`, `RecordChainMismatch`, `LocalFlagMismatch` | The chain, the record and `BURSAR_LOCAL` do not agree. |
+| `NotRecorded`, `NotContract`, `NoAnswer` | Something the script builds on is missing from the record, has no code, or does not answer the read that identifies it. |
+| `AlreadyRecorded` | The record already names what this script deploys. |
+| `RecordMismatch` | The shell names an address the record disagrees with. |
+| `WrongDeployer` | The key is not the record's deploy key. |
+| `TimelockPeriodZero`, `TimelockNotContract` | Governance executes immediately, or is not there. |
+| `AssetNotContract`, `AssetDecimalsMismatch`, `AssetNotUsdg` | The settlement asset is not a six-decimal token, or on 4663 is not USDG. |
+| `AssetPaused`, `AddressFrozen`, `SettlementBalanceTooLow` | USDG is paused, has frozen an address the deployment pays, or the deploy key holds under 1 USDG. |
+| `FeeSplitTooLarge`, `DisputeBondTooLarge`, `BaseCapZero` | The escrow's figures leave nothing to pay a payee, cannot be posted, or cap every new payee at zero. |
+| `DeployerIsTimelockSigner`, `RoleCollision` | One address holds two roles that have to be apart. |
+| `GovernanceHasNoMultisig`, `EoaGovernanceNotAcknowledged` | No signer is a contract and the phrase is missing or wrong. |
+| `NotBrsr`, `OracleRegistryNotReady` | The recorded token is not BRSR, or the resolver registry was deployed by another key, is already wired, or settles in another asset. |
+| `PoolHookNotContract`, `DynamicFeePoolRejected`, `PoolFeeTooLarge`, `TickSpacingOutOfRange` | The buyback's pool key describes a pool v4 would not accept, or one whose hook could set its fee. |
+| `PriceCeilingNotAPrice`, `BondFloorZero` | The ceiling is a figure in some other unit, or the resolvers' floor is zero. |
+| `AssetKindMismatch`, `PoolIdMismatch`, `PoolNotOpen`, `OneTreasuryAsset` | An RWA asset's record disagrees with its terms, its pool is not the one measured, or not open. |
+| `NoTier`, `BuybackStakingMismatch` | A collateral asset has no tier, or the buyback compounds into a different staking pool than the one the credit pool slashes. |
+| `WiringFailed`, `ParameterNotApplied` | A setter or constructor argument did not take effect. The error gives the value expected and the value found. |
+| `NotSigner` | The governance batch was run from a key that is not a signer. |
 
-After the transactions land, the script reads all of it back off chain: the three pairings,
-the registry gate, the asset on every contract, both admins, the treasury, the slash sink, the
-fee rates, the bond rate, the minimum lock, the cap curve, and the timelock period. A
-deployment that reaches the end of the run is wired.
+The token script's own refusals are in [`TOKEN-README.md`](TOKEN-README.md), and the move's in
+[`MIGRATION.md`](MIGRATION.md).
 
-## 6. After the deploy
+## 8. Rehearsing
 
-**One step is left, and only if the agent registry was deployed.** Its admin is still the
-deploy key until the timelock accepts the handover, which takes a proposal and a second
-approval. The script prints the target and the calldata. Do this first, before anything is
-staked.
-
-`$TIMELOCK` and `$AGENT_REGISTRY` below are the two addresses the run printed, `$CALLDATA` is
-the encoded call it printed with them, and `$ID` is the proposal id the timelock returns.
+Two rehearsals run the real scripts with the real commands, each against its own anvil.
 
 ```sh
-# from a timelock signer
-cast send "$TIMELOCK" "propose(address,bytes)" "$AGENT_REGISTRY" "$CALLDATA" --rpc-url "$RHC_RPC_URL"
-# from a second signer
-cast send "$TIMELOCK" "approve(uint256)" "$ID" --rpc-url "$RHC_RPC_URL"
-# once the delay has passed
-cast send "$TIMELOCK" "execute(uint256)" "$ID" --rpc-url "$RHC_RPC_URL"
+script/local/rehearse.sh             # a fresh local chain
+script/local/rehearse-mainnet.sh     # a fork of Robinhood Chain as it stands
 ```
 
-Confirm it landed:
+`rehearse.sh` starts a local chain that answers as 4663, places stand-ins for the outside contracts
+with `script/local/LocalFixtures.s.sol`, which also writes a local record, and runs every deploy
+script with its check, the wiring batch through the timelock from the signers' own accounts, the
+full check, and one flow per lane. `rehearse-mainnet.sh` forks mainnet and runs the move in
+[`MIGRATION.md`](MIGRATION.md), step by step, as each real key. Neither reads a private key: every
+transaction is signed by anvil for the account it names. Both keep their records and transaction
+logs under `cache/bursar`, apart from a real run's.
 
-```sh
-cast call "$AGENT_REGISTRY" "admin()(address)" --rpc-url "$RHC_RPC_URL"    # the timelock
-cast call "$AGENT_REGISTRY" "pendingAdmin()(address)" --rpc-url "$RHC_RPC_URL"  # zero
-```
-
-**Resolvers.** Disputes cannot be heard until the token set is deployed and resolvers bond.
-Each posts at least `Staking.minBondOf(resolver)` in BRSR through `OracleRegistry.register`, and
-until `BURSAR_RESOLVER_QUORUM` of them are live every dispute fails and the payer is refunded,
-less the resolver fee. For a payee that has not released a lock yet, that means a dispute nobody
-can hear returns the payment to the payer. Have the full roster bonded before any lock is taken,
-and keep it above quorum.
-
-**Where the money goes on a disputed lock.** The resolver fee leaves the escrow for the
-oracle registry, which splits it evenly between the resolvers who ruled within the deviation
-band; they collect it with `claimRewards`. The dispute bond goes back to whoever opened the
-dispute if the ruling moved materially their way, and otherwise joins that reward. When no
-resolver rules, a bond posted by the payer is returned; a bond posted by the payee is not.
-
-**Records.** Keep `broadcast/Deploy.s.sol/<chainId>/run-latest.json`. It carries every address
-and transaction hash, and it is what a later bytecode check compares against.
+The same deployment runs in process in `forge test`: `test/script/EndToEnd.t.sol` builds it
+through the scripts and runs every lane, each deploy script has a suite of its own, and the
+suites under `test/script/fork` deploy onto a fork of Robinhood Chain when `BURSAR_RHC_FORK_RPC`
+is set.
