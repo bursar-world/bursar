@@ -32,9 +32,11 @@ jobs:
           cache: pnpm
 
       # The SDK's gas-failure suite runs its cases against a local anvil.
+      - id: foundry
+        run: echo "version=$(cat contracts/.foundry-version)" >> "$GITHUB_OUTPUT"
       - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
         with:
-          version: v1.8.1
+          version: ${{ steps.foundry.outputs.version }}
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r build
