@@ -13,9 +13,9 @@ reads the deployment record, and the parameters and checks they share.
 | `SeedPool.s.sol` | Opens the BRSR/USDG market at a price you name, or adds to it at the price it stands at. |
 | `ProposeWiring.s.sol` | Puts the keeper, the resolvers' bond floors, the rebate table and the credit pool's roles to the signers. |
 
-On Robinhood Chain BRSR, its vesting contract and the open BRSR/USDG pool already exist. The record
-names BRSR and `Vesting` under `token`, `DeployToken.s.sol` refuses to mint a second supply, and
-the new staking pool and buyback are built on the token and the pool that are there.
+On Robinhood Chain, BRSR, its vesting contract and the open BRSR/USDG pool already exist. The record
+names BRSR and `Vesting` under `token`, `DeployToken.s.sol` refuses to mint a second supply, and the
+new staking pool and buyback are built on the token and the pool that are there.
 
 ## 1. The token: `DeployToken.s.sol`
 
@@ -70,7 +70,7 @@ BRSR.
 **Nobody can bond until governance says who.** The bond floor for everyone is
 `BURSAR_STAKING_MIN_BOND`, 1e27 wei, which is more BRSR than exists. The wiring batch then names a
 floor of 30,000 BRSR for each resolver the record lists. That is the allowlist, closed from the
-first block rather than open until a proposal lands.
+first block.
 
 **The pool is fixed for good.** `BURSAR_BUYBACK_POOL_FEE`, `_TICK_SPACING` and `_HOOKS`, with the
 record's two tokens and pool manager, name the pool the buyback trades. It cannot be pointed at
@@ -133,7 +133,8 @@ The script never takes a raw `sqrtPriceX96`. It derives the opening price twice,
 and refuses when they disagree by more than a fifth of a tick. Before anything is sent it prints
 the position, the exact amounts the pool will take, and what one buyback at governance's
 parameters then does to the pool. After, it reads the pool back and fails unless the pool holds
-exactly what was sent, at exactly the planned price.
+exactly what was sent, at exactly the planned price. From a shell set up as
+[`README.md`](README.md) section 4 describes:
 
 ```sh
 BURSAR_SEED_USDG_MICRO=5000000 BURSAR_ALLOW_MAINNET_SEED=i-am-adding-to-the-market \
@@ -143,8 +144,7 @@ BURSAR_SEED_USDG_MICRO=5000000 BURSAR_ALLOW_MAINNET_SEED=i-am-adding-to-the-mark
 
 ## 4. What governance does next
 
-`ProposeWiring.s.sol` puts these decisions to the signers in one batch, and `VerifyWiring.s.sol`
-holds them all to done:
+`ProposeWiring.s.sol` puts these decisions to the signers in one batch:
 
 - `Buyback.setKeeper`, to the recorded keeper;
 - `Staking.setBondFloor`, 30,000 BRSR for each recorded resolver;
@@ -155,7 +155,8 @@ holds them all to done:
 - `V4LiquiditySeeder.acceptOwnership`, where `SeedPool.s.sol` opened the market and offered its
   seeder to the timelock.
 
-Then, before the buyback does anything:
+`VerifyWiring.s.sol` checks that every call in the batch took effect. Then, before the buyback does
+anything:
 
 - **Stake.** A buyback stakes what it buys for everyone already staked. With nobody staked it
   refuses with `NoStakeToDistributeTo`.
@@ -181,6 +182,7 @@ once, and the rest accrues every second until the fourth year ends.
 
 ```sh
 source script/env/rhc-mainnet-v3.env
+KEYS="$HOME/.config/bursar/keystore"
 VESTING="$(jq -r .token.Vesting "$BURSAR_RECORD")"
 ME="$(jq -r '.roles.vestingBeneficiaries[0]' deployments/rhc-mainnet-token.json)"   # the team grant's beneficiary
 

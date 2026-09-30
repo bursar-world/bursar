@@ -10,5 +10,5 @@ hash that solc appends to it. They are the two collateral contracts, `CreditPool
 and the eight shielded-pool contracts: `ShieldedPool`, `ShieldedRelay`, the `Entrypoint` implementation
 and proxy, `CommitmentVerifier`, `WithdrawalVerifier`, `PoseidonT3` and `PoseidonT4`. Their deployed
 metadata was built with absolute remappings, which appear here as repository-relative paths, and the
-metadata hash covers the remappings. All ten are being redeployed from a build without absolute paths.
-Every other input matches exactly.
+metadata hash covers the remappings. The next contract set redeploys eight of them from a build without
+absolute paths; `PoseidonT3` and `PoseidonT4` carry over unchanged. Every other input matches exactly.

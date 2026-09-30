@@ -2,10 +2,10 @@
 
 This runbook brings the new Bursar contract set live on Robinhood Chain and moves everything the
 current sets hold into it. It is written for the people who hold the keys. Every step is a script
-in this directory, every script can be simulated against the live chain before it sends anything,
-and the whole sequence has been rehearsed on a copy of mainnet with the same commands.
+in this directory that can be simulated against the live chain before it sends anything, and the
+whole sequence has been rehearsed on a copy of mainnet with the same scripts and arguments.
 
-## What changes, in plain terms
+## What changes
 
 - **A new contract set goes live next to the current ones.** BRSR and the team's vesting schedule
   stay exactly as they are. Every other contract is new: governance, escrow, reputation, the
@@ -13,8 +13,8 @@ and the whole sequence has been rehearsed on a copy of mainnet with the same com
   collateral lanes, committed mandates and shielded settlement.
 - **Payments already open settle where they were opened.** Nothing reaches into an open payment. A
   payment whose deadline passes with no delivery is returned to its payer, as it always would be.
-- **The BRSR/USDG market keeps its price.** The liquidity that makes it moves, in one sequence,
-  into a position governance owns.
+- **The BRSR/USDG market keeps its price.** The liquidity behind it moves, in one sequence, into a
+  position governance owns.
 - **Money the current sets hold moves to the new one:** the credit pool's lending cash, the
   resolvers' bonds, the registered payee's stake and the public example mandates.
 - **One timelock governs everything.** The vesting contract and the community allocation move from
@@ -112,14 +112,14 @@ has to be the same.
 script/local/rehearse-mainnet.sh
 ```
 
-It forks mainnet as it stands and runs every step below, in this order, with these commands, with
-one difference: each key signs as itself through the fork's impersonation, forge's
-`--unlocked --sender` in place of `--keystore`. No keystore is opened and no key is read, which is
-why each keystore is checked on its own above. The delays are skipped on the fork's clock, and the
-committed example mandate is left out, because the fork cannot sign as the payer. It writes copies
-of the four records under `cache/bursar/fork`, and builds and logs its transactions there too,
-never in `out/`, `broadcast/` or `cache/`, where the real run keeps the logs `--resume` reads. It
-ends by printing the records' status and one line saying it passed. Start only when it ends with
+It forks mainnet as it stands and runs the steps below in order, with the same scripts and
+arguments. Each key signs as itself through the fork's impersonation, with forge's
+`--unlocked --sender` in place of `--keystore`, so no keystore is opened and no key is read, which
+is why each keystore is checked on its own above. The delays are skipped on the fork's clock, and
+the committed example mandate is left out, because the fork cannot sign as the payer. It writes
+copies of the four records under `cache/bursar/fork`, and builds and logs its transactions there
+too, never in `out/`, `broadcast/` or `cache/`, where the real run keeps the logs `--resume` reads.
+It ends by printing the records' status and one line saying it passed. Start only when it ends with
 the earlier records `retired` and the new one `live`. If the chain has moved since, run it again.
 
 ## The steps
@@ -141,6 +141,7 @@ wrote into `deployments/rhc-mainnet-v3.json`, and refuses to run twice.
 ```sh
 send script/Deploy.s.sol rh-deployer
 verify script/VerifyCore.s.sol
+verify script/VerifyToken.s.sol
 send script/DeployStaking.s.sol rh-deployer
 verify script/VerifyStaking.s.sol
 send script/DeployRwa.s.sol rh-deployer

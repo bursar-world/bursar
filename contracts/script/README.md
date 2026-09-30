@@ -45,7 +45,7 @@ record with `"local": true` is a rehearsal. Scripts run it only with `BURSAR_LOC
 against a node whose `web3_clientVersion` says anvil: a rehearsal chain answers as 4663 too, so the
 chain id alone cannot keep a rehearsal record off Robinhood Chain. A mainnet record runs only
 without the flag, so a stray flag cannot rehearse against it, and its chain has to be Robinhood
-Chain, 4663. Testnet 46630 answers, but USDG holds no contract there, so nothing on it can settle.
+Chain, 4663. Testnet 46630 answers, but USDG has no contract there, so nothing on it can settle.
 
 **The deploy key.** The record names the key the deployment signs with as `deployer`, or the first
 script records the key it ran with, and every deploy script refuses any other key with
@@ -122,6 +122,7 @@ runs against the live chain.
 source script/env/rhc-mainnet-v3.env   # the figures, BURSAR_RECORD and RHC_RPC_URL
 export ETH_PASSWORD=...                # the path of the file holding the keystore password
 export KEYS="$HOME/.config/bursar/keystore"
+export BURSAR_ALLOW_EOA_GOVERNANCE=i-accept-eoa-governance   # the signer set is three plain keys
 
 forge script script/Deploy.s.sol --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/rh-deployer"
 ```
@@ -165,24 +166,24 @@ not executable yet: #0 Buyback.setKeeper. The delay ends 2026-09-28 11:53:20 UTC
 ## 5. Parameters
 
 Every figure below is in `script/env/rhc-mainnet-v3.env`, with the value the Robinhood Chain
-deployment uses. Where the value says `record`, the Robinhood Chain record already names the
-address under `roles`, and the variable is read only on a chain whose record does not. A variable a
-script needs and cannot find stops it with `MissingEnv`, and one it cannot read, such as `1%` for a
-figure in basis points, with `InvalidEnv`, which names the variable and what it holds. Either way
-nothing is deployed on a value nobody chose. Each script writes the figures it applied into the
-record's `parameters`, which is what the verify scripts hold the chain to.
+deployment uses. Where the value says `record`, the Robinhood Chain record already names the address
+under `roles`, and the variable is read only on a chain whose record does not. A variable a script
+needs and cannot find stops it with `MissingEnv`, and one it cannot read, such as `1%` for a figure
+in basis points, with `InvalidEnv`, which names the variable and what it holds. Either way nothing
+is deployed on a value nobody chose. Each script writes the figures it applied into the record's
+`parameters`, which is what the verify scripts check the chain against.
 
 ### `Deploy.s.sol`
 
 | Variable | Value | Meaning |
 |---|---|---|
-| `BURSAR_TIMELOCK_PERIOD` | `3600` | Seconds between two signers agreeing and the change taking effect. One hour in this development deployment. Stakes and bonds take seven days to leave whatever it is. |
+| `BURSAR_TIMELOCK_PERIOD` | `3600` | Seconds between two signers agreeing and the change taking effect: one hour today and 48 hours from launch. Stakes and bonds take seven days to withdraw, whatever the delay. |
 | `BURSAR_TIMELOCK_SIGNER_1` to `_3` | record | The three signers, recorded under `roles.timelockSigners`. |
 | `BURSAR_TIMELOCK_GUARDIAN` | record | Pauses an administered contract at once and can do nothing else. |
 | `BURSAR_TREASURY` | record | Receives the protocol fee, swept from the escrow by anyone and only ever to this address. |
 | `BURSAR_SLASH_SINK` | record | Receives slashed resolver bonds and agent stake. |
-| `BURSAR_ALLOW_EOA_GOVERNANCE` | set in the shell | Must read `i-accept-eoa-governance` for a signer set with no contract in it. A phrase rather than `true`, because `true` arrives in a shell by accident. |
-| `BURSAR_ADMIN_TIMELOCK` | optional | A live timelock to join instead of deploying one. The record's, when it names one, and the two have to agree. |
+| `BURSAR_ALLOW_EOA_GOVERNANCE` | set in the shell | Must read `i-accept-eoa-governance` for a signer set with no contract in it. |
+| `BURSAR_ADMIN_TIMELOCK` | optional | A live timelock for the run to join. If the record names a timelock, this must match it. |
 | `BURSAR_FEE_BPS` | `100` | The protocol's share of a settlement, taken from the payee's side only. |
 | `BURSAR_RESOLVER_FEE_BPS` | `50` | Taken from a disputed payment for the resolvers who ruled on it. |
 | `BURSAR_DISPUTE_BOND_BPS` | `500` | What opening a dispute costs, as a share of the disputed amount. |
@@ -230,9 +231,9 @@ the reveal window closes, so there is no dispute timeout to set.
 The RWA assets come from the record's `external.assets`, and the terms each trades under from
 `script/lib/RwaConfig.sol`: the treasury fund SGOV with a 0.5% band, and SPY, NVDA and AAPL as
 stocks, each on its pinned pool. The collateral lane's caps, rates and tiers are in
-`script/lib/CollateralConfig.sol`: 100 USDG of debt in total, 10 USDG per mandate. Committed
-mandates share a lifetime ceiling of 25 USDG each. The shielded pool takes deposits from 1 to 100
-USDG, holds at most 1,000 USDG, keeps 0.10% of each deposit, and lets a relayer charge up to 5%.
+`script/lib/CollateralConfig.sol`: 100 USDG of debt in total, 10 USDG per mandate. Each committed
+mandate may lock at most 25 USDG over its life. The shielded pool takes deposits from 1 to 100 USDG,
+holds at most 1,000 USDG, keeps 0.10% of each deposit, and lets a relayer charge up to 5%.
 
 ## 6. Checking a deployment
 
@@ -245,11 +246,11 @@ simulation, and sends nothing. Every question has one of three answers:
 - **mismatch**: anything else, including a governed value set to something other than what the
   record intends. A proposal that named the wrong address is worse than none.
 
-A run asks every question before it fails, so one run names every problem, and ends with a line
-such as `staking: 0 mismatched, 6 owed`. Any mismatch, or anything owed under strict, fails it
-with `VerificationFailed(mismatches, owed)`. `VerifyCore.s.sol` asks each read so that a contract
-unable to answer it is a mismatch naming the read and the address: a record that names the wrong
-contract gets a list of what disagrees rather than a bare revert.
+A run asks every question before it fails, so one run names every problem, and ends with a line such
+as `staking: 0 mismatched, 6 owed`. Any mismatch, or anything owed under strict, fails it with
+`VerificationFailed(mismatches, owed)`. `VerifyCore.s.sol` asks each read so that a contract unable
+to answer it is a mismatch naming the read and the address: a record that names the wrong contract
+gets a list of what disagrees.
 
 What is owed straight after a deploy script is expected, and each line names the step that
 settles it. The local rehearsal settles all of it and ends on a strict check with nothing owed.
@@ -288,8 +289,8 @@ The token script's own refusals are in [`TOKEN-README.md`](TOKEN-README.md), and
 
 ## 8. Rehearsing
 
-Two rehearsals run the real scripts with the real commands, each against an anvil of its own.
-Neither reads a private key: every transaction is signed by anvil for the account it names.
+Two rehearsals run the real scripts, each against an anvil of its own. Neither reads a private key:
+every transaction is signed by anvil for the account it names.
 
 ```sh
 script/local/rehearse.sh             # a fresh local chain, on port 8546
@@ -365,7 +366,7 @@ cast rpc evm_mine --rpc-url "$rpc"
 send script/ProposeWiring.s.sol "$BURSAR_TIMELOCK_SIGNER_1" --sig "execute()"
 check script/VerifyWiring.s.sol
 
-# The lender's first cash, then the whole set held to done, then every lane.
+# The lender's first cash, then a strict check of the whole set, then every lane.
 send script/MigrateCredit.s.sol "$BURSAR_LENDER" --sig "fund(uint256)" 10000000
 BURSAR_VERIFY_STRICT=1 check script/Verify.s.sol
 BURSAR_LOCAL_RPC="$rpc" forge test --match-path test/script/LocalChain.t.sol -vv

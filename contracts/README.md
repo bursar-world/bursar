@@ -1,13 +1,12 @@
 # Bursar contracts
 
 The Solidity contracts that hold and move money in Bursar. A principal's spending limits live in a
-`MandateAccount`, so a payment past them reverts on chain rather than at a service. Payments to
-providers go through an `Escrow` that holds each one for the life of one job, with an on-chain
-dispute path. Everything that can be administered is administered by a two-of-three
-`AdminTimelock`, whose delay is one hour in this development deployment and 48 hours at launch.
-Agent stakes, resolver bonds and BRSR stakes take seven days to withdraw whatever the delay, so
-for a staked party a pending change is notice rather than a way out. The set is deployed on
-Robinhood Chain mainnet (chain 4663) and settles in USDG.
+`MandateAccount`, so a payment past them reverts on chain. Payments to providers go through an
+`Escrow` that holds each one for the life of one job, with an on-chain dispute path. Everything
+that can be administered is administered by a two-of-three `AdminTimelock`, whose delay is one hour
+today and 48 hours from launch. Agent stakes, resolver bonds and BRSR stakes take seven days to
+withdraw whatever the delay, so a staked party sees a pending change but cannot leave before it
+lands. The set is deployed on Robinhood Chain mainnet (chain 4663) and settles in USDG.
 
 Read the status section of the root [README](../README.md) before funding anything on mainnet,
 and [SECURITY.md](../SECURITY.md) before reporting a problem.
@@ -27,7 +26,7 @@ and [SECURITY.md](../SECURITY.md) before reporting a problem.
 | `src/rwa/` | Stock purchases and the treasury park, priced by feeds and checked against pinned pools, and the collateral lane: `CreditPool` lends to mandates against stock posted in `CollateralVault`. |
 | `src/privacy/`, `src/zk/` | Committed mandates, whose terms are a commitment and whose spends are proven within them, disclosure grants and the solvency log. |
 | `src/shielded/` | Shielded settlement on Privacy Pools: a USDG pool and a relay that screens recipients. |
-| `script/` | The deploy scripts, each with a verify companion, the scripts that move one deployment into the next, and two rehearsals. [`script/README.md`](script/README.md) starts there. |
+| `script/` | The deploy scripts, each with a verify companion, the scripts that move one deployment into the next, and two rehearsals. Start with [`script/README.md`](script/README.md). |
 | `deployments/` | One record per deployment on 4663: addresses, roles, the parameters applied, and the state read back. `schema.json` describes them. `@bursar/core` generates its address book from these files. |
 | `test/` | Unit, fuzz and invariant tests. `test/script/` deploys through the real scripts and runs every lane; `test/script/fork/` does the same on a fork of Robinhood Chain. |
 | `verification/` | The compiler input for each deployed contract, for source verification. |
