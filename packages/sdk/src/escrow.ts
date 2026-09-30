@@ -104,7 +104,7 @@ export class EscrowClient {
     return micro((amount * BigInt(this.terms.disputeBondBps)) / 10_000n);
   }
 
-  /** What a release pays out, after the protocol fee the escrow charges the payee's side. */
+  /** What a release pays out, after the settlement fee the escrow charges the payee's side. */
   payoutFor(amount: Micro): Micro {
     return micro(amount - (amount * BigInt(this.terms.feeBps)) / 10_000n);
   }
@@ -278,7 +278,7 @@ export class EscrowClient {
           return new CallRefusedError(
             revert.errorName,
             `Too early. The deadline has to pass before a timeout, and the dispute window ` +
-              `(${formatDuration(this.terms.disputeWindow)}) has to close before a release is finalized.`,
+              `(${formatDuration(this.terms.disputeWindow)}) has to close before a release is finalised.`,
           );
 
         case 'BadBond':

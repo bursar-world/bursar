@@ -64,6 +64,7 @@ export type DisputeRuling = {
   readonly paidToProvider: Micro;
   /** Split between the resolvers whose scores held. Charged to both sides of the dispute. */
   readonly resolverFee: Micro;
+  /** The settlement fee, charged on the provider's share alone. */
   readonly protocolFee: Micro;
   /** True when the ruling landed on the side that opened the dispute, which returns the bond. */
   readonly bondReturned: boolean;
@@ -110,9 +111,9 @@ function bps(amount: bigint, rate: bigint): bigint {
 
 /**
  * The four legs a ruling cuts a lock into, derived exactly as `Escrow._split` derives them: the
- * resolver fee comes off the top, the refund splits what is left, and the protocol fee is charged
- * only on the provider's share. Both divisions truncate toward the provider, so the legs add back
- * up to the locked amount with nothing over.
+ * resolver fee comes off the top, the refund splits what is left, and the settlement fee
+ * (`protocolFee`) is charged only on the provider's share. Both divisions truncate toward the
+ * provider, so the legs add back up to the locked amount with nothing over.
  */
 function splitOf(
   amount: bigint,

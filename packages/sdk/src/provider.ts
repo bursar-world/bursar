@@ -398,7 +398,7 @@ function reputationNote(settled: bigint, score: number, cap: Micro, maxCap: Micr
   return (
     `${score} of every 100 settled jobs were released to this provider, across ${settled} of them. ` +
     `The escrow will open a lock of at most ${usd(cap)} for it right now, against a ceiling of ` +
-    `${usd(maxCap)}. Finalizing a release is what records it, so a provider that never finalizes ` +
+    `${usd(maxCap)}. Finalising a release is what records it, so a provider that never finalises ` +
     'holds its own ceiling down.'
   );
 }

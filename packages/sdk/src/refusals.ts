@@ -75,7 +75,7 @@ const RESOLVER: Readonly<Record<OracleErrorName, Written>> = {
     owner: 'clock',
     message:
       'This bond is backing a vote that has not settled, so it cannot leave and governance cannot ' +
-      'evict it. The cooldown alone does not release it. Finalize the disputes this resolver ' +
+      'evict it. The cooldown alone does not release it. Finalise the disputes this resolver ' +
       'committed to, or wait for someone else to, and complete the unbonding after.',
   },
   StakingNotSet: {
@@ -118,7 +118,7 @@ const RESOLVER: Readonly<Record<OracleErrorName, Written>> = {
   BadStatus: {
     owner: 'caller',
     message:
-      'The dispute is past the phase this call belongs to. A finalized or failed dispute takes no ' +
+      'The dispute is past the phase this call belongs to. A finalised or failed dispute takes no ' +
       'further votes and needs no further closing. Read it before acting on it.',
   },
   NoCommitment: {
@@ -184,7 +184,7 @@ const RESOLVER: Readonly<Record<OracleErrorName, Written>> = {
     owner: 'caller',
     message:
       'Most of the revealed scores sit outside the deviation band, so the vote has no centre to rule ' +
-      'from. Finalizing it fails the dispute and refunds the payer in full, with no resolver fee. ' +
+      'from. Finalising it fails the dispute and refunds the payer in full, with no resolver fee. ' +
       'Nobody is slashed for disagreeing, because nothing here can tell which side was honest.',
   },
   NothingToClaim: {

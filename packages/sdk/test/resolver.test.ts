@@ -481,6 +481,6 @@ describe('what a resolver is told when the registry says no', () => {
     const failure = await refusalFor(toFunctionSelector('BondLocked()'));
 
     expect(failure.message).toContain('backing a vote that has not settled');
-    expect(failure.message).toContain('Finalize the disputes');
+    expect(failure.message).toContain('Finalise the disputes');
   });
 });

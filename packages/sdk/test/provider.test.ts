@@ -204,7 +204,7 @@ describe('the history a provider earns and the ceiling it buys', () => {
     expect(reputation.maxCap).toBe(250_000_000n);
     expect(reputation.next).toContain('90 of every 100 settled jobs');
     expect(reputation.next).toContain('115.00 USDG');
-    expect(reputation.next).toContain('Finalizing a release is what records it');
+    expect(reputation.next).toContain('Finalising a release is what records it');
   });
 
   it('says a new provider starts at the floor of the curve rather than at nothing', async () => {

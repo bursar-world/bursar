@@ -177,7 +177,7 @@ export type JobStatus = {
   readonly payer: Address;
   readonly capabilityId: Hex;
   readonly budget: Micro;
-  /** What the provider takes home, after the protocol fee charged on its side of the settlement. */
+  /** What the provider takes home, after the settlement fee charged on its side. */
   readonly payout: Micro;
   readonly status: LockStatus;
   readonly deliverBy: Date;
