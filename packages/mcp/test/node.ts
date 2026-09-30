@@ -118,7 +118,8 @@ export type NodeState = {
     minTtl: bigint;
     maxTtl: bigint;
     disputeWindow: bigint;
-    disputeTimeoutPeriod: bigint;
+    /** Null for an escrow before v3, which has no floor to read and reverts when asked. */
+    minLock: bigint | null;
     disputeBondBps: number;
     feeBps: number;
     resolverFeeBps: number;
@@ -296,7 +297,7 @@ export function defaultState(): NodeState {
       minTtl: 30n,
       maxTtl: 604_800n,
       disputeWindow: 3_600n,
-      disputeTimeoutPeriod: 259_200n,
+      minLock: 10_000n,
       disputeBondBps: 500,
       feeBps: 50,
       resolverFeeBps: 100,
@@ -377,7 +378,10 @@ const ESCROW_ANSWERS = new Map<Hex, Answer>([
   answer(escrowAbi, 'minTtl', (_args, state) => state.terms.minTtl),
   answer(escrowAbi, 'maxTtl', (_args, state) => state.terms.maxTtl),
   answer(escrowAbi, 'disputeWindow', (_args, state) => state.terms.disputeWindow),
-  answer(escrowAbi, 'disputeTimeoutPeriod', (_args, state) => state.terms.disputeTimeoutPeriod),
+  answer(escrowAbi, 'minLock', (_args, state) => {
+    if (state.terms.minLock === null) throw new Reverted('0x');
+    return state.terms.minLock;
+  }),
   answer(escrowAbi, 'disputeBondBps', (_args, state) => state.terms.disputeBondBps),
   answer(escrowAbi, 'feeBps', (_args, state) => state.terms.feeBps),
   answer(escrowAbi, 'resolver', (_args, state) => state.terms.resolver),

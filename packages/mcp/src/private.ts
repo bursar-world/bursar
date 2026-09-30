@@ -1,4 +1,13 @@
-import { classLabel, classOfLabel, committedMandateAccountAbi, micro, settlementAssetAbi } from '@bursar/core';
+import {
+  CURRENT_CONTRACT_SET,
+  classLabel,
+  classOfLabel,
+  committedMandateAccountAbi,
+  contractSetOfEscrow,
+  escrowAbi,
+  micro,
+  settlementAssetAbi,
+} from '@bursar/core';
 import type { Micro, RhcPublicClient } from '@bursar/core';
 import { classesOf } from '@bursar/sdk';
 import type { AgentHandoff, CommittedClass, JobSpec } from '@bursar/sdk';
@@ -87,6 +96,22 @@ export function createPrivateGateway(options: {
   const now = options.now ?? (() => Math.floor(Date.now() / 1000));
   let agent: Promise<Agent> | undefined;
 
+  // The mandate's escrow and that escrow's floor are both fixed at deployment, so one read serves
+  // every payment. An escrow before v3 refuses only an empty lock, and asking it for a floor reverts.
+  let floor: Promise<bigint> | undefined;
+  const lockFloor = (): Promise<bigint> =>
+    (floor ??= client
+      .readContract({ address, abi, functionName: 'escrow' })
+      .then((escrow) =>
+        (contractSetOfEscrow(escrow) ?? CURRENT_CONTRACT_SET) === 'v3'
+          ? client.readContract({ address: escrow, abi: escrowAbi, functionName: 'minLock' })
+          : 1n,
+      )
+      .catch((error: unknown) => {
+        floor = undefined;
+        throw error;
+      }));
+
   const read = async () => {
     const [onChainAgent, paused, revoked, nonce, version, asset] = await Promise.all([
       client.readContract({ address, abi, functionName: 'agent' }),
@@ -154,6 +179,17 @@ export function createPrivateGateway(options: {
       const label = classOfLabel(input.capability) === undefined ? classLabel(input.spendClass, input.capability) : input.capability;
       const fits = checkTerms(handoff, input, label, now());
       if (fits !== null) throw fits;
+
+      // The terms can allow a payment the escrow will not lock, and proving one takes seconds.
+      const minLock = await lockFloor();
+      if (input.amount < minLock) {
+        throw new ToolError(
+          'below_lock_floor',
+          `The escrow locks no payment under ${money(micro(minLock)).usdg} USDG, and this one is ` +
+            `${money(input.amount).usdg}. The floor keeps every payment large enough that contesting it costs a bond.`,
+          { minLock: minLock.toString() },
+        );
+      }
 
       agent ??= Promise.resolve((options.agentOf ?? loadAgent)(handoff, client));
       const receipt = await (await agent).pay({

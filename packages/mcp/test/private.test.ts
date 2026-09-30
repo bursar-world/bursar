@@ -125,6 +125,8 @@ function gatewayFor(chain: Partial<Chain> = {}, file: AgentHandoff = handoff) {
         version: 1n,
         settlementAsset: '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168',
         balanceOf: 30_000n,
+        escrow: ESCROW,
+        minLock: 10_000n,
       };
       if (!(functionName in values)) throw new Error(functionName);
       return values[functionName];
@@ -208,6 +210,17 @@ describe('the private mandate tools', () => {
     expect(parse(await pay({ amount: '20001' }))['error']).toBe('over_per_payment_cap');
     expect(parse(await pay({ spendClass: 'hire' }))['error']).toBe('class_not_allowed');
     expect(parse(await pay({ capability: 'gpu.upscale:1' }))['error']).toBe('capability_not_allowed');
+    expect(payments).toHaveLength(0);
+  });
+
+  it('refuses a payment the escrow will not lock before proving it', async () => {
+    const { context, payments } = gatewayFor();
+    const refusal = parse(
+      await callTool(context, 'private_mandate_pay', { provider: PAYEE, capability: 'gpu.render:1', amount: '9999', task: 'Render.' }),
+    );
+
+    expect(refusal['error']).toBe('below_lock_floor');
+    expect(refusal['message']).toContain('no payment under 0.01 USDG');
     expect(payments).toHaveLength(0);
   });
 

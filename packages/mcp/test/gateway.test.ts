@@ -87,7 +87,7 @@ describe('inspect', () => {
       minTtlSeconds: 30,
       maxTtlSeconds: 604_800,
       disputeWindowSeconds: 3_600,
-      disputeTimeoutSeconds: 259_200,
+      minLock: { micro: '10000', usdg: '0.01' },
       disputeBondBps: 500,
       feeBps: 50,
     });
@@ -114,8 +114,9 @@ describe('inspect', () => {
     expect(view.validUntil).toBeNull();
   });
 
-  // The escrow terms are read from the mandate's own escrow, so the first inspect learns it first.
-  // The limits are read on their own, because their shape depends on the contract set.
+  // The escrow terms are read from the mandate's own escrow, so the first inspect learns it first,
+  // along with the escrow's floor. The limits are read on their own, because their shape depends on
+  // the contract set.
   it('reads the mandate in one multicall and its limits beside it once the wiring is known', async () => {
     const node = createFakeNode(state);
     const gateway = gatewayFor(node);
@@ -125,14 +126,16 @@ describe('inspect', () => {
     const first = reads();
     await gateway.inspect();
 
-    expect(first).toBe(3);
+    expect(first).toBe(4);
     expect(reads() - first).toBe(2);
   });
 
   // The node answers limits in the v2 shape; the v1 ABI reads the eight words a v1 account returns.
+  // A v1 escrow has no floor, and the node reverts if asked for one.
   it('reads a mandate on the v1 escrow through the v1 ABI', async () => {
     const v1 = deployment('rhc-mainnet').contracts.Escrow;
     state.escrow = v1;
+    state.terms.minLock = null;
     const node = createFakeNode(state);
 
     const view = await gatewayFor(node, relayDouble(), createFakeIndex(node.state).index, [ESCROW, v1]).inspect();
@@ -140,6 +143,20 @@ describe('inspect', () => {
     expect(view.contractSet).toBe('v1');
     expect(view.classes).toBeNull();
     expect(view.escrow.address).toBe(v1);
+    expect(view.escrow.minLock).toEqual({ micro: '1', usdg: '0.000001' });
+  });
+
+  it('reads a mandate on the v2 escrow without asking it for a floor', async () => {
+    const v2 = deployment('rhc-mainnet-v2').contracts.Escrow;
+    state.escrow = v2;
+    state.terms.minLock = null;
+    const node = createFakeNode(state);
+
+    const view = await gatewayFor(node, relayDouble(), createFakeIndex(node.state).index, [ESCROW, v2]).inspect();
+
+    expect(view.contractSet).toBe('v2');
+    expect(view.classes).toEqual(['service', 'hire']);
+    expect(view.escrow.minLock.micro).toBe('1');
   });
 
   it('reports the contract set, the allowed classes and the native total', async () => {
@@ -148,7 +165,7 @@ describe('inspect', () => {
 
     const view = await gatewayFor(createFakeNode(state)).inspect();
 
-    expect(view.contractSet).toBe('v2');
+    expect(view.contractSet).toBe('v3');
     expect(view.classes).toEqual(['service']);
     expect(view.totalCap?.micro).toBe('5000000');
   });
@@ -217,9 +234,23 @@ describe('quote', () => {
     const first = reads();
     await gateway.quote(request);
 
-    // The preview is its own read: a v1 account takes three arguments and a v2 account four.
-    expect(first).toBe(3);
+    // The wiring and the escrow's floor are read once. The preview is its own read: a v1 account
+    // takes three arguments and a later one four.
+    expect(first).toBe(4);
     expect(reads() - first).toBe(2);
+  });
+
+  it('refuses an amount under the escrow floor, whatever the mandate allows', async () => {
+    const view = await gatewayFor(createFakeNode()).quote({
+      provider: PROVIDER,
+      capability: CAPABILITY,
+      amount: toMicro('5000'),
+    });
+
+    expect(view.allowed).toBe(false);
+    expect(view.refusal).toMatchObject({ code: 'BelowMinLock', subject: 'amount' });
+    expect(view.refusal?.message).toContain('no payment under 0.01 USDG, and this one is 0.005');
+    expect(view.next).toBe(view.refusal?.message);
   });
 
   it('refuses to quote for a mandate wired to another escrow', async () => {
@@ -403,11 +434,24 @@ describe('pay', () => {
       merchantProof: [],
       approval: null,
       spendClass: 0,
-      contractSet: 'v2',
+      contractSet: 'v3',
     });
     expect(view.settlementId).toBe('42');
     expect(view.deliverBy).toBe('2027-01-15T08:05:00Z');
     expect(view.status).toBe('held');
+  });
+
+  it('refuses a payment under the escrow floor before anything reaches the relay', async () => {
+    const relay = relayDouble();
+
+    const failure = gatewayFor(createFakeNode(), relay).pay({ ...order, amount: toMicro('9999') });
+
+    await expect(failure).rejects.toMatchObject({
+      code: 'mandate_refused',
+      detail: { revert: 'BelowMinLock', subject: 'amount' },
+    });
+    await expect(failure).rejects.toThrow(/Pay at least 0.01 USDG/u);
+    expect(relay.spends).toHaveLength(0);
   });
 
   it('refuses a capability from another class, before anything reaches the relay', async () => {
@@ -704,18 +748,48 @@ describe('settlement', () => {
     expect(view.next).toContain('open a dispute before');
   });
 
-  it('reports an open dispute with the bond and the time a ruling has to land by', async () => {
+  it('reports an open dispute with the bond and the time its vote closes', async () => {
     const state = defaultState();
     state.locks.set(9n, lock({ status: 4, disputedAt: state.timestamp - 100n, disputer: ACCOUNT, bond: 50_000n }));
+    state.oracle.disputeIdOf.set(9n, 4n);
 
     const view = await gatewayFor(createFakeNode(state)).settlement(9n);
 
     expect(view.status).toBe('disputed');
     expect(view.dispute?.openedBy.toLowerCase()).toBe(ACCOUNT);
+    // The end of the reveal window, from when anyone can settle the vote.
     expect(view.dispute).toMatchObject({
       bond: { micro: '50000', usdg: '0.05' },
-      resolveBy: '2027-01-18T07:58:20Z',
+      resolveBy: '2027-01-15T20:00:00Z',
     });
+    expect(view.dispute?.note).toContain('Resolvers vote on the split until resolveBy');
+    expect(view.dispute?.note).toContain('puts the payment back on hold with a new deadline');
+  });
+
+  it('reports a payment a vote with no result put back on hold', async () => {
+    const state = defaultState();
+    state.locks.set(9n, lock({ status: 1, disputedAt: state.timestamp - 100n, disputer: ACCOUNT, deadline: state.timestamp + 600n }));
+    state.oracle.disputeIdOf.set(9n, 4n);
+    state.oracle.disputes.set(4n, { ...state.oracle.disputes.get(4n)!, status: 4 });
+
+    const view = await gatewayFor(createFakeNode(state)).settlement(9n);
+
+    expect(view.status).toBe('held');
+    expect(view.dispute?.note).toContain('put the payment back on hold with a new deadline and returned the bond');
+    expect(view.next).toContain('Waiting on the provider');
+  });
+
+  it('reads a complaint about delivered work as a record, with no vote to close', async () => {
+    const state = defaultState();
+    state.locks.set(
+      9n,
+      lock({ status: 4, releasedAt: state.timestamp - 300n, disputedAt: state.timestamp - 100n, disputer: ACCOUNT }),
+    );
+
+    const view = await gatewayFor(createFakeNode(state)).settlement(9n);
+
+    expect(view.dispute?.resolveBy).toBeNull();
+    expect(view.dispute?.note).toContain('complaint on its record');
   });
 
   it('reports nothing refundable once the escrow has paid the provider', async () => {
@@ -783,6 +857,32 @@ describe('openDispute', () => {
       code: 'config_mismatch',
     });
     expect(relay.disputes).toHaveLength(0);
+  });
+
+  it('refuses to contest a held payment past its delivery deadline, which is owed back instead', async () => {
+    const state = contestable();
+    state.timestamp = 1_800_000_301n;
+    const relay = relayDouble();
+
+    const failure = gatewayFor(createFakeNode(state), relay).openDispute(9n);
+
+    await expect(failure).rejects.toMatchObject({ code: 'not_contestable' });
+    await expect(failure).rejects.toThrow(/passed at 2027-01-15T08:05:00Z/u);
+    expect(relay.disputes).toHaveLength(0);
+  });
+
+  it('still contests a late payment on the v2 escrow, which takes disputes past the deadline', async () => {
+    const v2 = deployment('rhc-mainnet-v2').contracts.Escrow;
+    const state = contestable();
+    state.escrow = v2;
+    state.terms.minLock = null;
+    state.timestamp = 1_800_000_301n;
+    const node = createFakeNode(state);
+    const relay = relayDouble();
+
+    await gatewayFor(node, relay, createFakeIndex(node.state).index, [ESCROW, v2]).openDispute(9n);
+
+    expect(relay.disputes).toHaveLength(1);
   });
 
   it('quotes the bond it is about to post and sends the contest to the signer', async () => {

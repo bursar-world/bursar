@@ -195,6 +195,29 @@ export function settlementNext(
   }
 }
 
+/** The line a settlement read carries about the dispute on it. */
+export function disputeNote(state: { recordOnly: boolean; status: SettlementStatus; reopens: boolean }): string {
+  if (state.recordOnly) {
+    return (
+      'The provider had already been paid, so this is a complaint on its record and no resolver rules ' +
+      'on it.'
+    );
+  }
+
+  switch (state.status) {
+    case 'disputed':
+      return (
+        'Resolvers vote on the split until resolveBy. From then anyone can settle it: the escrow moves ' +
+        `the money on the ruling, or ${unheard(state.reopens)} when too few resolvers voted.`
+      );
+    case 'resolved':
+      return 'The dispute is closed and the escrow has moved the money. mandate_get_dispute reports the split.';
+    default:
+      // Only a vote with no result sends a contested payment back to a status it had before.
+      return `${REOPENED} ${FUNDS[state.status]}`;
+  }
+}
+
 export function statusOf(status: number): SettlementStatus {
   return LOCK_STATUS[status] ?? 'unknown';
 }
@@ -227,12 +250,30 @@ export function splitOf(
   return { refunded, paid: awarded - protocolFee, protocolFee, resolverFee };
 }
 
+const REOPENED =
+  'The vote produced no usable result, so the escrow put the payment back on hold with a new deadline ' +
+  'and returned the bond.';
+
+/**
+ * What a vote that produced no result does to the payment. v1 refunds the mandate in full; later
+ * sets put the payment back on hold with a new deadline, so an unheard dispute is never a refund.
+ */
+function unheard(reopens: boolean): string {
+  return reopens
+    ? 'puts the payment back on hold with a new deadline and returns the bond'
+    : 'refunds the mandate in full';
+}
+
 export function disputeNext(state: {
   phase: DisputePhaseName;
   recordOnly: boolean;
   ruling: DisputeRulingView | null;
   status: SettlementStatus;
   hasResolver: boolean;
+  /** The reveal window has shut, so anyone can settle the vote now. */
+  closed: boolean;
+  /** Whether a vote with no result reopens the payment rather than refunding it. False on v1. */
+  reopens: boolean;
 }): string {
   if (state.recordOnly) {
     return (
@@ -250,12 +291,29 @@ export function disputeNext(state: {
     );
   }
 
+  if ((state.phase === 'committing' || state.phase === 'revealing') && state.closed) {
+    return (
+      'The vote has closed. Anyone can settle it now: the escrow moves the money on the ruling when ' +
+      `enough resolvers published a score, and otherwise ${unheard(state.reopens)}. Read this again ` +
+      'for the result.'
+    );
+  }
+
   switch (state.phase) {
     case 'committing':
       return 'Resolvers are sealing their scores. Nothing to decide until the vote closes.';
     case 'revealing':
       return 'Resolvers are publishing the scores they sealed. Read this again for the ruling.';
     case 'failed':
+      if (state.reopens) {
+        return (
+          `${REOPENED} ` +
+          (state.status === 'held'
+            ? 'The provider can still deliver, and the funds come back to the mandate if that deadline ' +
+              'passes with nothing delivered.'
+            : FUNDS[state.status])
+        );
+      }
       return state.status === 'resolved'
         ? 'The vote produced no usable result, so the escrow refunded the mandate in full and the ' +
             'provider was paid nothing. Nothing further to decide.'

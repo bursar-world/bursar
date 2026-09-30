@@ -1,4 +1,4 @@
-import { RHC_MAINNET, RHC_TESTNET, deployment, isBursarError } from '@bursar/core';
+import { RHC_MAINNET, RHC_TESTNET, deployment, deploymentForChain, isBursarError } from '@bursar/core';
 import { describe, expect, it } from 'vitest';
 
 import { loadConfig, secretsOf } from '../src/config.js';
@@ -164,10 +164,13 @@ describe('configuration', () => {
     expect(codeOf(() => loadConfig({ ...ENV, MANDATE_ACCOUNT: '0x1234' }))).toBe('env_invalid');
   });
 
+  // Written to hold before and after a newer set lands: the escrow that answers for the chain comes
+  // first, and the two earlier sets stay accepted behind it.
   it('accepts mandates on every live escrow on the chain unless one is pinned', () => {
     const escrows = loadConfig({ ...ENV, MANDATE_ESCROW: undefined }).escrows;
 
-    expect(escrows).toEqual([
+    expect(escrows[0]).toBe(deploymentForChain(4663).contracts.Escrow);
+    expect(escrows.slice(-2)).toEqual([
       deployment('rhc-mainnet-v2').contracts.Escrow,
       deployment('rhc-mainnet').contracts.Escrow,
     ]);

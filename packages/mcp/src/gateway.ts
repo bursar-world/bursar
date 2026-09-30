@@ -1,4 +1,5 @@
 import {
+  CURRENT_CONTRACT_SET,
   SPEND_CLASS_BIT,
   SpendClassError,
   classLabel,
@@ -36,6 +37,7 @@ import type { SpendRelay } from './relay.js';
 import {
   FUNDS,
   disputeNext,
+  disputeNote,
   mandateStatus,
   phaseName,
   quoteNext,
@@ -128,17 +130,22 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
   // The account fixes its escrow and settlement asset at creation and neither can change, so one
   // read serves the whole process. Every tool checks them against this server's configuration,
   // because a spend or a dispute sent through the wrong escrow is not a mistake that shows on
-  // screen until the money has moved.
+  // screen until the money has moved. The escrow's lock floor is fixed at its deployment, so it is
+  // read once as well, and only after the escrow has been checked.
   let wiring: Promise<{ readonly escrow: Address; readonly asset: Address }> | null = null;
+  let floor: Promise<bigint> | null = null;
 
   type Wired = {
     readonly escrowContract: { readonly address: Address; readonly abi: typeof escrowAbi };
     readonly contractSet: ContractSet;
+    /** The smallest lock the escrow opens, in micro-USDG. */
+    readonly minLock: bigint;
   };
 
   /**
-   * The mandate's own escrow, checked, and the contract set it belongs to. Escrow reads are the same
-   * on both sets; the account's limits and spend request are not, so the set decides the ABI.
+   * The mandate's own escrow, checked, and the contract set it belongs to. The reads this server
+   * makes of an escrow are the same on every set apart from the floor, which only a v3 escrow has;
+   * the account's limits and spend request differ between v1 and later, so the set decides the ABI.
    */
   async function assertWired(): Promise<Wired> {
     wiring ??= client
@@ -161,11 +168,19 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
     assertEscrow(wired.escrow, escrows);
     assertWiring(wired.asset, settlementAsset, 'settlement asset');
 
-    return {
-      escrowContract: { address: wired.escrow, abi: escrowAbi },
-      // An escrow no record names is one MANDATE_ESCROW pinned, on a deployment of the current source.
-      contractSet: contractSetOfEscrow(wired.escrow) ?? 'v2',
-    };
+    // An escrow no record names is one MANDATE_ESCROW pinned, on a deployment of the current source.
+    const contractSet = contractSetOfEscrow(wired.escrow) ?? CURRENT_CONTRACT_SET;
+    const escrowContract = { address: wired.escrow, abi: escrowAbi } as const;
+
+    // An earlier escrow refuses only an empty lock, and asking it for a floor reverts.
+    floor ??= (
+      contractSet === 'v3' ? client.readContract({ ...escrowContract, functionName: 'minLock' }) : Promise.resolve(1n)
+    ).catch((error: unknown) => {
+      floor = null;
+      throw error;
+    });
+
+    return { escrowContract, contractSet, minLock: await floor };
   }
 
   async function readLimits(contractSet: ContractSet) {
@@ -199,7 +214,7 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
   }
 
   async function inspect(): Promise<MandateView> {
-    const { escrowContract, contractSet } = await assertWired();
+    const { escrowContract, contractSet, minLock } = await assertWired();
     const [block, reads, limits] = await Promise.all([
       client.getBlock({ blockTag: 'latest' }),
       client.multicall({
@@ -220,7 +235,6 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
           { ...escrowContract, functionName: 'minTtl' },
           { ...escrowContract, functionName: 'maxTtl' },
           { ...escrowContract, functionName: 'disputeWindow' },
-          { ...escrowContract, functionName: 'disputeTimeoutPeriod' },
           { ...escrowContract, functionName: 'disputeBondBps' },
           { ...escrowContract, functionName: 'feeBps' },
           { ...assetContract, functionName: 'balanceOf', args: [account] },
@@ -245,7 +259,6 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
       minTtl,
       maxTtl,
       disputeWindow,
-      disputeTimeout,
       disputeBondBps,
       feeBps,
       balance,
@@ -288,7 +301,7 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
         minTtlSeconds: Number(minTtl),
         maxTtlSeconds: Number(maxTtl),
         disputeWindowSeconds: Number(disputeWindow),
-        disputeTimeoutSeconds: Number(disputeTimeout),
+        minLock: moneyFromUint(minLock),
         disputeBondBps,
         feeBps,
       },
@@ -298,7 +311,7 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
   }
 
   async function quote(request: QuoteRequest): Promise<QuoteView> {
-    const { contractSet } = await assertWired();
+    const { contractSet, minLock } = await assertWired();
 
     // A label already namespaced is quoted as written; a bare one under the class being quoted.
     const capability =
@@ -321,14 +334,16 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
       }),
     ]);
 
-    const [allowed, reason] = preview;
+    const [mandateAllows, reason] = preview;
     const [[perCall, daily, monthly], threshold, balance, dailyWindow, monthlyWindow] = reads;
     const now = block.timestamp;
-    const refusal = refusalView(
-      refusalForSelector(reason),
-      windowView(dailyWindow, now),
-      windowView(monthlyWindow, now),
-    );
+    // The account's preview does not know the escrow's floor, and no approval or proof lifts it, so
+    // it is named ahead of anything the mandate says.
+    const belowFloor = request.amount < minLock;
+    const refusal = belowFloor
+      ? floorRefusal(request.amount, minLock)
+      : refusalView(refusalForSelector(reason), windowView(dailyWindow, now), windowView(monthlyWindow, now));
+    const allowed = mandateAllows && !belowFloor;
     const approvalRequired = request.amount >= threshold;
     const funded = balance >= request.amount;
 
@@ -363,7 +378,13 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
    */
   async function spend(order: PayOrder, spendClass: SpendClass): Promise<PayView> {
     const submitter = requireRelay();
-    const { escrowContract, contractSet } = await assertWired();
+    const { escrowContract, contractSet, minLock } = await assertWired();
+
+    if (order.amount < minLock) {
+      const refusal = floorRefusal(order.amount, minLock);
+      throw new ToolError('mandate_refused', refusal.message, { revert: refusal.code, subject: refusal.subject });
+    }
+
     const capability = spendLabel(spendClass, order.capability);
     const capabilityId = toCapabilityId(capability);
     const canonical = canonicalStringify(order.input);
@@ -657,7 +678,7 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
   }
 
   async function settlement(settlementId: bigint): Promise<SettlementDetailView> {
-    const { escrowContract } = await assertWired();
+    const { escrowContract, contractSet } = await assertWired();
 
     const [block, reads] = await Promise.all([
       client.getBlock({ blockTag: 'latest' }),
@@ -666,13 +687,13 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
         contracts: [
           { ...escrowContract, functionName: 'getLock', args: [settlementId] },
           { ...escrowContract, functionName: 'disputeWindow' },
-          { ...escrowContract, functionName: 'disputeTimeoutPeriod' },
+          { ...escrowContract, functionName: 'resolver' },
           { ...accountContract, functionName: 'creditable', args: [settlementId] },
         ],
       }),
     ]);
 
-    const [lock, disputeWindow, disputeTimeout, creditable] = reads;
+    const [lock, disputeWindow, registry, creditable] = reads;
     const status = statusOf(lock.status);
 
     if (status === 'unknown') {
@@ -691,6 +712,8 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
     const now = block.timestamp;
     const released = lock.releasedAt === 0n ? null : lock.releasedAt;
     const disputableUntil = released === null ? null : released + BigInt(disputeWindow);
+    const recordOnly = isRecordOnly(lock);
+    const vote = lock.disputedAt === 0n || recordOnly ? null : await voteOn(registry, settlementId);
     const dispute: DisputeView | null =
       lock.disputedAt === 0n
         ? null
@@ -698,10 +721,8 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
             openedAt: instant(lock.disputedAt),
             openedBy: lock.disputer,
             bond: moneyFromUint(lock.bond),
-            resolveBy: instant(lock.disputedAt + BigInt(disputeTimeout)),
-            note:
-              'The resolver rules on the split. If no ruling lands by resolveBy, the held funds and the bond come ' +
-              'back to the mandate.',
+            resolveBy: vote === null ? null : instant(vote.revealEndsAt),
+            note: disputeNote({ recordOnly, status, reopens: contractSet !== 'v1' }),
           };
 
     return {
@@ -729,7 +750,7 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
 
   async function openDispute(settlementId: bigint): Promise<DisputeReceiptView> {
     const submitter = requireRelay();
-    const { escrowContract } = await assertWired();
+    const { escrowContract, contractSet } = await assertWired();
     const [block, reads] = await Promise.all([
       client.getBlock({ blockTag: 'latest' }),
       client.multicall({
@@ -752,6 +773,8 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
       bondBps,
       resolver,
       balance,
+      // Only a v3 escrow refuses a dispute on a held payment once its deadline has passed.
+      closesAtDeadline: contractSet === 'v3',
     });
 
     const receipt = await submitter.dispute({ mandateAccount: account, escrowId: settlementId });
@@ -761,8 +784,8 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
       txHash: receipt.txHash,
       status: 'disputed',
       next:
-        `The mandate posted a bond of ${moneyFromUint(bond).usdg} USDG and the resolver now rules on the split. ` +
-        'Read the settlement for the ruling and for the time by which it has to land.',
+        `The mandate posted a bond of ${moneyFromUint(bond).usdg} USDG and the resolvers now vote on the split. ` +
+        'Read the settlement for the ruling and for when the vote closes.',
     };
   }
 
@@ -776,7 +799,7 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
    * neither is described as the other.
    */
   async function dispute(settlementId: bigint): Promise<DisputeDetailView> {
-    const { escrowContract } = await assertWired();
+    const { escrowContract, contractSet } = await assertWired();
 
     const [block, reads] = await Promise.all([
       client.getBlock({ blockTag: 'latest' }),
@@ -788,12 +811,11 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
           { ...escrowContract, functionName: 'feeBps' },
           { ...escrowContract, functionName: 'resolverFeeBps' },
           { ...escrowContract, functionName: 'disputeBondBps' },
-          { ...escrowContract, functionName: 'disputeTimeoutPeriod' },
         ],
       }),
     ]);
 
-    const [lock, registry, feeBps, resolverFeeBps, disputeBondBps, disputeTimeout] = reads;
+    const [lock, registry, feeBps, resolverFeeBps, disputeBondBps] = reads;
     const status = statusOf(lock.status);
 
     if (status === 'unknown') {
@@ -816,9 +838,7 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
       );
     }
 
-    // A complaint raised after the provider was paid never reaches a resolver: the escrow records
-    // it against the provider's history and closes the settlement in the same call.
-    const recordOnly = lock.releasedAt !== 0n;
+    const recordOnly = isRecordOnly(lock);
     const hasResolver = !/^0x0+$/u.test(registry);
 
     const disputeId =
@@ -868,12 +888,35 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
       commitCount: vote?.commitCount ?? 0,
       revealCount: vote?.revealCount ?? 0,
       quorum: config?.quorum ?? 0,
-      resolveBy: recordOnly ? null : instant(lock.disputedAt + BigInt(disputeTimeout)),
+      resolveBy: vote === null ? null : instant(vote.revealEndsAt),
       ruling,
       settlementStatus: status,
-      next: disputeNext({ phase, recordOnly, ruling, status, hasResolver }),
+      next: disputeNext({
+        phase,
+        recordOnly,
+        ruling,
+        status,
+        hasResolver,
+        closed: vote !== null && block.timestamp >= vote.revealEndsAt,
+        reopens: contractSet !== 'v1',
+      }),
       observedAt: instant(block.timestamp),
     };
+  }
+
+  /** The vote on a settlement, from the registry the escrow rules through. Null when none was opened. */
+  async function voteOn(registry: Address, settlementId: bigint): Promise<{ readonly revealEndsAt: bigint } | null> {
+    if (/^0x0+$/u.test(registry)) return null;
+
+    const disputeId = await client.readContract({
+      address: registry,
+      abi: oracleRegistryAbi,
+      functionName: 'disputeIdOf',
+      args: [settlementId],
+    });
+    if (disputeId === 0n) return null;
+
+    return client.readContract({ address: registry, abi: oracleRegistryAbi, functionName: 'getDispute', args: [disputeId] });
   }
 
   return { inspect, quote, pay, hire, buyStock, settlements, settlement, openDispute, dispute };
@@ -925,6 +968,7 @@ function refundable(status: SettlementStatus, held: bigint, committed: bigint): 
 type EscrowLock = {
   payer: Address;
   amount: bigint;
+  deadline: bigint;
   releasedAt: bigint;
   status: number;
 };
@@ -936,6 +980,8 @@ type ContestTerms = {
   bondBps: number;
   resolver: Address;
   balance: bigint;
+  /** The escrow takes no dispute on a held payment past its delivery deadline. */
+  closesAtDeadline: boolean;
 };
 
 /**
@@ -973,6 +1019,17 @@ function assertContestable(settlementId: bigint, lock: EscrowLock, terms: Contes
 
   if (status !== 'held') {
     throw new ToolError('not_contestable', `Settlement ${settlementId.toString()} is ${status}. ${FUNDS[status]}`);
+  }
+
+  // Past the deadline the mandate is owed its money back, and a dispute would trade that refund for
+  // a ruling or for a new deadline handed to the provider.
+  if (terms.closesAtDeadline && terms.now > lock.deadline) {
+    throw new ToolError(
+      'not_contestable',
+      `The delivery deadline for settlement ${settlementId.toString()} passed at ${instant(lock.deadline)} with ` +
+        'nothing delivered, so the funds go back to the mandate instead of to a vote. The escrow takes no ' +
+        'dispute on it now.',
+    );
   }
 
   if (/^0x0+$/u.test(terms.resolver)) {
@@ -1084,6 +1141,16 @@ function assertWiring(onChain: Address, configured: Address, label: string): voi
   );
 }
 
+/**
+ * A complaint raised after the provider was paid never reaches a resolver: the escrow records it
+ * against the provider's history and closes the settlement in the same call. A payment contested
+ * while it was held, put back on hold by a vote with no result and delivered after that carries
+ * both times too, the other way round.
+ */
+function isRecordOnly(lock: { releasedAt: bigint; disputedAt: bigint }): boolean {
+  return lock.releasedAt !== 0n && lock.disputedAt >= lock.releasedAt;
+}
+
 function isZeroHash(value: Hex): boolean {
   return /^0x0*$/u.test(value);
 }
@@ -1102,6 +1169,18 @@ function spendLabel(spendClass: SpendClass, label: string): string {
     }
     throw error;
   }
+}
+
+/** The escrow's floor, as a quote or a spend refuses on it, with both figures in the sentence. */
+function floorRefusal(amount: bigint, minLock: bigint): { code: string; subject: 'amount'; message: string } {
+  return {
+    code: 'BelowMinLock',
+    subject: 'amount',
+    message:
+      `The escrow locks no payment under ${moneyFromUint(minLock).usdg} USDG, and this one is ` +
+      `${moneyFromUint(amount).usdg}. The floor keeps every payment large enough that contesting it costs ` +
+      `a bond. Pay at least ${moneyFromUint(minLock).usdg} USDG.`,
+  };
 }
 
 /** A read the price guard or the router refuses comes back with the contract error named. */

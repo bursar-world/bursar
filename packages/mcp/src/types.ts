@@ -1,4 +1,4 @@
-import type { Micro } from '@bursar/core';
+import type { ContractSet, Micro } from '@bursar/core';
 import type { Address, Hex } from 'viem';
 
 /**
@@ -42,7 +42,11 @@ export type EscrowTermsView = {
   readonly minTtlSeconds: number;
   readonly maxTtlSeconds: number;
   readonly disputeWindowSeconds: number;
-  readonly disputeTimeoutSeconds: number;
+  /**
+   * The smallest payment the escrow locks, sized so that contesting one always costs a bond. An
+   * escrow before v3 refuses only an empty lock, so its floor reads as one micro-USDG.
+   */
+  readonly minLock: MoneyView;
   readonly disputeBondBps: number;
   readonly feeBps: number;
 };
@@ -66,8 +70,11 @@ export type MandateView = {
   readonly providerGate: ProviderGate;
   readonly providerRoster: Hex | null;
   readonly documentHash: Hex | null;
-  /** Which build of the contracts the mandate runs. v1 holds its classes in the capability namespace. */
-  readonly contractSet: 'v1' | 'v2';
+  /**
+   * Which build of the contracts the mandate runs. v1 holds its classes in the capability namespace.
+   * v2 and v3 accounts share one shape; a v3 escrow floors the lock size.
+   */
+  readonly contractSet: ContractSet;
   /** The spend classes the account allows natively. Null on v1, where no mask is held. */
   readonly classes: readonly string[] | null;
   /** The native lifetime total. Null when there is none, and always on v1. */
@@ -194,7 +201,8 @@ export type DisputeView = {
   readonly openedAt: string;
   readonly openedBy: Address;
   readonly bond: MoneyView;
-  readonly resolveBy: string;
+  /** When the vote closes and anyone can settle it. Null when no resolver was asked. */
+  readonly resolveBy: string | null;
   readonly note: string;
 };
 
@@ -288,6 +296,7 @@ export type DisputeDetailView = {
   readonly commitCount: number;
   readonly revealCount: number;
   readonly quorum: number;
+  /** When the vote closes and anyone can settle it: the end of the reveal window. */
   readonly resolveBy: string | null;
   readonly ruling: DisputeRulingView | null;
   readonly settlementStatus: SettlementStatus;

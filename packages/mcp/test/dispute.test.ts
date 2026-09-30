@@ -1,4 +1,5 @@
-import { RHC_MAINNET, createRhcClient } from '@bursar/core';
+import { RHC_MAINNET, createRhcClient, deployment } from '@bursar/core';
+import type { Address } from 'viem';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { createFakeIndex } from './blockscout.js';
@@ -9,7 +10,7 @@ import type { FakeNode, NodeState } from './node.js';
 
 const OPENED_AT = 1_800_000_000n;
 
-function gatewayFor(node: FakeNode): MandateGateway {
+function gatewayFor(node: FakeNode, escrows: readonly Address[] = [ESCROW]): MandateGateway {
   const { client } = createRhcClient({
     chain: RHC_MAINNET,
     providers: [
@@ -22,7 +23,7 @@ function gatewayFor(node: FakeNode): MandateGateway {
   return createChainGateway({
     client,
     account: ACCOUNT,
-    escrows: [ESCROW],
+    escrows,
     settlementAsset: ASSET,
     relay: null,
     index: createFakeIndex(node.state).index,
@@ -64,9 +65,20 @@ describe('reading a contested payment and its ruling', () => {
     expect(view.revealEndsAt).toBe('2027-01-15T20:00:00Z');
     expect(view.quorum).toBe(2);
     expect(view.commitCount).toBe(3);
-    expect(view.resolveBy).toBe('2027-01-18T08:00:00Z');
+    // The vote closes with the reveal window, and from then anyone can settle it.
+    expect(view.resolveBy).toBe(view.revealEndsAt);
     expect(view.ruling).toBeNull();
     expect(view.next).toContain('sealing their scores');
+  });
+
+  it('says anyone can settle a vote once its reveal window has shut', async () => {
+    state.timestamp = OPENED_AT + 50_000n;
+
+    const view = await gatewayFor(createFakeNode(state)).dispute(42n);
+
+    expect(view.phase).toBe('committing');
+    expect(view.next).toContain('The vote has closed. Anyone can settle it now');
+    expect(view.next).toContain('puts the payment back on hold with a new deadline and returns the bond');
   });
 
   /**
@@ -151,15 +163,47 @@ describe('reading a contested payment and its ruling', () => {
     expect(view.next).toContain('settlement history');
   });
 
-  it('says a failed vote refunds the mandate rather than describing it as a ruling', async () => {
-    state.locks.set(42n, lock({ amount: 2_500_000n, status: 6, disputedAt: OPENED_AT, disputer: ACCOUNT }));
-    state.oracle.disputes.set(4n, { ...state.oracle.disputes.get(4n)!, status: 4, refundBps: 10_000 });
+  it('says a failed vote put the payment back on hold rather than describing it as a ruling', async () => {
+    state.locks.set(
+      42n,
+      lock({ amount: 2_500_000n, status: 1, disputedAt: OPENED_AT, disputer: ACCOUNT, deadline: OPENED_AT + 50_000n }),
+    );
+    state.oracle.disputes.set(4n, { ...state.oracle.disputes.get(4n)!, status: 4 });
 
     const view = await gatewayFor(createFakeNode(state)).dispute(42n);
 
     expect(view.phase).toBe('failed');
     expect(view.ruling).toBeNull();
+    expect(view.settlementStatus).toBe('held');
+    expect(view.next).toContain('put the payment back on hold with a new deadline and returned the bond');
+    expect(view.next).toContain('The provider can still deliver');
+  });
+
+  it('says a failed vote on the v1 escrow refunded the mandate, which is what v1 does', async () => {
+    const v1 = deployment('rhc-mainnet').contracts.Escrow;
+    state.escrow = v1;
+    state.terms.minLock = null;
+    state.locks.set(42n, lock({ amount: 2_500_000n, status: 6, disputedAt: OPENED_AT, disputer: ACCOUNT }));
+    state.oracle.disputes.set(4n, { ...state.oracle.disputes.get(4n)!, status: 4, refundBps: 10_000 });
+
+    const view = await gatewayFor(createFakeNode(state), [ESCROW, v1]).dispute(42n);
+
+    expect(view.phase).toBe('failed');
     expect(view.next).toContain('refunded the mandate in full');
+  });
+
+  it('reads a payment put back on hold and then delivered as a failed vote, not a complaint', async () => {
+    state.locks.set(
+      42n,
+      lock({ amount: 2_500_000n, status: 2, disputedAt: OPENED_AT, releasedAt: OPENED_AT + 700n, disputer: ACCOUNT }),
+    );
+    state.oracle.disputes.set(4n, { ...state.oracle.disputes.get(4n)!, status: 4 });
+
+    const view = await gatewayFor(createFakeNode(state)).dispute(42n);
+
+    expect(view.recordOnly).toBe(false);
+    expect(view.phase).toBe('failed');
+    expect(view.next).toContain('Paid to the provider.');
   });
 
   it('says plainly when an escrow has nobody to hear a dispute', async () => {
