@@ -1,4 +1,4 @@
-import { SPEND_CLASS_BIT, classOfLabel, contractSetOfEscrow, deploymentsForChain, micro, toCapabilityId } from '@bursar/core';
+import { CURRENT_CONTRACT_SET, SPEND_CLASS_BIT, classOfLabel, contractSetOfEscrow, deploymentsForChain, micro, toCapabilityId } from '@bursar/core';
 import type { ContractSet, Micro } from '@bursar/core';
 import { wei } from '../money';
 import type { Wei } from '../money';
@@ -72,9 +72,9 @@ type RawWindow = { cap: bigint; spent: bigint; duration: bigint; start: bigint; 
 export type MandateRead = {
   readonly address: Address;
   /**
-   * Which build of the contracts the account runs. A v2 account holds its classes and its total
-   * budget natively; a v1 account keeps classes in the capability namespace and the total budget
-   * in a second window that never rolls.
+   * Which build of the contracts the account runs. From v2 on an account holds its classes and its
+   * total budget natively; a v1 account keeps classes in the capability namespace and the total
+   * budget in a second window that never rolls.
    */
   readonly contractSet: ContractSet;
   /** Committed spend counted against `limits.totalCap`, net of refunds. Undefined on v1. */
@@ -488,9 +488,10 @@ function decodeMandate(address: Address, slots: MandateSlots, results: BatchResu
   const escrow = results.get(slots.escrow) ?? ADDRESSES.escrow;
   const native = results.get(slots.limits);
   const legacy = results.get(slots.limitsV1);
-  const contractSet: ContractSet = contractSetOfEscrow(escrow) ?? (native === undefined && legacy !== undefined ? 'v1' : 'v2');
+  const contractSet: ContractSet =
+    contractSetOfEscrow(escrow) ?? (native === undefined && legacy !== undefined ? 'v1' : CURRENT_CONTRACT_SET);
   const limits: RawLimits | undefined =
-    contractSet === 'v2' ? native : legacy === undefined ? undefined : { ...legacy, classMask: 0, totalCap: 0n, lane: 0 };
+    contractSet !== 'v1' ? native : legacy === undefined ? undefined : { ...legacy, classMask: 0, totalCap: 0n, lane: 0 };
   const remaining = results.get(slots.remaining);
   const daily = results.get(slots.daily);
   const monthly = results.get(slots.monthly);
@@ -506,7 +507,7 @@ function decodeMandate(address: Address, slots: MandateSlots, results: BatchResu
   return {
     address,
     contractSet,
-    totalSpent: contractSet === 'v2' ? asMicro(results.get(slots.totalSpent)) : undefined,
+    totalSpent: contractSet !== 'v1' ? asMicro(results.get(slots.totalSpent)) : undefined,
     principal,
     pendingPrincipal: results.get(slots.pendingPrincipal) ?? ('0x' as Address),
     agent: results.get(slots.agent) ?? ('0x' as Address),

@@ -6,6 +6,7 @@ import { mandateAccountAbi, priceGuardAbi, stockSpendRouterAbi } from '@bursar/c
 import type { Abi } from 'viem';
 
 import { rhcClient } from '@/chain/client';
+import { onCurrentSet } from '@/chain/deployments';
 import { sameAddress } from '@/chain/rhc';
 import { AmountInput } from '@/components/amount-input';
 import { Badge, LevelBadge } from '@/components/badge';
@@ -36,9 +37,10 @@ import { useWriteContract } from '@/wallet/write';
 
 export function StockPanel() {
   const { address, account } = useMandateScope();
-  const rwa = useRwa(address, account?.contractSet === 'v2');
+  const served = account !== undefined && onCurrentSet(account.contractSet);
+  const rwa = useRwa(address, served);
 
-  if (!account || account.contractSet !== 'v2' || rwa.data === undefined) return null;
+  if (!account || !served || rwa.data === undefined) return null;
 
   return <StockBody rwa={rwa.data} onChange={() => void rwa.refetch()} />;
 }

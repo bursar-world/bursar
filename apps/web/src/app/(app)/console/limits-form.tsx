@@ -40,7 +40,7 @@ export type LimitsDraft = {
   /** Carried through a limit change untouched. Zero means the mandate is open already. */
   readonly validFrom: number;
   /**
-   * A v2 account's native total budget, when it holds one alongside a rolling second cap. Then
+   * An account's native total budget, from v2 on, when it holds one alongside a rolling second cap. Then
    * `monthly` and `longWindow` are that second cap. Absent otherwise, and `monthly` is whichever of
    * the two the mandate has.
    */
@@ -107,9 +107,9 @@ export type DraftReading = {
 };
 
 /**
- * The account a draft is written to. A v2 account takes the classes and the total budget as fields
- * of their own. Without a target the total is the second window set never to roll, which is how a
- * v1 account holds it and how the workspace rule check models a draft.
+ * The account a draft is written to. An account from v2 on takes the classes and the total budget
+ * as fields of their own. Without a target the total is the second window set never to roll, which
+ * is how a v1 account holds it and how the workspace rule check models a draft.
  */
 export type DraftTarget = {
   readonly contractSet: ContractSet;
@@ -136,7 +136,7 @@ export function readDraft(draft: LimitsDraft, now: number = Date.now(), target?:
     total ? 'Set the total budget: the most this agent may spend over the life of the mandate.' : 'Set the second cap.',
   );
   const threshold = thresholdOf(draft);
-  const native = target?.contractSet === 'v2';
+  const native = target !== undefined && target.contractSet !== 'v1';
   const separateTotal = native && draft.total !== undefined;
   const totalAmount = separateTotal
     ? readAmount(draft.total ?? '', 'Set the total budget: the most this agent may spend over the life of the mandate.')
@@ -216,15 +216,15 @@ export function readDraft(draft: LimitsDraft, now: number = Date.now(), target?:
 /**
  * A draft seeded from a mandate that exists.
  *
- * On v2 a native total fills the total field. A v2 mandate that holds both a total and a rolling
- * second cap of its own gets both: `monthly` is the second cap and `total` the budget, so an edit
- * never drops either. A v2 second window is always rolling, however long, because v2 keeps its
- * total in a field of its own.
+ * From v2 on a native total fills the total field. Such a mandate that holds both a total and a
+ * rolling second cap of its own gets both: `monthly` is the second cap and `total` the budget, so
+ * an edit never drops either. Its second window is always rolling, however long, because the total
+ * sits in a field of its own.
  */
 export function draftFromLimits(limits: MandateLimits, contractSet: ContractSet = 'v1'): LimitsDraft {
   const mode = approvalModeOf(limits.approvalThreshold, limits.perCallCap);
-  const v2 = contractSet === 'v2';
-  const nativeTotal = v2 && limits.totalCap > 0n;
+  const native = contractSet !== 'v1';
+  const nativeTotal = native && limits.totalCap > 0n;
   const secondIsCopy = limits.monthlyWindow === limits.dailyWindow && limits.monthlyCap === limits.dailyCap;
   const both = nativeTotal && !secondIsCopy;
   const totalOnly = nativeTotal && !both;
@@ -234,7 +234,7 @@ export function draftFromLimits(limits: MandateLimits, contractSet: ContractSet 
     daily: plain(limits.dailyCap),
     monthly: plain(totalOnly ? limits.totalCap : limits.monthlyCap),
     shortWindow: Number(limits.dailyWindow),
-    longWindow: totalOnly || (!v2 && isTotalBudgetWindow(limits.monthlyWindow)) ? NEVER_REFILLS : Number(limits.monthlyWindow),
+    longWindow: totalOnly || (!native && isTotalBudgetWindow(limits.monthlyWindow)) ? NEVER_REFILLS : Number(limits.monthlyWindow),
     approvalMode: mode,
     approvalAmount: mode === 'above' ? plain(limits.approvalThreshold) : '',
     validUntil: limits.validUntil === 0n ? '' : isoDate(Number(limits.validUntil) * 1000),

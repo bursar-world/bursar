@@ -8,6 +8,7 @@ import { erc20Abi } from 'viem';
 import type { Abi, Address } from 'viem';
 
 import { collateralLane, creditWired, formatHealth, formatRatio, liquidatable } from '@/chain/collateral';
+import { onCurrentSet } from '@/chain/deployments';
 import type { CollateralAccount, CollateralPosition } from '@/chain/collateral';
 import { ADDRESSES } from '@/chain/rhc';
 import { AmountInput } from '@/components/amount-input';
@@ -28,11 +29,11 @@ import { useWriteContract } from '@/wallet/write';
 
 export function CollateralPanel() {
   const { address, account, connected } = useMandateScope();
-  const v2 = account?.contractSet === 'v2';
+  const served = account !== undefined && onCurrentSet(account.contractSet);
   const inLane = account?.limits.lane === COLLATERAL_LANE;
-  const collateral = useCollateral(address, connected, v2 && inLane);
+  const collateral = useCollateral(address, connected, served && inLane);
 
-  if (!account || !v2 || collateralLane() === undefined) return null;
+  if (!account || !served || collateralLane() === undefined) return null;
   if (!inLane) {
     return (
       <p className="text-detail text-[color:var(--color-muted)]">

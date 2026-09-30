@@ -1,4 +1,4 @@
-import { micro } from '@bursar/core';
+import { CURRENT_CONTRACT_SET, micro } from '@bursar/core';
 import type { Micro } from '@bursar/core';
 import { LockStatus } from '@bursar/sdk';
 import type { Address, Hex } from 'viem';
@@ -316,7 +316,7 @@ export async function readResolverDesk(account?: Address, signal?: AbortSignal):
 
   const currentTag: DeploymentTag = current ?? {
     name: 'current',
-    contractSet: 'v2',
+    contractSet: CURRENT_CONTRACT_SET,
     current: true,
     escrow: escrowAddress,
     oracleRegistry: registry,

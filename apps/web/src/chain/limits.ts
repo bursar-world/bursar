@@ -113,11 +113,11 @@ export type TotalBudget = { readonly cap: Micro; readonly spent: Micro; readonly
 /**
  * The mandate's total budget, or undefined when it has none.
  *
- * A v2 account holds it natively in `totalCap`. A v1 account has no such field, and the console
- * gave it one by making the second window long enough never to roll.
+ * An account from v2 on holds it natively in `totalCap`. A v1 account has no such field, and the
+ * console gave it one by making the second window long enough never to roll.
  */
 export function totalBudgetOf(account: TotalBudgetSource): TotalBudget | undefined {
-  if (account.contractSet === 'v2') {
+  if (account.contractSet !== 'v1') {
     const cap = account.limits.totalCap;
     if (cap === 0n) return undefined;
     const spent = account.totalSpent ?? micro(0n);
@@ -129,7 +129,8 @@ export function totalBudgetOf(account: TotalBudgetSource): TotalBudget | undefin
 
 /**
  * Whether the second window is a rolling cap worth showing. On v1 it is not when it stands in for
- * the total. On v2 the console writes it as a copy of the first window, which binds nothing extra.
+ * the total. From v2 on the console writes it as a copy of the first window, which binds nothing
+ * extra.
  */
 export function showsSecondCap(account: TotalBudgetSource): boolean {
   if (account.contractSet === 'v1') return !isTotalBudgetWindow(account.monthly.duration);

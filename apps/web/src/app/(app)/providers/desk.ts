@@ -1,4 +1,4 @@
-import { micro, mulBps } from '@bursar/core';
+import { CURRENT_CONTRACT_SET, micro, mulBps } from '@bursar/core';
 import type { Micro } from '@bursar/core';
 import { LockStatus } from '@bursar/sdk';
 import type { Address, Hex } from 'viem';
@@ -345,7 +345,7 @@ export async function readProviderDesk(payee: Address, signal?: AbortSignal): Pr
   const [currentTag, ...older] = readableDeployments();
   const current: DeploymentTag = currentTag ?? {
     name: 'current',
-    contractSet: 'v2',
+    contractSet: CURRENT_CONTRACT_SET,
     current: true,
     escrow: ADDRESSES.escrow,
     oracleRegistry: ADDRESSES.oracleRegistry,

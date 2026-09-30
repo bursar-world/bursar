@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { parseEventLogs } from 'viem';
 import type { Address, Hex, TransactionReceipt } from 'viem';
 
+import { currentDeployment } from '@/chain/deployments';
 import { ZERO_ADDRESS, shortAddress } from '@/chain/rhc';
 import { mandateAccountAbi, mandateAccountFactoryAbi } from '@/chain/abi';
 import { toLimitsTuple } from '@/chain/limits';
@@ -142,7 +143,7 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
 
   // The classes go into the account itself as a bit mask, which the contract checks on every spend.
   const classMask = classMaskOf(SPEND_CLASSES.filter((id) => classes[id]));
-  const reading = readDraft(draft, Date.now(), { contractSet: 'v2', classMask, lane: laneValue(lane) });
+  const reading = readDraft(draft, Date.now(), { contractSet: currentDeployment().contractSet, classMask, lane: laneValue(lane) });
   const factory = newMandateFactory();
   const followUps = LANE_FOLLOW_UPS[lane];
   const agentReading = readAddress(agentText);

@@ -37,8 +37,20 @@ export function currentDeployment(): DeploymentTag {
 }
 
 /**
- * Every live set on this chain, the current one first, then the sets it supersedes. Only the first
- * is ever written to.
+ * Whether an account on this set is served by the lanes the console reads.
+ *
+ * The stock, parking and collateral lanes come from records of the set that answers for the chain,
+ * and each lane's contracts accept only accounts of the build that set deployed. A mandate on an
+ * earlier set keeps whatever it holds there, and those panels are left off its page rather than
+ * pointed at contracts that would refuse it.
+ */
+export function onCurrentSet(set: ContractSet): boolean {
+  return set === currentDeployment().contractSet;
+}
+
+/**
+ * Every set on this chain the console still reads, the current one first, then the sets it
+ * superseded, retired ones included. Only the first is ever written to.
  */
 export function readableDeployments(): readonly DeploymentTag[] {
   const current = deployment();

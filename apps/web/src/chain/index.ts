@@ -33,7 +33,7 @@ export {
 
 export { onPoolEvent, probeProviders, rhcClient, rhcPool } from './client';
 
-export { currentDeployment, deploymentLabel, readableDeployments } from './deployments';
+export { currentDeployment, deploymentLabel, onCurrentSet, readableDeployments } from './deployments';
 export type { DeploymentTag } from './deployments';
 export type { ProviderHealth } from './client';
 

@@ -6,6 +6,7 @@ import type { Micro } from '@bursar/core';
 import { mandateAccountAbi, treasuryParkAbi, usdgMicrosToRaw } from '@bursar/core';
 import type { Abi } from 'viem';
 
+import { onCurrentSet } from '@/chain/deployments';
 import { ADDRESSES } from '@/chain/rhc';
 import { AmountInput } from '@/components/amount-input';
 import { LevelBadge } from '@/components/badge';
@@ -30,9 +31,10 @@ function decimalsOf(position: ParkPosition): number {
 
 export function ParkPanel() {
   const { address, account } = useMandateScope();
-  const rwa = useRwa(address, account?.contractSet === 'v2');
+  const served = account !== undefined && onCurrentSet(account.contractSet);
+  const rwa = useRwa(address, served);
 
-  if (!account || account.contractSet !== 'v2' || rwa.data === undefined) return null;
+  if (!account || !served || rwa.data === undefined) return null;
 
   return <ParkBody rwa={rwa.data} onChange={() => void rwa.refetch()} />;
 }
