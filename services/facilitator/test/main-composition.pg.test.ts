@@ -10,7 +10,19 @@ import { createUnderwriterService, loadUnderwriterConfig } from '@bursar/underwr
 
 import { compose } from '../src/main.js';
 import type { Composed } from '../src/main.js';
-import { ACCOUNT, ACCOUNT_V2, AGENT_WALLET, CAPABILITY, MERCHANT, USDG, startRhcNode } from './support/rhc-node.js';
+import {
+  ACCOUNT,
+  ACCOUNT_V2,
+  ACCOUNT_V3,
+  AGENT_WALLET,
+  CAPABILITY,
+  ESCROW_V2,
+  ESCROW_V3,
+  MERCHANT,
+  MIN_LOCK,
+  USDG,
+  startRhcNode,
+} from './support/rhc-node.js';
 import type { RhcNode } from './support/rhc-node.js';
 import { TEST_DATABASE_URL } from './support/postgres.js';
 
@@ -148,11 +160,12 @@ describe.skipIf(!TEST_DATABASE_URL)('the composition the binary runs', () => {
     capabilityId: CAPABILITY,
   });
 
-  // Both builds are live on 4663 and answer `limits` in different shapes, so the decision is taken
-  // against one account of each.
+  // Every build runs on 4663, and v1 answers `limits` in a different shape, so the decision is
+  // taken against one account of each.
   const builds = [
     { build: 'v1', account: ACCOUNT },
     { build: 'v2', account: ACCOUNT_V2 },
+    { build: 'v3', account: ACCOUNT_V3 },
   ] as const;
 
   it.each(builds)('answers POST /underwrite with a real decision against a $build account', async ({ build, account }) => {
@@ -190,6 +203,25 @@ describe.skipIf(!TEST_DATABASE_URL)('the composition the binary runs', () => {
     expect(answered.status).toBe(201);
     expect(answered.body['decision']).toEqual({ decision: 'refuse', reason: 'daily_cap_exceeded' });
     expect((answered.body['authorization'] as Record<string, unknown>)['approved']).toBe(false);
+  }, 30_000);
+
+  // The account's own preview does not know the escrow's floor. Without the underwriter's read, a
+  // spend under it would be allowed and then revert inside `Escrow.lock`.
+  it('refuses a spend under the v3 escrow floor', async () => {
+    const { call } = await start({ MANDATE_ACCOUNT: ACCOUNT_V3 });
+    const answered = await call('POST', '/underwrite', spend((MIN_LOCK - 1n).toString(), 'compose-floor-v3'));
+
+    expect(answered.status).toBe(201);
+    expect(answered.body['decision']).toEqual({ decision: 'refuse', reason: 'below_min_lock' });
+    expect(rhc.calls).toContain(`${ESCROW_V3.toLowerCase()}.minLock`);
+  }, 30_000);
+
+  it('never asks the v2 escrow for a floor it does not have', async () => {
+    const { call } = await start({ MANDATE_ACCOUNT: ACCOUNT_V2 });
+    const answered = await call('POST', '/underwrite', spend((MIN_LOCK - 1n).toString(), 'compose-floor-v2'));
+
+    expect(answered.body['decision']).toEqual({ decision: 'allow' });
+    expect(rhc.calls).not.toContain(`${ESCROW_V2.toLowerCase()}.minLock`);
   }, 30_000);
 
   it('refuses a spend the token issuer has frozen, and says whose address it is', async () => {

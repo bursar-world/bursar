@@ -12,13 +12,21 @@ import type { Address } from 'viem';
  */
 export type OnchainCollateral = {
   readonly mandate: Address;
+  /** Counts nothing whose token, oracle or access registry is paused, or whose pool left its band. */
   readonly valueMicro: Micro;
-  /** Value after each asset's current haircut. */
+  /** Value after the haircut that applies now. */
   readonly effectiveCollateralMicro: Micro;
   readonly outstandingMicro: Micro;
-  /** What the vault would lend now, already capped by the pool's limits and cash. */
+  /**
+   * What the vault would lend now, already capped by the pool's limits and cash. Measured with every
+   * position at its after-hours haircut, which is what a draw is checked against whatever the clock
+   * says, so it can sit below what the effective collateral suggests during the session.
+   */
   readonly headroomMicro: Micro;
-  /** 1e18 = 1.0. `NO_DEBT_HEALTH` when nothing is owed. */
+  /**
+   * The liquidation trigger, 1e18 = 1.0, at the haircuts that apply now. It counts a position whose
+   * pool has left its band at the feed. `NO_DEBT_HEALTH` when nothing is owed.
+   */
   readonly healthE18: bigint;
   /** Null when nothing is owed. */
   readonly healthFactor: number | null;

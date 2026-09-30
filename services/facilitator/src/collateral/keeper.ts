@@ -1,7 +1,7 @@
-import { collateralVaultAbi, creditPoolAbi } from '@bursar/core';
+import { collateralVaultAbi, creditPoolAbi, priceGuardAbi } from '@bursar/core';
 import type { CollateralDeployment } from '@bursar/core';
 import { BaseError, ContractFunctionRevertedError, getAbiItem } from 'viem';
-import type { Account, Address, Chain, Hex, PublicClient, WalletClient } from 'viem';
+import type { Abi, Account, Address, Chain, Hex, PublicClient, WalletClient } from 'viem';
 
 import { fromAccountTuple } from '../lanes/onchain-collateral.js';
 import type { OnchainCollateral } from '../lanes/onchain-collateral.js';
@@ -12,25 +12,42 @@ import type { OnchainCollateral } from '../lanes/onchain-collateral.js';
  * Each run finds every line the vault has opened, reads each one's health, and for a line under
  * 1.0 asks the vault to liquidate its largest fresh position. The vault sells only the slice that
  * restores the target, through the asset's pinned pool, and pays the caller the bounty. A sale
- * the price guard refuses (a stale, paused or out-of-band price) is reported as deferred: the
- * contract waits for a price it can trust, and so does the keeper. It also sweeps the credit
- * spread to Staking once governance has named the pool as its credit manager.
+ * the price guard refuses is reported as deferred: the contract waits for a price it can trust,
+ * and so does the keeper. The guard is asked twice, before the sale and again after it, so a sale
+ * that would push the pool out of its band is deferred the same way. A line with nothing left that
+ * a sale could turn into USDG has its debt written off by the same call, and that is reported as a
+ * write-off rather than a sale. The keeper also sweeps the credit spread to Staking once
+ * governance has named the pool as its credit manager.
  *
  * Dry run is the default. Nothing is sent unless the run is told to execute and holds a key.
  */
 
 const WAD = 10n ** 18n;
 
-/** Reverts that mean "not now", as opposed to "never". */
-const DEFERRING = [
-  'StalePrice',
-  'OraclePaused',
-  'TokenPaused',
-  'AccessPaused',
-  'BadPrice',
-  'PoolPriceDeviation',
-  'Blocked',
-] as const;
+/**
+ * Reverts that mean "not now", as opposed to "never", with what the keeper is waiting for. Every
+ * one of them is the price guard's.
+ */
+const DEFERRING: Readonly<Record<string, string>> = {
+  StalePrice: 'the feed is older than the asset allows a trade on',
+  BadPrice: 'the feed has no usable answer',
+  OraclePaused: "the token's oracle is paused",
+  TokenPaused: 'the token is paused',
+  AccessPaused: "Robinhood's access registry is paused",
+  Blocked: 'the access registry blocks the vault',
+  PoolPriceDeviation: "the asset's pool trades outside its band of the feed, before the sale or after it",
+};
+
+/**
+ * What `liquidate` can revert with: its own errors, and the price guard's and the credit pool's,
+ * which reach the caller unwrapped. Decoding against the vault's ABI alone leaves a guard refusal as
+ * a bare selector, and a deferral would read as a failure.
+ */
+const LIQUIDATE_ABI = [
+  ...collateralVaultAbi,
+  ...priceGuardAbi.filter((entry) => entry.type === 'error'),
+  ...creditPoolAbi.filter((entry) => entry.type === 'error'),
+] as const satisfies Abi;
 
 export type Position = {
   readonly asset: Address;
@@ -52,8 +69,11 @@ export interface KeeperChain {
   positions(mandate: Address): Promise<readonly Position[]>;
   inSession(): Promise<boolean>;
   spread(): Promise<Spread>;
-  /** Throws the revert when the call would fail. */
-  simulateLiquidate(mandate: Address, asset: Address): Promise<void>;
+  /**
+   * The raw amount the call would sell, or zero when it would write the line's debt off instead.
+   * Throws the revert when the call would fail.
+   */
+  simulateLiquidate(mandate: Address, asset: Address): Promise<bigint>;
   liquidate(mandate: Address, asset: Address): Promise<Hex>;
   simulateSweep(): Promise<void>;
   sweep(): Promise<Hex>;
@@ -71,9 +91,17 @@ export type LineSnapshot = {
 };
 
 export type KeeperAction =
-  | { readonly kind: 'liquidate'; readonly mandate: Address; readonly asset: Address; readonly outcome: 'sent'; readonly tx: Hex }
-  | { readonly kind: 'liquidate'; readonly mandate: Address; readonly asset: Address; readonly outcome: 'would-send' }
-  | { readonly kind: 'liquidate'; readonly mandate: Address; readonly asset: Address | null; readonly outcome: 'deferred' | 'failed'; readonly reason: string }
+  | { readonly kind: 'liquidate' | 'write-off'; readonly mandate: Address; readonly asset: Address; readonly outcome: 'sent'; readonly tx: Hex }
+  | { readonly kind: 'liquidate' | 'write-off'; readonly mandate: Address; readonly asset: Address; readonly outcome: 'would-send' }
+  | {
+      readonly kind: 'liquidate';
+      readonly mandate: Address;
+      readonly asset: Address | null;
+      readonly outcome: 'deferred' | 'failed';
+      readonly reason: string;
+      /** For a deferral, what the sale is waiting for. */
+      readonly detail?: string;
+    }
   | { readonly kind: 'sweep'; readonly amountMicro: string; readonly outcome: 'sent'; readonly tx: Hex }
   | { readonly kind: 'sweep'; readonly amountMicro: string; readonly outcome: 'would-send' | 'waiting' | 'failed'; readonly reason?: string };
 
@@ -129,24 +157,31 @@ function snapshot(p: OnchainCollateral, afterHours: boolean): LineSnapshot {
 }
 
 async function liquidateLine(chain: KeeperChain, mandate: Address, execute: boolean): Promise<KeeperAction> {
-  const candidates = (await chain.positions(mandate))
-    .filter((p) => p.raw > 0n && p.fresh)
+  const held = (await chain.positions(mandate))
+    .filter((p) => p.raw > 0n)
     .sort((a, b) => (b.valueMicro > a.valueMicro ? 1 : b.valueMicro < a.valueMicro ? -1 : 0));
-  const asset = candidates[0]?.asset;
+  // The largest fresh position is the one worth selling. With none fresh the vault is still asked:
+  // a line holding only dust or a dropped asset is written off by the same call, and anything else
+  // comes back with the guard's reason for waiting.
+  const asset = (held.find((p) => p.fresh) ?? held[0])?.asset;
   if (asset === undefined) {
-    return { kind: 'liquidate', mandate, asset: null, outcome: 'deferred', reason: 'no position with a fresh price' };
+    return { kind: 'liquidate', mandate, asset: null, outcome: 'deferred', reason: 'no collateral posted' };
   }
 
+  let sold: bigint;
   try {
-    await chain.simulateLiquidate(mandate, asset);
+    sold = await chain.simulateLiquidate(mandate, asset);
   } catch (error) {
     const reason = revertName(error);
-    const outcome = DEFERRING.some((name) => reason.includes(name)) ? 'deferred' : 'failed';
-    return { kind: 'liquidate', mandate, asset, outcome, reason };
+    const waiting = Object.entries(DEFERRING).find(([name]) => reason.includes(name));
+    return waiting === undefined
+      ? { kind: 'liquidate', mandate, asset, outcome: 'failed', reason }
+      : { kind: 'liquidate', mandate, asset, outcome: 'deferred', reason: waiting[0], detail: waiting[1] };
   }
 
-  if (!execute) return { kind: 'liquidate', mandate, asset, outcome: 'would-send' };
-  return { kind: 'liquidate', mandate, asset, outcome: 'sent', tx: await chain.liquidate(mandate, asset) };
+  const kind = sold === 0n ? 'write-off' : 'liquidate';
+  if (!execute) return { kind, mandate, asset, outcome: 'would-send' };
+  return { kind, mandate, asset, outcome: 'sent', tx: await chain.liquidate(mandate, asset) };
 }
 
 async function sweepSpread(chain: KeeperChain, execute: boolean, minMicro: bigint): Promise<KeeperAction | null> {
@@ -240,7 +275,14 @@ export function createKeeperChain(options: ViemKeeperOptions): KeeperChain {
       return { reservesMicro, poolIsCreditManager: manager.toLowerCase() === pool.toLowerCase() };
     },
     async simulateLiquidate(mandate, asset) {
-      await publicClient.simulateContract({ address: vault, abi: collateralVaultAbi, functionName: 'liquidate', args: [mandate, asset], account: caller });
+      const { result } = await publicClient.simulateContract({
+        address: vault,
+        abi: LIQUIDATE_ABI,
+        functionName: 'liquidate',
+        args: [mandate, asset],
+        account: caller,
+      });
+      return result;
     },
     liquidate: (mandate, asset) =>
       send({ address: vault, abi: collateralVaultAbi, functionName: 'liquidate', args: [mandate, asset], account: options.account ?? null, chain: options.chain ?? null }),

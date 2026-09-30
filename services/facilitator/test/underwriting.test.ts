@@ -73,6 +73,7 @@ const TERMS: EscrowTerms = {
   registry: '0x002750230E742b52F63987704f09f4E44CF4b2C8',
   minTtlSeconds: 300n,
   maxTtlSeconds: 604_800n,
+  minLockMicros: micro(10_000n),
   feeBps: 100,
   disputeBondBps: 500,
 };

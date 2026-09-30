@@ -771,8 +771,9 @@ export class LaneLedger {
     const held = await sumOpenHolds(client, agentId, pool.poolId);
     const committed = addMicro(summary.outstandingMicro, held);
 
-    // The vault's headroom already applies its own borrow floor and the pool's caps and cash. Holds
-    // this service has granted and not yet seen drawn come off it.
+    // The vault's headroom already applies its own borrow floor, the after-hours haircut every draw
+    // is checked at, and the pool's caps and cash. Holds this service has granted and not yet seen
+    // drawn come off it.
     if (summary.source === 'chain' && summary.headroomMicro !== undefined) {
       const room = summary.headroomMicro > held ? subMicro(summary.headroomMicro, held) : ZERO_MICRO;
       if (amountMicro > room) {

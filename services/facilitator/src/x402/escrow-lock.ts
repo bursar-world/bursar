@@ -100,7 +100,10 @@ export type EscrowDeployment = {
 export type EscrowLockSchemeOptions = {
   readonly chainId: number;
   readonly chain: EscrowChain;
-  /** Defaults to every live deployment on the chain. */
+  /**
+   * Defaults to every deployment the chain still reads: the set that answers for it and each set it
+   * supersedes, whose mandates can still pay through their own escrow.
+   */
   readonly deployments?: readonly EscrowDeployment[];
   /** Seconds the merchant needs after verify to serve and release. Defaults to 60. */
   readonly minRemainingSeconds?: number;

@@ -1,8 +1,9 @@
+import { RHC_MAINNET, collateralDeployment, priceGuardAbi, viemChain } from '@bursar/core';
 import { describe, expect, it } from 'vitest';
-import { BaseError } from 'viem';
-import type { Address, Hex } from 'viem';
+import { BaseError, createPublicClient, custom, encodeErrorResult } from 'viem';
+import type { Address, Hex, PublicClient } from 'viem';
 
-import { runKeeper } from '../src/collateral/keeper.js';
+import { createKeeperChain, revertName, runKeeper } from '../src/collateral/keeper.js';
 import type { KeeperChain, Position, Spread } from '../src/collateral/keeper.js';
 import { createOnchainCollateralReader, fromAccountTuple } from '../src/lanes/onchain-collateral.js';
 
@@ -16,6 +17,8 @@ const TX: Hex = '0xabc0000000000000000000000000000000000000000000000000000000000
 class FakeChain implements KeeperChain {
   sent: string[] = [];
   liquidateRevert: Error | null = null;
+  /** What the vault would sell. Zero is the write-off of a line with nothing left to sell. */
+  sold = 5n;
   spreadState: Spread = { reservesMicro: 0n, poolIsCreditManager: false };
   sickPositions: Position[] = [
     { asset: AAPL, raw: 10n, valueMicro: 1_000n, fresh: true, haircutBps: 3000 },
@@ -41,6 +44,7 @@ class FakeChain implements KeeperChain {
   }
   async simulateLiquidate() {
     if (this.liquidateRevert) throw this.liquidateRevert;
+    return this.sold;
   }
   async liquidate(mandate: Address, asset: Address) {
     this.sent.push(`liquidate ${mandate} ${asset}`);
@@ -86,19 +90,51 @@ describe('collateral keeper', () => {
     expect(chain.sent).toEqual([`liquidate ${SICK} ${SPY}`]);
   });
 
-  it('defers on a price the guard refuses', async () => {
+  it('defers on a price the guard refuses, and says what it is waiting for', async () => {
     const chain = new FakeChain();
     chain.liquidateRevert = new BaseError('execution reverted: StalePrice(address,uint256,uint256)');
     const report = await run(chain, true);
-    expect(report.actions[0]).toMatchObject({ kind: 'liquidate', outcome: 'deferred' });
+    expect(report.actions[0]).toMatchObject({
+      kind: 'liquidate',
+      outcome: 'deferred',
+      reason: 'StalePrice',
+      detail: 'the feed is older than the asset allows a trade on',
+    });
     expect(chain.sent).toEqual([]);
   });
 
-  it('skips stale positions and defers when none is fresh', async () => {
+  it('reports any other refusal as a failure', async () => {
+    const chain = new FakeChain();
+    chain.liquidateRevert = new BaseError('execution reverted: NothingToSell()');
+    const report = await run(chain, true);
+    expect(report.actions[0]).toMatchObject({ kind: 'liquidate', outcome: 'failed' });
+  });
+
+  // With nothing fresh the vault is still asked, because a line holding only dust or a dropped
+  // asset is written off by the same call. Anything else comes back with the guard's reason.
+  it('asks about the largest position when none is fresh and defers on the guard', async () => {
     const chain = new FakeChain();
     chain.sickPositions = chain.sickPositions.map((p) => ({ ...p, fresh: false }));
+    chain.liquidateRevert = new BaseError('execution reverted: OraclePaused(address)');
     const report = await run(chain, true);
-    expect(report.actions[0]).toMatchObject({ outcome: 'deferred', asset: null });
+    expect(report.actions[0]).toMatchObject({ outcome: 'deferred', asset: SPY, reason: 'OraclePaused' });
+  });
+
+  it('defers a line with no collateral posted at all', async () => {
+    const chain = new FakeChain();
+    chain.sickPositions = [];
+    const report = await run(chain, true);
+    expect(report.actions[0]).toMatchObject({ outcome: 'deferred', asset: null, reason: 'no collateral posted' });
+  });
+
+  it('reports a call that would sell nothing as the write-off it is', async () => {
+    const chain = new FakeChain();
+    chain.sold = 0n;
+    expect((await run(chain)).actions[0]).toEqual({ kind: 'write-off', mandate: SICK, asset: SPY, outcome: 'would-send' });
+
+    const report = await run(chain, true);
+    expect(report.actions[0]).toMatchObject({ kind: 'write-off', outcome: 'sent', tx: TX });
+    expect(chain.sent).toEqual([`liquidate ${SICK} ${SPY}`]);
   });
 
   it('waits to sweep until Staking names the pool, then sweeps', async () => {
@@ -138,5 +174,38 @@ describe('on-chain collateral reader', () => {
 
   it('is absent on a chain with no lane', () => {
     expect(createOnchainCollateralReader({ readContract: async () => [0n, 0n, 0n, 0n, 0n] as const }, 1)).toBeNull();
+  });
+});
+
+/**
+ * A guard refusal reaches the vault's caller as the guard's own error, which the vault's ABI does
+ * not declare. Read against the vault's ABI alone it is a bare selector, and a sale waiting on a
+ * price would be reported as a failure.
+ */
+describe('reading a liquidation the guard refuses', () => {
+  function refusingNode(data: Hex): PublicClient {
+    return createPublicClient({
+      chain: viemChain(RHC_MAINNET),
+      transport: custom(
+        {
+          request: async ({ method }: { method: string }) => {
+            if (method === 'eth_chainId') return `0x${RHC_MAINNET.chainId.toString(16)}`;
+            if (method === 'eth_call') throw { code: 3, message: 'execution reverted', data };
+            throw new Error(`this node does not answer ${method}`);
+          },
+        },
+        { retryCount: 0 },
+      ),
+    }) as PublicClient;
+  }
+
+  const lane = collateralDeployment(RHC_MAINNET.chainId);
+
+  it.skipIf(lane === undefined)('names a band refusal after the sale, which is a deferral', async () => {
+    const data = encodeErrorResult({ abi: priceGuardAbi, errorName: 'PoolPriceDeviation', args: [SPY, 101_500_000_00n, 100_000_000_00n] });
+    const chain = createKeeperChain({ publicClient: refusingNode(data), lane: lane! });
+
+    const error = await chain.simulateLiquidate(SICK, SPY).catch((failure: unknown) => failure);
+    expect(revertName(error)).toBe('PoolPriceDeviation');
   });
 });

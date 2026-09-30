@@ -36,7 +36,10 @@ carries a constraint that refuses any row saying otherwise. A draw is refused un
 collateral carries it at the pool's borrowing cap and leaves the position above the pool's minimum
 health factor, counting holds that have not reported back yet. Opening the debt locks the posted
 amount behind it, grossed up by the asset's haircut, so collateral cannot be withdrawn from under
-money that is still owed. Meeting the debt releases the lock.
+money that is still owed. Meeting the debt releases the lock. Where the account's mandate holds an
+on-chain credit line, the vault's own figures stand in for these: it measures room to draw with
+every position at its after-hours haircut, and counts nothing whose token or access registry is
+paused or whose pool trades outside its band.
 
 **Direct.** The payer's own signed authorisation settles the call in one transaction. Nothing is
 held and nothing is owed. A direct call worth less than its own gas is refused rather than served
