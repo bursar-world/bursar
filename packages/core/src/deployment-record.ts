@@ -256,7 +256,7 @@ export function parseDeployment(json: unknown, label = 'record'): Deployment {
     verifiedOnChain[key] = value;
   }
 
-  const rwa = record['rwa'] === undefined ? undefined : parseRwa(record['rwa'], name);
+  const rwa = record['rwa'] === undefined ? undefined : parseRwa(record['rwa'], `${name}.rwa`);
   const privacy = record['privacy'] === undefined ? undefined : parsePrivacy(record['privacy'], name);
 
   const optionalString = (key: string): string | undefined => {
@@ -365,20 +365,67 @@ function parseShielded(json: unknown, parent: string): ShieldedDeployment {
   });
 }
 
-function parseRwa(json: unknown, name: string): RwaDeployment {
-  const r = object(json, name, 'rwa');
-  const label = `${name}.rwa`;
+/**
+ * The assets a lane was deployed with, as a list.
+ *
+ * A record on disk keys them by symbol, which is how the deploy scripts write them, and a parsed
+ * record lists them with the symbol inside each entry. Both shapes are read, so a record that has
+ * been parsed once parses again unchanged, and every reader gets the list.
+ */
+function parseAssets(json: unknown, label: string): readonly RwaAssetRecord[] {
+  let entries: [string, unknown][];
+  if (Array.isArray(json)) {
+    entries = json.map((value, index) => {
+      const symbol = (object(value, label, `assets[${index}]`) as { symbol?: unknown }).symbol;
+      if (typeof symbol !== 'string' || symbol === '') {
+        throw new DeploymentError(label, `assets[${index}] has no symbol.`);
+      }
+      return [symbol, value];
+    });
+  } else {
+    entries = Object.entries(object(json, label, 'assets'));
+  }
+
+  // Symbols are looked up without regard to case, so two that differ only in case are one name.
+  const seen = new Set<string>();
+  return Object.freeze(
+    entries.map(([symbol, value]) => {
+      const key = symbol.toUpperCase();
+      if (seen.has(key)) throw new DeploymentError(label, `lists ${symbol} twice among its assets.`);
+      seen.add(key);
+
+      const at = `${label}.assets.${symbol}`;
+      const a = object(value, label, `assets.${symbol}`);
+      const kind = a['kind'];
+      if (kind !== 'stock' && kind !== 'treasury') throw new DeploymentError(at, `kind is ${String(kind)}.`);
+      return Object.freeze({ symbol, address: address(a, at, 'address'), feed: address(a, at, 'feed'), kind });
+    }),
+  );
+}
+
+/**
+ * Validates the RWA section of a record on its own, with its collateral lane if it has one.
+ *
+ * What a lane client reads when it is handed a lane rather than taking one from its connection's
+ * record. The assets may be keyed by symbol, as a record on disk keys them, or listed, as a parsed
+ * record lists them.
+ */
+export function parseRwaDeployment(json: unknown, label = 'rwa'): RwaDeployment {
+  return parseRwa(json, label);
+}
+
+/** Validates the collateral section of a record's RWA lane on its own. */
+export function parseCollateralDeployment(json: unknown, parent = 'rwa'): CollateralDeployment {
+  return parseCollateral(json, parent);
+}
+
+function parseRwa(json: unknown, label: string): RwaDeployment {
+  const r = object(json, label, 'rwa');
   const adaptersRecord = object(field(r, label, 'adapters'), label, 'adapters');
   const adapters: Record<string, Address> = {};
   for (const symbol of Object.keys(adaptersRecord)) adapters[symbol] = address(adaptersRecord, label, symbol);
 
-  const assetsRecord = object(field(r, label, 'assets'), label, 'assets');
-  const assets = Object.entries(assetsRecord).map(([symbol, value]) => {
-    const a = object(value, label, symbol);
-    const kind = a['kind'];
-    if (kind !== 'stock' && kind !== 'treasury') throw new DeploymentError(label, `${symbol}.kind is ${String(kind)}.`);
-    return Object.freeze({ symbol, address: address(a, label, 'address'), feed: address(a, label, 'feed'), kind });
-  });
+  const assets = parseAssets(field(r, label, 'assets'), label);
 
   return Object.freeze({
     AssetRegistry: address(r, label, 'AssetRegistry'),
@@ -389,7 +436,7 @@ function parseRwa(json: unknown, name: string): RwaDeployment {
     ...(r['MandateAccountFactoryV21'] === undefined
       ? {}
       : { MandateAccountFactoryV21: address(r, label, 'MandateAccountFactoryV21') }),
-    assets: Object.freeze(assets),
+    assets,
     ...(r['collateral'] === undefined ? {} : { collateral: parseCollateral(r['collateral'], label) }),
   });
 }

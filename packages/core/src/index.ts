@@ -80,7 +80,9 @@ export {
   isSuperseded,
   isRetiredDeploymentRecord,
   liveDeployments,
+  parseCollateralDeployment,
   parseDeployment,
+  parseRwaDeployment,
   selectDeploymentRecords,
 } from './deployments.js';
 export type {

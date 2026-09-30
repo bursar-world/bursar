@@ -10,7 +10,9 @@ export {
   isMandateDeploymentRecord,
   isPlannedDeploymentRecord,
   isRetiredDeploymentRecord,
+  parseCollateralDeployment,
   parseDeployment,
+  parseRwaDeployment,
   selectDeploymentRecords,
 } from './deployment-record.js';
 export type {

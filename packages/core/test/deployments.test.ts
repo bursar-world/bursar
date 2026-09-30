@@ -13,7 +13,9 @@ import {
   isPlannedDeploymentRecord,
   isSuperseded,
   isRetiredDeploymentRecord,
+  parseCollateralDeployment,
   parseDeployment,
+  parseRwaDeployment,
   selectDeploymentRecords,
 } from '../src/deployments.js';
 import type { DeploymentRecordFile } from '../src/deployments.js';
@@ -232,6 +234,106 @@ describe('deployment records', () => {
       'rhc-mainnet-v2',
     );
     expect(deploymentByContract('Escrow', fill('0') as never)).toBeUndefined();
+  });
+});
+
+/** Assets as a deploy script writes them, keyed by symbol, with fields the SDK does not read. */
+const KEYED_ASSETS = {
+  SGOV: { address: fill('1'), feed: fill('b'), kind: 'treasury', poolId: `0x${'00'.repeat(32)}` },
+  SPY: { address: fill('c'), feed: fill('d'), kind: 'stock' },
+};
+
+/** An RWA section as a deploy script writes it, with its collateral part. Addresses are made up. */
+function rwaSection(assets: unknown = KEYED_ASSETS): Record<string, unknown> {
+  return {
+    AssetRegistry: fill('1'),
+    PriceGuard: fill('2'),
+    StockSpendRouter: fill('3'),
+    TreasuryPark: fill('4'),
+    adapters: { SGOV: fill('5'), USDG: fill('6') },
+    assets,
+    fromBlock: 43,
+    collateral: {
+      CreditPool: fill('7'),
+      CollateralVault: fill('8'),
+      Staking: fill('9'),
+      lender: fill('e'),
+      fromBlock: 50,
+    },
+  };
+}
+
+/**
+ * The deploy scripts key a lane's assets by symbol, and every reader walks a list. A record that
+ * reached a reader unparsed, such as a local rehearsal's handed to the SDK, failed as
+ * `assets.find is not a function` far from the record, so both shapes are read and one is exposed.
+ */
+describe('a lane’s assets', () => {
+  const LISTED = [
+    { symbol: 'SGOV', address: fill('1'), feed: fill('b'), kind: 'treasury' },
+    { symbol: 'SPY', address: fill('c'), feed: fill('d'), kind: 'stock' },
+  ];
+
+  it('lists assets a record keys by symbol, each carrying its symbol', () => {
+    const parsed = parseDeployment(exampleRecord({ rwa: rwaSection() }));
+
+    expect(parsed.rwa?.assets).toEqual(LISTED);
+    expect(parsed.rwa?.collateral).toEqual({
+      CreditPool: fill('7'),
+      CollateralVault: fill('8'),
+      Staking: fill('9'),
+      fromBlock: 50,
+    });
+  });
+
+  it('reads assets already listed the same way', () => {
+    expect(parseDeployment(exampleRecord({ rwa: rwaSection(LISTED) })).rwa?.assets).toEqual(LISTED);
+  });
+
+  it('parses a parsed record again unchanged', () => {
+    const once = parseDeployment(exampleRecord({ rwa: rwaSection() }));
+    expect(parseDeployment(once)).toEqual(once);
+
+    const shipped = DEPLOYMENTS['rhc-mainnet-v2'];
+    expect(parseDeployment(shipped, 'rhc-mainnet-v2')).toEqual(shipped);
+  });
+
+  it('reads a record the local rehearsal writes: planned, marked local, with no explorer', () => {
+    const parsed = parseDeployment(
+      exampleRecord({
+        network: 'local-4663',
+        chainId: 4663,
+        status: 'planned',
+        local: true,
+        explorer: '',
+        rwa: rwaSection(),
+      }),
+    );
+
+    expect(parsed.status).toBe('planned');
+    expect(parsed.explorer).toBe('');
+    expect(parsed.rwa?.assets.map((a) => a.symbol)).toEqual(['SGOV', 'SPY']);
+  });
+
+  it('refuses a listed asset with no symbol, a symbol listed twice, and a kind it does not know', () => {
+    const [sgov, spy] = LISTED;
+    const record = (assets: unknown): Record<string, unknown> => exampleRecord({ rwa: rwaSection(assets) });
+
+    expect(() => parseDeployment(record([{ ...sgov, symbol: undefined }]))).toThrow(/assets\[0\] has no symbol/);
+    expect(() => parseDeployment(record([spy, { ...spy, symbol: 'spy' }]))).toThrow(/lists spy twice/);
+    expect(() => parseDeployment(record({ SPY: { ...spy, kind: 'bond' } }))).toThrow(/assets\.SPY: kind is bond/);
+    expect(() => parseDeployment(record({ SPY: { ...spy, feed: '0xshort' } }))).toThrow(
+      /assets\.SPY: "feed" is not an address/,
+    );
+    expect(() => parseDeployment(record('SPY'))).toThrow(/"assets" is not an object/);
+  });
+
+  it('reads an RWA section or its collateral part on its own', () => {
+    expect(parseRwaDeployment(rwaSection()).assets).toEqual(LISTED);
+    expect(parseCollateralDeployment(rwaSection()['collateral']).CreditPool).toBe(fill('7'));
+    expect(() => parseRwaDeployment({ ...rwaSection(), StockSpendRouter: undefined })).toThrow(
+      /Deployment record rwa: has no "StockSpendRouter"/,
+    );
   });
 });
 
