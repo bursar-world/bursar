@@ -30,7 +30,9 @@ export type DisclosureGrant = {
 
 export type DisclosureSource = {
   grants(escrow: Address, lockId: bigint, resolvers: readonly Address[], fromBlock: bigint, toBlock: bigint): Promise<readonly DisclosureGrant[]>;
-  /** The payer's `termsCommitment` when it is a committed mandate, else null. */
+  /** The block the escrow opened `lockId` in, searched between two blocks, or null when it is not there. */
+  lockedAt(escrow: Address, lockId: bigint, fromBlock: bigint, toBlock: bigint): Promise<bigint | null>;
+  /** The payer's `termsCommitment` at a block when it is a committed mandate, else null. */
   termsCommitment(payer: Address, blockNumber: bigint): Promise<bigint | null>;
 };
 
@@ -128,7 +130,8 @@ export async function readDisclosures(args: {
   readonly lock: LockState;
   /** The grants read for this lock, usually by `scanGrants`. */
   readonly grants: readonly DisclosureGrant[];
-  /** The block the payer's terms commitment is read at. */
+  /** The blocks the lock was opened between: the start of the grant scan and the dispute's snapshot. */
+  readonly fromBlock: bigint;
   readonly toBlock: bigint;
 }): Promise<DisclosureReading> {
   const { source, keyring, lock, grants } = args;
@@ -136,7 +139,11 @@ export async function readDisclosures(args: {
   if (resolvers.length === 0) return NO_DISCLOSURES;
   if (grants.length === 0) return NO_DISCLOSURES;
 
-  const termsCommitment = await source.termsCommitment(lock.payer, args.toBlock).catch(() => null);
+  // A committed mandate can amend its terms after a lock, and the amended ones are not what the
+  // lock's proof was checked against. The commitment a slice has to match is the one the account
+  // held in the block the lock was opened in.
+  const lockBlock = await source.lockedAt(args.escrow, args.escrowId, args.fromBlock, args.toBlock).catch(() => null);
+  const termsCommitment = lockBlock === null ? null : await source.termsCommitment(lock.payer, lockBlock).catch(() => null);
 
   let input: DisclosureReading['input'] = null;
   const outputs = new Map<string, unknown>();
@@ -175,7 +182,10 @@ export async function readDisclosures(args: {
       notes.push(`${which} does not match its on-chain slice commitment or names another lock, so none of it was used.`);
       continue;
     }
-    if (checks.terms === false) notes.push(`${which}: the disclosed terms do not match the mandate's terms commitment.`);
+    if (checks.terms === false) notes.push(`${which}: the disclosed terms do not match the mandate's terms commitment when the lock was opened.`);
+    if (slice.terms !== undefined && checks.terms === null) {
+      notes.push(`${which}: the disclosed terms could not be checked against the mandate's commitment when the lock was opened.`);
+    }
     if (checks.payee === false) notes.push(`${which}: the payee is not in the disclosed counterparty set.`);
 
     if (checks.input) input ??= { document: slice.input };
@@ -191,7 +201,7 @@ export async function readDisclosures(args: {
 }
 
 export type LogReader = {
-  getLogs(args: Record<string, unknown>): Promise<readonly { args: Record<string, unknown> }[]>;
+  getLogs(args: Record<string, unknown>): Promise<readonly { args: Record<string, unknown>; blockNumber?: bigint | null }[]>;
   readContract(args: Record<string, unknown>): Promise<unknown>;
 };
 
@@ -199,6 +209,8 @@ export type LogReader = {
 export function createDisclosureSource(client: LogReader, registry: Address | undefined, chunk = 10_000n): DisclosureSource {
   const escrowEvent = escrowAbi.find((item) => item.type === 'event' && item.name === 'DisclosureGranted');
   const registryEvent = disclosureRegistryAbi.find((item) => item.type === 'event' && item.name === 'DisclosureGranted');
+  // Same signature on the v1 and the v2 escrow.
+  const lockedEvent = escrowAbi.find((item) => item.type === 'event' && item.name === 'Locked');
 
   return {
     grants: async (escrow, lockId, resolvers, fromBlock, toBlock) => {
@@ -242,6 +254,25 @@ export function createDisclosureSource(client: LogReader, registry: Address | un
         }
       }
       return found;
+    },
+
+    // Newest chunk first: a disputed lock is usually days old, not as old as the scan's start.
+    lockedAt: async (escrow, lockId, fromBlock, toBlock) => {
+      for (let end = toBlock; end >= fromBlock; end -= chunk) {
+        const start = end - chunk + 1n > fromBlock ? end - chunk + 1n : fromBlock;
+        const logs = await client.getLogs({
+          address: escrow,
+          event: lockedEvent,
+          args: { id: lockId },
+          fromBlock: start,
+          toBlock: end,
+          strict: true,
+        });
+        const found = logs.at(-1)?.blockNumber;
+        if (found !== undefined && found !== null) return found;
+        if (start === fromBlock) break;
+      }
+      return null;
     },
 
     termsCommitment: async (payer, blockNumber) => {

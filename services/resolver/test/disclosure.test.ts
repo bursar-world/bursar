@@ -1,12 +1,12 @@
 import { commitCanonical } from '@bursar/core';
-import { deriveViewingKey, disclosureSlice, signDeliveryEvidence, viewingKeyMessage } from '@bursar/sdk';
+import { commit, deriveViewingKey, disclosureSlice, signDeliveryEvidence, viewingKeyMessage, writeTerms } from '@bursar/sdk';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { Address, Hex } from 'viem';
 import { describe, expect, it } from 'vitest';
 
 import { LockStatus } from '../src/chain.js';
 import type { LockState } from '../src/chain.js';
-import { readDisclosures, scanGrants, viewingKeyring } from '../src/disclosure.js';
+import { createDisclosureSource, readDisclosures, scanGrants, viewingKeyring } from '../src/disclosure.js';
 import type { DisclosureGrant, DisclosureSource, GrantCheckpoint } from '../src/disclosure.js';
 import { checkDelivery, createFetcher } from '../src/evidence.js';
 import { rule } from '../src/policy.js';
@@ -44,28 +44,40 @@ async function publicKeyOf(account: typeof resolverAccount): Promise<Hex> {
 }
 
 function source(grants: DisclosureGrant[], termsCommitment: bigint | null = null): DisclosureSource {
-  return { grants: async () => grants, termsCommitment: async () => termsCommitment };
+  return { grants: async () => grants, lockedAt: async () => 5n, termsCommitment: async () => termsCommitment };
 }
 
-async function grant(args: { input?: unknown; to?: typeof resolverAccount; lockId?: bigint } = {}): Promise<DisclosureGrant> {
+const TERMS = writeTerms({
+  perCallCap: 100_000n,
+  periodCap: 250_000n,
+  periodLen: 86_400,
+  totalCap: 1_000_000n,
+  capabilities: ['service:gpu.render:1'],
+  counterparties: [payee.address],
+  expiry: 1_893_456_000,
+});
+
+async function grant(args: { input?: unknown; to?: typeof resolverAccount; lockId?: bigint; terms?: boolean } = {}): Promise<DisclosureGrant> {
   const { sliceCommit, ciphertext } = await disclosureSlice({
     escrow: ESCROW,
     lockId: args.lockId ?? 1n,
     input: args.input ?? INPUT,
     output: OUTPUT,
+    ...(args.terms ? { terms: TERMS, payee: payee.address } : {}),
     resolverViewingKey: await publicKeyOf(args.to ?? resolverAccount),
   });
   return { source: 'registry', resolver: resolverAccount.address, grantor, sliceCommit, ciphertext };
 }
 
-async function read(grants: DisclosureGrant[]) {
+async function read(grants: DisclosureGrant[], from: DisclosureSource = source(grants)) {
   return readDisclosures({
-    source: source(grants),
+    source: from,
     keyring: await viewingKeyring([key]),
     escrow: ESCROW,
     escrowId: 1n,
     lock: LOCK,
     grants,
+    fromBlock: 0n,
     toBlock: 10n,
   });
 }
@@ -95,6 +107,52 @@ describe('disclosure grants', () => {
     expect(reading.input).toBeNull();
     expect(reading.notes[0]).toContain("does not open with this resolver's viewing key");
     expect(reading.notes[1]).toContain('names another lock');
+  });
+
+  it('checks disclosed terms against the commitment in force when the lock was opened, not an amendment since', async () => {
+    const committed = commit(TERMS).termsCommitment;
+    const amended = committed + 1n;
+    const asked: bigint[] = [];
+    // The lock was opened at block 5; the principal amended the terms at block 8.
+    const chain = (lockedAt: bigint | null): DisclosureSource => ({
+      grants: async () => [],
+      lockedAt: async (_escrow, lockId, from, to) => (lockId === 1n && from <= 5n && 5n <= to ? lockedAt : null),
+      termsCommitment: async (_payer, block) => {
+        asked.push(block);
+        return block < 8n ? committed : amended;
+      },
+    });
+    const grants = [await grant({ terms: true })];
+
+    const reading = await read(grants, chain(5n));
+    expect(asked).toEqual([5n]);
+    expect(reading.notes).toEqual([]);
+    expect(reading.input).toEqual({ document: INPUT });
+
+    // Without the lock's block there is nothing honest to check against, and the note says so.
+    const unknown = await read(grants, chain(null));
+    expect(unknown.notes).toHaveLength(1);
+    expect(unknown.notes[0]).toContain('could not be checked');
+  });
+
+  it('finds the lock’s block from the escrow’s Locked log, newest range first', async () => {
+    const asked: [bigint, bigint][] = [];
+    const client = {
+      getLogs: async ({ fromBlock, toBlock }: { fromBlock: bigint; toBlock: bigint }) => {
+        asked.push([fromBlock, toBlock]);
+        return fromBlock <= 1_234n && 1_234n <= toBlock ? [{ args: {}, blockNumber: 1_234n }] : [];
+      },
+      readContract: async () => 0n,
+    };
+    const found = createDisclosureSource(client, undefined, 1_000n);
+    expect(await found.lockedAt(ESCROW, 7n, 0n, 4_999n)).toBe(1_234n);
+    expect(asked).toEqual([
+      [4_000n, 4_999n],
+      [3_000n, 3_999n],
+      [2_000n, 2_999n],
+      [1_000n, 1_999n],
+    ]);
+    expect(await found.lockedAt(ESCROW, 7n, 2_000n, 4_999n)).toBeNull();
   });
 
   it('lets a disclosed output stand in for an output URI that is not public', async () => {
@@ -136,6 +194,7 @@ describe('grant scan', () => {
         ranges.push([from, to]);
         return blocks.filter((block) => block >= from && block <= to).map(stub);
       },
+      lockedAt: async () => null,
       termsCommitment: async () => null,
     };
     return { src, ranges };
@@ -196,6 +255,7 @@ describe('grant scan', () => {
         if (calls === 2) throw new Error('provider refused the range');
         return [stub(from)];
       },
+      lockedAt: async () => null,
       termsCommitment: async () => null,
     };
     let last: GrantCheckpoint | null = null;

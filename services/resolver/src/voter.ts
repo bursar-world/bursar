@@ -198,12 +198,13 @@ export function createVoter(options: VoterOptions): Voter {
       const resolvers = [...reader.keyring.keys()];
       if (resolvers.length === 0) return NO_DISCLOSURES;
       const current = await journal.get(record.registry, record.disputeId);
+      const fromBlock = reader.fromBlock ?? (snapshotBlock > reader.lookback ? snapshotBlock - reader.lookback : 0n);
       const grants = await scanGrants({
         source: reader.source,
         escrow: record.escrow,
         escrowId: record.escrowId,
         resolvers,
-        fromBlock: reader.fromBlock ?? (snapshotBlock > reader.lookback ? snapshotBlock - reader.lookback : 0n),
+        fromBlock,
         toBlock: headBlock,
         checkpoint: current?.disclosureScan ?? record.disclosureScan ?? null,
         save: async (checkpoint) => {
@@ -220,7 +221,8 @@ export function createVoter(options: VoterOptions): Voter {
         escrowId: record.escrowId,
         lock,
         grants,
-        toBlock: headBlock,
+        fromBlock,
+        toBlock: snapshotBlock,
       });
       if (reading.opened > 0 || reading.notes.length > 0) {
         logger.info('disclosures_read', {
