@@ -191,13 +191,13 @@
       "Buyback": "AdminTimelock",
       "BRSR": "No admin role. Fixed supply, no minter, no owner, no upgrade path."
     },
-    "openProposals": [
+    "openProposals": [],
+    "executedProposals": [
       {
         "id": 1,
-        "target": "0x3f2a0E7822B30aD928488F053348b137866Cf962",
         "targetName": "Staking",
         "signature": "setTiers((uint256,uint16)[])",
-        "executeAfterIso": "2026-09-24T10:07:51Z",
+        "executedOn": "2026-09-24",
         "recordedIn": "contracts/deployments/rhc-mainnet.json"
       }
     ]

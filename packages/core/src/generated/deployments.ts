@@ -18,7 +18,7 @@ export const RAW_DEPLOYMENTS: Readonly<Record<RawDeploymentName, unknown>> = {
   "deployedAt": "2026-09-28T13:06:38Z",
   "deployCostEth": "0.000374181843776",
   "sourceCommit": "651f540",
-  "note": "Robinhood Chain mainnet, contract set v2, deployed as a development build. It fixes the v1 defects from the September review, adds native spend classes, a lifetime total and a settlement lane to the mandate limits, and runs a one-hour timelock and one-hour vote windows so changes can be exercised in a day. The token contracts (BRSR, Vesting, Staking, Buyback) are the live v1 set: resolver bonds are BRSR and the bond floor is read from the live Staking pool. The cap curve is the v1 curve, 25 USDG to 250 USDG per payee. v1 stays readable and keeps serving its open locks and disputes.",
+  "note": "Robinhood Chain mainnet, second contract set, deployed with pre-launch settings: a one-hour timelock and one-hour vote windows, so changes can be exercised in a day. It follows the first set and adds native spend classes, a lifetime total and a settlement lane to the mandate limits. The token contracts (BRSR, Vesting, Staking, Buyback) are the live v1 set: resolver bonds are BRSR and the bond floor is read from the live Staking pool. The cap curve is the v1 curve, 25 USDG to 250 USDG per payee. v1 stays readable and keeps serving its open locks and disputes.",
   "contracts": {
     "AdminTimelock": "0x135eF562ac57845AeA1Bb650fc0E74D67A4a866B",
     "Reputation": "0x48BF5F8Cea580148B2A5Ee3A9c487BF1dCafd9c3",
@@ -32,7 +32,7 @@ export const RAW_DEPLOYMENTS: Readonly<Record<RawDeploymentName, unknown>> = {
     "Staking": "0x3f2a0E7822B30aD928488F053348b137866Cf962",
     "Vesting": "0x5aD3d29C80C1617F3B195d74D593Bc9839681b2F",
     "Buyback": "0xE979a30564a6F15DCCdB5488d5ac0D74a1bda6F0",
-    "note": "Kept from rhc-mainnet-token. No v2 fix touches them. OracleRegistry.setStaking points the v2 registry at the live pool, so the bond floor, per-resolver floors and bars are the ones held there under the v1 timelock."
+    "note": "Kept from rhc-mainnet-token; nothing in this set changes them. OracleRegistry.setStaking points the v2 registry at the live pool, so the bond floor, per-resolver floors and bars are the ones held there under the v1 timelock."
   },
   "supersedes": "rhc-mainnet",
   "roles": {
@@ -193,35 +193,35 @@ export const RAW_DEPLOYMENTS: Readonly<Record<RawDeploymentName, unknown>> = {
     "Set OracleRegistry commitWindow and revealWindow back to 21600 seconds each by proposal.",
     "Execute v1 timelock proposals 4 to 7 so only the three vetted resolvers can bond (they cover the v2 registry too, because it reads the same Staking pool).",
     "Replace the three EOA timelock signers with a multisig, and move Escrow.treasury off the EOA with transferTreasury and acceptTreasury.",
-    "Add the console's 250 USDG per-mandate funding limit (F7), and keep it and the 250 USDG payee ceiling until an external review of the v2 contracts exists.",
+    "Add the console's 250 USDG per-mandate funding limit, and keep it and the 250 USDG payee ceiling until an external review of the v2 contracts exists.",
     "Retire the rhc-mainnet (v1) record once its escrow has no open locks and its disputes are settled.",
     "Re-register the one v1 agent (0x5210D8df060A9D5ce4c1305045ED5c9548fca374) on the v2 AgentRegistry, or no v2 lock can name it as payee.",
-    "F18: add the eligibility attestation and jurisdiction gate before the rwa class, the treasury lane or any stock purchase can be enabled on a mandate (the console, the router policy and the park all accept any principal today).",
+    "Eligibility: add the attestation and jurisdiction gate before the rwa class, the treasury lane or any stock purchase can be enabled on a mandate (the console, the router policy and the park all accept any principal today).",
     "Review the RWA caps before launch: 25 USDG per stock purchase, 100 USDG parked per mandate and 1,000 USDG in total, and the 100 bps (stocks) and 50 bps (SGOV) bands, against fresh depth measurements.",
     "Get written confirmation from Chainlink or Robinhood that the Robinhood feeds price one raw token with the multiplier included, before the treasury lane is presented as live.",
     "Add a market-session check (MarketStatusOracle) so stock purchases refuse outside the 24/5 session; today the 26 h staleness bound and the pool-versus-feed band carry that case.",
     "Make the v2.1 factory (unpark inside a spend) the default for new mandates in the console, and run a park-manager service that parks above the buffer and unparks in market hours.",
     "External review of AssetRegistry, PriceGuard, StockSpendRouter, TreasuryPark and both adapters.",
-    "M4: run the multi-party phase 2 for within_mandate (three independent contributors plus a Robinhood Chain block hash as beacon), publish the transcript, then redeploy WithinMandateVerifier and both committed-mandate factories against the new zkey.",
-    "M4: register a payee on the v2 AgentRegistry and make the v2 CommittedMandateFactory the console default; the example committed mandate locks on the v1 escrow.",
-    "M4: move the SolvencyLog poster from the deployer to a dedicated key run by services/solvency, by timelock proposal setPoster.",
-    "M4: the three resolvers publish ERC-6538 viewing keys so disclosure grants can be sealed to them.",
-    "M4: external review of within_mandate.circom, CommittedMandateAccount, its factory and DisclosureRegistry before any committed mandate holds more than 25 USDG.",
-    "M4: a refund to a committed mandate returns the money but not the confidential allowance; the console must offer amend with a recomputed counter.",
-    "F11: external review of CollateralVault and CreditPool, the liquidation path first; keep the lane at 100 USDG total and 10 USDG per mandate until it exists.",
-    "F11: review the haircut tiers (5/10%, 20/35%, 30/50%), the 1.25 borrow floor, the 1.05 liquidation target and the 5% bounty against fresh depth and a week of after-hours pool prices.",
-    "F11: replace the clock-based 24/5 session with a market-status source that knows exchange holidays, if a reliable one appears on 4663.",
-    "F11: move the CreditPool lender role off the deploy key (setLender, by proposal) and fund the remaining 70 USDG with ops/credit-topup.sh.",
-    "F11: execute v1 proposal #10 (Staking.setCreditManager) after 2026-10-01T13:02:05Z, then run CreditPool.sweepSpread on the keeper's schedule.",
-    "F17: legal review of Bursar operating an association-set provider (screening input: the Robinhood access registry isBlocked) and a withdrawal relayer, before the pool is promoted.",
-    "F17: move the Entrypoint OWNER_ROLE (it can upgrade the Entrypoint, register pools and wind the pool down) from the deployer EOA to the AdminTimelock, and the ASP_POSTMAN role to the dedicated postman key only.",
-    "F17: run services/asp and services/relayer on Render with their own keys and set NEXT_PUBLIC_BURSAR_ASP_URL and NEXT_PUBLIC_BURSAR_RELAYER_URL on the console; the live proof ran both from the operator machine.",
-    "F17: external review of ShieldedPool, ShieldedRelay, the deploy configuration and services/asp and services/relayer. The upstream Privacy Pools audits cover the upstream code, not this deployment. Caps stay at 100 USDG per deposit and 1,000 USDG in the pool until then.",
-    "F17: pin every posted association-set document to IPFS under its CID (the CIDs are computed and served by services/asp, not pinned).",
-    "F17: unlinkability needs independent deposits; at launch the pool's anonymity set is Bursar's own test deposits. Do not describe a payout as untraceable until the pool has meaningful independent liquidity.",
-    "F17: the relayer's gas drop (0.00015 ETH per fresh recipient, 20 an hour) is subsidised by the relayer key; set a fee that covers it before volume grows."
+    "Committed mandates: run the multi-party phase 2 for within_mandate (three independent contributors plus a Robinhood Chain block hash as beacon), publish the transcript, then redeploy WithinMandateVerifier and both committed-mandate factories against the new zkey.",
+    "Committed mandates: register a payee on the v2 AgentRegistry and make the v2 CommittedMandateFactory the console default; the example committed mandate locks on the v1 escrow.",
+    "Solvency log: move the SolvencyLog poster from the deployer to a dedicated key run by services/solvency, by timelock proposal setPoster.",
+    "Disclosures: the three resolvers publish ERC-6538 viewing keys so disclosure grants can be sealed to them.",
+    "Committed mandates: external review of within_mandate.circom, CommittedMandateAccount, its factory and DisclosureRegistry before any committed mandate holds more than 25 USDG.",
+    "Committed mandates: a refund to a committed mandate returns the money but not the confidential allowance; the console must offer amend with a recomputed counter.",
+    "Collateral lane: external review of CollateralVault and CreditPool, the liquidation path first; keep the lane at 100 USDG total and 10 USDG per mandate until it exists.",
+    "Collateral lane: review the haircut tiers (5/10%, 20/35%, 30/50%), the 1.25 borrow floor, the 1.05 liquidation target and the 5% bounty against fresh depth and a week of after-hours pool prices.",
+    "Collateral lane: replace the clock-based 24/5 session with a market-status source that knows exchange holidays, if a reliable one appears on 4663.",
+    "Collateral lane: move the CreditPool lender role off the deploy key (setLender, by proposal) and fund the remaining 70 USDG with ops/credit-topup.sh.",
+    "Collateral lane: execute v1 proposal #10 (Staking.setCreditManager) after 2026-10-01T13:02:05Z, then run CreditPool.sweepSpread on the keeper's schedule.",
+    "Shielded settlement: legal review of Bursar operating an association-set provider (screening input: the Robinhood access registry isBlocked) and a withdrawal relayer, before the pool is promoted.",
+    "Shielded settlement: move the Entrypoint OWNER_ROLE (it can upgrade the Entrypoint, register pools and wind the pool down) from the deployer EOA to the AdminTimelock, and the ASP_POSTMAN role to the dedicated postman key only.",
+    "Shielded settlement: run services/asp and services/relayer on Render with their own keys and set NEXT_PUBLIC_BURSAR_ASP_URL and NEXT_PUBLIC_BURSAR_RELAYER_URL on the console; the live proof ran both on a local machine.",
+    "Shielded settlement: external review of ShieldedPool, ShieldedRelay, the deploy configuration and services/asp and services/relayer. The upstream Privacy Pools audits cover the upstream code only. Caps stay at 100 USDG per deposit and 1,000 USDG in the pool until then.",
+    "Shielded settlement: pin every posted association-set document to IPFS under its CID (services/asp computes and serves the CIDs but does not pin them).",
+    "Shielded settlement: unlinkability needs independent deposits; at launch the pool's anonymity set is Bursar's own test deposits. Do not describe a payout as untraceable until the pool has meaningful independent liquidity.",
+    "Shielded settlement: the relayer's gas drop (0.00015 ETH per fresh recipient, 20 an hour) is subsidised by the relayer key; set a fee that covers it before volume grows."
   ],
-  "pending": "Development deployment. See productionChecklist for the settings that change before public launch.",
+  "pending": "Runs with pre-launch settings. productionChecklist lists what changes before public launch.",
   "exampleMandate": {
     "address": "0x420BeB507F72173E7d78e0f956968f64fb508356",
     "factory": "0xe9f8cc653fF40E346e0591f353Be58DF0533cfD0",
@@ -276,11 +276,11 @@ export const RAW_DEPLOYMENTS: Readonly<Record<RawDeploymentName, unknown>> = {
     "resolverCount": 3
   },
   "rwa": {
-    "milestone": "M3a",
+    "feature": "Stock purchases and the treasury lane",
     "deployedAt": "2026-09-28T15:05:00Z",
     "deployCostEth": "0.000301333931396",
     "sourceCommit": "cf44e5a",
-    "note": "Asset registry and price guard (F8), eligible stock purchases (F9) and the treasury lane (F10). The registry and the park take the v2 AdminTimelock as admin from construction. Value is raw token amount times the Chainlink feed price; the token's multiplier is read for display only. The v2.1 factory makes accounts that unpark parked value inside a spend; v2 accounts (the example mandate included) park and unpark through the principal.",
+    "note": "The asset registry and price guard, eligible stock purchases and the treasury lane. The registry and the park take the v2 AdminTimelock as admin from construction. Value is raw token amount times the Chainlink feed price; the token's multiplier is read for display only. The v2.1 factory makes accounts that unpark parked value inside a spend; v2 accounts (the example mandate included) park and unpark through the principal.",
     "AssetRegistry": "0xe77600c2E4597CEC78A3653Fb1f393A0C68c9cD1",
     "PriceGuard": "0x341Df9BC51f6329F3B6acC2CF7280eB644eE1120",
     "StockSpendRouter": "0xE76Dd47F7aEF681D9451825A18b94B1D0538e40A",
@@ -440,7 +440,7 @@ export const RAW_DEPLOYMENTS: Readonly<Record<RawDeploymentName, unknown>> = {
       "vault": "0x0E502c7b9e3EF964e51A5A4b752238B5A9Aa3A25"
     },
     "collateral": {
-      "milestone": "M3b (F11)",
+      "feature": "Collateral lane",
       "deployedAt": "2026-09-29T12:58:00Z",
       "deployCostEth": "0.000124",
       "sourceCommit": "15e92ac",
@@ -630,11 +630,11 @@ export const RAW_DEPLOYMENTS: Readonly<Record<RawDeploymentName, unknown>> = {
     }
   },
   "privacy": {
-    "milestone": "M4 part 1",
+    "feature": "Committed mandates, disclosures and the solvency log",
     "deployedAt": "2026-09-29T11:41:00Z",
     "deployCostEth": "0.000121619",
     "sourceCommit": "fb3b8de",
-    "note": "Committed mandates (F13): the account stores a Poseidon commitment to its terms and to its counters, and every spend carries a Groth16 proof checked by WithinMandateVerifier before the escrow lock opens. The readable terms are published once as AES-GCM ciphertext under the principal's viewing key. DisclosureRegistry (F14) is event-only. SolvencyLog (F16 phase A) takes daily roots from services/solvency; its admin is the v2 AdminTimelock and its poster is the deployer. The phase-2 setup is a single development contribution on top of the PSE Perpetual Powers of Tau (circuits/build/setup.json). Amount and payee of each spend stay visible in the escrow lock until shielded settlement (F17); the principal stays visible until stealth addressing (F15).",
+    "note": "Committed mandates: the account stores a Poseidon commitment to its terms and to its counters, and every spend carries a Groth16 proof checked by WithinMandateVerifier before the escrow lock opens. The readable terms are published once as AES-GCM ciphertext under the principal's viewing key. DisclosureRegistry is event-only. SolvencyLog takes daily roots from services/solvency; its admin is the v2 AdminTimelock and its poster is the deployer. The phase-2 setup is a single development contribution on top of the PSE Perpetual Powers of Tau (circuits/build/setup.json). Amount and payee of each spend stay visible in the escrow lock until shielded settlement; the principal stays visible until stealth addressing.",
     "WithinMandateVerifier": "0x85Be714530F931d4b42fdCa6590eFc3e09A9DFbb",
     "CommittedMandateFactory": "0xbb4E0427872C825ADec1DaA3b896034f3a9ab3D7",
     "CommittedMandateFactoryV1Escrow": "0xdbB3bD6172132d9049b2825C5deA18d0Bb2A30D1",
@@ -708,7 +708,7 @@ export const RAW_DEPLOYMENTS: Readonly<Record<RawDeploymentName, unknown>> = {
       }
     ],
     "shielded": {
-      "feature": "F17 shielded settlement",
+      "feature": "Shielded settlement",
       "deployedAt": "2026-09-29T12:55:00Z",
       "deployCostEth": "0.000272673",
       "upstream": {
@@ -994,7 +994,7 @@ export const RAW_DEPLOYMENTS: Readonly<Record<RawDeploymentName, unknown>> = {
     "usdg.isFrozen.escrow": "false",
     "usdg.decimals": 6,
     "readBackAtBlock": 69566482,
-    "bytecode": "The deployed runtime of AdminTimelock, Reputation, Escrow, OracleRegistry, AgentRegistry and MandateAccountFactory matches the contracts/out build byte for byte once the immutable words each constructor writes are masked out, which read as zero in the artifact. Checked at block 69566482 by reading eth_getCode and masking the immutableReferences spans in both copies. Source comments naming the previous chain were corrected after this check. Solidity hashes the source into a metadata word at the end of the runtime, so the current build no longer reproduces those trailing bytes. That match was made against the source as it stood at deployment; later changes to these contracts ship as a new deployment. Every byte of executable code is unchanged, verified by rebuilding with the metadata suffix stripped and comparing: BRSR 7,533 bytes, Buyback 9,530, Staking 9,786, Vesting 5,238, AgentRegistry 11,374, all identical."
+    "bytecode": "The deployed runtime of AdminTimelock, Reputation, Escrow, OracleRegistry, AgentRegistry and MandateAccountFactory matches the contracts/out build byte for byte once the immutable words each constructor writes are masked out, which read as zero in the artifact. Checked at block 69566482 by reading eth_getCode and masking the immutableReferences spans in both copies. Source comments naming the previous chain were corrected after this check. Solidity hashes the source into a metadata word at the end of the runtime, so the current build no longer reproduces those trailing bytes. That match was made against the source as it stood at deployment; later changes to these contracts ship as a new deployment. The comparison with the metadata suffix stripped, made after that change, is recorded in rhc-mainnet-token.json; of the six contracts above it covered AgentRegistry, whose 11,374 bytes of executable code are identical."
   },
   "governance": {
     "model": "Two of three signers with a forty-eight hour delay and a fourteen-day grace period after it. Proposing counts as the proposer's approval, so a change needs one more signer and not two, and any single signer can cancel a pending one. The guardian is the one exception to the delay: it can pause an administered contract in the same block and can do nothing else.",
@@ -1002,7 +1002,7 @@ export const RAW_DEPLOYMENTS: Readonly<Record<RawDeploymentName, unknown>> = {
     "adminOf": {
       "Reputation": "AdminTimelock, from construction.",
       "OracleRegistry": "AdminTimelock, from construction.",
-      "AgentRegistry": "The deploy key, with AdminTimelock as pendingAdmin. Proposal 0 closes it.",
+      "AgentRegistry": "AdminTimelock, since proposal 0 executed on 2026-09-24.",
       "Escrow": "No admin role. Its fee, TTL bounds and dispute windows are fixed at construction.",
       "MandateAccountFactory": "No admin role. Everything it holds is immutable.",
       "Vesting": "AdminTimelock, from construction.",
@@ -1032,7 +1032,7 @@ export const RAW_DEPLOYMENTS: Readonly<Record<RawDeploymentName, unknown>> = {
         "executeAfterIso": "2026-09-24T10:07:16Z",
         "expiresAt": 1791454036,
         "expiresAtIso": "2026-10-08T10:07:16Z",
-        "state": "approved to the threshold, inside the delay",
+        "state": "executed on 2026-09-24",
         "executeCommand": "AdminTimelock.execute(0) from a timelock signer, once the delay has passed",
         "transactions": {
           "propose": "0x06ad44fe54c69cf7494af220620d294ff7f34b79c579cf63e00c2224d531a7f2",
@@ -1086,7 +1086,7 @@ export const RAW_DEPLOYMENTS: Readonly<Record<RawDeploymentName, unknown>> = {
         "executeAfterIso": "2026-09-24T10:07:51Z",
         "expiresAt": 1791454071,
         "expiresAtIso": "2026-10-08T10:07:51Z",
-        "state": "approved to the threshold, inside the delay",
+        "state": "executed on 2026-09-24",
         "executeCommand": "AdminTimelock.execute(1) from a timelock signer, once the delay has passed",
         "transactions": {
           "propose": "0x1d732973c3c0eae82d72c3fb52816eba9b0b4948a60a56c9584070dcca0a0ee8",
