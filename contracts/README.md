@@ -94,6 +94,16 @@ It passes, printing nothing and exiting 0, when no high-severity finding is left
 carries an inline `forge-lint: disable-next-line(<lint>)` comment saying why. `forge lint` on its
 own lists every finding, informational ones included.
 
+CI also checks every deployable contract against the size limits a chain enforces, 24,576 bytes of
+runtime code (EIP-170) and 49,152 of initcode (EIP-3860):
+
+```sh
+forge build --sizes --skip test
+```
+
+It prints each contract's two sizes and the margin left under each limit, and fails when a margin
+is negative. `--skip test` leaves out the test contracts, which are never deployed.
+
 After changing a contract's interface, regenerate the TypeScript ABIs with
 `pnpm --filter @bursar/core codegen` from the repository root.
 
@@ -105,6 +115,111 @@ order, every parameter and each condition under which a script refuses to run.
 [`script/MIGRATION.md`](script/MIGRATION.md) is the runbook for moving the current deployment on
 Robinhood Chain to the new contract set. Every key signs from an encrypted keystore; no private key
 is ever passed on the command line.
+
+## A payment and a dispute, with cast
+
+The calls an agent, a provider, a principal and two resolvers make, one `cast` command at a time. Run
+them from this directory on a local chain deployed as
+[By hand on anvil](script/README.md#by-hand-on-anvil) describes, in the same shell, or in a new one
+with `script/env/local.env` sourced. Anvil signs for any address once told to, so no key is read.
+The addresses are fixed, so the walkthrough runs once on each chain.
+
+```sh
+rpc=http://127.0.0.1:8545
+at() { jq -r "$1" "$BURSAR_RECORD"; }
+tx() { local from="$1"; shift; cast send "$@" --from "$from" --unlocked --rpc-url "$rpc" >/dev/null; }
+usdg="$(at .settlementAsset)" brsr="$(at .token.BRSR)" factory="$(at .contracts.MandateAccountFactory)"
+escrow="$(at .contracts.Escrow)" agents="$(at .contracts.AgentRegistry)" oracle="$(at .contracts.OracleRegistry)"
+
+# A principal, an agent and a provider, and two of the three resolvers the record seats, each with
+# ETH for gas.
+principal=0x0000000000000000000000000000000000003001
+agent=0x0000000000000000000000000000000000003002
+provider=0x0000000000000000000000000000000000003003
+read -r first second _ <<<"$(at '.roles.resolvers | join(" ")')"
+for who in "$principal" "$agent" "$provider" "$first" "$second"; do
+  cast rpc anvil_impersonateAccount "$who" --rpc-url "$rpc" >/dev/null
+  cast rpc anvil_setBalance "$who" 0xde0b6b3a7640000 --rpc-url "$rpc" >/dev/null
+done
+
+# The escrow pays listed providers only. The provider stakes 5 USDG to list; the stand-in USDG
+# mints to anyone.
+tx "$provider" "$usdg" "mint(address,uint256)" "$provider" 5000000
+tx "$provider" "$usdg" "approve(address,uint256)" "$agents" 5000000
+tx "$provider" "$agents" "register(string,uint128)" render_farm 5000000
+
+# The mandate: 10 USDG a call, 50 a day and 200 a month, the principal's signature from 20 up,
+# services and hires, no lifetime cap, lane 0. Its address is known before it exists.
+LIMITS="(uint128,uint128,uint128,uint64,uint64,uint128,uint64,uint64,uint32,uint128,uint8)"
+limits="(10000000,50000000,200000000,86400,2592000,20000000,0,0,3,0,0)"
+salt="$(cast keccak walkthrough)"
+mandate="$(cast call "$factory" "predict(address,address,bytes32,$LIMITS)(address)" "$principal" "$agent" "$salt" "$limits" --rpc-url "$rpc")"
+tx "$principal" "$factory" "create(address,address,bytes32,$LIMITS)" "$principal" "$agent" "$salt" "$limits"
+
+# The principal allows the provider and one service, and funds the mandate with 20 USDG.
+capability="$(cast keccak 'service:gpu.render:1')"
+tx "$principal" "$mandate" "setMerchant(address,bool)" "$provider" true
+tx "$principal" "$mandate" "setCapability(bytes32,bool)" "$capability" true
+tx "$principal" "$usdg" "mint(address,uint256)" "$principal" 20000000
+tx "$principal" "$usdg" "approve(address,uint256)" "$mandate" 20000000
+tx "$principal" "$mandate" "deposit(uint256)" 20000000
+
+# The agent pays 5 USDG into escrow for that service, spend class 0, due in ten minutes, and the
+# escrow numbers the payment.
+REQUEST="(address,bytes32,bytes32,string,uint128,uint64,uint8)"
+pay() {
+  local due=$(( $(cast block latest --field timestamp --rpc-url "$rpc") + 600 ))
+  tx "$agent" "$mandate" "spend($REQUEST,bytes32[])" "($provider,$capability,$(cast keccak brief),ipfs://brief,5000000,$due,0)" "[]"
+  echo $(( $(cast call "$escrow" "nextId()(uint256)" --rpc-url "$rpc") - 1 ))
+}
+
+# The provider delivers, and releasing pays it out less the 1% settlement fee.
+id="$(pay)"
+tx "$provider" "$escrow" "release(uint256,bytes32,string)" "$id" "$(cast keccak delivered)" ipfs://delivered
+cast call "$usdg" "balanceOf(address)(uint256)" "$provider" --rpc-url "$rpc"   # 4950000 [4.95e6]
+
+# A second payment, which the principal contests while the escrow holds it. The mandate posts the
+# bond, 5% of the payment.
+id="$(pay)"
+tx "$principal" "$mandate" "disputeSpend(uint256)" "$id"
+dispute="$(cast call "$oracle" "disputeIdOf(uint256)(uint256)" "$id" --rpc-url "$rpc")"
+
+# Two resolvers bond 30,000 BRSR each, from the community allocation.
+for resolver in "$first" "$second"; do
+  tx "$(at .roles.community)" "$brsr" "transfer(address,uint256)" "$resolver" 30000ether
+  tx "$resolver" "$brsr" "approve(address,uint256)" "$oracle" 30000ether
+  tx "$resolver" "$oracle" "register(uint128)" 30000ether
+done
+
+# Each seals a score out of 100 with a salt of its own, and keeps both until the reveal.
+seal() { cast call "$oracle" "commitmentHash(uint256,address,uint8,bytes32)(bytes32)" "$dispute" "$@" --rpc-url "$rpc"; }
+salt1="0x$(openssl rand -hex 32)" salt2="0x$(openssl rand -hex 32)"
+tx "$first" "$oracle" "commitVote(uint256,bytes32)" "$dispute" "$(seal "$first" 10 "$salt1")"
+tx "$second" "$oracle" "commitVote(uint256,bytes32)" "$dispute" "$(seal "$second" 20 "$salt2")"
+
+# An hour later the commit window has closed. Both reveal, and anyone finalizes.
+cast rpc evm_increaseTime 3601 --rpc-url "$rpc" >/dev/null && cast rpc evm_mine --rpc-url "$rpc" >/dev/null
+tx "$first" "$oracle" "revealVote(uint256,uint8,bytes32)" "$dispute" 10 "$salt1"
+tx "$second" "$oracle" "revealVote(uint256,uint8,bytes32)" "$dispute" 20 "$salt2"
+tx "$provider" "$oracle" "finalize(uint256)" "$dispute"
+cast call "$usdg" "balanceOf(address)(uint256)" "$mandate" --rpc-url "$rpc"   # 14975000 [1.497e7]
+```
+
+The eleven fields of the limits tuple are, in order: `perCallCap`, `dailyCap`, `monthlyCap`,
+`dailyWindow`, `monthlyWindow`, `approvalThreshold`, `validFrom`, `validUntil`, `classMask`,
+`totalCap` and `lane`. Amounts are USDG with six decimals and windows are seconds. A zero
+`validUntil` never expires and a zero `totalCap` sets no lifetime ceiling. `classMask` sets bit 0
+for services, bit 1 for agent hires and bit 2 for stock purchases, so 3 allows the first two. Lane 1
+is the collateral lane, the only one that can borrow.
+
+The spend request is `merchant`, `capabilityId`, `inputCommit`, `inputURI`, `amount`, `deadline` and
+`spendClass`, where the class is 0 for a service and 1 for a hire. A mandate stores the capability
+ids it allows as given, and `@bursar/sdk` derives a service's id as the keccak-256 of `service:`
+and its label, as above, so a mandate set up here and one set up through the SDK agree.
+
+The median of the two scores is 15. Below 50 the [ruling policy](../docs/RULING-POLICY.md) refunds
+the payer in full, less the 0.5% resolver fee, and returns its bond. The mandate ends on 14.975
+USDG: 20 in, two payments of 5 out, 4.975 refunded, and the 0.25 USDG bond back.
 
 ## Source verification
 
