@@ -16,27 +16,7 @@ import {CreditPool} from "../../src/rwa/CreditPool.sol";
 import {V4Swapper} from "../../src/rwa/V4Swapper.sol";
 import {IAccessRegistry, IStateView} from "../../src/rwa/interfaces/IRwaExternal.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
-import {MockAccess, MockAccounts, MockEscrow, MockFeed, MockStock, MockV4} from "./RwaMocks.sol";
-
-contract MockStaking {
-    IERC20 public immutable usdg;
-    address public creditManager;
-    uint256 public distributed;
-
-    constructor(IERC20 usdg_) {
-        usdg = usdg_;
-    }
-
-    function setCreditManager(address a) external {
-        creditManager = a;
-    }
-
-    function distribute(uint256 amount) external {
-        require(msg.sender == creditManager, "NotCreditManager");
-        usdg.transferFrom(msg.sender, address(this), amount);
-        distributed += amount;
-    }
-}
+import {MockAccess, MockAccounts, MockEscrow, MockFeed, MockStaking, MockStock, MockV4} from "./RwaMocks.sol";
 
 contract CollateralTest is Test {
     uint256 internal constant SPY_E8 = 771_21266423;

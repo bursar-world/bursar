@@ -203,6 +203,27 @@ contract FakeMandate {
     }
 }
 
+/// The part of Staking the credit pool pays spread into.
+contract MockStaking {
+    IERC20 public immutable usdg;
+    address public creditManager;
+    uint256 public distributed;
+
+    constructor(IERC20 usdg_) {
+        usdg = usdg_;
+    }
+
+    function setCreditManager(address a) external {
+        creditManager = a;
+    }
+
+    function distribute(uint256 amount) external {
+        require(msg.sender == creditManager, "NotCreditManager");
+        usdg.transferFrom(msg.sender, address(this), amount);
+        distributed += amount;
+    }
+}
+
 contract MockEscrow {
     IERC20 public immutable asset;
     uint256 public next;
