@@ -32,16 +32,19 @@ import {ITreasuryPark} from "./interfaces/ITreasuryPark.sol";
 /// Saturday 00:00 UTC, the conservative edge across daylight saving), or whenever the feed has
 /// been silent longer than the tier's session bound, which catches exchange holidays.
 ///
-/// Health. `health = Σ(value × (1 − haircut)) / debt`, 1e18 = 1.0. A draw or a collateral
-/// withdrawal must leave health at or above `minBorrowHealth`. Below 1.0 anyone can call
-/// `liquidate`, which sells only the slice of one asset that brings health back to
-/// `liquidationTarget`, through the asset's pinned v4 pool, and pays the caller a bounty out of
-/// the proceeds. A sale needs a fresh, unpaused trade price inside the pool band, so a stale or
-/// paused price defers liquidation rather than selling blind.
+/// Health. `health = Σ(value × (1 − haircut)) / debt` at the haircut that applies now, 1e18 =
+/// 1.0. Below 1.0 anyone can call `liquidate`, which sells only the slice of one asset that
+/// brings health back to `liquidationTarget`, through the asset's pinned v4 pool, and pays the
+/// caller a bounty out of the proceeds. A sale needs a fresh, unpaused trade price inside the
+/// pool band, so a stale or paused price defers liquidation rather than selling blind. The
+/// trigger leaves the pool test out and counts a fresh position at its feed: a pool can be
+/// pushed past its band inside one transaction, and a trigger that read it would let anyone
+/// zero one position and sell the others for the bounty.
 ///
-/// The liquidation trigger leaves the pool test out and counts a fresh position at its feed. A
-/// pool can be pushed past its band inside one transaction; a trigger that read it would let
-/// anyone zero one position and sell the others for the bounty.
+/// A draw or a collateral withdrawal must leave health at or above `minBorrowHealth` with every
+/// position at its after-hours haircut, whatever the clock says. Checked at the session haircut,
+/// a line drawn to the floor on a Friday would fall under 1.0 at Saturday 00:00 UTC with no move
+/// in price.
 ///
 /// Drawing. A lane-1 mandate names this contract as its `treasuryPark`. When a spend or
 /// purchase needs more USDG than the mandate holds, the mandate calls `unparkFor(shortfall)`
@@ -318,14 +321,9 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
     function haircutOf(address asset) public view returns (uint16 bps, bool afterHours) {
         uint8 t = _tierOf[asset];
         if (t == 0) revert NotCollateral(asset);
-        Tier storage tier = _tiers[t - 1];
-        (,,, uint256 updatedAt,) = IAggregatorV3(registry.get(asset).feed).latestRoundData();
-        uint256 age = updatedAt > block.timestamp ? 0 : block.timestamp - updatedAt;
-        afterHours = !inSession(block.timestamp) || age > tier.sessionStaleness;
-        bps = afterHours ? tier.afterHoursHaircutBps : tier.sessionHaircutBps;
-        // The registry's published collateral haircut can only tighten the tier.
-        uint16 floor_ = registry.get(asset).collateralHaircutBps;
-        if (floor_ > bps) bps = floor_;
+        AssetRegistry.Asset memory a = registry.get(asset);
+        (,,, uint256 updatedAt,) = IAggregatorV3(a.feed).latestRoundData();
+        (bps,, afterHours) = _haircuts(_tiers[t - 1], a.collateralHaircutBps, updatedAt);
     }
 
     function positions(address mandate) public view returns (PositionView[] memory out) {
@@ -336,9 +334,10 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         }
     }
 
-    /// Collateral value, value after haircuts, debt, room to draw, and health (max when no debt).
-    /// Value, adjusted value and room to draw leave out a position whose pool disagrees with its
-    /// feed; health is the liquidation trigger and counts it at the feed.
+    /// Collateral value, value after the haircuts that apply now, debt, room to draw, and health
+    /// (max when no debt). Room to draw is what a draw would pass, at after-hours haircuts. Value,
+    /// adjusted value and room to draw leave out a position whose pool disagrees with its feed;
+    /// health is the liquidation trigger and counts it at the feed.
     function account(address mandate)
         public
         view
@@ -380,16 +379,34 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         p.updatedAt = updatedAt;
         p.priceE8 = priceE8;
         if (priceE8 == 0 || p.tier == 0) return (p, 0, 0);
-        bool counted = block.timestamp - updatedAt <= _tiers[p.tier - 1].valuationStaleness && unpaused;
+        Tier storage t = _tiers[p.tier - 1];
+        AssetRegistry.Asset memory a = registry.get(asset);
+        (uint16 live, uint16 closed,) = _haircuts(t, a.collateralHaircutBps, updatedAt);
+        p.haircutBps = live;
+        bool counted = block.timestamp - updatedAt <= t.valuationStaleness && unpaused;
         p.fresh = counted && inBand;
-        (p.haircutBps,) = haircutOf(asset);
         if (!counted || p.raw == 0) return (p, 0, 0);
-        uint256 atFeed = Math.mulDiv(p.raw, priceE8, 10 ** (uint256(registry.get(asset).decimals) + 2));
-        triggerAdjusted = Math.mulDiv(atFeed, BPS - p.haircutBps, BPS);
+        uint256 atFeed = Math.mulDiv(p.raw, priceE8, 10 ** (uint256(a.decimals) + 2));
+        triggerAdjusted = Math.mulDiv(atFeed, BPS - live, BPS);
         if (!inBand) return (p, 0, triggerAdjusted);
         p.value = atFeed;
         p.adjusted = triggerAdjusted;
-        drawAdjusted = triggerAdjusted;
+        drawAdjusted = Math.mulDiv(atFeed, BPS - closed, BPS);
+    }
+
+    /// The haircut live now, the after-hours one a draw is checked at, and whether the live one
+    /// is the after-hours one. The registry's published collateral haircut can only tighten them.
+    function _haircuts(Tier storage t, uint16 floor_, uint256 updatedAt)
+        private
+        view
+        returns (uint16 live, uint16 closed, bool afterHours)
+    {
+        uint256 age = updatedAt > block.timestamp ? 0 : block.timestamp - updatedAt;
+        afterHours = !inSession(block.timestamp) || age > t.sessionStaleness;
+        closed = t.afterHoursHaircutBps;
+        live = afterHours ? closed : t.sessionHaircutBps;
+        if (floor_ > live) live = floor_;
+        if (floor_ > closed) closed = floor_;
     }
 
     function _totals(address mandate)

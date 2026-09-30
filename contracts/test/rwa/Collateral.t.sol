@@ -178,10 +178,11 @@ contract CollateralTest is Test {
 
     function test_health_maxWithNoDebt_andHeadroom() public {
         _deposit(spy, 0.01e18);
-        (, uint256 adj, uint256 debt, uint256 headroom, uint256 h) = vault.account(address(acct));
+        (uint256 value,, uint256 debt, uint256 headroom, uint256 h) = vault.account(address(acct));
         assertEq(debt, 0);
         assertEq(h, type(uint256).max);
-        assertEq(headroom, Math.mulDiv(adj, WAD, 1.25e18));
+        // Room to draw is at the after-hours haircut, 35% for the index tier.
+        assertEq(headroom, Math.mulDiv(value * 6_500 / 10_000, WAD, 1.25e18));
     }
 
     function test_value_usesFeedNotMultiplier() public {
@@ -208,6 +209,31 @@ contract CollateralTest is Test {
         assertTrue(ah);
         uint256 afterH = vault.health(address(acct));
         assertLt(afterH, before);
+    }
+
+    /// Draws are checked at the after-hours haircut, so a line drawn to the floor in session is
+    /// still above 1.0 when the weekend haircut takes over at Saturday 00:00 UTC, price unchanged.
+    function test_floorDraw_survivesWeekendSwitch() public {
+        _deposit(aapl, 0.04e18); // 12 USDG: 8.4 at the session haircut, 6 after hours
+        // The 6.7 USDG the session haircut alone would have lent.
+        vm.expectRevert(
+            abi.encodeWithSelector(CollateralVault.HealthTooLow.selector, Math.mulDiv(6e6, WAD, 6.7e6), 1.25e18)
+        );
+        _spendOnCredit(6.7e6);
+
+        (,,, uint256 headroom,) = vault.account(address(acct));
+        assertEq(headroom, 4.8e6);
+        _spendOnCredit(uint128(headroom));
+
+        vm.warp(1_790_380_801); // Saturday 00:00:01 UTC
+        aaplFeed.set(int256(300e8), 1_790_380_800 - 4 hours); // Friday's 20:00 close, fresh
+        (, bool afterHours) = vault.haircutOf(address(aapl));
+        assertTrue(afterHours);
+        uint256 h = vault.health(address(acct));
+        assertGe(h, 1.2e18);
+        vm.prank(keeper);
+        vm.expectRevert(abi.encodeWithSelector(CollateralVault.Healthy.selector, h));
+        vault.liquidate(address(acct), address(aapl));
     }
 
     function test_haircut_mondayBeforeOneUtcIsAfterHours() public view {
@@ -317,7 +343,7 @@ contract CollateralTest is Test {
 
     function test_liquidation_deferredOnStaleOrPausedPrice() public {
         _deposit(spy, 0.01e18);
-        _spendOnCredit(4.5e6);
+        _spendOnCredit(4e6);
         spyFeed.set(int256(SPY_E8 / 2), block.timestamp - 27 hours);
         assertLt(vault.health(address(acct)), WAD);
         vm.expectRevert();
@@ -358,10 +384,10 @@ contract CollateralTest is Test {
     }
 
     function test_drawAboveHeadroomReverts() public {
-        _deposit(spy, 0.01e18); // adjusted 6.1697, headroom 4.9357
+        _deposit(spy, 0.01e18); // 7.7121 USDG, 5.0129 after hours, headroom 4.0103
         vm.expectRevert();
-        _spendOnCredit(5e6);
-        _spendOnCredit(4.9e6);
+        _spendOnCredit(4.1e6);
+        _spendOnCredit(4e6);
     }
 
     function test_caps_perMandate() public {
@@ -440,7 +466,7 @@ contract CollateralTest is Test {
 
     function test_withdrawCollateralBoundedByHealth() public {
         _deposit(spy, 0.01e18);
-        _spendOnCredit(4e6);
+        _spendOnCredit(3e6);
         vm.prank(principal);
         vm.expectRevert();
         vault.withdraw(address(acct), address(spy), 0.005e18, principal);
@@ -456,8 +482,8 @@ contract CollateralTest is Test {
     function test_liquidate_sellsOnlyTheSlice() public {
         _deposit(spy, 0.01e18);
         _deposit(aapl, 0.01e18);
-        _spendOnCredit(6e6);
-        _movePrice(spy, spyFeed, SPY_E8 * 60 / 100);
+        _spendOnCredit(5e6);
+        _movePrice(spy, spyFeed, SPY_E8 * 45 / 100);
         uint256 h = vault.health(address(acct));
         assertLt(h, WAD);
 
