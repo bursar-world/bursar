@@ -23,6 +23,14 @@ import type { WithdrawalProver } from '../src/shielded.js';
 import { callTool, toolsFor } from '../src/tools.js';
 import type { ToolContext } from '../src/tools.js';
 
+// The pool these suites run against is the v2 record's, which stays in the address book whichever
+// set answers for the chain. A newer record that has not recorded its own pool yet would otherwise
+// take the shielded tools away mid-suite.
+vi.mock('@bursar/core', async (original) => {
+  const core = await original<typeof import('@bursar/core')>();
+  return { ...core, privacyDeployment: () => core.DEPLOYMENTS['rhc-mainnet-v2'].privacy };
+});
+
 const deployment = privacyDeployment(4663)?.shielded;
 if (deployment === undefined) throw new Error('the 4663 record has no shielded pool');
 const D = deployment;

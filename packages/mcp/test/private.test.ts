@@ -8,13 +8,21 @@ import type { AgentHandoff } from '@bursar/sdk';
 import type { PrivatePayment } from '@bursar/sdk/agent';
 import type { Address } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { loadConfig, secretsOf } from '../src/config.js';
 import { createPrivateGateway } from '../src/private.js';
 import { createContext } from '../src/server.js';
 import { callTool, toolsFor } from '../src/tools.js';
 import type { ToolContext } from '../src/tools.js';
+
+// The pool these suites run against is the v2 record's, which stays in the address book whichever
+// set answers for the chain. A newer record that has not recorded its own pool yet would otherwise
+// take the shielded tools away mid-suite.
+vi.mock('@bursar/core', async (original) => {
+  const core = await original<typeof import('@bursar/core')>();
+  return { ...core, privacyDeployment: () => core.DEPLOYMENTS['rhc-mainnet-v2'].privacy };
+});
 
 const KEY = `0x${'3b'.repeat(32)}` as const;
 const AGENT = privateKeyToAccount(KEY).address;
