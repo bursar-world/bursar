@@ -343,7 +343,7 @@ contract V2FixesTest is Test {
         new Reputation(address(this), IReputation.CapCurve({baseCap: 0, capPerScore: 0, maxCap: 0}));
 
         Reputation live =
-            new Reputation(address(this), IReputation.CapCurve({baseCap: 25e6, capPerScore: 1e6, maxCap: 250e6}));
+            new Reputation(address(this), IReputation.CapCurve({baseCap: 25e6, capPerScore: 2.25e6, maxCap: 250e6}));
         vm.expectRevert(IReputation.BadCurve.selector);
         live.setCurve(IReputation.CapCurve({baseCap: 0, capPerScore: 5e6, maxCap: 0}));
     }

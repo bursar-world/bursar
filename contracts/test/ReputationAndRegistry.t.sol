@@ -46,7 +46,8 @@ contract ReputationTest is Test {
 
     uint128 internal constant BASE_CAP = 100e6;
     uint128 internal constant CAP_PER_SCORE = 5e6;
-    uint128 internal constant MAX_CAP = 1_000e6;
+    /// The top of the curve, where a perfect score lands.
+    uint128 internal constant MAX_CAP = 600e6;
 
     Reputation internal reputation;
 
@@ -196,6 +197,36 @@ contract ReputationTest is Test {
         vm.stopPrank();
     }
 
+    /// A payee that paid itself vouched for its own work. The callback answers and nothing
+    /// moves, whichever way the self-lock ended.
+    function test_aLockAPayeePaidToItselfMovesNoCounter() public {
+        vm.recordLogs();
+        reputation.onReleased(payee, payee);
+        reputation.onTimedOut(payee, payee);
+        reputation.onDisputed(payee, payee);
+
+        (uint64 released, uint64 timedOut, uint64 disputed) = reputation.payeeStats(payee);
+        assertEq(uint256(released) + timedOut + disputed, 0);
+        (released, timedOut, disputed) = reputation.edges(payee, payee);
+        assertEq(uint256(released) + timedOut + disputed, 0);
+        assertEq(vm.getRecordedLogs().length, 0, "a counter event fired for a counter that did not move");
+        assertEq(reputation.capOf(payee), BASE_CAP);
+    }
+
+    function test_everyCounterThatMovesSaysSo() public {
+        vm.expectEmit(true, true, false, false, address(reputation));
+        emit IReputation.ReleaseCounted(payerA, payee);
+        reputation.onReleased(payerA, payee);
+
+        vm.expectEmit(true, true, false, false, address(reputation));
+        emit IReputation.TimeoutCounted(payerA, payee);
+        reputation.onTimedOut(payerA, payee);
+
+        vm.expectEmit(true, true, false, false, address(reputation));
+        emit IReputation.DisputeCounted(payerB, payee);
+        reputation.onDisputed(payerB, payee);
+    }
+
     /// The admin holds the curve, not the counters. A key that could write history could mint
     /// itself an unbounded cap.
     function test_theAdminCannotMoveACounterEither() public {
@@ -236,6 +267,22 @@ contract ReputationTest is Test {
         vm.prank(stranger);
         vm.expectRevert(IReputation.NotAdmin.selector);
         reputation.setCurve(IReputation.CapCurve({baseCap: 1, capPerScore: 1, maxCap: 2}));
+    }
+
+    /// The live curve had a base of 25, a slope of 1 and a ceiling of 250: a perfect score
+    /// reaches 125, and the 250 the deployment record published was a figure nothing paid.
+    function test_aCeilingNoScoreReachesIsRefused() public {
+        vm.expectRevert(IReputation.BadCurve.selector);
+        new Reputation(admin, IReputation.CapCurve({baseCap: 25e6, capPerScore: 1e6, maxCap: 250e6}));
+
+        vm.prank(admin);
+        vm.expectRevert(IReputation.BadCurve.selector);
+        reputation.setCurve(IReputation.CapCurve({baseCap: 25e6, capPerScore: 1e6, maxCap: 125e6 + 1}));
+
+        vm.prank(admin);
+        reputation.setCurve(IReputation.CapCurve({baseCap: 25e6, capPerScore: 1e6, maxCap: 125e6}));
+        _release(reputation, payerA, payee);
+        assertEq(reputation.capOf(payee), 125e6, "a perfect score lands exactly on the ceiling");
     }
 
     function test_setCurveRejectsACeilingBelowTheFloor() public {
@@ -333,8 +380,11 @@ contract ReputationTest is Test {
         uint8 failures
     ) public {
         uint128 floorCap = uint128(bound(baseCap, 0, type(uint128).max / 2));
-        uint128 ceilingCap = uint128(bound(maxCap, floorCap == 0 ? 1 : floorCap, type(uint128).max));
-        uint128 slope = uint128(bound(capPerScore, 0, type(uint128).max));
+        // A curve with neither floor nor slope reaches nothing, and a zero ceiling is refused.
+        uint128 slope = uint128(bound(capPerScore, floorCap == 0 ? 1 : 0, type(uint128).max));
+        uint256 reach = uint256(floorCap) + uint256(slope) * 100;
+        uint128 top = reach > type(uint128).max ? type(uint128).max : uint128(reach);
+        uint128 ceilingCap = uint128(bound(maxCap, floorCap == 0 ? 1 : floorCap, top));
 
         vm.prank(admin);
         reputation.setCurve(IReputation.CapCurve({baseCap: floorCap, capPerScore: slope, maxCap: ceilingCap}));
@@ -583,7 +633,7 @@ contract ReputationEscrowCountingTest is Test {
 
     function test_theCapGatesTheLockAtItsExactBoundary() public {
         vm.prank(admin);
-        reputation.setCurve(IReputation.CapCurve({baseCap: 100e6, capPerScore: 5e6, maxCap: 1_000e6}));
+        reputation.setCurve(IReputation.CapCurve({baseCap: 100e6, capPerScore: 5e6, maxCap: 600e6}));
 
         assertEq(reputation.capOf(payee), 100e6);
 
@@ -598,7 +648,7 @@ contract ReputationEscrowCountingTest is Test {
     /// raises it and a timeout takes the headroom back.
     function test_theCapGrowsWithSettledWorkAndFallsBackOnAFailure() public {
         vm.prank(admin);
-        reputation.setCurve(IReputation.CapCurve({baseCap: 100e6, capPerScore: 5e6, maxCap: 1_000e6}));
+        reputation.setCurve(IReputation.CapCurve({baseCap: 100e6, capPerScore: 5e6, maxCap: 600e6}));
 
         uint256 first = _lock(100e6);
         vm.prank(payee);

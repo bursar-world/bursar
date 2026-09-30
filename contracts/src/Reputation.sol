@@ -40,25 +40,36 @@ contract Reputation is IReputation {
         emit AdminTransferred(address(0), admin_);
     }
 
+    /// A payee that paid itself vouched for its own work, so a self-lock moves no counter. The
+    /// callback still answers, because the escrow has already settled the lock.
     function onReleased(address payer, address payee) external {
         if (msg.sender != escrow) revert NotEscrow();
+        if (payer == payee) return;
 
         payeeStats[payee].released++;
         edges[payer][payee].released++;
+
+        emit ReleaseCounted(payer, payee);
     }
 
     function onTimedOut(address payer, address payee) external {
         if (msg.sender != escrow) revert NotEscrow();
+        if (payer == payee) return;
 
         payeeStats[payee].timedOut++;
         edges[payer][payee].timedOut++;
+
+        emit TimeoutCounted(payer, payee);
     }
 
     function onDisputed(address payer, address payee) external {
         if (msg.sender != escrow) revert NotEscrow();
+        if (payer == payee) return;
 
         payeeStats[payee].disputed++;
         edges[payer][payee].disputed++;
+
+        emit DisputeCounted(payer, payee);
     }
 
     function setEscrow(address escrow_) external {
@@ -128,6 +139,10 @@ contract Reputation is IReputation {
         // A zero ceiling caps every payee at nothing, so every lock reverts and the escrow
         // reads as broken rather than closed.
         if (curve_.maxCap == 0) revert BadCurve();
+        // A ceiling no score reaches is a figure the curve publishes and never pays.
+        if (uint256(curve_.maxCap) > uint256(curve_.baseCap) + uint256(curve_.capPerScore) * SCORE_MAX) {
+            revert BadCurve();
+        }
 
         _curve = CapCurve({baseCap: curve_.baseCap, capPerScore: curve_.capPerScore, maxCap: curve_.maxCap});
 

@@ -86,7 +86,7 @@ contract MandateTimelockTest is Test {
 
         timelock = new AdminTimelock([signerA, signerB, signerC], guardian, PERIOD);
         reputation = new Reputation(
-            address(timelock), IReputation.CapCurve({baseCap: 100e6, capPerScore: 10e6, maxCap: 5_000e6})
+            address(timelock), IReputation.CapCurve({baseCap: 100e6, capPerScore: 10e6, maxCap: 1_100e6})
         );
     }
 
@@ -673,7 +673,8 @@ contract MandateTimelockTest is Test {
 
     function _curveCall(uint128 baseCap) internal pure returns (bytes memory) {
         return abi.encodeCall(
-            Reputation.setCurve, (IReputation.CapCurve({baseCap: baseCap, capPerScore: 10e6, maxCap: 5_000e6}))
+            Reputation.setCurve,
+            (IReputation.CapCurve({baseCap: baseCap, capPerScore: 10e6, maxCap: baseCap + 1_000e6}))
         );
     }
 
@@ -851,7 +852,7 @@ contract MandateWiringTest is Test {
 
         timelock = new AdminTimelock([signerA, signerB, signerC], guardian, PERIOD);
         reputation = new Reputation(
-            address(timelock), IReputation.CapCurve({baseCap: 100e6, capPerScore: 10e6, maxCap: 5_000e6})
+            address(timelock), IReputation.CapCurve({baseCap: 100e6, capPerScore: 10e6, maxCap: 1_100e6})
         );
         escrow = new Escrow(
             address(settlement),
@@ -939,7 +940,7 @@ contract MandateWiringTest is Test {
         IReputation.CapCurve memory curve = reputation.curve();
         assertEq(curve.baseCap, 100e6);
         assertEq(curve.capPerScore, 10e6);
-        assertEq(curve.maxCap, 5_000e6);
+        assertEq(curve.maxCap, 1_100e6);
 
         IOracleRegistry.Config memory cfg = oracleRegistry.config();
         assertEq(cfg.commitWindow, COMMIT_WINDOW);
@@ -1650,7 +1651,7 @@ contract MandateDeployScriptTest is Test {
 
         _set("BURSAR_CAP_BASE", "100000000");
         _set("BURSAR_CAP_PER_SCORE", "10000000");
-        _set("BURSAR_CAP_MAX", "5000000000");
+        _set("BURSAR_CAP_MAX", "1100000000");
 
         _set("BURSAR_COMMIT_WINDOW", "3600");
         _set("BURSAR_REVEAL_WINDOW", "3600");

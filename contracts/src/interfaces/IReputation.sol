@@ -5,9 +5,10 @@ pragma solidity ^0.8.24;
 /// aggregate into a spending cap.
 ///
 /// The escrow makes the aggregate poisonable: an expired dust lock refunds the payer in full,
-/// so anyone can charge a payee a timeout for the price of gas. A consumer
-/// that needs an unpoisoned view reads the edges of payers it already recognises. The cap
-/// curve is therefore a floor-plus-slope, never the only control on an account.
+/// so anyone can charge a payee a timeout for the price of gas. A lock whose payer is its own
+/// payee moves no counter, so a payee cannot vouch for itself. A consumer that needs an
+/// unpoisoned view reads the edges of payers it already recognises. The cap curve is therefore
+/// a floor-plus-slope, never the only control on an account.
 interface IReputation {
     error AlreadySet();
     error NotDeployer();
@@ -26,6 +27,8 @@ interface IReputation {
     /// `capOf = min(baseCap + capPerScore * score, maxCap)`, with `score` in `[0, scoreMax]`
     /// and `capPerScore` denominated per score point. A linear curve, not tiers: a payee's cap
     /// grows with each settled job instead of jumping at a threshold that is worth gaming.
+    /// `maxCap` sits between `baseCap` and `baseCap + capPerScore * scoreMax`, so a perfect
+    /// score reaches it.
     struct CapCurve {
         uint128 baseCap;
         uint128 capPerScore;
@@ -36,6 +39,9 @@ interface IReputation {
     event CurveUpdated(uint128 baseCap, uint128 capPerScore, uint128 maxCap);
     event AdminTransferStarted(address indexed from, address indexed to);
     event AdminTransferred(address indexed from, address indexed to);
+    event ReleaseCounted(address indexed payer, address indexed payee);
+    event TimeoutCounted(address indexed payer, address indexed payee);
+    event DisputeCounted(address indexed payer, address indexed payee);
 
     function onReleased(address payer, address payee) external;
     function onTimedOut(address payer, address payee) external;

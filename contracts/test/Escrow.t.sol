@@ -403,7 +403,7 @@ contract EscrowTest is Test {
 
     function test_lock_admits_the_payee_cap_exactly_and_refuses_one_unit_above_it() public {
         (Escrow capped,,) = _deploySetWithCurve(
-            IReputation.CapCurve({baseCap: 100e6, capPerScore: 1e6, maxCap: 300e6}),
+            IReputation.CapCurve({baseCap: 100e6, capPerScore: 1e6, maxCap: 200e6}),
             FEE_BPS,
             RESOLVER_FEE_BPS,
             BOND_BPS,
@@ -420,7 +420,7 @@ contract EscrowTest is Test {
 
     function test_lock_cap_rises_with_the_payees_settlement_history() public {
         (Escrow capped, Reputation rep,) = _deploySetWithCurve(
-            IReputation.CapCurve({baseCap: 100e6, capPerScore: 1e6, maxCap: 300e6}),
+            IReputation.CapCurve({baseCap: 100e6, capPerScore: 1e6, maxCap: 200e6}),
             FEE_BPS,
             RESOLVER_FEE_BPS,
             BOND_BPS,
