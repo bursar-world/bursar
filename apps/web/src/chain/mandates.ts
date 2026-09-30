@@ -30,16 +30,16 @@ export type MandateSummary = {
   readonly dailyRemaining: Micro;
   readonly monthlyRemaining: Micro;
   /**
-   * Whether the mandate has a total budget, which never refills. On v2 it is `totalCap`; on v1 the
-   * second window set never to roll. `monthlyRemaining` is what is left of it when there is one.
+   * Whether the mandate has a total budget, which never refills. From v2 on it is `totalCap`; on v1
+   * the second window set never to roll. `monthlyRemaining` is what is left of it when there is one.
    */
   readonly totalBudget: boolean;
   readonly version: bigint;
 };
 
 /**
- * Every mandate a principal created, through each factory live on this chain: the current one
- * first, then the v1 factory whose accounts still hold funds and history. One call per factory.
+ * Every mandate a principal created, through each factory on this chain: the current one first,
+ * then the earlier ones whose accounts still hold funds and history. One call per factory.
  */
 export async function mandatesOf(principal: Address): Promise<readonly Address[]> {
   const factories = mandateFactories();
@@ -322,7 +322,7 @@ export async function readMandateSummaries(
     perCallCap: batch.add<bigint>('perCallCap', { address, abi: mandateAccountAbi as never, functionName: 'perCallCap' }),
     remaining: batch.add<readonly [bigint, bigint, bigint]>('remaining', { address, abi: mandateAccountAbi as never, functionName: 'remaining' }),
     second: batch.add<{ readonly duration: bigint }>('window', { address, abi: mandateAccountAbi as never, functionName: 'window', args: [1] }),
-    // v2 only. A v1 account has neither function, and the failed slot reads as no native total.
+    // From v2 on. A v1 account has neither function, and the failed slot reads as no native total.
     totalCap: batch.add<bigint>('totalCap', { address, abi: mandateAccountAbi as never, functionName: 'totalCap' }),
     remainingTotal: batch.add<bigint>('remainingTotal', { address, abi: mandateAccountAbi as never, functionName: 'remainingTotal' }),
     balance: batch.add<bigint>('balance', { address: ADDRESSES.usdg, abi: settlementAssetAbi as never, functionName: 'balanceOf', args: [address] }),
