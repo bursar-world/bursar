@@ -51,6 +51,8 @@ const TOKEN_ERRORS = [
   { type: 'error', name: 'ERC20InvalidSpender', inputs: [{ name: 'spender', type: 'address' }] },
 ] as const;
 
+export type TokenErrorName = (typeof TOKEN_ERRORS)[number]['name'];
+
 /**
  * Every error fragment a call through this package can come back with, in one table.
  *
@@ -184,9 +186,15 @@ function dataInText(node: Node): Hex[] {
   if (typeof details !== 'string' || details.length > 512) return [];
   if (!/revert/i.test(details)) return [];
 
-  return (details.match(/0x[0-9a-fA-F]{8,}/g) ?? [])
+  // Anvil writes a custom error as its selector and its encoded arguments apart:
+  // `custom error 0x188053b0: 0000…`. Joined back up, the arguments decode with the name.
+  const custom = /custom error (0x[0-9a-fA-F]{8}):\s*([0-9a-fA-F]*)/u.exec(details);
+  const joined = custom === null ? undefined : asRevertData(`${custom[1]}${custom[2]}`);
+  const quoted = (details.match(/0x[0-9a-fA-F]{8,}/g) ?? [])
     .slice(0, 4)
     .flatMap((match) => asRevertData(match) ?? []);
+
+  return joined === undefined ? quoted : [joined, ...quoted];
 }
 
 /** Where the hex might sit on one error, most authoritative first. */
@@ -209,7 +217,7 @@ function dataOn(node: Node): Hex[] {
   // a string on everything viem throws.
   if (isNode(node.details)) take(node.details.data);
 
-  return [...found, ...dataInText(node)];
+  return found;
 }
 
 /**
@@ -236,11 +244,22 @@ function decodedOn(node: Node): RevertInfo | undefined {
  * reporting nothing: the caller would go looking for a limit that never fired.
  */
 export function revertFrom(error: unknown): RevertInfo | undefined {
-  for (const node of chain(error)) {
+  const nodes = chain(error);
+
+  for (const node of nodes) {
     const decoded = decodedOn(node);
     if (decoded) return decoded;
 
     for (const data of dataOn(node)) {
+      const info = decodeRevertData(data);
+      if (info) return info;
+    }
+  }
+
+  // Text last. A message quoting revert data can quote less of it than the payload a wrapper
+  // further down carries, and a selector read off the text alone loses the arguments.
+  for (const node of nodes) {
+    for (const data of dataInText(node)) {
       const info = decodeRevertData(data);
       if (info) return info;
     }
@@ -279,7 +298,8 @@ export function contractSaidNo(error: unknown): boolean {
     (node) =>
       node.name === 'ContractFunctionRevertedError' ||
       node.name === 'ExecutionRevertedError' ||
-      dataOn(node).length > 0,
+      dataOn(node).length > 0 ||
+      dataInText(node).length > 0,
   );
 }
 

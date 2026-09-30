@@ -1,22 +1,26 @@
-import { encodeFunctionData, erc20Abi } from 'viem';
+import { encodeFunctionData, isAddressEqual, parseEventLogs } from 'viem';
 import type { Address } from 'viem';
 import {
   BursarError,
   COLLATERAL_LANE,
-  collateralDeployment,
   collateralVaultAbi,
   creditPoolAbi,
   healthRatio,
   mandateAccountAbi,
-  rwaDeployment,
+  parseCollateralDeployment,
+  parseRwaDeployment,
 } from '@bursar/core';
-import type { CollateralDeployment, Micro, RwaDeployment } from '@bursar/core';
+import type { CollateralDeployment, Deployment, Micro, RwaDeployment } from '@bursar/core';
 
+import { approveIfShort } from './allowance.js';
+import { InvalidArgumentError } from './errors.js';
 import { checkAddress, checkPositiveAmount } from './guards.js';
+import type { LaneContext } from './lane-refusals.js';
 import { micro } from './money.js';
+import { logsFrom } from './receipt.js';
 import { sendCall, type Sent } from './send.js';
 import type { MandateAccountClient } from './mandate.js';
-import { UnknownAssetError } from './rwa.js';
+import { UnknownAssetError, explainLane, laneContext, laneOf, type RwaLane } from './rwa.js';
 
 /** Margin added to a repayment by default, so spread accrued between the read and the send is covered. */
 const REPAY_MARGIN = 100n;
@@ -93,9 +97,21 @@ export type CollateralAccount = {
   readonly positions: CollateralPosition[];
 };
 
+/**
+ * A collateral lane handed to the client directly: the `rwa` section of a record, which carries the
+ * lane and the assets it takes, or only its `collateral` part. Either shape a record comes in is
+ * read, parsed or as it sits on disk.
+ */
+export type CollateralLane = RwaLane | CollateralDeployment;
+
 export class CollateralUnavailableError extends BursarError {
-  constructor(chainId: number) {
-    super('collateral_unavailable', `No collateral lane is deployed on chain ${chainId}.`, { chainId });
+  constructor(record: Pick<Deployment, 'network' | 'chainId'>) {
+    super(
+      'collateral_unavailable',
+      `Deployment ${record.network} on chain ${record.chainId} records no collateral lane. Connect with a ` +
+        'record whose rwa section has a collateral part, or pass the lane to collateral() yourself.',
+      { chainId: record.chainId, network: record.network },
+    );
   }
 }
 
@@ -117,22 +133,57 @@ export class NoDebtError extends BursarError {
 }
 
 /**
+ * The lane and the asset list its symbols resolve through.
+ *
+ * A collateral part handed over on its own borrows the connection's asset list only when that
+ * record's lane is the same one, vault for vault. Borrowed from any other record, a symbol would
+ * resolve to that record's token on this chain.
+ */
+function resolveLanes(
+  mandate: MandateAccountClient,
+  lane: CollateralLane | undefined,
+): { collateral: CollateralDeployment | undefined; rwa: RwaDeployment | undefined } {
+  const recorded = laneOf(mandate.connection);
+  if (lane === undefined) return { collateral: recorded?.collateral, rwa: recorded };
+
+  if ('AssetRegistry' in lane) {
+    const rwa = parseRwaDeployment(lane);
+    return { collateral: rwa.collateral, rwa };
+  }
+
+  const collateral = parseCollateralDeployment(lane);
+  const vault = recorded?.collateral?.CollateralVault;
+  const same = vault !== undefined && isAddressEqual(vault, collateral.CollateralVault);
+  return { collateral, rwa: same ? recorded : undefined };
+}
+
+/**
  * The collateral lane for one mandate: posted stock and treasury tokens, the credit drawn against
  * them, and repayment. Values are raw × feed price less the tier haircut, read from chain.
+ *
+ * Every address comes from the lane: the one passed in, or the one the mandate's connection
+ * records.
  */
 export class CollateralClient {
   readonly mandate: MandateAccountClient;
   readonly lane: CollateralDeployment;
-  readonly rwa: RwaDeployment;
+  /** The RWA lane the collateral lane belongs to, whose asset list symbols resolve through. */
+  readonly rwa: RwaDeployment | undefined;
+  readonly #context: LaneContext;
 
-  constructor(mandate: MandateAccountClient, lane?: CollateralDeployment) {
-    const chainId = mandate.connection.deployment.chainId;
-    const rwa = rwaDeployment(chainId);
-    const resolved = lane ?? collateralDeployment(chainId);
-    if (resolved === undefined || rwa === undefined) throw new CollateralUnavailableError(chainId);
+  constructor(mandate: MandateAccountClient, lane?: CollateralLane) {
+    const resolved = resolveLanes(mandate, lane);
+    if (resolved.collateral === undefined) {
+      if (lane === undefined) throw new CollateralUnavailableError(mandate.connection.deployment);
+      throw new InvalidArgumentError(
+        'lane',
+        'The lane passed to collateral() has no collateral part, so there is no vault or credit pool to reach.',
+      );
+    }
     this.mandate = mandate;
-    this.lane = resolved;
-    this.rwa = rwa;
+    this.lane = resolved.collateral;
+    this.rwa = resolved.rwa;
+    this.#context = laneContext(mandate.connection, resolved.rwa);
   }
 
   get #client() {
@@ -164,7 +215,7 @@ export class CollateralClient {
             args: [address],
           }),
         ]);
-        return { symbol: this.#symbol(address), address, tier, haircutBps, afterHours };
+        return { symbol: this.#context.symbolOf(address), address, tier, haircutBps, afterHours };
       }),
     ]);
     return {
@@ -204,7 +255,7 @@ export class CollateralClient {
       positions: positions
         .filter((p) => p.raw > 0n)
         .map((p) => ({
-          symbol: this.#symbol(p.asset),
+          symbol: this.#context.symbolOf(p.asset),
           asset: p.asset,
           tier: p.tier,
           raw: p.raw,
@@ -252,6 +303,7 @@ export class CollateralClient {
             args: [this.mandate.address],
           }),
           action: 'openLine',
+          explain: this.#explain('vault'),
         });
     const setCreditLane = await this.setCreditLane();
     return { ...(openLine ? { openLine } : {}), ...(setCreditLane ? { setCreditLane } : {}) };
@@ -265,7 +317,7 @@ export class CollateralClient {
       abi: mandateAccountAbi,
       functionName: 'treasuryPark',
     });
-    if (current.toLowerCase() === this.lane.CollateralVault.toLowerCase()) return undefined;
+    if (isAddressEqual(current, this.lane.CollateralVault)) return undefined;
     return sendCall(this.mandate.connection, {
       to: this.mandate.address,
       data: encodeFunctionData({
@@ -274,6 +326,7 @@ export class CollateralClient {
         args: [this.lane.CollateralVault],
       }),
       action: 'setTreasuryPark',
+      explain: this.#explain('vault'),
     });
   }
 
@@ -282,7 +335,12 @@ export class CollateralClient {
     const asset = this.resolve(assetOrSymbol);
     if (raw <= 0n) throw new BursarError('collateral_amount_invalid', 'A deposit must move a positive amount.', { raw });
     await this.#requireCollateralLane();
-    const approve = await this.#approve(asset, this.lane.CollateralVault, raw);
+    const approve = await approveIfShort(this.mandate.connection, {
+      token: asset,
+      spender: this.lane.CollateralVault,
+      amount: raw,
+      action: 'deposit',
+    });
     const deposit = await sendCall(this.mandate.connection, {
       to: this.lane.CollateralVault,
       data: encodeFunctionData({
@@ -291,6 +349,7 @@ export class CollateralClient {
         args: [this.mandate.address, asset, raw],
       }),
       action: 'deposit',
+      explain: this.#explain('vault'),
     });
     return { ...(approve ? { approve } : {}), deposit };
   }
@@ -309,13 +368,14 @@ export class CollateralClient {
         args: [this.mandate.address, asset, raw, checkAddress('to', to)],
       }),
       action: 'withdraw',
+      explain: this.#explain('vault'),
     });
   }
 
   /**
    * Pays down the mandate's debt from the signer's USDG. Without an amount it pays the whole debt,
-   * with a small margin for spread accrued before the transaction lands; the pool takes no more
-   * than is owed.
+   * offering a small margin for spread accrued before the transaction lands; the pool takes no
+   * more than is owed, and `amount` is what it took.
    */
   async repay(amount?: Micro): Promise<{ approve?: Sent; repay: Sent; amount: Micro }> {
     let value: bigint;
@@ -327,13 +387,24 @@ export class CollateralClient {
       value = checkPositiveAmount('amount', amount);
     }
     const usdg = this.mandate.connection.deployment.settlementAsset;
-    const approve = await this.#approve(usdg, this.lane.CreditPool, value);
+    const approve = await approveIfShort(this.mandate.connection, {
+      token: usdg,
+      spender: this.lane.CreditPool,
+      amount: value,
+      action: 'repay',
+    });
     const repay = await sendCall(this.mandate.connection, {
       to: this.lane.CreditPool,
       data: encodeFunctionData({ abi: creditPoolAbi, functionName: 'repay', args: [this.mandate.address, value] }),
       action: 'repay',
+      explain: this.#explain('repay'),
     });
-    return { ...(approve ? { approve } : {}), repay, amount: micro(value) };
+    const [repaid] = parseEventLogs({
+      abi: creditPoolAbi,
+      eventName: 'Repaid',
+      logs: logsFrom(repay.receipt.logs, this.lane.CreditPool),
+    });
+    return { ...(approve ? { approve } : {}), repay, amount: micro(repaid?.args.amount ?? value) };
   }
 
   /**
@@ -351,18 +422,24 @@ export class CollateralClient {
         args: [this.mandate.address, this.resolve(assetOrSymbol)],
       }),
       action: 'liquidate',
+      explain: this.#explain('vault'),
     });
   }
 
   resolve(assetOrSymbol: string): Address {
     if (assetOrSymbol.startsWith('0x')) return checkAddress('asset', assetOrSymbol as Address);
-    const found = this.rwa.assets.find((a) => a.symbol.toUpperCase() === assetOrSymbol.toUpperCase());
-    if (found === undefined) throw new UnknownAssetError(assetOrSymbol);
+    const known = this.rwa?.assets ?? [];
+    const found = known.find((a) => a.symbol.toUpperCase() === assetOrSymbol.toUpperCase());
+    if (found === undefined) throw new UnknownAssetError(assetOrSymbol, known.map((a) => a.symbol));
     return found.address;
   }
 
-  #symbol(address: Address): string {
-    return this.rwa.assets.find((a) => a.address.toLowerCase() === address.toLowerCase())?.symbol ?? address;
+  #explain(call: 'vault' | 'repay') {
+    return explainLane(call, this.#context, {
+      mandate: this.mandate.address,
+      vault: this.lane.CollateralVault,
+      pool: this.lane.CreditPool,
+    });
   }
 
   async #lane(): Promise<number> {
@@ -374,29 +451,8 @@ export class CollateralClient {
     if (lane !== COLLATERAL_LANE) throw new NotCollateralLaneError(this.mandate.address, lane);
   }
 
-  async #approve(token: Address, spender: Address, amount: bigint): Promise<Sent | undefined> {
-    const signer = this.mandate.connection.account?.address;
-    if (signer !== undefined) {
-      const allowance = await this.#client.readContract({
-        address: token,
-        abi: erc20Abi,
-        functionName: 'allowance',
-        args: [signer, spender],
-      });
-      if (allowance >= amount) return undefined;
-    }
-    return sendCall(this.mandate.connection, {
-      to: token,
-      data: encodeFunctionData({
-        abi: erc20Abi,
-        functionName: 'approve',
-        args: [spender, amount],
-      }),
-      action: 'approve',
-    });
-  }
 }
 
-export function collateral(mandate: MandateAccountClient, lane?: CollateralDeployment): CollateralClient {
+export function collateral(mandate: MandateAccountClient, lane?: CollateralLane): CollateralClient {
   return new CollateralClient(mandate, lane);
 }

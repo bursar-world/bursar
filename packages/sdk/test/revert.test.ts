@@ -35,11 +35,8 @@ import { ADDRESSES, RHC_DEPLOYMENT, fakeConnection, type ReadCall } from './help
  */
 const DAILY_CAP = encodeErrorResult({ abi: mandateAccountAbi, errorName: 'DailyCapExceeded' });
 const PAYEE_CAP = encodeErrorResult({ abi: escrowAbi, errorName: 'PayeeCapExceeded' });
-const TOKEN_FAILED = encodeErrorResult({
-  abi: escrowAbi,
-  errorName: 'SafeERC20FailedOperation',
-  args: ['0x3600000000000000000000000000000000000000'],
-});
+const TOKEN: Address = '0x3600000000000000000000000000000000000000';
+const TOKEN_FAILED = encodeErrorResult({ abi: escrowAbi, errorName: 'SafeERC20FailedOperation', args: [TOKEN] });
 
 const ACCOUNT: Address = '0xe8fd2904175811Db41636c6085eBFE6661E196d5';
 const AGENT: Address = '0x3164F1EaA42C769e40Aec0a43e8C51ec2c0EBe03';
@@ -168,6 +165,28 @@ describe('revertFrom, on errors built by hand', () => {
     });
 
     expect(revertFrom(error)?.errorName).toBe('DailyCapExceeded');
+  });
+
+  /**
+   * Anvil writes a custom error into the message as its selector and its arguments apart, and
+   * keeps the whole payload on the RPC error a few causes down. Read off the message first, the
+   * selector alone decoded and the arguments a sentence quotes were lost.
+   */
+  it('decodes the arguments too when a node splits them from the selector in its message', () => {
+    const error = new BaseError('reverted', {
+      details: `execution reverted: custom error ${TOKEN_FAILED.slice(0, 10)}: ${TOKEN_FAILED.slice(10)}`,
+    });
+
+    expect(revertFrom(error)).toEqual({ errorName: 'SafeERC20FailedOperation', args: [TOKEN] });
+  });
+
+  it('prefers the payload a deeper error carries to a selector quoted in a message above it', () => {
+    const error = new BaseError('reverted', {
+      details: `execution reverted: ${TOKEN_FAILED.slice(0, 10)}`,
+      cause: new BaseError('rpc', { cause: new RawContractError({ data: TOKEN_FAILED }) }),
+    });
+
+    expect(revertFrom(error)).toEqual({ errorName: 'SafeERC20FailedOperation', args: [TOKEN] });
   });
 
   it('follows a cycle without hanging', () => {

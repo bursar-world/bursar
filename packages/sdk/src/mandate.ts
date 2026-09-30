@@ -34,6 +34,7 @@ import {
   MandateDeniedError,
   MissingEventError,
   NotAMandateAccountError,
+  denialOf,
   denialReasonFor,
   type DenialReason,
   type MandateSnapshot,
@@ -55,7 +56,8 @@ import {
 import { random32 } from './random.js';
 import { logsFrom } from './receipt.js';
 import { decodeRevertData, returnedNoData, type RevertInfo } from './revert.js';
-import { rwa, type BuyReceipt } from './rwa.js';
+import { laneRefusal } from './lane-refusals.js';
+import { laneContext, laneOf, rwa, type BuyReceipt } from './rwa.js';
 import { collateral, type CollateralClient } from './collateral.js';
 import { sendCall, type ExplainRevert, type Sent } from './send.js';
 import { payRequest, type FetchTarget, type PaidResponse, type PaymentLane } from './x402/fetch.js';
@@ -1376,7 +1378,7 @@ export class MandateAccountClient {
     return async (revert) => {
       if (!revert) return undefined;
 
-      const reason = denialReasonFor(revert.errorName);
+      const reason = denialOf(revert);
       if (reason) {
         return new MandateDeniedError({
           reason,
@@ -1390,7 +1392,15 @@ export class MandateAccountClient {
         });
       }
 
-      return this.#explainEscrow(revert, context);
+      const escrow = await this.#explainEscrow(revert, context);
+      if (escrow) return escrow;
+
+      // A mandate short of USDG covers the difference inside the spend, from its park or on credit,
+      // and a refusal there comes back through this call.
+      const lane = laneRefusal(revert, 'spend', laneContext(this.connection, laneOf(this.connection)));
+      return lane === null
+        ? undefined
+        : new CallRefusedError(lane.code, lane.message, { mandate: this.address, owner: lane.owner });
     };
   }
 

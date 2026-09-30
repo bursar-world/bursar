@@ -1,0 +1,717 @@
+/**
+ * What the stock, treasury and collateral lanes say no for, in sentences.
+ *
+ * One table per contract, keyed by the error names in its deployed ABI, so an error added to any of
+ * them is a compile error here until someone writes its sentence. The same names recur across the
+ * lane because the contracts share code: every swap can raise the same four, and the park and the
+ * credit pool both call a figure over its limit `MandateCapExceeded`. Which contract raised a name
+ * follows from the call it came back from, so each call reads the tables in an order of its own.
+ *
+ * A sentence quotes the figures the revert carried. A revert that arrived as a bare selector gets
+ * the same sentence without them.
+ */
+
+import type { Address } from 'viem';
+import {
+  assetRegistryAbi,
+  collateralVaultAbi,
+  creditPoolAbi,
+  mandateAccountAbi,
+  parkAdapterAbi,
+  priceGuardAbi,
+  stockSpendRouterAbi,
+  treasuryParkAbi,
+} from '@bursar/core';
+
+import { formatDuration, usd } from './format.js';
+import { micro } from './money.js';
+import type { Refusal, RefusalOwner } from './refusals.js';
+import type { RevertInfo, TokenErrorName } from './revert.js';
+
+type ErrorName<A extends readonly unknown[]> = Extract<A[number], { type: 'error'; name: string }>['name'];
+
+type Figures = readonly unknown[];
+
+export type LaneContext = {
+  /** A token's symbol where the lane lists it, and its address where it does not. */
+  readonly symbolOf: (token: Address) => string;
+};
+
+type Reading = {
+  readonly owner: RefusalOwner;
+  readonly message: string | ((figures: Figures, context: LaneContext) => string);
+};
+
+type Table = Readonly<Record<string, Reading>>;
+
+function bigintAt(figures: Figures, index: number): bigint | undefined {
+  const value = figures[index];
+  return typeof value === 'bigint' ? value : undefined;
+}
+
+function addressAt(figures: Figures, index: number): Address | undefined {
+  const value = figures[index];
+  return typeof value === 'string' && /^0x[0-9a-fA-F]{40}$/u.test(value) ? (value as Address) : undefined;
+}
+
+function usdAt(figures: Figures, index: number): string | undefined {
+  const value = bigintAt(figures, index);
+  return value === undefined ? undefined : usd(micro(value));
+}
+
+/** A feed price, eight decimals, to the cent. */
+function priceAt(figures: Figures, index: number): string | undefined {
+  const value = bigintAt(figures, index);
+  if (value === undefined) return undefined;
+  const cents = value / 1_000_000n;
+  return `${cents / 100n}.${(cents % 100n).toString().padStart(2, '0')} USD`;
+}
+
+/** A health figure, where 1e18 is 1.0, to two places. */
+function ratioAt(figures: Figures, index: number): string | undefined {
+  const value = bigintAt(figures, index);
+  if (value === undefined) return undefined;
+  const hundredths = value / 10n ** 16n;
+  return `${hundredths / 100n}.${(hundredths % 100n).toString().padStart(2, '0')}`;
+}
+
+function ageAt(figures: Figures, index: number): string | undefined {
+  const value = bigintAt(figures, index);
+  return value === undefined ? undefined : formatDuration(value);
+}
+
+function rawAt(figures: Figures, index: number): string | undefined {
+  return bigintAt(figures, index)?.toString();
+}
+
+function tokenAt(figures: Figures, index: number, context: LaneContext, otherwise = 'This asset'): string {
+  const token = addressAt(figures, index);
+  return token === undefined ? otherwise : context.symbolOf(token);
+}
+
+function mandateAt(figures: Figures, index: number): string {
+  const mandate = addressAt(figures, index);
+  return mandate === undefined ? 'This mandate' : `Mandate ${mandate}`;
+}
+
+/** The sentence with the revert's figures in it when every one arrived, and the plain one when not. */
+function figured(
+  values: readonly (string | undefined)[],
+  render: (values: readonly string[]) => string,
+  plain: string,
+): string {
+  return values.every((value) => value !== undefined) ? render(values as readonly string[]) : plain;
+}
+
+const REENTRY: Reading = {
+  owner: 'counterparty',
+  message:
+    'Something called back into the lane while one of its own calls was still running, and it refuses ' +
+    'that. Nothing settled. The contract that called in owns this: report it with the transaction.',
+};
+
+const GOVERNANCE_ONLY: Reading = {
+  owner: 'governance',
+  message:
+    'This is a governance call. The lane is administered by the timelock, and a change goes through a ' +
+    'proposal with a delay on it.',
+};
+
+const PENDING_ADMIN: Reading = {
+  owner: 'governance',
+  message: 'Only the address the current admin named can accept the role.',
+};
+
+const TOKEN_REFUSED: Reading = {
+  owner: 'token',
+  message: (figures, context) =>
+    `${tokenAt(figures, 0, context, 'The token')} refused a transfer this call needed, so nothing moved. An ` +
+    'allowance or a balance short of the amount, a token its issuer has paused and an address it has ' +
+    'frozen all come back this way. Check the allowance and the balance first; if both cover it, the ' +
+    'refusal is the issuer’s and a retry will not clear it.',
+};
+
+const NOT_ELIGIBLE: Reading = {
+  owner: 'governance',
+  message: (figures, context) =>
+    `${tokenAt(figures, 0, context)} is marked not eligible in the asset registry, so it cannot be bought, ` +
+    'parked or posted as collateral. Governance sets eligibility. A position already held can still be ' +
+    'sold, and still counts at its price.',
+};
+
+const NOT_FROM_FACTORY: Reading = {
+  owner: 'caller',
+  message: (figures) =>
+    `${mandateAt(figures, 0)} was not created by a factory this lane knows, so it cannot park funds or ` +
+    'open a credit line. The lane admits only accounts from its own deployment, because they share its ' +
+    'caps. Create the mandate with createMandate on the same deployment.',
+};
+
+/** Every contract that trades through the pinned pools raises these four. */
+const SWAP = {
+  NotPoolManager: {
+    owner: 'deployment',
+    message:
+      'A contract other than the pool manager this lane was built with called back into it to settle a ' +
+      'swap, and the lane refused it. Nothing moved. Report the transaction to the operator: no caller ' +
+      'can change which pool manager the lane trusts.',
+  },
+  NotUnlocking: {
+    owner: 'deployment',
+    message:
+      'The pool manager called back into the lane when no swap of its own was under way, and the lane ' +
+      'refused it. Nothing moved. Report the transaction to the operator.',
+  },
+  SwapShort: {
+    owner: 'clock',
+    message:
+      'The pool could not fill this trade at a price the lane accepts. Either the fill came in under the ' +
+      'feed price less the allowed slippage, or the pool ran out of depth part way through. Nothing ' +
+      'moved. Try a smaller amount, or try again once the pool is back in line with the feed.',
+  },
+  SettlementShort: {
+    owner: 'token',
+    message:
+      'The token delivered less to the pool manager than the swap owed it, as a token that takes a fee ' +
+      'on transfer does, so the trade was undone. Nothing moved. Report the asset to the operator: the ' +
+      'lane cannot trade it while it behaves this way.',
+  },
+} satisfies Record<string, Reading>;
+
+const ROUTER: Readonly<Record<ErrorName<typeof stockSpendRouterAbi>, Reading>> = {
+  AssetNotAllowed: {
+    owner: 'caller',
+    message: (figures, context) =>
+      `${tokenAt(figures, 0, context)} is not on this mandate’s purchase list, and a mandate buys only ` +
+      'what its principal has listed. The principal adds it with setPolicy, under allow. Nothing was bought.',
+  },
+  BadSlippage: {
+    owner: 'caller',
+    message:
+      'A slippage limit is a count of basis points under 10000, where 0 means each asset’s own band, and ' +
+      'every asset named needs a flag of its own. The policy in force is unchanged.',
+  },
+  NotAStock: {
+    owner: 'caller',
+    message: (figures, context) =>
+      `${tokenAt(figures, 0, context)} is a treasury fund. A mandate parks it with park() and buys only ` +
+      'the stocks the registry lists. Nothing was bought.',
+  },
+  NotPrincipal: {
+    owner: 'caller',
+    message:
+      'Only the mandate’s principal sets which stocks it may buy and the slippage it accepts. Send ' +
+      'setPolicy from the principal’s key. The policy in force is unchanged.',
+  },
+  SafeERC20FailedOperation: {
+    owner: 'token',
+    message: (figures, context) =>
+      `${tokenAt(figures, 0, context, 'The settlement asset')} refused to move this purchase out of the ` +
+      'mandate, so nothing was bought. A token its issuer has paused and an address it has frozen both ' +
+      'come back this way. If the mandate holds the USDG, the refusal is the issuer’s and a retry will ' +
+      'not clear it.',
+  },
+  TradeCapExceeded: {
+    owner: 'caller',
+    message: (figures) =>
+      figured(
+        [usdAt(figures, 0), usdAt(figures, 1)],
+        ([amount, cap]) =>
+          `This purchase of ${amount} is over the ${cap} the registry allows in one trade of this stock.`,
+        'This purchase is over the most the registry allows in one trade of this stock.',
+      ) +
+      ' The cap is per trade: buy less in one call, and several purchases inside it can go through ' +
+      'within the mandate’s own limits.',
+  },
+  ReentrancyGuardReentrantCall: REENTRY,
+  ...SWAP,
+};
+
+const GUARD: Readonly<Record<ErrorName<typeof priceGuardAbi>, Reading>> = {
+  AccessPaused: {
+    owner: 'token',
+    message:
+      'Robinhood’s access registry is paused, so no stock token trades or moves until it resumes. ' +
+      'Nothing was sent, and no mandate setting changes this.',
+  },
+  BadPrice: {
+    owner: 'token',
+    message: (figures, context) =>
+      `The price feed for ${tokenAt(figures, 0, context, 'this asset')} returned no usable answer: zero, ` +
+      'negative, or dated ahead of the chain. Nothing trades on it until the feed publishes a sound price.',
+  },
+  Blocked: {
+    owner: 'token',
+    message: (figures) =>
+      `Robinhood’s access registry blocks ${addressAt(figures, 0) ?? 'this account'}, so it cannot trade ` +
+      'or hold the lane’s tokens. Only Robinhood lifts a block; no mandate setting changes it.',
+  },
+  NotEligible: NOT_ELIGIBLE,
+  OraclePaused: {
+    owner: 'token',
+    message: (figures, context) =>
+      `The issuer has paused the price oracle for ${tokenAt(figures, 0, context, 'this asset')}, so it ` +
+      'cannot be traded until the oracle resumes. While it is paused, a position in it counts for ' +
+      'nothing toward spending power or collateral.',
+  },
+  PoolPriceDeviation: {
+    owner: 'clock',
+    message: (figures, context) =>
+      figured(
+        [priceAt(figures, 1), priceAt(figures, 2)],
+        ([pool, feed]) =>
+          `The ${tokenAt(figures, 0, context, 'asset’s')} pool trades at ${pool} and its feed reads ${feed}, ` +
+          'further apart than the asset’s band allows.',
+        `The ${tokenAt(figures, 0, context, 'asset’s')} pool and its feed are further apart than the ` +
+          'asset’s band allows.',
+      ) +
+      ' Nothing trades in it until the two agree again. A trade large enough to push the pool out of ' +
+      'its band is refused the same way, so a smaller amount may go through.',
+  },
+  PriceOutsideBand: {
+    owner: 'caller',
+    message: (figures, context) =>
+      figured(
+        [priceAt(figures, 1), priceAt(figures, 2)],
+        ([quoted, feed]) =>
+          `This purchase was quoted at ${quoted} and the ${tokenAt(figures, 0, context, 'asset')} feed now ` +
+          `reads ${feed}, further apart than the asset’s band allows.`,
+        'The price this purchase was quoted at is further from the feed than the asset’s band allows.',
+      ) + ' The feed moved between the quote and the send. Quote again and retry.',
+  },
+  StalePrice: {
+    owner: 'clock',
+    message: (figures, context) =>
+      figured(
+        [ageAt(figures, 1), ageAt(figures, 2)],
+        ([age, bound]) =>
+          `The ${tokenAt(figures, 0, context, 'asset')} feed last answered ${age} ago, and a trade needs ` +
+          `an answer no older than ${bound}.`,
+        `The ${tokenAt(figures, 0, context, 'asset')} feed has not answered recently enough to trade on.`,
+      ) +
+      ' Equity feeds go quiet at weekends and on market holidays. The trade can go through once the ' +
+      'feed publishes again.',
+  },
+  TokenPaused: {
+    owner: 'token',
+    message: (figures, context) =>
+      `The issuer has paused transfers of ${tokenAt(figures, 0, context, 'this asset')}, so it cannot be ` +
+      'traded until they resume.',
+  },
+};
+
+const ASSETS: Readonly<Record<ErrorName<typeof assetRegistryAbi>, Reading>> = {
+  BadBounds: {
+    owner: 'governance',
+    message:
+      'The proposed asset terms do not hold together: the trade and valuation bounds, the band, the ' +
+      'haircuts or the caps are out of range. The terms in force are unchanged.',
+  },
+  BadPool: {
+    owner: 'governance',
+    message:
+      'The pool named for the asset does not pair it with USDG, or it carries a hook, and the registry ' +
+      'takes only a hookless pool between the asset and USDG. The terms in force are unchanged.',
+  },
+  FeedNot8Decimals: {
+    owner: 'governance',
+    message:
+      'The feed named for the asset does not answer in eight decimals, which every price in the lane ' +
+      'assumes. The terms in force are unchanged.',
+  },
+  NotAdmin: GOVERNANCE_ONLY,
+  NotPendingAdmin: PENDING_ADMIN,
+  NotRegistered: {
+    owner: 'caller',
+    message: (figures, context) =>
+      `${tokenAt(figures, 0, context)} is not in the asset registry, so no contract in the lane will ` +
+      'trade, park or value it. The registry is keyed on the token address, and a token with the same ' +
+      'name or symbol at another address is a different token.',
+  },
+  ZeroAddress: {
+    owner: 'governance',
+    message:
+      'The registry was given the zero address where it needs a token or a feed. The terms in force are ' +
+      'unchanged.',
+  },
+};
+
+const PARK: Readonly<Record<ErrorName<typeof treasuryParkAbi>, Reading>> = {
+  BelowBuffer: {
+    owner: 'caller',
+    message: (figures) =>
+      figured(
+        [usdAt(figures, 0), usdAt(figures, 1)],
+        ([held, buffer]) =>
+          `After this move the mandate holds ${held}, under the ${buffer} its principal set to keep liquid.`,
+        'After this move the mandate holds less USDG than its principal set it to keep liquid.',
+      ) + ' Nothing was parked. Park less, or lower the buffer with setBuffer.',
+  },
+  MandateCapExceeded: {
+    owner: 'caller',
+    message: (figures) =>
+      figured(
+        [usdAt(figures, 0), usdAt(figures, 1)],
+        ([basis, cap]) =>
+          `Parking this would bring what the mandate holds in the fund to ${basis}, over the ${cap} one ` +
+          'mandate may park there.',
+        'Parking this would take the mandate over the most one mandate may park in the fund.',
+      ) + ' Park less, or unpark first.',
+  },
+  NotAdmin: GOVERNANCE_ONLY,
+  NotDeployer: {
+    owner: 'deployment',
+    message: 'Only the address that deployed the park lists its first adapters, and it does that once.',
+  },
+  NotFactoryAccount: NOT_FROM_FACTORY,
+  NotOperator: {
+    owner: 'caller',
+    message:
+      'Only the mandate’s principal or its agent can park, unpark or bring back its idle USDG. Send ' +
+      'this from one of those keys.',
+  },
+  NotPendingAdmin: PENDING_ADMIN,
+  NotPrincipal: {
+    owner: 'caller',
+    message:
+      'Only the mandate’s principal sets how much USDG it keeps liquid. Send setBuffer from the ' +
+      'principal’s key.',
+  },
+  NothingToUnpark: {
+    owner: 'caller',
+    message: (figures) =>
+      figured(
+        [usdAt(figures, 0)],
+        ([short]) => `The mandate is ${short} short for this payment,`,
+        'The mandate is short for this payment,',
+      ) +
+      ' and none of its parked positions could be sold to cover it: each was empty, priced stale, ' +
+      'paused, or trading outside its band. Fund the mandate with USDG, or pay once the parked asset ' +
+      'prices again.',
+  },
+  PositionShort: {
+    owner: 'caller',
+    message: (figures) =>
+      figured(
+        [rawAt(figures, 0), rawAt(figures, 1)],
+        ([held, asked]) => `The position holds ${held} raw units and this asks to sell ${asked}.`,
+        'The position holds fewer units than this asks to sell.',
+      ) + ' Unpark at most what parked() reports for it.',
+  },
+  ReentrancyGuardReentrantCall: REENTRY,
+  TotalCapExceeded: {
+    owner: 'governance',
+    message: (figures) =>
+      figured(
+        [usdAt(figures, 0), usdAt(figures, 1)],
+        ([basis, cap]) =>
+          `Parking this would bring everything parked in the fund, across every mandate, to ${basis}, ` +
+          `over the ${cap} the lane takes in total.`,
+        'Parking this would take the fund over the most the lane takes in total, across every mandate.',
+      ) + ' Park less, or try again once others unpark.',
+  },
+  UnknownAdapter: {
+    owner: 'governance',
+    message: (figures) =>
+      `The park takes no new money through ${addressAt(figures, 0) ?? 'that adapter'}: governance has ` +
+      'disabled it, or never listed it. Money already parked through it can still be unparked.',
+  },
+  VaultShort: {
+    owner: 'caller',
+    message: (figures) =>
+      figured(
+        [usdAt(figures, 0), usdAt(figures, 1)],
+        ([held, needed]) => `The mandate’s park vault holds ${held} and this park needs ${needed}.`,
+        'The mandate’s park vault holds less USDG than this park needs.',
+      ) +
+      ' Nothing was parked. park() moves the USDG into the vault before it parks; a call made straight ' +
+      'to the contract has to do the same.',
+  },
+  ZeroAmount: {
+    owner: 'caller',
+    message:
+      'Parking or unparking zero is refused, and so is bringing back idle USDG from a vault that holds ' +
+      'none. Name a positive amount.',
+  },
+};
+
+const ADAPTER: Readonly<Record<ErrorName<typeof parkAdapterAbi>, Reading>> = {
+  NotPark: {
+    owner: 'deployment',
+    message:
+      'Only the treasury park moves money through its adapters, and a call straight to an adapter is ' +
+      'refused. Go through the park.',
+  },
+  NotTreasuryAsset: {
+    owner: 'deployment',
+    message: (figures, context) =>
+      `${tokenAt(figures, 0, context)} is not registered as a treasury fund, so no park adapter can be ` +
+      'built on it.',
+  },
+  SafeERC20FailedOperation: TOKEN_REFUSED,
+  ...SWAP,
+};
+
+const VAULT: Readonly<Record<ErrorName<typeof collateralVaultAbi>, Reading>> = {
+  BadParams: {
+    owner: 'governance',
+    message:
+      'The proposed lending parameters do not hold together: the draw floor has to be at least 1.0, the ' +
+      'liquidation target above 1.0 and no higher than the draw floor, and the bounty at most 10%. The ' +
+      'parameters in force are unchanged.',
+  },
+  BadTier: {
+    owner: 'governance',
+    message:
+      'The proposed haircut tier is out of range. Haircuts stay under 100%, the after-hours haircut is ' +
+      'at least the session one, the session bound is above zero and the valuation bound at least as ' +
+      'long. Tiers count from 1, and a new one can only be added at the end. Nothing changed.',
+  },
+  HealthTooLow: {
+    owner: 'caller',
+    message: (figures) =>
+      figured(
+        [ratioAt(figures, 0), ratioAt(figures, 1)],
+        ([health, floor]) =>
+          `This would leave the line’s health at ${health}, under the ${floor} a draw or a withdrawal has ` +
+          'to keep.',
+        'This would leave the line’s health under the floor a draw or a withdrawal has to keep.',
+      ) +
+      ' The check counts every position at its after-hours haircut whatever the clock says, and counts ' +
+      'nothing for a position whose price is stale or paused or whose pool has left its band. Post more ' +
+      'collateral, repay some of the debt, or ask for less.',
+  },
+  Healthy: {
+    owner: 'caller',
+    message: (figures) =>
+      figured(
+        [ratioAt(figures, 0)],
+        ([health]) => `The line’s health is ${health}, at or above 1.00,`,
+        'The line’s health is at or above 1.00,',
+      ) + ' so there is nothing to liquidate.',
+  },
+  NoLine: {
+    owner: 'caller',
+    message: (figures) =>
+      `${mandateAt(figures, 0)} has no collateral line open, so it cannot post collateral or draw on ` +
+      'credit. Its principal opens one with openLine().',
+  },
+  NotAdmin: GOVERNANCE_ONLY,
+  NotCollateral: {
+    owner: 'caller',
+    message: (figures, context) =>
+      `${tokenAt(figures, 0, context)} is not accepted as collateral: it sits in no haircut tier. ` +
+      'tiers() lists what the vault takes.',
+  },
+  NotCollateralLane: {
+    owner: 'caller',
+    message: (figures) => {
+      const lane = figures[1];
+      return (
+        `${mandateAt(figures, 0)} is in ${typeof lane === 'number' ? `lane ${lane}` : 'another lane'}. ` +
+        'Only a collateral-lane mandate, lane 1, can open a line or draw on credit. Create one with lane 1 ' +
+        'in its limits.'
+      );
+    },
+  },
+  NotEligible: NOT_ELIGIBLE,
+  NotFactoryAccount: NOT_FROM_FACTORY,
+  NotPendingAdmin: PENDING_ADMIN,
+  NotPrincipal: {
+    owner: 'caller',
+    message:
+      'Only the mandate’s principal can open its credit line or take collateral back out. Send this from ' +
+      'the principal’s key.',
+  },
+  NothingToSell: {
+    owner: 'caller',
+    message:
+      'Selling this asset would not lift the line’s health: the slice it would take rounds to nothing at ' +
+      'the current price. Liquidate against another asset the line holds.',
+  },
+  PositionEmpty: {
+    owner: 'caller',
+    message: (figures, context) =>
+      `The line holds less ${tokenAt(figures, 1, context, 'of this asset')} than this call takes, or none ` +
+      'at all. position() lists what is posted.',
+  },
+  ReentrancyGuardReentrantCall: REENTRY,
+  SafeERC20FailedOperation: TOKEN_REFUSED,
+  ZeroAddress: {
+    owner: 'caller',
+    message: 'The vault was given the zero address where it needs a real one. Nothing moved.',
+  },
+  ZeroAmount: {
+    owner: 'caller',
+    message: 'A deposit or a withdrawal of zero is refused. Name a positive amount.',
+  },
+  ...SWAP,
+};
+
+const POOL: Readonly<Record<ErrorName<typeof creditPoolAbi>, Reading>> = {
+  BadRates: {
+    owner: 'governance',
+    message:
+      'The proposed caps or rates do not hold together: both caps above zero with the per-mandate cap ' +
+      'inside the total, and the base rate and the slope together at most 50% a year. The settings in ' +
+      'force are unchanged.',
+  },
+  BuybackStakingMismatch: {
+    owner: 'deployment',
+    message:
+      'The credit pool was deployed against a buyback and a staking pool that do not belong together, so ' +
+      'it could not turn a loss into a stake slash. Nothing a caller sends reaches this. Report it to the ' +
+      'operator.',
+  },
+  InsufficientCash: {
+    owner: 'counterparty',
+    message: (figures) =>
+      figured(
+        [usdAt(figures, 0), usdAt(figures, 1)],
+        ([cash, needed]) => `The credit pool has ${cash} free to lend and this needs ${needed}.`,
+        'The credit pool has less free to lend than this needs.',
+      ) +
+      ' It lends only what its lender has put in and borrowers have paid back, and the draw goes ' +
+      'through once the pool is funded or other lines repay.',
+  },
+  MandateCapExceeded: {
+    owner: 'caller',
+    message: (figures) =>
+      figured(
+        [usdAt(figures, 0), usdAt(figures, 1)],
+        ([debt, cap]) =>
+          `This draw would bring the mandate’s debt to ${debt}, over the ${cap} one mandate may owe the pool.`,
+        'This draw would take the mandate’s debt over the most one mandate may owe the pool.',
+      ) + ' Repay some of it, or spend less on credit.',
+  },
+  NoDebt: {
+    owner: 'caller',
+    message: (figures) => `${mandateAt(figures, 0)} owes the credit pool nothing, so there is nothing to repay.`,
+  },
+  NotAdmin: GOVERNANCE_ONLY,
+  NotDeployer: {
+    owner: 'deployment',
+    message: 'Only the address that deployed the credit pool binds it to its vault, and it does that once.',
+  },
+  NotLender: {
+    owner: 'caller',
+    message: 'Only the pool’s lender can take unlent USDG back out of it.',
+  },
+  NotPendingAdmin: PENDING_ADMIN,
+  NotVault: {
+    owner: 'deployment',
+    message:
+      'Only the collateral vault opens or writes off debt in the credit pool. A draw happens inside a ' +
+      'mandate’s own spend, and nothing borrows from the pool directly.',
+  },
+  NothingToSweep: {
+    owner: 'caller',
+    message: 'The pool holds no paid spread to send to stakers yet.',
+  },
+  ReentrancyGuardReentrantCall: REENTRY,
+  SafeERC20FailedOperation: TOKEN_REFUSED,
+  TotalCapExceeded: {
+    owner: 'governance',
+    message: (figures) =>
+      figured(
+        [usdAt(figures, 0), usdAt(figures, 1)],
+        ([debt, cap]) =>
+          `This draw would bring what the pool has lent across every mandate to ${debt}, over the ${cap} ` +
+          'it lends in total.',
+        'This draw would take the pool over the most it lends in total, across every mandate.',
+      ) + ' It goes through once other lines repay, or governance raises the cap.',
+  },
+  ZeroAddress: {
+    owner: 'governance',
+    message: 'The credit pool was given the zero address where it needs a real one. Nothing changed.',
+  },
+  ZeroAmount: {
+    owner: 'caller',
+    message: 'Repaying, funding or borrowing zero is refused. Name a positive amount.',
+  },
+};
+
+type PurchaseErrorName = Extract<ErrorName<typeof mandateAccountAbi>, 'RouterNotSet' | 'InsufficientOutput'>;
+
+/** The account's own refusals on the way into a purchase, other than its spending limits. */
+const PURCHASE: Readonly<Record<PurchaseErrorName, Reading>> = {
+  RouterNotSet: {
+    owner: 'caller',
+    message:
+      'This mandate names no stock router, so it cannot buy. Its principal points it at the ' +
+      'deployment’s router with useRouter().',
+  },
+  InsufficientOutput: {
+    owner: 'caller',
+    message:
+      'The mandate received fewer tokens than the least it accepts for this purchase, measured on its own ' +
+      'balance, so the purchase was undone. Quote again and retry.',
+  },
+};
+
+const TOKEN: Readonly<Record<TokenErrorName, Reading>> = {
+  ERC20InsufficientAllowance: {
+    owner: 'caller',
+    message:
+      'The sending address has approved less of the token than this call pulls, so nothing moved. This ' +
+      'package approves before it pulls, so an allowance spent or lowered in between reads this way. Try ' +
+      'again.',
+  },
+  ERC20InsufficientBalance: {
+    owner: 'caller',
+    message: (figures) =>
+      `${addressAt(figures, 0) ?? 'The sending address'} holds less of the token than this call moves, so ` +
+      'nothing moved. Top it up and try again.',
+  },
+  ERC20InvalidApprover: {
+    owner: 'caller',
+    message: 'The token refused an approval from the zero address. Nothing moved.',
+  },
+  ERC20InvalidReceiver: {
+    owner: 'caller',
+    message: 'The token refused a transfer to the zero address. Nothing moved. Name a real recipient.',
+  },
+  ERC20InvalidSender: {
+    owner: 'caller',
+    message: 'The token refused a transfer from the zero address. Nothing moved.',
+  },
+  ERC20InvalidSpender: {
+    owner: 'caller',
+    message: 'The token refused an approval for the zero address. Nothing moved.',
+  },
+};
+
+/**
+ * The tables each kind of call reads, in the order that settles a name more than one contract uses.
+ * A spend and a purchase read the credit pool before the park: a short balance inside either reaches
+ * the park only through `unparkFor`, which raises nothing but its own shortfall.
+ */
+const CALLS = {
+  buy: [PURCHASE, ROUTER, GUARD, ASSETS, POOL, VAULT, PARK, TOKEN],
+  policy: [ROUTER],
+  park: [PARK, ADAPTER, GUARD, ASSETS, TOKEN],
+  vault: [VAULT, POOL, GUARD, ASSETS, TOKEN],
+  repay: [POOL, TOKEN],
+  spend: [POOL, VAULT, PARK],
+} as const satisfies Record<string, readonly Table[]>;
+
+export type LaneCall = keyof typeof CALLS;
+
+/**
+ * The sentence for a revert on one of the lane's calls, or null when none of the contracts that
+ * call reaches declares the name.
+ */
+export function laneRefusal(revert: RevertInfo, call: LaneCall, context: LaneContext): Refusal | null {
+  for (const table of CALLS[call] as readonly Table[]) {
+    const reading = table[revert.errorName];
+    if (reading === undefined) continue;
+
+    const message = typeof reading.message === 'string' ? reading.message : reading.message(revert.args, context);
+    return { code: revert.errorName, owner: reading.owner, message };
+  }
+
+  return null;
+}
+
+/** Each contract's table, for the suite that holds them to the ABIs. */
+export const LANE_TABLES = { ROUTER, GUARD, ASSETS, PARK, ADAPTER, VAULT, POOL, PURCHASE, TOKEN } as const;

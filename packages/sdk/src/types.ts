@@ -113,7 +113,10 @@ export type MandateLimits = {
   classMask: number;
   /** Lifetime ceiling on committed spend, net of refunds. Zero means none, and is all a v1 account holds. */
   totalCap: Micro;
-  /** Where funds settle: 0 escrow, 1 treasury, 2 collateral. Always 0 on a v1 account. */
+  /**
+   * 1 is the collateral lane, the only one the collateral vault opens a credit line for. No
+   * contract tells 0 from 2. Always 0 on a v1 account.
+   */
   lane: number;
 };
 
@@ -137,7 +140,7 @@ export type MandateLimitsInput = {
   classMask?: number;
   /** Lifetime ceiling on committed spend. Zero or omitted means none. */
   totalCap?: Micro;
-  /** Defaults to 0, the escrow lane, which is the only one with contracts behind it. */
+  /** 1 for a mandate that may borrow against posted collateral. Defaults to 0, which cannot. */
   lane?: number;
 };
 

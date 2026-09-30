@@ -5,7 +5,7 @@ export { BRSR_DECIMALS, BRSR_SCALE, brsr, formatBrsr, parseBrsr, toBrsr } from '
 export type { Brsr } from './brsr.js';
 
 export { connect, explorerTx, isConnection, requireSigner, writeOptions, DEFAULT_RECEIPT_TIMEOUT_MS } from './connection.js';
-export type { Connection, ConnectOptions, MandateAddresses, Signer } from './connection.js';
+export type { Connection, ConnectOptions, DeploymentRecordJson, MandateAddresses, Signer } from './connection.js';
 
 export {
   DEFAULT_TTL_SECONDS,
@@ -26,7 +26,7 @@ export type {
 } from './mandate.js';
 
 export { RwaClient, RwaUnavailableError, UnknownAssetError, rwa } from './rwa.js';
-export type { BuyReceipt, FeedPrice, Holding, ParkedPosition, RwaAsset } from './rwa.js';
+export type { BuyReceipt, FeedPrice, Holding, ParkedPosition, RwaAsset, RwaLane } from './rwa.js';
 export {
   CollateralClient,
   CollateralUnavailableError,
@@ -37,6 +37,7 @@ export {
 export type {
   CollateralAccount,
   CollateralAsset,
+  CollateralLane,
   CollateralPosition,
   CollateralTiers,
   HaircutTier,

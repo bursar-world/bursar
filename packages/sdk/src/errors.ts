@@ -73,6 +73,21 @@ export function denialReasonFor(errorName: string): DenialReason | undefined {
   return DENIAL_REASONS[errorName];
 }
 
+/**
+ * The reason a decoded revert stands for, when the mandate account is what raised it.
+ *
+ * The treasury park and the credit pool each raise a `TotalCapExceeded` of their own, with the
+ * figures attached, from inside a spend that draws on them. That one is a lane's cap, and reading
+ * it as the mandate's total budget would send the principal to raise a limit that is not in the way.
+ */
+export function denialOf(revert: {
+  readonly errorName: string;
+  readonly args: readonly unknown[];
+}): DenialReason | undefined {
+  if (revert.errorName === 'TotalCapExceeded' && revert.args.length > 0) return undefined;
+  return denialReasonFor(revert.errorName);
+}
+
 /** What the mandate looked like when it refused, read back so the message can be specific. */
 export type MandateSnapshot = {
   readonly limits: MandateLimits;

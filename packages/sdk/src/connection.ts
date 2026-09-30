@@ -2,6 +2,7 @@ import { createWalletClient, custom, isAddressEqual } from 'viem';
 import type { Account, Chain, Hex, PublicClient, Transport, WalletClient } from 'viem';
 import { nonceManager, privateKeyToAccount } from 'viem/accounts';
 import {
+  DEPLOYMENTS,
   RHC_TESTNET,
   BursarError,
   RpcPool,
@@ -9,6 +10,7 @@ import {
   deployment,
   deploymentForChain,
   liveDeployments,
+  parseDeployment,
   rhcChain,
   viemChain,
 } from '@bursar/core';
@@ -34,6 +36,9 @@ export type MandateAddresses = {
   readonly settlementAsset: `0x${string}`;
 };
 
+/** A deployment record as a deploy script writes it, before it is parsed. */
+export type DeploymentRecordJson = { readonly [key: string]: unknown };
+
 export type ConnectOptions = {
   /**
    * Which recorded deployment to use. Defaults to the one recorded for Robinhood Chain mainnet,
@@ -49,8 +54,13 @@ export type ConnectOptions = {
    * A deployment record supplied by the caller, for a deployment this package has not recorded.
    * Takes precedence over `network`. Useful against a local fork of 4663, where the addresses are
    * whatever that fork was given.
+   *
+   * Either a parsed `Deployment` or the record as a deploy script writes it, such as the one the
+   * contracts' local rehearsal leaves at `contracts/cache/bursar/local-4663.json`, read with
+   * `JSON.parse`. It is checked and normalised here, and every lane client reads its addresses
+   * from it.
    */
-  readonly deployment?: Deployment;
+  readonly deployment?: Deployment | DeploymentRecordJson;
   /**
    * One endpoint, or several. A second endpoint turns on the failover pool: each provider keeps
    * its own circuit breaker, and a call that fails on one moves down the list.
@@ -105,7 +115,7 @@ function chainFor(record: Deployment): RhcChain {
  */
 function recordFor(options: ConnectOptions): Deployment {
   const record =
-    options.deployment ??
+    (options.deployment === undefined ? undefined : suppliedRecord(options.deployment)) ??
     (options.network !== undefined
       ? deployment(options.network)
       : options.chainId !== undefined
@@ -122,6 +132,29 @@ function recordFor(options: ConnectOptions): Deployment {
   }
 
   return record;
+}
+
+/**
+ * A record the caller supplied, parsed the way the address book parses its own.
+ *
+ * A record on disk keys its RWA assets by symbol and leaves out fields a parsed one fills in, and
+ * handing it on as it is surfaces as a failure much later, in whichever lane client reads the
+ * field first. A record out of this package's own address book is already parsed and is kept as it
+ * is, so it still reads as that record.
+ */
+function suppliedRecord(given: Deployment | DeploymentRecordJson): Deployment {
+  if ((Object.values(DEPLOYMENTS) as unknown[]).includes(given)) return given as Deployment;
+
+  try {
+    return parseDeployment(given, typeof given.network === 'string' ? given.network : 'deployment');
+  } catch (error) {
+    if (!(error instanceof BursarError)) throw error;
+    throw new InvalidArgumentError(
+      'deployment',
+      `connect() cannot use the deployment record it was given. ${error.message}`,
+      { ...error.details },
+    );
+  }
 }
 
 /** The chains connect() can open: a live record, and a settlement asset on that chain. */
