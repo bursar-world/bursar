@@ -156,6 +156,7 @@ export {
   contractSetOf,
   contractSetOfEscrow,
   contractSetOfRegistry,
+  currentSetDeployments,
 } from './contract-set.js';
 export type { ContractSet } from './contract-set.js';
 

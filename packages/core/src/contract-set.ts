@@ -1,6 +1,6 @@
 import type { Address } from 'viem';
 import type { Deployment } from './deployment-record.js';
-import { deploymentByContract } from './deployments.js';
+import { deploymentByContract, deploymentsForChain } from './deployments.js';
 import {
   adminTimelockAbiV1,
   escrowAbiV1,
@@ -61,6 +61,21 @@ export function contractSetOfEscrow(escrow: Address): ContractSet | undefined {
 export function contractSetOfRegistry(registry: Address): ContractSet | undefined {
   const d = deploymentByContract('OracleRegistry', registry);
   return d === undefined ? undefined : contractSetOf(d);
+}
+
+/**
+ * The records on a chain that run the same build as the one answering for it, newest first.
+ *
+ * Where a lane lives in a record (RWA, collateral, privacy), only these may supply it. A lane an
+ * earlier set deployed runs that set's build, which the generated ABIs do not describe, so it is
+ * never read in place of a lane the current set has not deployed yet.
+ */
+export function currentSetDeployments(chainId: number): readonly Deployment[] {
+  const line = deploymentsForChain(chainId);
+  const head = line[0];
+  if (head === undefined) return [];
+  const set = contractSetOf(head);
+  return line.filter((d) => contractSetOf(d) === set);
 }
 
 export const V1_ABIS = {

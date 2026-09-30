@@ -1,15 +1,15 @@
-import { deploymentsForChain } from './deployments.js';
+import { currentSetDeployments } from './contract-set.js';
 import type { CollateralDeployment, RwaDeployment } from './deployment-record.js';
 
 /** Bit 2 of a mandate's `classMask`: eligible stock purchases. */
 export const RWA_CLASS_BIT = 1 << 2;
 
 /**
- * The RWA lane that answers for a chain, if one is deployed. Only the newest record carrying one
- * counts; an older contract set has no RWA contracts to fall back to.
+ * The RWA lane that answers for a chain, if one is deployed: the newest record carrying one within
+ * the contract set that answers for the chain. An earlier set's lane is never read in its place.
  */
 export function rwaDeployment(chainId: number): RwaDeployment | undefined {
-  return deploymentsForChain(chainId).find((d) => d.rwa !== undefined)?.rwa;
+  return currentSetDeployments(chainId).find((d) => d.rwa !== undefined)?.rwa;
 }
 
 /**
