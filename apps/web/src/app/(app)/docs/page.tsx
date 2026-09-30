@@ -100,7 +100,9 @@ export default function DocsPage() {
           <p className="mt-3 max-w-3xl text-sm">
             <code className="font-mono text-note">pay</code> reads the limits, opens an escrow lock against the
             account and returns the lock id with the transaction. The provider is paid when it delivers. If it never
-            does, the deadline returns the money and credits the allowance back.
+            does, the deadline returns the money and credits the allowance back. The escrow opens no lock under its
+            smallest payment, which the status page shows, and <code className="font-mono text-note">pay</code> refuses
+            a smaller amount before anything is sent.
           </p>
           <p className="mt-3 max-w-3xl text-sm">
             Amounts are micro-USD held as <code className="font-mono text-note">bigint</code>, the six decimals the
@@ -245,6 +247,12 @@ export default function DocsPage() {
             revealed.
           </p>
           <p className="mt-3 max-w-3xl text-sm">
+            Once the reveal window closes, anyone can settle the vote. If too few resolvers revealed, the payment goes
+            back on hold for the provider with a new deadline and the contest bond is returned. A payout the token issuer
+            blocks is kept by the escrow for its recipient, and anyone can claim it for them once the address can
+            receive again.
+          </p>
+          <p className="mt-3 max-w-3xl text-sm">
             A provider sends signed delivery evidence from its desk, or has the sidecar send it by setting{' '}
             <code className="font-mono text-note">SIDECAR_EVIDENCE_URL</code> to{' '}
             <code className="font-mono text-note">https://app.bursar.world/api/evidence</code>.
@@ -262,7 +270,7 @@ export default function DocsPage() {
           <p className="max-w-3xl text-sm">
             A mandate created in the collateral lane can post eligible stock and treasury tokens and borrow USDG against them, within
             the credit limits the haircut page reads from chain. When a payment needs more USDG than the mandate holds, it borrows the difference in the same transaction.
-            Prefunded mandates cannot borrow.
+            Borrowing and withdrawals are checked at the after-hours haircut, whatever the time. Prefunded mandates cannot borrow.
           </p>
           <p className="mt-3 text-sm">
             <Link href="/docs/haircuts" className="underline underline-offset-2">
