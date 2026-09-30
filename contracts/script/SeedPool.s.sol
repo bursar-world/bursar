@@ -27,10 +27,10 @@ interface IStateView {
 /// read-back that fails unless the pool holds what was sent.
 ///
 /// `sqrtPriceX96` is a ratio of raw token units. BRSR has eighteen decimals and USDG has six, so
-/// the ratio at a price of one dollar per BRSR is `1e-12`, not `1`. Nothing here takes a
-/// `sqrtPriceX96` from an operator: it takes a price in micro-USD for one whole BRSR, the unit the
-/// buyback's ceiling uses and a person can check against a screen, and derives the rest twice, by
-/// two routes, refusing to broadcast if they disagree by more than a fifth of a tick.
+/// the ratio at a price of one dollar per BRSR is `1e-12`. Nothing here takes a `sqrtPriceX96` from
+/// an operator: it takes a price in micro-USD for one whole BRSR, the unit the buyback's ceiling
+/// uses and a person can check against a screen, and derives the rest twice, by two routes,
+/// refusing to broadcast if they disagree by more than a fifth of a tick.
 ///
 /// v4 sorts a pool's two currencies by address, so BRSR is currency0 where its address is below
 /// USDG's, as on Robinhood Chain, and currency1 where it is above, as on a local chain whose deploy
@@ -68,8 +68,8 @@ abstract contract PoolSeeding is BursarScript {
         bytes32 id;
     }
 
-    /// The buyback and the StateView from the record, and the manager from the buyback, checked
-    /// against the record and any parameter file rather than read from either.
+    /// The buyback and the StateView come from the record. The manager comes from the buyback, and
+    /// the record and any parameter file have to agree with it.
     function _market() internal view returns (Market memory m) {
         m.buyback = Buyback(_upstream(K.BUYBACK));
         m.stateView = IStateView(_upstream(K.STATE_VIEW));
@@ -405,7 +405,7 @@ contract SeedPool is PoolSeeding {
 
     /// Adds to a pool that is already open, at the price it stands at. The maxima are the exact
     /// amounts the position costs at that price, so a price that moves between this read and the
-    /// transaction landing makes the add revert rather than pay more of either side.
+    /// transaction landing makes the add revert.
     function seedExisting() external {
         _loadPrefix();
         _requireChain();

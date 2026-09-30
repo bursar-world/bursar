@@ -4,8 +4,8 @@ pragma solidity ^0.8.24;
 /// The part of USDG's compliance surface that answers, read by both deploy scripts before a
 /// run starts. USDG at 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168 on chain 4663 is a diamond
 /// proxy: a selector it routes returns a value, and a selector it does not routes to nothing
-/// and reverts `FacetNotFound`. That makes the surface testable rather than guessable, and it
-/// is why only these two are declared here.
+/// and reverts `FacetNotFound`. That makes the surface testable, and it is why only these two
+/// are declared here.
 ///
 /// `paused` stops every transfer at once, so a run that starts into one strands a deployment
 /// whose settlement asset cannot move. `isFrozen` is the per-address block: a frozen address

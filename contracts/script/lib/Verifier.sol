@@ -32,7 +32,7 @@ abstract contract Verifier is BursarScript {
     }
 
     /// A contract the record names, which has to hold code. Zero when it does not, so the checks
-    /// that follow can skip it rather than read garbage.
+    /// that follow skip it.
     function _contract(string memory key) internal returns (address at) {
         at = _recordAddress(key);
         if (at == address(0)) {
@@ -94,7 +94,7 @@ abstract contract Verifier is BursarScript {
         return _recordUint(string.concat(".parameters.", key));
     }
 
-    /// A read asked so that a contract unable to answer it is a finding, not the end of the run.
+    /// A read asked so that a contract unable to answer it is a finding and the run goes on.
     /// A record that names the wrong contract meets a bare revert on the first read that contract
     /// lacks. Here the read is named with the address, counted as a mismatch, and every other
     /// question is still asked.

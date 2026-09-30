@@ -122,7 +122,7 @@ abstract contract CoreChecks is Verifier {
         }
 
         // The one pairing the core run cannot close. Until the staking run does, no resolver can
-        // bond, and that is owed rather than wrong.
+        // bond, and that is reported as owed.
         (bool answered, address wired) = _askAddress("OracleRegistry.staking", registry, _sig(o.staking.selector));
         if (!answered) return;
         address staking = _recordAddress(K.STAKING);

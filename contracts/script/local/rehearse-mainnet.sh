@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Rehearses the mainnet redeploy and the migration on a copy of Robinhood Chain. anvil forks
 # mainnet as it stands, and every step in script/MIGRATION.md runs in the runbook's order with the
-# runbook's commands. Each key signs as itself through anvil's impersonation, so no key from this
-# machine is read, and the delays the runbook waits out are skipped with anvil's clock.
+# same scripts and arguments. Each key signs as itself through anvil's impersonation, so no key
+# from this machine is read, and the delays the runbook waits out are skipped with anvil's clock.
 #
 #   script/local/rehearse-mainnet.sh            # from contracts/
 #

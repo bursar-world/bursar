@@ -24,7 +24,7 @@ import {V4LiquiditySeeder} from "../src/token/V4LiquiditySeeder.sol";
 ///   timelock's already, and the call is left out.
 ///
 /// Run after `DeployCollateral.s.sol`, from signer keys; `Governance.sol` describes the steps.
-/// `VerifyWiring.s.sol` holds every call to done.
+/// `VerifyWiring.s.sol` checks that every call in the batch took effect.
 contract ProposeWiring is Governance {
     function _calls() internal view override returns (Call[] memory calls) {
         address timelock = _upstream(K.ADMIN_TIMELOCK);

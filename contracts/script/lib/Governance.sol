@@ -12,9 +12,8 @@ import {AdminTimelock} from "../../src/AdminTimelock.sol";
 ///
 /// Each step is its own run, from the signer's own key, and each one can be repeated. A call whose
 /// effect is already on chain is skipped, and so is one with a live proposal carrying the same
-/// target and calldata, so running `propose` twice proposes nothing twice. Proposals are found on
-/// the timelock itself rather than in a file, which means a batch proposed by hand is picked up
-/// too.
+/// target and calldata, so running `propose` twice proposes nothing twice. Proposals are read from
+/// the timelock itself, so a batch proposed by hand is picked up too.
 ///
 ///   forge script <script> --sig "status()"  --rpc-url "$RHC_RPC_URL"
 ///   forge script <script> --sig "propose()" --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/signer-1" [--broadcast]
@@ -37,7 +36,7 @@ abstract contract Governance is BursarScript {
     function _applied(Call memory call) internal view virtual returns (bool);
 
     /// Whether the call would succeed if executed now. A call that depends on an earlier one in
-    /// the batch waits for it, instead of reverting the whole run.
+    /// the batch waits for it, and the rest of the run goes on.
     function _ready(Call memory) internal view virtual returns (bool) {
         return true;
     }
@@ -183,7 +182,7 @@ abstract contract Governance is BursarScript {
     }
 
     /// The newest proposal on the call's timelock carrying the same target and calldata that can
-    /// still execute: not executed, not cancelled, not past its grace period.
+    /// still execute: neither executed nor cancelled, and inside its grace period.
     function _find(Call memory call) internal view returns (bool found, uint256 id) {
         AdminTimelock timelock = AdminTimelock(call.timelock);
         bytes32 data = keccak256(call.data);

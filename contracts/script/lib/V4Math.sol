@@ -24,12 +24,12 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 ///
 /// ## The decimal trap
 ///
-/// A v4 price is a ratio of **raw token units**, not of whole tokens. BRSR carries eighteen
-/// decimals and USDG carries six, so one BRSR worth one USDG is a raw ratio of `1e6 / 1e18`,
-/// which is `1e-12`, not `1`. Reading a human price straight into `sqrtPriceX96` opens the pool
-/// a trillion times away from where it was meant to, and on a public market that is not
-/// recoverable: the first trade takes the difference. `initialSqrtPriceX96` therefore takes raw
-/// amounts and nothing else, and every caller states both decimals where it computes them.
+/// A v4 price is a ratio of **raw token units**. BRSR carries eighteen decimals and USDG carries
+/// six, so one BRSR worth one USDG is a raw ratio of `1e6 / 1e18`, which is `1e-12`. Reading a
+/// human price straight into `sqrtPriceX96` opens the pool a trillion times away from where it was
+/// meant to, and on a public market that is not recoverable: the first trade takes the difference.
+/// `initialSqrtPriceX96` therefore takes raw amounts and nothing else, and every caller states both
+/// decimals where it computes them.
 library V4Math {
     /// The tick is outside the band v4 can express.
     error InvalidTick(int24 tick);
@@ -81,8 +81,7 @@ library V4Math {
         return uint160(priceX96);
     }
 
-    /// @notice The Q96 path on its own, so a test can compare the two derivations rather than
-    ///         take one of them on trust.
+    /// @notice The Q96 path on its own, so a test can compare the two derivations.
     function initialSqrtPriceX96ViaQ96(uint256 amount0, uint256 amount1) internal pure returns (uint160) {
         if (amount0 == 0 || amount1 == 0) revert ZeroAmount();
         uint256 priceX96 = Math.sqrt(Math.mulDiv(amount1, Q96, amount0)) << 48;

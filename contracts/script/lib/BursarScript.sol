@@ -8,8 +8,8 @@ import {console2} from "forge-std/console2.sol";
 import {RecordKeys as K} from "./RecordKeys.sol";
 
 /// The part of `AdminTimelock` a script reads to know it is looking at governance. Declared here
-/// rather than imported, because the shielded scripts build on this contract with the compiler
-/// the vendored code needs, and `src/` outside `shielded/` is pinned to the other one.
+/// because the shielded scripts build on this contract with the compiler the vendored code needs,
+/// and `src/` outside `shielded/` is pinned to the other one.
 interface IGovernance {
     function timelockPeriod() external view returns (uint64);
     function guardian() external view returns (address);
@@ -29,11 +29,11 @@ interface IGovernance {
 /// with it stops the run: a shell carrying last month's treasury is exactly the mistake the
 /// record exists to catch.
 abstract contract BursarScript is Script {
-    /// Robinhood Chain mainnet, read from the chain itself. Testnet 46630 answers, but USDG holds
-    /// no contract there, so nothing on it can settle and it is not a deploy target.
+    /// Robinhood Chain mainnet, read from the chain itself. Testnet 46630 answers, but USDG has no
+    /// contract there, so nothing on it can settle and it is not a deploy target.
     uint256 internal constant RHC_CHAIN_ID = 4663;
 
-    /// USDG. Six decimals, a diamond proxy, verified on chain.
+    /// USDG, a diamond proxy with six decimals.
     address internal constant RHC_USDG = 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168;
 
     uint8 internal constant SETTLEMENT_DECIMALS = 6;
@@ -88,8 +88,6 @@ abstract contract BursarScript is Script {
     function _key(string memory key) internal view returns (string memory) {
         return bytes(envPrefix).length == 0 ? key : string.concat(envPrefix, key);
     }
-
-    // --- the chain ---
 
     /// The record, the flag and the chain have to agree before anything else is read.
     ///
@@ -152,8 +150,6 @@ abstract contract BursarScript is Script {
         if (recorded != address(0) && recorded != deployer) revert WrongDeployer(recorded, deployer);
     }
 
-    // --- the record ---
-
     function _recordPath() internal view returns (string memory path) {
         path = vm.envOr(_key("BURSAR_RECORD"), string(""));
         if (bytes(path).length == 0) revert MissingEnv(_key("BURSAR_RECORD"));
@@ -201,8 +197,8 @@ abstract contract BursarScript is Script {
         if (at.code.length == 0) revert NotContract(key, at);
     }
 
-    /// Refuses to deploy what the record already holds, because a second copy of a contract the
-    /// rest of the system points at is two answers to one question. `BURSAR_FORCE=1` replaces it.
+    /// Refuses to deploy what the record already holds, because a second copy splits callers
+    /// between two contracts. `BURSAR_FORCE=1` replaces it.
     ///
     /// An entry with no code behind it is a run whose broadcast never landed. It points at nothing,
     /// so replacing it loses nothing, and the run carries on.
@@ -251,8 +247,8 @@ abstract contract BursarScript is Script {
     /// hold code and a delay, and to be the governance the record's roles describe: a timelock
     /// with someone else's guardian or signers is someone else's timelock.
     function _timelock() internal view returns (address timelock) {
-        // The rwa, privacy and shielded scripts used to read governance from this name, in a
-        // different file each. One name remains, and the record answers before it.
+        // The RWA, privacy and shielded scripts read governance from the record. A shell that
+        // still sets their retired `BURSAR_TIMELOCK` stops the run.
         _refuseRetired("BURSAR_TIMELOCK", "the record's contracts.AdminTimelock");
         timelock = _upstream(K.ADMIN_TIMELOCK);
         address named = _envAddressOr("BURSAR_ADMIN_TIMELOCK", address(0));
@@ -377,8 +373,6 @@ abstract contract BursarScript is Script {
         return n < 10 ? string.concat("0", vm.toString(n)) : vm.toString(n);
     }
 
-    // --- checks ---
-
     /// Whether `account`'s code carries `target` as a 20-byte constant, which is how a contract
     /// names a library it was linked against.
     function _linksTo(address account, address target) internal view returns (bool) {
@@ -414,8 +408,6 @@ abstract contract BursarScript is Script {
         if (expected != actual) revert ParameterNotApplied(what, expected, actual);
     }
 
-    // --- the environment ---
-
     /// A retired variable still holds a value in the unit it was retired for. Reading it under
     /// the new name would be worse than ignoring it.
     function _refuseRetired(string memory key, string memory replacement) internal view {
@@ -431,9 +423,9 @@ abstract contract BursarScript is Script {
 
     /// A variable as the shell holds it, trimmed. Unset and set to nothing read the same.
     ///
-    /// Every typed read starts here rather than at `vm.envOr`, which answers a value it cannot
-    /// parse with the default: `BURSAR_FEE_BPS=1%` would read as unset and be reported as missing.
-    /// Parsed here, it stops the run as `InvalidEnv` with the variable and what it holds.
+    /// Every typed read starts here. `vm.envOr` answers a value it cannot parse with the default,
+    /// so `BURSAR_FEE_BPS=1%` would read as unset and be reported as missing; parsed here, it stops
+    /// the run as `InvalidEnv` with the variable and what it holds.
     function _envRaw(string memory name) internal view returns (string memory) {
         return vm.trim(vm.envOr(name, string("")));
     }
@@ -512,7 +504,7 @@ abstract contract BursarScript is Script {
         }
     }
 
-    /// The comma-separated items of a list, each trimmed. An empty item is a typo, not a value.
+    /// The comma-separated items of a list, each trimmed; an empty item stops the run as a typo.
     function _envItems(string memory name) private view returns (string[] memory items) {
         string memory raw = _envRaw(name);
         if (bytes(raw).length == 0) revert MissingEnv(name);

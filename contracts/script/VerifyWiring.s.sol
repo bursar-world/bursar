@@ -10,10 +10,10 @@ import {Staking} from "../src/token/Staking.sol";
 import {V4LiquiditySeeder} from "../src/token/V4LiquiditySeeder.sol";
 import {IStaking} from "../src/token/interfaces/IStaking.sol";
 
-/// Holds `ProposeWiring.s.sol` to done: the buyback's keeper is the recorded keeper, every recorded
-/// resolver has its floor and nobody else can bond, the rebate table is in place, the credit pool
-/// is both the staking pool's credit manager and its slasher, and a recorded seeder belongs to the
-/// timelock. Nothing here is owed; an unset value is a mismatch.
+/// Checks that every call in `ProposeWiring.s.sol` took effect: the buyback's keeper is the
+/// recorded keeper, every recorded resolver has its floor and nobody else can bond, the rebate
+/// table is in place, the credit pool is both the staking pool's credit manager and its slasher,
+/// and a recorded seeder belongs to the timelock. Nothing here is owed: unset is a mismatch.
 abstract contract WiringChecks is Verifier {
     function _checkWiring() internal {
         address staking = _contract(K.STAKING);

@@ -151,7 +151,7 @@ contract DeployToken is BursarScript {
     function _deploy(address deployer) private {
         // The token's address, computed from the nonce this key is about to spend twice. The
         // prediction is proved on the vesting deployment, before the token is sent, so a bad one
-        // costs a wasted deployment instead of a tenth of the supply.
+        // wastes one deployment before any token is minted.
         uint256 nonce = vm.getNonce(deployer);
         address predictedVesting = vm.computeCreateAddress(deployer, nonce);
         address predicted = vm.computeCreateAddress(deployer, nonce + 1);

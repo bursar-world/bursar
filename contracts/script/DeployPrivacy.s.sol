@@ -47,8 +47,7 @@ contract DeployPrivacy is BursarScript {
         timelock = _timelock();
         escrow = _upstream(K.ESCROW);
         _refuseRetired("BURSAR_POSTER", "BURSAR_SOLVENCY_POSTER");
-        // A committed factory per escrow was a v2 arrangement for payees still registered on the
-        // first escrow. This set has one escrow and one factory.
+        // This set has one escrow, so it gets one committed factory.
         _refuseRetired("BURSAR_ESCROW_V1", "nothing: this set has one escrow");
         poster = _role(K.SOLVENCY_POSTER, "BURSAR_SOLVENCY_POSTER");
 

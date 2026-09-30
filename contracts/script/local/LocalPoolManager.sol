@@ -18,11 +18,11 @@ interface IUnlockCallback {
 ///
 /// Opening a pool and adding or removing liquidity follow v4's arithmetic, so `SeedPool.s.sol`
 /// opens and funds the BRSR/USDG market here with the same calls and the same read-back it makes on
-/// Robinhood Chain. A swap fills at the pool's price, less the key's fee and a flat haircut, rather
-/// than along the curve: that puts a fill a little under the feed the way the live pools do, which
-/// is what the lanes' price guards need. Money moves inside `unlock`, and an unlock that leaves any
-/// currency owed either way reverts, as v4's does. `setPrice` places a pool outright, for the RWA
-/// pools and for suites that need a price where nobody seeded one.
+/// Robinhood Chain. A swap fills at the pool's price less the key's fee and a flat haircut, which
+/// puts a fill a little under the feed the way the live pools do and is what the lanes' price
+/// guards need. Money moves inside `unlock`, and an unlock that leaves any currency owed either way
+/// reverts, as v4's does. `setPrice` places a pool outright, for the RWA pools and for suites that
+/// need a price where nobody seeded one.
 contract LocalPoolManager {
     uint256 internal constant Q96 = 1 << 96;
     uint256 internal constant BPS = 10_000;

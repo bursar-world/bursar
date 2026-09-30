@@ -11,8 +11,8 @@ import {Vesting} from "../src/token/Vesting.sol";
 /// that pays the team's share out of it.
 ///
 /// On Robinhood Chain both carry over from the first deployment and the vesting contract still
-/// answers to the first timelock until the migration hands it over. That handover is owed, not
-/// wrong, and `BURSAR_VERIFY_STRICT=1` holds the run to it once the migration is done.
+/// answers to the first timelock until the migration hands it over. That handover is reported as
+/// owed; with `BURSAR_VERIFY_STRICT=1`, which the migration ends on, it fails the run.
 abstract contract TokenChecks is Verifier {
     uint256 private constant SUPPLY = 1_000_000_000e18;
 

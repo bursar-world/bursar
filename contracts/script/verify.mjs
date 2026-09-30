@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Source verification for deployed contracts, on every explorer that matters, from one manifest.
+// Source verification for deployed contracts on Sourcify and Blockscout, from one manifest.
 //
 //   node script/verify.mjs [--manifest verification/manifest.json] [--only name,name] [--status]
 //                          [--hours 6] [--no-submit]

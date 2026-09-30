@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {IStaking} from "../../src/token/interfaces/IStaking.sol";
 
-/// Terms the staking pool takes from governance rather than its constructor.
+/// Terms the staking pool takes from governance after it is deployed.
 library TokenConfig {
     /// The fee rebate table on the staking pool this deployment replaces, set there by governance
     /// on 2026-09-24 and carried over unchanged, so a redeploy does not quietly stop the rebate a

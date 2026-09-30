@@ -90,7 +90,7 @@ contract MigratePayee is Migration {
 
     /// The name the payee is known by on the registry it registered with last, or
     /// `BURSAR_PAYEE_NAME`. The new registry takes 3 to 32 characters from A-Z, a-z, 0-9 and the
-    /// underscore, and a name outside that stops the run here rather than at `register`.
+    /// underscore, and a name outside that stops the run here, before `register`.
     function _name(IRetiringAgentRegistry v2, IRetiringAgentRegistry v1) private view returns (string memory name) {
         string memory variable = _key("BURSAR_PAYEE_NAME");
         name = _envRaw(variable);

@@ -23,15 +23,15 @@ import {V4LiquiditySeeder} from "../src/token/V4LiquiditySeeder.sol";
 /// last one-shot pairing in the core set, `OracleRegistry.setStaking`, from the key that deployed
 /// the registry.
 ///
-/// All three answer to the timelock from their constructors, so no part of this set is ever
-/// administered by the deploy key. That is also why this run leaves four things to governance:
-/// the buyback's keeper, the resolvers' bond floors, and the credit pool's slasher and credit
-/// manager roles on the staking pool, the last two because the credit pool does not exist until
-/// `DeployCollateral.s.sol`. `ProposeWiring.s.sol` puts all of them to the signers in one batch.
+/// All three answer to the timelock from their constructors, so the deploy key never administers
+/// any of them. That is also why this run leaves five decisions to governance: the buyback's
+/// keeper, the resolvers' bond floors, the rebate table, and the credit pool's two roles on the
+/// staking pool, slasher and credit manager, which wait for `DeployCollateral.s.sol` to create the
+/// credit pool. `ProposeWiring.s.sol` puts all of them to the signers in one batch.
 ///
 /// The bond floor for everyone starts at `BURSAR_STAKING_MIN_BOND`. At 1e27, more BRSR than exists,
-/// nobody can bond until governance names a floor for a vetted resolver, which is the allowlist:
-/// closed from the first block rather than open until a proposal lands.
+/// nobody can bond until governance names a floor for a vetted resolver, which is the allowlist,
+/// closed from the first block.
 ///
 /// The pool the buyback trades is named by five values fixed at construction. On Robinhood Chain
 /// it is the BRSR/USDG pool that is already open, and the seeder deployed here, owned by the
@@ -124,8 +124,8 @@ contract DeployStaking is BursarScript {
         treasury = _role(K.TREASURY, "BURSAR_TREASURY");
         slashSink = _role(K.SLASH_SINK, "BURSAR_SLASH_SINK");
 
-        // The manager is Uniswap's, not ours, so it lives with the chain's other outside
-        // contracts. A parameter file that still names one has to name the same.
+        // The manager is Uniswap's, so it lives with the chain's other outside contracts. A
+        // parameter file that still names one has to name the same.
         poolManager = _upstream(K.POOL_MANAGER);
         address named = _envAddressOr("BURSAR_BUYBACK_POOL_MANAGER", address(0));
         if (named != address(0) && named != poolManager) revert RecordMismatch(K.POOL_MANAGER, poolManager, named);
@@ -183,8 +183,8 @@ contract DeployStaking is BursarScript {
         _requireUnrecorded(K.BUYBACK);
         _requireUnrecorded(K.SEEDER);
 
-        // Identity, not just code: the buyback's whole arithmetic is one conversion between a
-        // six-decimal price and an eighteen-decimal token.
+        // Checks the token's decimals and supply: the buyback's whole arithmetic is one
+        // conversion between a six-decimal price and an eighteen-decimal token.
         try IERC20Metadata(brsr).decimals() returns (uint8 decimals) {
             if (decimals != BRSR_DECIMALS) revert AssetDecimalsMismatch(brsr, decimals, BRSR_DECIMALS);
         } catch {
@@ -227,7 +227,7 @@ contract DeployStaking is BursarScript {
         if (keeper == deployer) revert RoleCollision("keeper", "deployer", keeper);
 
         // The buyback pays USDG to the pool manager on every call. A frozen address cannot, and
-        // the failure would read as a broken pool rather than a frozen address.
+        // the failure would read as a broken pool.
         if (block.chainid == RHC_CHAIN_ID) {
             if (IUsdg(asset).isFrozen(poolManager)) revert AddressFrozen("poolManager", poolManager);
             if (IUsdg(asset).isFrozen(treasury)) revert AddressFrozen("treasury", treasury);
@@ -271,8 +271,8 @@ contract DeployStaking is BursarScript {
         _expectUint("staking.unbondingPeriod", unbondingPeriod, staking.unbondingPeriod());
         _expectUint("staking.minBond", minBond, staking.minBond());
         _expectUint("staking.totalShares", 0, staking.totalShares());
-        // Stated rather than assumed: nothing can pay spread in or take stake until governance
-        // names the credit pool, which is part of the wiring batch.
+        // Asserted unset: nothing can pay spread in or take stake until governance names the
+        // credit pool in the wiring batch.
         _expect("staking.creditManager", address(0), staking.creditManager());
         _expect("staking.slasher", address(0), staking.slasher());
 
@@ -292,9 +292,8 @@ contract DeployStaking is BursarScript {
         _expect("buyback.keeper", address(0), buyback.keeper());
         _expectUint("buyback.maxCeilingAge", CEILING_AGE, buyback.maxCeilingAge());
 
-        // The pool key is re-derived, not echoed. Sorting decides the swap direction, and a
-        // direction taken from the wrong side of the comparison would sell the treasury's USDG
-        // instead of buying with it.
+        // The pool key is derived again from the two tokens. Sorting decides the swap direction,
+        // and a direction read from the wrong side of the comparison would trade backwards.
         (address c0, address c1) = asset < brsr ? (asset, brsr) : (brsr, asset);
         _expect("buyback.currency0", c0, buyback.currency0());
         _expect("buyback.currency1", c1, buyback.currency1());

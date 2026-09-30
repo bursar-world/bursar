@@ -5,8 +5,7 @@ import {CollateralVault} from "../../src/rwa/CollateralVault.sol";
 
 /// Launch terms of the collateral lane: the credit caps, the spread, the haircut tiers and which
 /// asset sits in which tier. No addresses: the registry, guard, factory, staking pool and buyback
-/// come from the record, and the lender from the environment. Development parameters, on the
-/// production checklist for review before launch.
+/// come from the record, and the lender from the environment. Reviewed again before launch.
 library CollateralConfig {
     uint128 internal constant TOTAL_DEBT_CAP = 100e6;
     uint128 internal constant PER_MANDATE_CAP = 10e6;

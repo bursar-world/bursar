@@ -16,8 +16,8 @@ import {IStaking} from "../src/token/interfaces/IStaking.sol";
 /// owes the set: the buyback's keeper, the resolvers' bond floors, the rebate table, and the
 /// credit pool's two roles on the staking pool.
 ///
-/// Each of those is owed while it is unset and a mismatch the moment it is set to anything other
-/// than what the record says was intended. `VerifyWiring.s.sol` holds them all to set.
+/// Each of those is reported as owed while it is unset, and as a mismatch once it is set to
+/// anything but what the record intends. `VerifyWiring.s.sol` checks the whole batch took effect.
 abstract contract StakingChecks is Verifier {
     function _checkStaking() internal {
         address staking = _contract(K.STAKING);

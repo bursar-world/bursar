@@ -41,13 +41,11 @@ import {IStaking} from "../src/token/interfaces/IStaking.sol";
 /// different scales. Nothing in this script reads a native balance.
 contract Deploy is BursarScript {
     /// What the deploy key has to hold in the settlement asset before the run starts. This
-    /// deployment spends no USDG, so it is not a funding check: it is the proof that the address
-    /// in the record is the asset the system will settle in and that the key can fund the first
-    /// live mandate afterwards.
+    /// deployment spends no USDG. The balance shows that the address in the record is the asset the
+    /// system will settle in, and that the key can fund the first live mandate afterwards.
     uint256 internal constant MIN_SETTLEMENT_BALANCE = 1_000_000;
 
-    /// What `BURSAR_ALLOW_EOA_GOVERNANCE` has to say. A phrase rather than a boolean, so that no
-    /// shell carrying a stray `true` can switch off the refusal below.
+    /// What `BURSAR_ALLOW_EOA_GOVERNANCE` has to say.
     string internal constant EOA_GOVERNANCE_ACK = "i-accept-eoa-governance";
 
     struct Deployment {
@@ -142,11 +140,9 @@ contract Deploy is BursarScript {
         _loadSigners();
         timelockPeriod = _envUint64("BURSAR_TIMELOCK_PERIOD");
 
-        // A first deployment brings its own governance. A run that finds governance in the
-        // record, or is told to join one, joins it: the delay only means anything if there is
-        // one of it, and two timelocks over one deployment are two answers to the question of
-        // who may change a parameter. A recorded timelock with no code behind it is a broadcast
-        // that never landed, and this run replaces it.
+        // A first deployment brings its own governance. A run that finds governance in the record,
+        // or is told to join one, joins it, so one delay covers every parameter. A recorded
+        // timelock with no code behind it is a broadcast that never landed, and is replaced.
         address recorded = _recordAddress(K.ADMIN_TIMELOCK);
         if (recorded.code.length == 0) recorded = address(0);
         address named = _envAddressOr("BURSAR_ADMIN_TIMELOCK", address(0));
@@ -170,9 +166,9 @@ contract Deploy is BursarScript {
         disputeWindow = _envUint64("BURSAR_DISPUTE_WINDOW");
         minLock = _envUint128("BURSAR_MIN_LOCK");
 
-        // The escrow no longer has a dispute timeout of its own. A disputed lock leaves through
-        // the resolver registry, whose two exits cannot both be closed, and a value left over
-        // from an older parameter file would read as though a third one existed.
+        // The escrow has no dispute timeout of its own. A disputed lock leaves through the
+        // resolver registry, whose two exits cannot both be closed, and a value left in an older
+        // parameter file would read as a third exit.
         _refuseRetired("BURSAR_DISPUTE_TIMEOUT", "nothing: disputes exit through OracleRegistry");
 
         curve = IReputation.CapCurve({
@@ -247,9 +243,9 @@ contract Deploy is BursarScript {
         if (timelockPeriod == 0) revert TimelockPeriodZero();
 
         // Joining live governance means this run never sets its terms, so the terms are read
-        // off the contract and held against the parameter file instead. A wrong address is
-        // otherwise invisible until the first proposal, by which point every contract in the
-        // run answers to something nobody chose.
+        // off the contract and checked against the parameter file. A wrong address is otherwise
+        // invisible until the first proposal, by which point every contract in the run answers
+        // to something nobody chose.
         if (existingTimelock != address(0)) {
             if (existingTimelock.code.length == 0) revert TimelockNotContract(existingTimelock);
 
@@ -267,8 +263,7 @@ contract Deploy is BursarScript {
             }
         }
 
-        // A second copy of a contract the rest of the system points at is two answers to one
-        // question. The record says what is already there.
+        // The record says what is already there, and each of these refuses a second copy.
         if (existingTimelock == address(0)) _requireUnrecorded(K.ADMIN_TIMELOCK);
         _requireUnrecorded(K.REPUTATION);
         _requireUnrecorded(K.ESCROW);
@@ -284,7 +279,7 @@ contract Deploy is BursarScript {
         }
 
         // An unscored payee is capped at `baseCap`. A zero floor rejects every first lock a
-        // payee would ever take, and the escrow looks broken rather than conservative.
+        // payee would ever take, and the escrow would look broken.
         if (curve.baseCap == 0) revert BaseCapZero();
 
         // The deploy key signs from a shell with an unlocked keystore. Governance weight on that
@@ -313,12 +308,12 @@ contract Deploy is BursarScript {
         if (!multisig) _requireEoaGovernanceAccepted();
     }
 
-    /// The refusal an operator can lift, on purpose, in one place, once.
+    /// The one refusal an operator can lift on purpose.
     ///
     /// Governance is three plain keys until a multisig replaces them, so a deployment has to be
     /// possible with no contract in the signer set. Unset, the refusal stands and nothing
-    /// deploys. What lifts it is a phrase and not a boolean, because `true` is a word that
-    /// arrives in a shell by accident and `i-accept-eoa-governance` is not.
+    /// deploys. What lifts it is a phrase, because `true` is a word that arrives in a shell by
+    /// accident and `i-accept-eoa-governance` is not.
     function _requireEoaGovernanceAccepted() private view {
         string memory given = _envRaw(_key("BURSAR_ALLOW_EOA_GOVERNANCE"));
         if (bytes(given).length == 0) revert GovernanceHasNoMultisig();
@@ -377,9 +372,9 @@ contract Deploy is BursarScript {
         if (withAgentRegistry) {
             agentRegistry = new AgentRegistry(IERC20(asset), address(timelock), slashSink, agentMinStake, agentSlashBps);
         } else {
-            // Cleared, not left alone. One script instance can be run more than once in a
-            // process, and a readback against the previous run's registry would hold this
-            // deployment to a pairing it does not have.
+            // Cleared, because one script instance can run more than once in a process, and a
+            // readback against the previous run's registry would hold this deployment to a
+            // pairing it does not have.
             agentRegistry = AgentRegistry(address(0));
         }
 
@@ -424,8 +419,8 @@ contract Deploy is BursarScript {
         _expect("escrow.reputation", address(reputation), escrow.reputation());
 
         // Bonds are posted in BRSR. A pool already in the record is named here; otherwise the
-        // staking deployment names it, and it is asserted as absent so the state is stated and
-        // not assumed: until then, no resolver can bond and no dispute can be voted on.
+        // staking deployment names it, and until then it is asserted absent: no resolver can
+        // bond and no dispute can be voted on.
         _expect("oracleRegistry.staking", existingStaking, address(oracleRegistry.staking()));
         if (existingStaking == address(0)) {
             _expect("oracleRegistry.bondAsset", address(0), address(oracleRegistry.bondAsset()));
@@ -537,8 +532,7 @@ contract Deploy is BursarScript {
             console2.log("  until it runs, register and increaseBond revert with StakingNotSet");
         }
 
-        // Named because a zero `slasher` is the intended state. The resolver rules on a job and
-        // produces a score, not a figure to take off a balance sheet.
+        // Zero is the intended slasher.
         if (withAgentRegistry) console2.log("AgentRegistry.slasher is unset: collateral moves on a timelock proposal");
     }
 }

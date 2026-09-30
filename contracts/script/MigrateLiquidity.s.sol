@@ -30,11 +30,11 @@ interface IRetiringSeeder {
 /// in one run from the liquidity key: take the whole position out, then put what came back into the
 /// new seeder at the same price, the way `SeedPool.seedExisting` adds to an open pool.
 ///
-/// The two transactions go out back to back. Removing liquidity does not move the price, so the
-/// add is planned at the price the pool stood at, and its maxima are the exact amounts that price
-/// asks for: a price pushed in between makes the add revert rather than pay more. The tokens then
-/// sit in the liquidity wallet, and `SeedPool.seedExisting`, with the price read here as
-/// `BURSAR_SEED_PRICE_MICRO_USD`, puts them in once the pool is back.
+/// The two transactions go out back to back. Removing liquidity does not move the price, so the add
+/// is planned at the price the pool stood at, with maxima at the exact amounts that price asks for:
+/// a price pushed in between makes the add revert. The tokens then sit in the liquidity wallet, and
+/// `SeedPool.seedExisting`, with the price read here as `BURSAR_SEED_PRICE_MICRO_USD`, puts them in
+/// once the pool is back.
 ///
 /// Run it without `--broadcast` first and without `--slow` for the real one, so the second
 /// transaction is not held back for the first one's receipt.
