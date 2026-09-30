@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+/// Arbitrum's system precompile. On an Arbitrum chain `block.number` is an estimate of the L1
+/// block, so the chain's own block number has to be read from here.
+interface IArbSys {
+    function arbBlockNumber() external view returns (uint256);
+}
+
 /// A public log of epoch solvency roots. Each entry is the root of a Merkle-sum tree over the
 /// protocol's public obligations and the balances that back them, read at `asOfBlock`. Anyone can
 /// rebuild the tree from chain data at that block and check the root (services/solvency, the
@@ -10,6 +16,9 @@ contract SolvencyLog {
     error NotAdmin();
     error NotPendingAdmin();
     error StaleEpoch();
+    error FutureEpoch();
+    error StaleBlock();
+    error FutureBlock();
     error ZeroAddress();
 
     struct Epoch {
@@ -24,6 +33,8 @@ contract SolvencyLog {
     event PosterSet(address indexed poster);
     event AdminTransferStarted(address indexed to);
     event AdminTransferred(address indexed to);
+
+    IArbSys private constant ARB_SYS = IArbSys(address(100));
 
     address public admin;
     address public pendingAdmin;
@@ -40,11 +51,16 @@ contract SolvencyLog {
         emit PosterSet(poster_);
     }
 
-    /// Epochs only move forward, so a posted root can never be overwritten. `asOfBlock` is an L2
-    /// block number and is not checked here: on an Arbitrum chain `block.number` reads the L1 block.
+    /// Epochs are UTC days and only move forward, so a posted root can never be overwritten. An
+    /// epoch cannot be ahead of today either: one posted far ahead would leave every later day
+    /// stale and end the log. `asOfBlock` is an L2 block, later than the previous epoch's and not
+    /// past the chain head.
     function post(uint64 epoch, uint64 asOfBlock, bytes32 root, uint128 liabilities, uint128 assets) external {
         if (msg.sender != poster) revert NotPoster();
         if (epoch <= latestEpoch) revert StaleEpoch();
+        if (epoch > block.timestamp / 1 days) revert FutureEpoch();
+        if (asOfBlock <= _epochs[latestEpoch].asOfBlock) revert StaleBlock();
+        if (asOfBlock > ARB_SYS.arbBlockNumber()) revert FutureBlock();
         latestEpoch = epoch;
         _epochs[epoch] = Epoch(root, liabilities, assets, asOfBlock, uint64(block.timestamp));
         emit EpochPosted(epoch, root, liabilities, assets, asOfBlock);
