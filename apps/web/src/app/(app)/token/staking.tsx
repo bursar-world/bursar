@@ -146,7 +146,7 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
               caption="Fee rebate by staked balance"
               columns={[
                 { key: 'min', header: 'Staked at least', align: 'right', cell: (row) => <span className="tabular">{formatBrsr(row.minStake)} BRSR</span> },
-                { key: 'rebate', header: 'Off the settlement fee', align: 'right', cell: (row) => <span className="tabular">{bps(row.rebateBps)}</span> },
+                { key: 'rebate', header: 'Off the facilitator fee', align: 'right', cell: (row) => <span className="tabular">{bps(row.rebateBps)}</span> },
               ]}
             />
           </div>
@@ -179,7 +179,7 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
               <Stat
                 label="Your fee rebate"
                 value={position?.rebateBps === undefined ? unread : bps(position.rebateBps)}
-                hint="Taken off the settlement fee on your own payouts."
+                hint="Taken off the facilitator fee on payouts you receive through it. The escrow's settlement fee is not rebated."
               />
             </StatGrid>
 
