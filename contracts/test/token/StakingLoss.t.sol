@@ -20,9 +20,9 @@ import {ShrinkingERC20} from "../mocks/ShrinkingERC20.sol";
 /// pool at that instant, exits included, and down to nothing when the shortfall is larger than
 /// the pool.
 contract StakingLossTest is Test {
-    event Slashed(bytes32 indexed reason, uint256 amount, uint256 remaining);
+    event Slashed(uint256 requested, uint256 taken, uint256 remaining);
     event PoolWiped(uint32 indexed epoch, uint256 shares);
-    event StakeWiped(address indexed staker, uint32 indexed epoch, uint256 shares);
+    event StakeWiped(address indexed staker, uint32 indexed epoch, uint256 shares, uint256 unbondingShares);
 
     uint64 internal constant UNBONDING = 7 days;
     uint256 internal constant MIN_BOND = 1_000e18;
@@ -33,6 +33,7 @@ contract StakingLossTest is Test {
 
     address internal admin = makeAddr("timelock");
     address internal credit = makeAddr("creditManager");
+    address internal slasher = makeAddr("slasher");
     address internal slashSink = makeAddr("slashSink");
     address internal treasury = makeAddr("treasury");
 
@@ -49,8 +50,12 @@ contract StakingLossTest is Test {
         );
         staking = new Staking(brsr, usdg, admin, slashSink, treasury, UNBONDING, MIN_BOND);
 
-        vm.prank(admin);
+        vm.startPrank(admin);
         staking.setCreditManager(credit);
+        staking.setSlasher(slasher);
+        // How a loss lands, not how fast one may: the cap is lifted here and tested on its own.
+        staking.setSlashLimit(10_000, 1 days);
+        vm.stopPrank();
 
         address[3] memory who = [alice, bob, carol];
         for (uint256 i; i < who.length; ++i) {
@@ -75,8 +80,8 @@ contract StakingLossTest is Test {
     }
 
     function _slash(uint256 amount) internal returns (uint256) {
-        vm.prank(credit);
-        return staking.slash(amount, bytes32("loan-1"));
+        vm.prank(slasher);
+        return staking.slash(amount);
     }
 
     /// Every staker loses the same fraction, whatever they staked and whenever they staked it.
@@ -109,8 +114,8 @@ contract StakingLossTest is Test {
 
         vm.expectEmit(true, false, false, true, address(staking));
         emit PoolWiped(0, staking.totalShares());
-        vm.expectEmit(true, false, false, true, address(staking));
-        emit Slashed(bytes32("loan-1"), 1_000e18, 0);
+        vm.expectEmit(false, false, false, true, address(staking));
+        emit Slashed(5_000e18, 1_000e18, 0);
         assertEq(_slash(5_000e18), 1_000e18);
 
         assertEq(staking.totalStaked(), 0);
@@ -131,7 +136,7 @@ contract StakingLossTest is Test {
         _slash(type(uint128).max);
 
         vm.expectEmit(true, true, false, true, address(staking));
-        emit StakeWiped(alice, 1, shares);
+        emit StakeWiped(alice, 1, shares, 0);
         vm.prank(alice);
         staking.stake(1e18);
 
@@ -148,6 +153,8 @@ contract StakingLossTest is Test {
 
         _stake(bob, 1_000e18);
         _distribute(5_000_000);
+        // The first wipe spent the allowance. It refills over the window.
+        vm.warp(block.timestamp + 1 days);
         _slash(type(uint128).max);
 
         _stake(carol, 1_000e18);
@@ -244,7 +251,7 @@ contract StakingLossTest is Test {
         vm.expectRevert(IStaking.UnbondNotMatured.selector);
         staking.completeUnbond();
 
-        vm.warp(block.timestamp + 30 days);
+        vm.warp(block.timestamp + 30 days - UNBONDING);
         vm.prank(alice);
         staking.completeUnbond();
     }
@@ -327,7 +334,7 @@ contract StakingLossTest is Test {
         staking.pause();
 
         vm.prank(alice);
-        vm.expectRevert(Pausable.EnforcedPause.selector);
+        vm.expectRevert(abi.encodeWithSelector(IStaking.ExitsHeld.selector, uint64(block.timestamp) + 7 days));
         staking.completeUnbond();
 
         vm.prank(bob);
@@ -346,53 +353,66 @@ contract StakingLossTest is Test {
         assertApproxEqRel(staking.completeUnbond(), 500e18, 1e12);
     }
 
-    function test_aSlashNeedsTheCreditManagerAndTheCreditManagerStartsUnset() public {
+    function test_aSlashNeedsTheSlasherAndTheSlasherStartsUnset() public {
         Staking fresh = new Staking(brsr, usdg, admin, slashSink, treasury, UNBONDING, MIN_BOND);
-        assertEq(fresh.creditManager(), address(0));
+        assertEq(fresh.slasher(), address(0));
 
         brsr.approve(address(fresh), 1_000e18);
         fresh.stake(1_000e18);
 
-        vm.prank(credit);
-        vm.expectRevert(IStaking.NotCreditManager.selector);
-        fresh.slash(1e18, bytes32(0));
+        vm.prank(slasher);
+        vm.expectRevert(IStaking.NotSlasher.selector);
+        fresh.slash(1e18);
 
         vm.prank(admin);
-        vm.expectRevert(IStaking.NotCreditManager.selector);
-        fresh.slash(1e18, bytes32(0));
+        vm.expectRevert(IStaking.NotSlasher.selector);
+        fresh.slash(1e18);
     }
 
-    function test_aSlashOfNothingAndASlashOfAnEmptyPoolAreBothRefused() public {
-        vm.prank(credit);
-        vm.expectRevert(IStaking.NothingStaked.selector);
-        staking.slash(1e18, bytes32(0));
+    /// A write-off calls this with whatever it has measured, and it must not fail on the state
+    /// of the pool. Nothing to take is a return of zero, and the lender carries the loss.
+    function test_aSlashOfNothingOrOfAnEmptyPoolTakesNothing() public {
+        assertEq(_slash(1e18), 0);
 
         _stake(alice, 100e18);
-        vm.prank(credit);
-        vm.expectRevert(IStaking.ZeroAmount.selector);
-        staking.slash(0, bytes32(0));
+        assertEq(_slash(0), 0);
+        assertEq(staking.totalStaked(), 100e18);
+        assertEq(brsr.balanceOf(slashSink), 0);
     }
 
     /// The separation in one test: the key that takes stake is not the key that sets the
-    /// parameters, and naming it is a governance decision on its own.
-    function test_theAdminCannotSlashAndTheCreditManagerCannotGovern() public {
+    /// parameters, the credit lane that pays the spread cannot take stake, and naming the
+    /// slasher is a governance decision on its own.
+    function test_theAdminCannotSlashAndNeitherLaneCanGovern() public {
         _stake(alice, 1_000e18);
 
         vm.prank(admin);
+        vm.expectRevert(IStaking.NotSlasher.selector);
+        staking.slash(1e18);
+
+        vm.prank(credit);
+        vm.expectRevert(IStaking.NotSlasher.selector);
+        staking.slash(1e18);
+
+        vm.prank(slasher);
         vm.expectRevert(IStaking.NotCreditManager.selector);
-        staking.slash(1e18, bytes32(0));
+        staking.distribute(1);
 
-        vm.prank(credit);
-        vm.expectRevert(IStaking.NotAdmin.selector);
-        staking.setCreditManager(credit);
-
-        vm.prank(credit);
-        vm.expectRevert(IStaking.NotAdmin.selector);
-        staking.pause();
-
-        vm.prank(credit);
-        vm.expectRevert(IStaking.NotAdmin.selector);
-        staking.setSlashSink(credit);
+        address[2] memory lanes = [credit, slasher];
+        for (uint256 i; i < lanes.length; ++i) {
+            vm.startPrank(lanes[i]);
+            vm.expectRevert(IStaking.NotAdmin.selector);
+            staking.setCreditManager(lanes[i]);
+            vm.expectRevert(IStaking.NotAdmin.selector);
+            staking.setSlasher(lanes[i]);
+            vm.expectRevert(IStaking.NotAdmin.selector);
+            staking.setSlashLimit(10_000, 1 days);
+            vm.expectRevert(IStaking.NotAdmin.selector);
+            staking.pause();
+            vm.expectRevert(IStaking.NotAdmin.selector);
+            staking.setSlashSink(lanes[i]);
+            vm.stopPrank();
+        }
     }
 
     function test_compoundingIntoAnEmptyPoolIsRefused() public {
@@ -535,7 +555,8 @@ contract StakingLossTest is Test {
     function testFuzz_aLossIsTheSameFractionForEveryone(uint96 a, uint96 b, uint96 loss) public {
         uint256 stakeA = bound(a, 1e18, 1_000_000e18);
         uint256 stakeB = bound(b, 1e18, 1_000_000e18);
-        uint256 taken = bound(loss, 1, (stakeA + stakeB) - 1);
+        // Anything short of leaving dust. A slash that leaves under a thousandth takes it all.
+        uint256 taken = bound(loss, 1, ((stakeA + stakeB) * 999) / 1_000);
 
         _stake(alice, stakeA);
         _stake(bob, stakeB);
@@ -580,7 +601,8 @@ contract StakingLossTest is Test {
         }
 
         vm.warp(block.timestamp + UNBONDING);
-        if (exitFirst && staking.positionOf(alice).unbondingShares != 0) {
+        (, uint64 maturesAt,) = staking.unbondOf(alice);
+        if (maturesAt != 0) {
             vm.prank(alice);
             staking.completeUnbond();
         }
@@ -711,9 +733,11 @@ contract StakingRebateTest is Test {
     function test_aWipedPositionEarnsNothing() public {
         _stakeToExactly(TIER_3);
 
-        vm.prank(admin);
-        staking.setCreditManager(address(this));
-        staking.slash(type(uint128).max, bytes32("loan-1"));
+        vm.startPrank(admin);
+        staking.setSlasher(address(this));
+        staking.setSlashLimit(10_000, 1 days);
+        vm.stopPrank();
+        staking.slash(type(uint128).max);
 
         assertEq(staking.rebateBpsOf(alice), 0);
         assertEq(staking.activeStakeOf(alice), 0);
@@ -779,19 +803,43 @@ contract StakingRebateTest is Test {
         staking.setTiers(tiers);
     }
 
-    /// Below the first tier there is no rebate, and above any boundary the rebate is the one
-    /// that boundary names. No balance reads a tier it has not reached.
-    function testFuzz_noBalanceReadsATierItHasNotReached(uint96 amount) public {
+    /// The live pool's first figures: 25,000 BRSR staked, then the first buyback's compound. A
+    /// stake of exactly the tier's amount after that is worth a shade under it once the pool
+    /// keeps the fraction of a share the deposit paid for, and it read as the tier below.
+    function test_anExactTierStakeReadsItsTierAfterACompound() public {
+        IStaking.Tier[] memory one = new IStaking.Tier[](1);
+        one[0] = IStaking.Tier({minStake: 25_000e18, rebateBps: 500});
+        vm.prank(admin);
+        staking.setTiers(one);
+
+        brsr.approve(address(staking), type(uint256).max);
+        staking.stake(25_000e18);
+        staking.compound(2_443_771202227581992667);
+
+        vm.prank(alice);
+        staking.stake(25_000e18);
+
+        assertLt(staking.activeStakeOf(alice), 25_000e18, "the rounding the read has to absorb");
+        assertEq(staking.rebateBpsOf(alice), 500);
+    }
+
+    /// A stake reads exactly the tier its amount reaches, before or after a compound has moved
+    /// the share price off a round number: never a tier it has not reached, and never the one
+    /// below because the pool kept the fraction of a share the deposit paid for.
+    function testFuzz_aStakeReadsTheTierItsAmountReaches(uint96 amount, uint96 compounded) public {
+        brsr.approve(address(staking), type(uint256).max);
+        staking.stake(25_000e18);
+        uint256 extra = bound(compounded, 0, 50_000e18);
+        if (extra != 0) staking.compound(extra);
+
         uint256 staked = bound(amount, 1e15, 900_000e18);
         vm.prank(alice);
         staking.stake(staked);
 
-        uint256 value = staking.activeStakeOf(alice);
         uint16 rebate = staking.rebateBpsOf(alice);
-
-        if (value < TIER_1) assertEq(rebate, 0);
-        else if (value < TIER_2) assertEq(rebate, 500);
-        else if (value < TIER_3) assertEq(rebate, 1_500);
+        if (staked < TIER_1) assertEq(rebate, 0);
+        else if (staked < TIER_2) assertEq(rebate, 500);
+        else if (staked < TIER_3) assertEq(rebate, 1_500);
         else assertEq(rebate, 3_000);
     }
 }
