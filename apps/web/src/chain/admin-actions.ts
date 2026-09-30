@@ -1350,7 +1350,7 @@ function isZeroWord(value: unknown): boolean {
 }
 
 function tiersSentence(value: unknown): string {
-  if (!Array.isArray(value)) return 'Replaces the fee rebate table that decides how much a staked balance takes off the settlement fee.';
+  if (!Array.isArray(value)) return 'Replaces the fee rebate table that decides how much a staked balance takes off the facilitator fee.';
   if (value.length === 0) {
     return 'Clears the fee rebate table. Every rebate then reads zero, whatever anyone has staked.';
   }
@@ -1360,7 +1360,7 @@ function tiersSentence(value: unknown): string {
     .map((tier) => `${formatBrsrAmount(brsr(asBigint(tier.minStake)))} for ${formatBps(asBigint(tier.rebateBps))}`)
     .join(', ');
 
-  return `Replaces the fee rebate table with ${value.length} ${value.length === 1 ? 'rung' : 'rungs'}: ${rungs} off the settlement fee on the staker's own payouts.`;
+  return `Replaces the fee rebate table with ${value.length} ${value.length === 1 ? 'rung' : 'rungs'}: ${rungs} off the facilitator fee on payouts the staker receives through it.`;
 }
 
 function paramsSentence(value: unknown): string {

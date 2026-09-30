@@ -28,7 +28,7 @@ export type StakingPosition = {
   readonly stakedValue: Brsr | undefined;
   /** Unclaimed distribution, in USDG. The pool distributes the settlement asset, not the token. */
   readonly pendingRewards: Micro | undefined;
-  /** Fee rebate this balance currently earns, in basis points against the settlement fee. */
+  /** Fee rebate this balance currently earns, in basis points against the facilitator fee. */
   readonly rebateBps: number | undefined;
   /** The exit request. Null when none is pending, undefined when the pool did not say. */
   readonly exit: PendingExit | null | undefined;
