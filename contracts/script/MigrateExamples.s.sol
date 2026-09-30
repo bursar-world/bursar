@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {console2} from "forge-std/console2.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {Migration} from "./lib/Migration.sol";
 import {RecordKeys as K} from "./lib/RecordKeys.sol";
@@ -54,6 +55,8 @@ interface IRetiringVault {
 ///   forge script script/MigrateExamples.s.sol --sig "drain()"  --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/payer" [--broadcast]
 ///   forge script script/MigrateExamples.s.sol --sig "create()" --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/payer" [--broadcast]
 contract MigrateExamples is Migration {
+    using SafeERC20 for IERC20;
+
     bytes32 internal constant PUBLIC_SALT = keccak256("bursar.example-mandate.v3");
     bytes32 internal constant COLLATERAL_SALT = keccak256("bursar.collateral-mandate.v3");
     bytes32 internal constant COMMITTED_SALT = keccak256("bursar.committed-mandate.v3");
@@ -197,7 +200,7 @@ contract MigrateExamples is Migration {
             return address(0);
         }
         uint256 counter = _envUint("BURSAR_COMMITTED_COUNTER");
-        bytes memory ciphertext = vm.envBytes(_key("BURSAR_COMMITTED_CIPHERTEXT"));
+        bytes memory ciphertext = _envBytes("BURSAR_COMMITTED_CIPHERTEXT");
         CommittedMandateFactory factory = CommittedMandateFactory(_upstream(K.COMMITTED_FACTORY));
         m = factory.predict(msg.sender, msg.sender, COMMITTED_SALT, terms, counter);
         if (m.code.length == 0) {
@@ -205,7 +208,7 @@ contract MigrateExamples is Migration {
             console2.log("committed example             ", m);
         }
         uint256 funding = _envUintOr("BURSAR_COMMITTED_FUNDING", COMMITTED_FUNDING);
-        if (usdg.balanceOf(m) < funding) usdg.transfer(m, funding - usdg.balanceOf(m));
+        if (usdg.balanceOf(m) < funding) usdg.safeTransfer(m, funding - usdg.balanceOf(m));
     }
 
     function _limits(uint32 classMask, uint8 lane) private pure returns (IMandateAccount.Limits memory) {

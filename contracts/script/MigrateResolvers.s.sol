@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {console2} from "forge-std/console2.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {Migration} from "./lib/Migration.sol";
 import {RecordKeys as K} from "./lib/RecordKeys.sol";
@@ -24,6 +25,8 @@ import {Staking} from "../src/token/Staking.sol";
 /// The old registries keep ruling on the disputes already open on them while the bonds unbond,
 /// and a bond with a vote still open stays until the vote closes.
 contract MigrateResolvers is Migration {
+    using SafeERC20 for IERC20;
+
     uint8 private constant ACTIVE = 1;
     uint8 private constant UNBONDING = 2;
 
@@ -45,7 +48,7 @@ contract MigrateResolvers is Migration {
                 console2.log("already covered                ", resolvers[i]);
                 continue;
             }
-            brsr.transfer(resolvers[i], needed - held);
+            brsr.safeTransfer(resolvers[i], needed - held);
             console2.log("sent to                        ", resolvers[i]);
             console2.log("  BRSR wei                     ", needed - held);
         }
@@ -101,7 +104,7 @@ contract MigrateResolvers is Migration {
         _completeUnbond(_oldOptional("BURSAR_V2_RECORD", ".contracts.OracleRegistry"));
         _completeUnbond(_oldOptional("BURSAR_V1_RECORD", ".contracts.OracleRegistry"));
         uint256 returned = brsr.balanceOf(msg.sender) - before;
-        if (returned != 0) brsr.transfer(treasury, returned);
+        if (returned != 0) brsr.safeTransfer(treasury, returned);
         vm.stopBroadcast();
 
         console2.log("returned to the treasury, BRSR wei", returned);
@@ -122,8 +125,11 @@ contract MigrateResolvers is Migration {
         if (uint8(r.status) != UNBONDING) return;
         uint256 maturesAt = uint256(r.unbondingAt) + registry.config().unbondingPeriod;
         if (block.timestamp < maturesAt) {
-            console2.log("not matured yet at", old);
-            console2.log("  matures at", maturesAt);
+            console2.log(
+                string.concat(
+                    "not matured yet at ", vm.toString(old), ": matures ", _utc(maturesAt), ", in ", _until(maturesAt)
+                )
+            );
             return;
         }
         registry.completeUnbond();
