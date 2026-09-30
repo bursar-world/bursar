@@ -78,6 +78,9 @@ contract MandateAccountFactory is IMandateAccountFactory {
         view
         returns (bytes memory)
     {
+        // The creation code is the same blob on every call, so the seam between the two halves
+        // never moves and no two argument sets pack to the same bytes.
+        // forge-lint: disable-next-line(encode-packed-collision)
         return abi.encodePacked(_creationCode(), abi.encode(principal, agent, settlementAsset, escrow, limits));
     }
 
