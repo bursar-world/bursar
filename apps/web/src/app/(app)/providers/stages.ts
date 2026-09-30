@@ -191,7 +191,7 @@ function contestedDetail(lock: ProviderLock, now: Date, mine: boolean): string {
   const settles =
     lock.deployment.contractSet === 'v1'
       ? ' Once the reveal closes anyone can settle it.'
-      : ` Once the reveal closes anyone can settle it: a ruling splits the lock, and a vote too few resolvers revealed in puts it back on hold for ${mine ? 'you' : 'the payee'} with a new deadline.`;
+      : ` Once the reveal closes anyone can settle it: a ruling splits the lock, and if too few resolvers reveal, it goes back on hold for ${mine ? 'you' : 'the payee'} with a new deadline.`;
 
   return `${byWhom} contested this lock, so the money is frozen. ${voting}${settles}`;
 }

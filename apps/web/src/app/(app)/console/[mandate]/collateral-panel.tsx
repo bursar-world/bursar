@@ -259,7 +259,7 @@ function RepayForm({ state, onChange }: { readonly state: CollateralAccount; rea
   };
 
   return (
-    <Field label="Repay" hint="Paid from the connected wallet straight to the lending pool. Takes no more than the mandate owes.">
+    <Field label="Repay" hint="Paid from the connected wallet straight to the credit pool. Takes no more than the mandate owes.">
       <div className="space-y-3">
         <AmountInput
           label="Amount"

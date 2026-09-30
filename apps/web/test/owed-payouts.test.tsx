@@ -48,7 +48,7 @@ describe('a payout held for a mandate', () => {
     expect(html).toContain('Held for this mandate');
     expect(html).toContain('$1.25');
     expect(html).toContain('token issuer has frozen an address');
-    expect(html).toContain('the money only ever goes to this mandate');
+    expect(html).toContain('It pays this mandate and nobody else');
     expect(html).toContain('Connect a wallet to claim it. Any wallet can.');
   });
 

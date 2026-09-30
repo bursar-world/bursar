@@ -40,7 +40,7 @@ import { AmountInput } from '@/components/amount-input';
 import { Address as AddressView, TxHash } from '@/components/address';
 import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
-import { ClaimOwedButton } from '@/components/claim-owed';
+import { ClaimOwedButton, owedExplanation } from '@/components/claim-owed';
 import { Card, EmptyState, Field, FieldGrid, Section, Skeleton } from '@/components/layout';
 import { TxButton } from '@/components/tx-button';
 import { usd, usdExact } from '@/money';
@@ -132,10 +132,7 @@ export function CommittedMandateView({ mandate, onRefresh }: { readonly mandate:
             <div className="space-y-4">
               <p className="max-w-3xl text-sm">
                 The escrow is holding <span className="tabular font-medium">{usdExact(micro(mandate.owed))}</span> for this
-                mandate. When the payment settled, USDG refused the transfer here, which is what happens while the token
-                issuer has frozen an address, so the escrow kept the amount aside instead of holding up the rest of the
-                settlement. A claim sends it all to this mandate once USDG will move to it again. Anyone can send the
-                claim, and the money only ever goes here.
+                mandate. {owedExplanation('this mandate')}
               </p>
               {connected === undefined ? (
                 <p className="text-detail text-[color:var(--color-muted)]">Connect a wallet to claim it. Any wallet can.</p>

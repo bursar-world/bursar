@@ -53,8 +53,8 @@ describe('deposit limits', () => {
 });
 
 describe('withdrawals', () => {
-  it('waits for the approved set before anything else', () => {
-    expect(withdrawProblem({ amount: 1n, note: { value: 5n }, inSet: false })).toMatch(/waiting for the next approved set/);
+  it('waits for the association set before anything else', () => {
+    expect(withdrawProblem({ amount: 1n, note: { value: 5n }, inSet: false })).toMatch(/waiting for the next association set/);
     expect(withdrawProblem({ amount: 6n, note: { value: 5n }, inSet: true })).toMatch(/holds/);
     expect(withdrawProblem({ amount: 5n, note: { value: 5n }, inSet: true })).toBeUndefined();
   });

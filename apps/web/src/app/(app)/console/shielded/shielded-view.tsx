@@ -175,10 +175,10 @@ function PoolPanel({ contracts }: { readonly contracts: ShieldedDeployment }) {
             value={set.data ? `${set.data.labels.length} of ${pool.data?.events.deposits.length ?? 0}` : 'Reading'}
             hint={
               set.data === undefined
-                ? 'Reading the approved set.'
+                ? 'Reading the association set.'
                 : ready
-                  ? 'Every deposit from a wallet the Robinhood access registry does not block. Withdrawals prove against this set.'
-                  : 'The newest deposits are waiting for the next approved set. They can be withdrawn once it is posted.'
+                  ? 'Every deposit from a wallet the Robinhood access registry does not block. This is the association set, and withdrawals prove against it.'
+                  : 'The newest deposits are waiting for the next association set. They can be withdrawn once its root is posted.'
             }
             level={set.data === undefined ? 'unknown' : ready ? 'ok' : 'attention'}
           />

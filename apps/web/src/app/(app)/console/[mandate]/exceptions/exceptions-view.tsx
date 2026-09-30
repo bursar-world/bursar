@@ -485,7 +485,7 @@ function Attempted({ refusal, labelFor }: { readonly refusal: Refusal; readonly 
 export function whoseMove(status: LockStatus, overdue: boolean): string {
   if (overdue) return 'Yours';
   if (status === LockStatus.Disputed) return 'The resolvers';
-  return 'Nobody, it is closed';
+  return 'Nobody. It is closed.';
 }
 
 /**

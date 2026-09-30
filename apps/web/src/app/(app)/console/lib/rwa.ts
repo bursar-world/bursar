@@ -261,7 +261,7 @@ export const RWA_REFUSALS: Readonly<Record<string, string>> = {
   SwapShort: 'The fill came back below the slippage limit.',
   BadSlippage: 'The slippage limit has to be below 100%.',
   UnknownAdapter: 'That parking option is not enabled.',
-  NotFactoryAccount: 'Only a mandate created by one of the factories the treasury lane accepts can park.',
+  NotFactoryAccount: 'Only mandates created on the current contracts can park in the treasury fund.',
   NothingToUnpark: 'Nothing parked can be sold right now to cover the amount, so the mandate pays from the USDG it holds.',
   ZeroAmount: 'Enter an amount above zero.',
   VaultShort: 'The parking vault holds less USDG than the amount. Move the USDG into it first.',

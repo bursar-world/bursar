@@ -10,7 +10,7 @@ import { ADDRESSES, RHC, deploymentLabel, shortAddress } from '@/chain';
 import { Address as AddressView } from '@/components/address';
 import { LevelDot } from '@/components/badge';
 import { Button } from '@/components/button';
-import { ClaimOwedButton } from '@/components/claim-owed';
+import { ClaimOwedButton, owedExplanation } from '@/components/claim-owed';
 import { ErrorSurface } from '@/components/error-surface';
 import { Instant } from '@/components/instant';
 import { Card, EmptyState, Field, FieldGrid, Section, Skeleton } from '@/components/layout';
@@ -242,8 +242,8 @@ export function DeskHeadline({ desk, owned }: { readonly desk: ProviderDesk; rea
  * A payout the escrow kept aside for this address.
  *
  * A settlement pays every party at once. When the token refuses the transfer to one of them,
- * usually because its issuer has frozen the address, the escrow books that leg as owed rather than
- * hold up the rest, and it stays there until somebody claims it. The claim is open to anyone and
+ * usually because its issuer has frozen the address, the escrow books that leg as owed and pays the
+ * rest, and it stays there until somebody claims it. The claim is open to anyone and
  * pays only the address it is owed to.
  */
 export function HeldForPayee({
@@ -268,10 +268,7 @@ export function HeldForPayee({
         <div className="space-y-4">
           <p className="max-w-3xl text-sm">
             The escrow is holding <span className="tabular font-medium">{usdExact(desk.owed)}</span> for{' '}
-            {owned ? 'you' : 'this address'}. When the payment settled, USDG refused the transfer, which is what happens
-            while the token issuer has frozen an address, so the escrow kept the amount aside instead of holding up the
-            rest of the settlement. A claim sends it all to {owned ? 'your address' : 'this address'} and goes through
-            once USDG will move to it again. Anyone can send the claim, and the money only ever goes here.
+            {owned ? 'you' : 'this address'}. {owedExplanation(owned ? 'you' : 'this address')}
           </p>
           {owned && (
             <ClaimOwedButton escrow={ADDRESSES.escrow} party={desk.payee} label="Claim it" blockedBy={blockedBy} onClaimed={onClaimed} />
@@ -548,10 +545,10 @@ function Terms({ desk }: { readonly desk: ProviderDesk }) {
             label="If the vote falls short"
             hint="Anyone can close a vote once its reveal window ends, so a quiet panel never holds the money."
           >
-            The lock goes back on hold for the payee with a new deadline, and the bond is returned
+            The payment goes back on hold for the payee with a new deadline, and the bond is returned
           </Field>
           {terms.minLock !== undefined && (
-            <Field label="Smallest payment" hint="The escrow opens no lock under this, so contesting one always costs a bond.">
+            <Field label="Smallest payment" hint="The escrow refuses any payment under this amount, so contesting one always costs a bond.">
               <span className="tabular">{usdExact(terms.minLock)}</span>
             </Field>
           )}

@@ -21,7 +21,7 @@ export const LANE_FOLLOW_UPS: Readonly<Record<FundingLane, readonly string[]>> =
   collateral: ['open the collateral line', 'name the collateral vault as where the mandate borrows'],
 };
 
-/** The most one mandate may owe the lending pool, read from the pool. */
+/** The most one mandate may owe the credit pool, read from the pool. */
 function usePerMandateCap(enabled: boolean) {
   const lane = collateralDeployment(CHAIN_ID);
   return useQuery({

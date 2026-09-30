@@ -87,7 +87,7 @@ export function depositProblem(args: {
 /** Why a withdrawal of `amount` from `note` cannot be sent. */
 export function withdrawProblem(args: { amount: bigint | undefined; note: Pick<OwnedNote, 'value'>; inSet: boolean }): string | undefined {
   const { amount, note, inSet } = args;
-  if (!inSet) return 'This deposit is waiting for the next approved set. It can be withdrawn once the set includes it.';
+  if (!inSet) return 'This deposit is waiting for the next association set. It can be withdrawn once the set includes it.';
   if (amount === undefined || amount === 0n) return undefined;
   if (amount > note.value) return `This deposit holds ${usdgText(note.value)} USDG.`;
   return undefined;
@@ -186,8 +186,8 @@ export async function readPool(contracts: ShieldedDeployment): Promise<PoolReadi
 }
 
 /**
- * The approved set, from the provider's service when one is configured, otherwise rebuilt here from
- * the pool's deposits and the access registry by the same rule the provider applies.
+ * The association set, from the association-set service when one is configured, otherwise rebuilt
+ * here from the pool's deposits and the access registry by the same rule the service applies.
  */
 export async function readAssociationSet(contracts: ShieldedDeployment, reading: PoolReading, aspUrl: string | undefined): Promise<AssociationSet> {
   const sdk = await import('@bursar/sdk');
@@ -222,8 +222,8 @@ export async function depositPrecommitment(keys: ShieldedKeys, contracts: Shield
  * Proves a withdrawal in this page and hands it to the relayer. The proof binds the recipient, the
  * fee and the relay contract, so the relayer can submit it and nothing else.
  *
- * The provider posts a new approved set every few minutes and the pool takes proofs against the
- * newest only. When one lands between the proof and the submission, the pool and the set are read
+ * The association-set service posts a new root every few minutes and the pool takes proofs against
+ * the newest only. When one lands between the proof and the submission, the pool and the set are read
  * again and the withdrawal is proved again, a couple of times at most.
  */
 export async function withdrawThroughRelayer(args: {
@@ -255,7 +255,7 @@ export async function withdrawThroughRelayer(args: {
     const reading = await readPool(contracts);
     const set = await readAssociationSet(contracts, reading, args.aspUrl);
     if (!setMatchesChain(set, reading.latestRoot)) {
-      throw new Error('The approved set changed and its replacement is not posted yet. Try again in a few minutes.');
+      throw new Error('The association set changed and its new root is not posted yet. Try again in a few minutes.');
     }
     return { events: reading.events, set };
   };

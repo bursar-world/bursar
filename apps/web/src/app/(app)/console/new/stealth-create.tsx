@@ -111,8 +111,8 @@ export function StealthCreate({
     } catch (error) {
       setProblem(
         error instanceof Error && error.name === 'FundsKeySignatureError'
-          ? 'The funds-key signature did not come from this wallet, so no address was drawn. Smart-contract wallets cannot hold hidden owners.'
-          : 'A signature was declined, so no address was drawn.',
+          ? 'The funds-key signature did not come from this wallet, so no address was created. Smart-contract wallets cannot hold hidden owners.'
+          : 'A signature was declined, so no address was created.',
       );
     } finally {
       setBusy(false);
@@ -179,11 +179,11 @@ export function StealthCreate({
       <div className="space-y-3">
         <p className="text-detail text-[color:var(--color-muted)]">
           Your wallet signs twice. The first signature derives your viewing key, which opens the terms and only reads. The second
-          is shown in your wallet as controlling funds, because it does: the owner and agent addresses are drawn from the keys
-          derived from it, in this page. Neither costs anything. Sign the second one only here.
+          is shown in your wallet as controlling funds, because it does: this page creates the owner and agent addresses from
+          the keys it yields. Neither costs anything. Sign the second one only here.
         </p>
         <Button tone="primary" onClick={() => void prepare()} disabled={busy || terms === undefined}>
-          {busy ? 'Waiting for the signatures' : 'Draw the private addresses'}
+          {busy ? 'Waiting for the signatures' : 'Create the private addresses'}
         </Button>
         {problem && <Problem text={problem} />}
       </div>

@@ -8,7 +8,7 @@ describe('whoseMove', () => {
     expect(whoseMove(LockStatus.Locked, true)).toBe('Yours');
     expect(whoseMove(LockStatus.Disputed, false)).toBe('The resolvers');
     for (const status of [LockStatus.Resolved, LockStatus.TimedOut, LockStatus.Cancelled]) {
-      expect(whoseMove(status, false)).toBe('Nobody, it is closed');
+      expect(whoseMove(status, false)).toBe('Nobody. It is closed.');
     }
   });
 });

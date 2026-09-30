@@ -71,7 +71,7 @@ function Tiers({ schedule }: { readonly schedule: HaircutSchedule }) {
         </table>
       </div>
       <p className="mt-4 text-note text-[color:var(--color-muted)]">
-        Contracts: vault <Address value={schedule.lane.CollateralVault} />, lending pool <Address value={schedule.lane.CreditPool} />.
+        Contracts: vault <Address value={schedule.lane.CollateralVault} />, credit pool <Address value={schedule.lane.CreditPool} />.
         {schedule.chainTime !== undefined && ` Read at ${schedule.chainTime.toISOString().replace('T', ' ').slice(0, 16)} UTC.`}
       </p>
     </Card>
@@ -156,7 +156,7 @@ function Terms({ schedule }: { readonly schedule: HaircutSchedule }) {
 
       <Card>
         <FieldGrid columns={3}>
-          <Field label="Credit limit, all mandates" hint="Most the lane lends in total.">
+          <Field label="Credit limit, all mandates" hint="Most the credit pool lends in total.">
             <span className="tabular">{pool.totalDebtCap === undefined ? 'Unread' : usd(pool.totalDebtCap as Micro)}</span>
           </Field>
           <Field label="Credit limit, one mandate" hint="Most any single mandate can owe.">
@@ -181,14 +181,14 @@ function Terms({ schedule }: { readonly schedule: HaircutSchedule }) {
               ? 'Unread'
               : pool.spreadLive
                 ? `To stakers. ${pool.spreadPaid === undefined ? '' : `${usd(pool.spreadPaid as Micro)} paid so far.`}`
-                : 'Held in the lending pool until the staking contract is set to accept it, then paid to stakers.'}
+                : 'Held in the credit pool until the staking contract is set to accept it, then paid to stakers.'}
           </Field>
           <Field label="When a line is written off" hint="What happens to debt the collateral could not cover.">
             {pool.slashLive === undefined
               ? 'Unread'
               : pool.slashLive
                 ? 'The lender carries the loss, and stakers cover part of it in BRSR within the slash allowance.'
-                : 'The lender carries the loss. Stakers are not slashed until the staking contract lets the lending pool slash.'}
+                : 'The lender carries the loss. Stakers are not slashed until the staking contract lets the credit pool slash.'}
           </Field>
         </FieldGrid>
         <p className="mt-4 text-note text-[color:var(--color-muted)]">

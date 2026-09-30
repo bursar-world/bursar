@@ -1,6 +1,6 @@
 'use client';
 
-import { ClaimOwedButton } from '@/components/claim-owed';
+import { ClaimOwedButton, owedExplanation } from '@/components/claim-owed';
 import { Card, Section } from '@/components/layout';
 import { Stat, StatGrid } from '@/components/stat';
 import { usdExact } from '@/money';
@@ -11,9 +11,9 @@ import { useMandateScope } from './mandate-scope';
  * A payout the escrow kept aside for this mandate.
  *
  * A settlement pays every party at once, and when the token refuses one of those transfers,
- * usually because its issuer had frozen the address, the escrow books that leg as owed instead of
- * holding up the rest. Nothing else brings it back: the mandate has no call of its own to collect
- * with, so the claim is open to anyone and pays only this mandate.
+ * usually because its issuer had frozen the address, the escrow books that leg as owed and pays
+ * the rest. Nothing else brings it back: the mandate has no call of its own to collect with, so
+ * the claim is open to anyone and pays only this mandate.
  */
 export function OwedPanel() {
   const { address, account, system, connected, writeContext, refresh } = useMandateScope();
@@ -33,12 +33,7 @@ export function OwedPanel() {
               level="attention"
             />
           </StatGrid>
-          <p className="max-w-3xl text-detail text-[color:var(--color-muted)]">
-            When the payment settled, USDG refused the transfer to this mandate, which is what happens while the token
-            issuer has frozen an address. The escrow kept the amount for it rather than hold up the rest of the
-            settlement. Claiming it sends the whole amount here, and it goes through once USDG will move to this address
-            again. Anyone can send the claim; the money only ever goes to this mandate.
-          </p>
+          <p className="max-w-3xl text-detail text-[color:var(--color-muted)]">{owedExplanation('this mandate')}</p>
           {connected === undefined ? (
             <p className="text-detail text-[color:var(--color-muted)]">Connect a wallet to claim it. Any wallet can.</p>
           ) : (
