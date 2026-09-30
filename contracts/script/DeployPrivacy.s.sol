@@ -19,8 +19,12 @@ import {WithinMandateVerifier} from "../src/zk/WithinMandateVerifier.sol";
 ///
 /// BURSAR_ESCROW_V1 is optional. It adds a factory on the v1 escrow, where the payees registered
 /// before v2 still clear the agent-registry gate.
+///
+/// Both factories give every account the same ceiling: 25 USDG over its life, whatever its terms
+/// say, until the multi-party phase 2 replaces the development proving key.
 contract DeployPrivacy is Script {
     address internal constant USDG = 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168;
+    uint256 internal constant CEILING = 25e6;
 
     struct Deployed {
         WithinMandateVerifier verifier;
@@ -39,8 +43,10 @@ contract DeployPrivacy is Script {
 
         vm.startBroadcast();
         d.verifier = new WithinMandateVerifier();
-        d.factory = new CommittedMandateFactory(escrow, USDG, address(d.verifier));
-        if (escrowV1 != address(0)) d.factoryV1 = new CommittedMandateFactory(escrowV1, USDG, address(d.verifier));
+        d.factory = new CommittedMandateFactory(escrow, USDG, address(d.verifier), CEILING);
+        if (escrowV1 != address(0)) {
+            d.factoryV1 = new CommittedMandateFactory(escrowV1, USDG, address(d.verifier), CEILING);
+        }
         d.disclosures = new DisclosureRegistry();
         d.solvency = new SolvencyLog(timelock, poster);
         vm.stopBroadcast();

@@ -12,21 +12,27 @@ interface IWithinMandateVerifier {
         uint256[2] calldata a,
         uint256[2][2] calldata b,
         uint256[2] calldata c,
-        uint256[10] calldata publicSignals
+        uint256[11] calldata publicSignals
     ) external view returns (bool);
 }
 
 /// A mandate whose terms live off chain. The account holds a Poseidon commitment to the terms and
-/// a commitment to its running counters, and nothing else about them: no cap, no class mask, no
-/// counterparty list and no spend total is in storage or in an event. Every spend carries a
+/// a commitment to its running counters, and nothing else about them: no cap, no capability list,
+/// no counterparty list and no spend total is in storage or in an event. Every spend carries a
 /// Groth16 proof (circuits/src/within_mandate.circom) that it fits the committed terms, and the
 /// escrow lock opens only after the verifier accepts it.
 ///
-/// What stays public: the amount and the payee, because the escrow lock and the USDG transfer
-/// carry them, and the principal, because it is the address that controls this account.
+/// What stays public: the amount, the payee and the capability of each spend, because the escrow
+/// lock carries them; the time each proof was made for; and the principal, because it is the
+/// address that controls this account.
 ///
-/// The readable terms are sealed to the principal's viewing key and published once as
-/// ciphertext in `TermsSealed`, so the principal's console can recover them from the chain alone.
+/// Until the proving key has a multi-party setup, the terms are not the only limit. Every account
+/// carries a ceiling fixed by its factory, and `lockedTotal` counts everything it has ever locked
+/// against it, so even a proof forged with a compromised key cannot move more than the ceiling.
+///
+/// The readable terms are sealed to the principal's viewing key and published as ciphertext in
+/// `TermsSealed`, so the principal's console can recover them from the chain alone. Disclosure for
+/// a disputed lock goes through DisclosureRegistry, which takes the principal's grant directly.
 contract CommittedMandateAccount is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -38,14 +44,15 @@ contract CommittedMandateAccount is ReentrancyGuard {
     error AlreadySealed();
     error Paused();
     error Revoked();
-    error BadClass();
     error BadTime();
     error NullifierUsed();
     error BadProof();
     error ZeroAmount();
+    error OverCeiling(uint256 lockedTotal, uint256 ceiling);
+    error NonceBehind(uint64 nonce, uint64 current);
 
     event TermsSealed(uint64 indexed version, uint256 termsCommitment, bytes ciphertext);
-    event ProvenSpend(uint256 indexed escrowId, uint256 nullifier, uint256 counter);
+    event ProvenSpend(uint256 indexed escrowId, uint256 nullifier, uint256 counter, uint64 provenAt, uint64 version);
     event AgentUpdated(address indexed agent);
     event PausedSet(bool paused);
     event MandateRevoked(uint256 swept);
@@ -56,14 +63,13 @@ contract CommittedMandateAccount is ReentrancyGuard {
     /// an expired mandate can never spend; the slack only bounds how far ahead a prover may aim.
     uint64 public constant NOW_SLACK = 15 minutes;
 
-    /// Escrow lanes carry services (0) and agent hires (1).
-    uint8 private constant MAX_ESCROW_CLASS = 1;
-
     // forge-lint: disable-start(screaming-snake-case-immutable)
     address public immutable settlementAsset;
     address public immutable escrow;
     address public immutable verifier;
     address public immutable factory;
+    /// The most this account can ever lock, whatever the terms or the proofs say.
+    uint256 public immutable ceiling;
     // forge-lint: disable-end
 
     address public principal;
@@ -76,6 +82,10 @@ contract CommittedMandateAccount is ReentrancyGuard {
     uint256 public termsCommitment;
     uint256 public counter;
 
+    /// Every amount this account has locked, never reduced: refunds and amendments leave it where
+    /// it is, so the ceiling bounds the account's whole life.
+    uint256 public lockedTotal;
+
     mapping(uint256 => bool) public nullifierUsed;
 
     struct Spend {
@@ -85,7 +95,6 @@ contract CommittedMandateAccount is ReentrancyGuard {
         string inputURI;
         uint128 amount;
         uint64 deadline;
-        uint8 classId;
         uint64 provenAt;
         uint256 newCounter;
         uint256 nullifier;
@@ -109,7 +118,8 @@ contract CommittedMandateAccount is ReentrancyGuard {
         address escrow_,
         address verifier_,
         uint256 termsCommitment_,
-        uint256 counter_
+        uint256 counter_,
+        uint256 ceiling_
     ) {
         if (
             principal_ == address(0) || settlementAsset_ == address(0) || escrow_ == address(0)
@@ -121,6 +131,7 @@ contract CommittedMandateAccount is ReentrancyGuard {
         escrow = escrow_;
         verifier = verifier_;
         factory = msg.sender;
+        ceiling = ceiling_;
         termsCommitment = termsCommitment_;
         counter = counter_;
     }
@@ -139,11 +150,14 @@ contract CommittedMandateAccount is ReentrancyGuard {
         if (revoked) revert Revoked();
         if (paused) revert Paused();
         if (s.amount == 0) revert ZeroAmount();
-        if (s.classId > MAX_ESCROW_CLASS) revert BadClass();
         if (s.provenAt < block.timestamp || s.provenAt > block.timestamp + NOW_SLACK) revert BadTime();
         if (nullifierUsed[s.nullifier]) revert NullifierUsed();
+        uint256 locked = lockedTotal + s.amount;
+        if (locked > ceiling) revert OverCeiling(locked, ceiling);
 
-        uint256[10] memory signals = [
+        // A capability id is 32 bytes and a field element is not, so the circuit takes it in halves.
+        uint256 capability = uint256(s.capabilityId);
+        uint256[11] memory signals = [
             uint256(uint160(address(this))),
             termsCommitment,
             counter,
@@ -151,7 +165,8 @@ contract CommittedMandateAccount is ReentrancyGuard {
             s.nullifier,
             uint256(s.amount),
             uint256(uint160(s.payee)),
-            uint256(s.classId),
+            capability >> 128,
+            uint256(uint128(capability)),
             uint256(s.provenAt),
             uint256(nonce)
         ];
@@ -160,21 +175,25 @@ contract CommittedMandateAccount is ReentrancyGuard {
         nullifierUsed[s.nullifier] = true;
         counter = s.newCounter;
         nonce += 1;
+        lockedTotal = locked;
 
         IERC20 asset = IERC20(settlementAsset);
         asset.forceApprove(escrow, s.amount);
         escrowId = IEscrow(escrow).lock(s.payee, s.capabilityId, s.inputCommit, s.inputURI, s.amount, s.deadline);
         asset.forceApprove(escrow, 0);
 
-        emit ProvenSpend(escrowId, s.nullifier, s.newCounter);
+        emit ProvenSpend(escrowId, s.nullifier, s.newCounter, s.provenAt, version);
     }
 
     /// Replaces the terms. The principal knows the counters, so it supplies the counter the new
-    /// terms start from; a principal that wants a clean slate commits to zero spend.
+    /// terms start from. The nonce cannot go back: proofs and their nullifiers are numbered by it,
+    /// so a rewound nonce would collide with nullifiers already spent and could revive a proof made
+    /// for an earlier counter.
     function amend(uint256 termsCommitment_, uint256 counter_, uint64 nonce_, bytes calldata ciphertext)
         external
         onlyPrincipal
     {
+        if (nonce_ < nonce) revert NonceBehind(nonce_, nonce);
         termsCommitment = termsCommitment_;
         counter = counter_;
         nonce = nonce_;
@@ -183,8 +202,11 @@ contract CommittedMandateAccount is ReentrancyGuard {
         emit TermsSealed(next, termsCommitment_, ciphertext);
     }
 
-    /// Refunds land back in the balance. The confidential counters are not credited, because the
-    /// account cannot open them; a principal who wants the allowance back amends the counter.
+    /// Refunds (a timeout, a cancellation, a ruling for the payer) land back in the balance and
+    /// change nothing else. The confidential counter stays where the proof left it, because the
+    /// account cannot open it, and `lockedTotal` stays too. A principal who wants the refunded
+    /// allowance back amends the terms with a counter that leaves the refund out; the ceiling
+    /// still counts it.
     function creditSpend(uint256, uint128) external view {
         if (msg.sender != escrow) revert NotEscrow();
     }
@@ -197,14 +219,6 @@ contract CommittedMandateAccount is ReentrancyGuard {
         if (bond != 0) asset.forceApprove(escrow, bond);
         escrow_.dispute(escrowId);
         if (bond != 0) asset.forceApprove(escrow, 0);
-    }
-
-    /// Passes a disclosure for one resolver through to the escrow, as the payer of the lock.
-    function grantDisclosure(uint256 escrowId, address resolver, bytes32 sliceCommit, bytes calldata ciphertext)
-        external
-        onlyPrincipal
-    {
-        IEscrow(escrow).grantDisclosure(escrowId, resolver, sliceCommit, ciphertext);
     }
 
     function setAgent(address agent_) external onlyPrincipal {

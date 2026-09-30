@@ -12,17 +12,17 @@
     "contributions": [
       {
         "name": "bursar dev phase 2, contribution 1",
-        "hash": "ed45cbfade1d742d34d5449f9d428d9d55a5e8348112bf6bc26f87e407e14bf8713c82198accf0db1a85b29404f0aa8263b14838f989ea323e672eb683b5142d"
+        "hash": "5017669454861ce7e7c66eb4551210251edd95afa80430668357454837f0d4ca3339cf22034bbaf534229dfc1c9dd4b95e3590668793b9457c8bc26f41b97f99"
       }
     ],
     "pending": "Three independent contributors and a Robinhood Chain block hash as beacon, before launch."
   },
   "zkeyVerify": "ZKey Ok!",
   "sha256": {
-    "within_mandate.r1cs": "9a656473d183f6473883517e61d79ef6ace7b21684ee74d78ef4d12fcdf0ee19",
-    "within_mandate.wasm": "f83e81c5da222da37c454778a6f013ceb4374a8e43e2aadd2544e93b8d935a2e",
-    "within_mandate.zkey": "dfb4b8dd40e6f52ed40e7ec6cb7cca25ff132097f97928fead4c318008c0a464",
-    "verification_key.json": "2bb52077d712ec99bd97453d38027ef65f0e761f1e6ab0f6a8479f1565b23103",
-    "WithinMandateVerifier.sol": "327dca370dc2c5db27f8c25dff15267af52bbd7f050bb9334a2d09bce1ab622b"
+    "within_mandate.r1cs": "bf93d8c7874762433a6ed07a6b2d18c9e8a5e8a2adf26b86913edb54e14b073a",
+    "within_mandate.wasm": "ceccdfd1138101e404b4ac27e0c1c4b1170a99798b4b0c5f28d83d1d13d377ea",
+    "within_mandate.zkey": "abcd13ecc592aa74b687ec6e14486a0197b4a053f0a9fb5367ef63836f7c09d4",
+    "verification_key.json": "68493bd1c523f15c7b5176af37e8a602090aeecbd22b8f721228d22ef1b9e924",
+    "WithinMandateVerifier.sol": "9709a40b30d37370c352c76264809f82a082115d534296ac03ef8233730b373d"
   }
 }

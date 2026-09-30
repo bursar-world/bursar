@@ -5,10 +5,12 @@ import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
 
 import {CommittedMandateAccount} from "./CommittedMandateAccount.sol";
 
-/// Deploys committed mandates. The escrow, the settlement asset and the verifier belong to the
-/// deployment, so an account cannot be pointed at a verifier that accepts anything.
+/// Deploys committed mandates. The escrow, the settlement asset, the verifier and the per-mandate
+/// ceiling belong to the deployment, so an account cannot be pointed at a verifier that accepts
+/// anything or given a ceiling its principal chose.
 contract CommittedMandateFactory {
     error ZeroAddress();
+    error ZeroCeiling();
     error NotPrincipal();
     error AlreadyDeployed();
 
@@ -18,15 +20,20 @@ contract CommittedMandateFactory {
     address public immutable escrow;
     address public immutable settlementAsset;
     address public immutable verifier;
+    /// What each account may lock over its whole life, whatever its terms say. It bounds the loss
+    /// to a forged proof while the proving key rests on a single-contributor setup.
+    uint256 public immutable ceiling;
     // forge-lint: disable-end
 
     mapping(address => address[]) private _accounts;
 
-    constructor(address escrow_, address settlementAsset_, address verifier_) {
+    constructor(address escrow_, address settlementAsset_, address verifier_, uint256 ceiling_) {
         if (escrow_ == address(0) || settlementAsset_ == address(0) || verifier_ == address(0)) revert ZeroAddress();
+        if (ceiling_ == 0) revert ZeroCeiling();
         escrow = escrow_;
         settlementAsset = settlementAsset_;
         verifier = verifier_;
+        ceiling = ceiling_;
     }
 
     /// `ciphertext` is the terms sealed to the principal's viewing key. It is emitted by the new
@@ -69,9 +76,12 @@ contract CommittedMandateFactory {
         view
         returns (bytes memory)
     {
+        // The creation code is a constant, so no two argument sets can pack to the same bytes.
+        // forge-lint: disable-start(encode-packed-collision)
         return abi.encodePacked(
             type(CommittedMandateAccount).creationCode,
-            abi.encode(principal, agent, settlementAsset, escrow, verifier, termsCommitment, counter)
+            abi.encode(principal, agent, settlementAsset, escrow, verifier, termsCommitment, counter, ceiling)
         );
+        // forge-lint: disable-end(encode-packed-collision)
     }
 }

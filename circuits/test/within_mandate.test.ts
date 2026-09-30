@@ -5,7 +5,9 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 import {
   PUBLIC_SIGNALS,
-
+  capabilityHalves,
+  capabilityRootFromPath,
+  capabilityTree,
   counterCommitment,
   counterpartyTree,
   initialCounter,
@@ -21,18 +23,24 @@ const MANDATE = 0x420beb507f72173e7d78e0f956968f64fb508356n;
 const DAY = 86_400n;
 const NOW = 1_790_600_000n;
 
-const tree = counterpartyTree([PAYEE, OTHER]);
+// keccak256 of the class-namespaced labels, as @bursar/core hashes them. All three are above the
+// field modulus, which is why the circuit takes an id in two halves.
+const RENDER = 0xa94efc9949cf6e40f98b32b5d30d27175e000116c67c6442d3c083f7aafbe7d0n; // service:gpu.render:1
+const TRANSCRIBE = 0xfe300b971e66a8ffc640c8c45ffc27fc1f2f6028cd6cbee0c6548f1b73baa3f5n; // service:audio.transcribe:1
+const HIRE = 0xb31224402c73b011aa5c56ddeeb745dbf3f0d774a540c6cdba20ecf20973cbe0n; // hire:research.summarize:1
+
+const counterparties = [PAYEE, OTHER];
+const capabilities = [RENDER, TRANSCRIBE];
 const terms = {
   perCallCap: 100_000n,
   periodCap: 250_000n,
   periodLen: DAY,
   totalCap: 1_000_000n,
-  classMask: 0b011n,
-  counterpartyRoot: tree.root,
+  capabilityRoot: capabilityTree(capabilities).root,
+  counterpartyRoot: counterpartyTree(counterparties).root,
   expiry: NOW + 30n * DAY,
   salt: 0x0badc0ffee0ddf00dn,
 };
-const counterparties = [PAYEE, OTHER];
 const fresh = { period: 0n, spent: 0n, total: 0n, nonce: 0n };
 
 let vkey: unknown;
@@ -46,7 +54,18 @@ async function verify(publicSignals: string[], proof: unknown) {
 }
 
 function spend(state: typeof fresh, amount: bigint, extra: Partial<Parameters<typeof spendInput>[0]> = {}) {
-  return spendInput({ terms, counterparties, state, mandate: MANDATE, payee: PAYEE, amount, classId: 0, now: NOW, ...extra });
+  return spendInput({
+    terms,
+    counterparties,
+    capabilities,
+    state,
+    mandate: MANDATE,
+    payee: PAYEE,
+    amount,
+    capabilityId: RENDER,
+    now: NOW,
+    ...extra,
+  });
 }
 
 beforeAll(() => {
@@ -100,16 +119,69 @@ describe('within_mandate', () => {
     await expect(prove(input)).rejects.toThrow(/Assert Failed/);
   });
 
-  it('refuses the lifetime total, a class outside the mask, a stranger and an expired mandate', async () => {
+  it('refuses the lifetime total, a stranger and an expired mandate', async () => {
     expect(() => spend({ period: 0n, spent: 0n, total: 950_000n, nonce: 9n }, 80_000n)).toThrow('over the total budget');
-    expect(() => spend(fresh, 1n, { classId: 2 })).toThrow('class not allowed');
     expect(() => spend(fresh, 1n, { payee: STRANGER })).toThrow('not an allowed counterparty');
     expect(() => spend(fresh, 1n, { now: terms.expiry + 1n })).toThrow('mandate expired');
 
     const { input } = spend(fresh, 1n);
-    await expect(prove({ ...input, classId: 2n })).rejects.toThrow(/Assert Failed/);
     await expect(prove({ ...input, payee: STRANGER })).rejects.toThrow(/Assert Failed/);
     await expect(prove({ ...input, now: terms.expiry + 1n })).rejects.toThrow(/Assert Failed/);
+  });
+
+  it('binds the capability: one outside the committed set cannot be proven', async () => {
+    expect(() => spend(fresh, 1n, { capabilityId: HIRE })).toThrow('capability not allowed');
+
+    // Swap the public capability for one outside the set, keeping the path of an allowed one.
+    const { input } = spend(fresh, 1n);
+    const outside = capabilityHalves(HIRE);
+    await expect(prove({ ...input, capabilityHi: outside.hi, capabilityLo: outside.lo })).rejects.toThrow(/Assert Failed/);
+
+    // Or prove membership in a root of the prover's own choosing: the terms commitment moves.
+    const own = capabilityTree([HIRE]);
+    const path = own.proof(HIRE)!;
+    await expect(
+      prove({
+        ...input,
+        capabilityHi: outside.hi,
+        capabilityLo: outside.lo,
+        capabilityRoot: own.root,
+        capabilityPathElements: path.pathElements,
+        capabilityPathIndices: path.pathIndices.map(BigInt),
+      }),
+    ).rejects.toThrow(/Assert Failed/);
+  });
+
+  it('holds a services-only mandate to services, and proves the capability as two public halves', async () => {
+    const servicesOnly = { ...terms, capabilityRoot: capabilityTree([RENDER]).root };
+    const only = (capabilityId: bigint) =>
+      spendInput({ terms: servicesOnly, counterparties, capabilities: [RENDER], state: fresh, mandate: MANDATE, payee: PAYEE, amount: 1n, capabilityId, now: NOW });
+    expect(() => only(HIRE)).toThrow('capability not allowed');
+
+    const { input } = only(RENDER);
+    const { proof, publicSignals } = await prove(input);
+    expect(await verify(publicSignals, proof)).toBe(true);
+    const { hi, lo } = capabilityHalves(RENDER);
+    expect(BigInt(publicSignals[PUBLIC_SIGNALS.indexOf('capabilityHi')]!)).toBe(hi);
+    expect(BigInt(publicSignals[PUBLIC_SIGNALS.indexOf('capabilityLo')]!)).toBe(lo);
+    expect((hi << 128n) | lo).toBe(RENDER);
+
+    // The same proof does not verify for the hire capability.
+    const hire = capabilityHalves(HIRE);
+    const swapped = [...publicSignals];
+    swapped[PUBLIC_SIGNALS.indexOf('capabilityHi')] = hire.hi.toString();
+    swapped[PUBLIC_SIGNALS.indexOf('capabilityLo')] = hire.lo.toString();
+    expect(await verify(swapped, proof)).toBe(false);
+  });
+
+  it('builds capability paths that walk back to the root, whatever order the list came in', () => {
+    const tree = capabilityTree([TRANSCRIBE, RENDER, RENDER]);
+    expect(tree.root).toBe(capabilityTree(capabilities).root);
+    expect(tree.members).toHaveLength(2);
+    expect(capabilityRootFromPath(RENDER, tree.proof(RENDER)!)).toBe(tree.root);
+    expect(tree.proof(HIRE)).toBeNull();
+    expect(() => capabilityTree([])).toThrow('at least one capability');
+    expect(() => capabilityHalves(1n << 256n)).toThrow('32 bytes');
   });
 
   it('rejects a valid proof whose public inputs were altered', async () => {
@@ -128,5 +200,6 @@ describe('within_mandate', () => {
     const key = vkey as { vk_alpha_1: string[]; IC: unknown[] };
     expect(sol).toContain(key.vk_alpha_1[0]!);
     expect(key.IC).toHaveLength(PUBLIC_SIGNALS.length + 1);
+    expect(sol).toContain(`uint[${PUBLIC_SIGNALS.length}] calldata _pubSignals`);
   });
 });

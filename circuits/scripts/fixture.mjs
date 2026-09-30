@@ -1,23 +1,30 @@
 // Writes contracts/test/fixtures/within_mandate.json: a committed mandate and two proven spends
-// against it, for the Foundry tests. Usage: node scripts/fixture.mjs <mandate address>
+// against it, for the Foundry tests. The tests place the account at the fixture's address with
+// deployCodeTo, so the address is fixed here and not derived from any bytecode.
+//
+//   node scripts/fixture.mjs [mandate address]
 import { writeFileSync } from 'node:fs';
 
 import * as snarkjs from 'snarkjs';
 
 import { artifacts } from '../artifacts.js';
-import { counterpartyTree, initialCounter, spendInput, termsCommitment } from '../index.js';
+import { capabilityTree, counterpartyTree, initialCounter, spendInput, termsCommitment } from '../index.js';
 
-const mandate = BigInt(process.argv[2]);
+const mandate = BigInt(process.argv[2] ?? '0x0000000000000000000000000000000000acc001');
 const PAYEE = 0xbeef01n;
 const NOW = 1_790_600_000n;
-const tree = counterpartyTree([PAYEE, 0xbeef02n]);
+// keccak256 of the labels, as @bursar/core's capabilityId hashes them.
+const RENDER = 0xa94efc9949cf6e40f98b32b5d30d27175e000116c67c6442d3c083f7aafbe7d0n; // service:gpu.render:1
+const TRANSCRIBE = 0xfe300b971e66a8ffc640c8c45ffc27fc1f2f6028cd6cbee0c6548f1b73baa3f5n; // service:audio.transcribe:1
+const counterparties = [PAYEE, 0xbeef02n];
+const capabilities = [RENDER, TRANSCRIBE];
 const terms = {
   perCallCap: 100_000n,
   periodCap: 250_000n,
   periodLen: 86_400n,
   totalCap: 1_000_000n,
-  classMask: 3n,
-  counterpartyRoot: tree.root,
+  capabilityRoot: capabilityTree(capabilities).root,
+  counterpartyRoot: counterpartyTree(counterparties).root,
   expiry: NOW + 30n * 86_400n,
   salt: 0x5a17n,
 };
@@ -28,17 +35,19 @@ const spends = [];
 for (const amount of [80_000n, 90_000n]) {
   const { input, next } = spendInput({
     terms,
-    counterparties: [PAYEE, 0xbeef02n],
+    counterparties,
+    capabilities,
     state,
     mandate,
     payee: PAYEE,
     amount,
-    classId: 0,
+    capabilityId: RENDER,
     now: NOW + 60n,
   });
   const { proof, publicSignals } = await snarkjs.groth16.fullProve(input, artifacts.wasm, artifacts.zkey);
   spends.push({
     amount: Number(amount),
+    capabilityId: hex(RENDER),
     provenAt: Number(NOW + 60n),
     newCounter: hex(publicSignals[3]),
     nullifier: hex(publicSignals[4]),

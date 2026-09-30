@@ -8,13 +8,17 @@ include "circomlib/circuits/mux1.circom";
 // Proves that one spend sits inside a committed mandate without revealing the mandate.
 //
 // The account stores two field elements and nothing else about the terms:
-//   termsCommitment = Poseidon(perCallCap, periodCap, periodLen, totalCap, classMask,
+//   termsCommitment = Poseidon(perCallCap, periodCap, periodLen, totalCap, capabilityRoot,
 //                              counterpartyRoot, expiry, salt)
 //   counter         = Poseidon(period, spentInPeriod, totalSpent, salt, nonce)
 //
 // A proof moves the counter from `nonce` to `nonce + 1` and shows that the spend fits the
-// per-call cap, the period cap, the lifetime total, the class mask, the counterparty set and the
-// expiry. The account checks the public inputs against its own state before it pays.
+// per-call cap, the period cap, the lifetime total, the capability set, the counterparty set and
+// the expiry. The account checks the public inputs against its own state before it pays, and
+// hands the escrow the same capability id the proof was made for.
+//
+// A capability id is 32 bytes and a field element is not, so the id enters as two public 128-bit
+// halves. Its leaf in the capability tree is Poseidon(hi, lo).
 
 template MerkleRoot(depth) {
     signal input leaf;
@@ -46,7 +50,7 @@ template MerkleRoot(depth) {
     root <== levels[depth];
 }
 
-template WithinMandate(depth) {
+template WithinMandate(counterpartyDepth, capabilityDepth) {
     // Public, in the order the verifier receives them.
     signal input mandate;
     signal input termsCommitment;
@@ -55,7 +59,8 @@ template WithinMandate(depth) {
     signal input nullifier;
     signal input amount;
     signal input payee;
-    signal input classId;
+    signal input capabilityHi;
+    signal input capabilityLo;
     signal input now;
     signal input nonce;
 
@@ -64,7 +69,7 @@ template WithinMandate(depth) {
     signal input periodCap;
     signal input periodLen;
     signal input totalCap;
-    signal input classMask;
+    signal input capabilityRoot;
     signal input counterpartyRoot;
     signal input expiry;
     signal input salt;
@@ -75,14 +80,19 @@ template WithinMandate(depth) {
     signal input oldTotal;
 
     // Where the payee sits in the counterparty tree.
-    signal input pathElements[depth];
-    signal input pathIndices[depth];
+    signal input pathElements[counterpartyDepth];
+    signal input pathIndices[counterpartyDepth];
+
+    // Where the capability sits in the capability tree.
+    signal input capabilityPathElements[capabilityDepth];
+    signal input capabilityPathIndices[capabilityDepth];
 
     // The mandate address is bound into the nullifier below; squaring it as well keeps the
     // input in the constraint system even if that ever changes.
     signal mandateSquared <== mandate * mandate;
 
-    // Range checks. Every comparator below assumes its inputs fit its bit width.
+    // Range checks. Every comparator below assumes its inputs fit its bit width, and the two
+    // capability halves have to be the halves of one 32-byte id.
     component amountBits = Num2Bits(128);
     amountBits.in <== amount;
     component perCallBits = Num2Bits(128);
@@ -95,6 +105,10 @@ template WithinMandate(depth) {
     oldSpentBits.in <== oldSpent;
     component oldTotalBits = Num2Bits(128);
     oldTotalBits.in <== oldTotal;
+    component capabilityHiBits = Num2Bits(128);
+    capabilityHiBits.in <== capabilityHi;
+    component capabilityLoBits = Num2Bits(128);
+    capabilityLoBits.in <== capabilityLo;
     component nowBits = Num2Bits(64);
     nowBits.in <== now;
     component expiryBits = Num2Bits(64);
@@ -110,7 +124,7 @@ template WithinMandate(depth) {
     terms.inputs[1] <== periodCap;
     terms.inputs[2] <== periodLen;
     terms.inputs[3] <== totalCap;
-    terms.inputs[4] <== classMask;
+    terms.inputs[4] <== capabilityRoot;
     terms.inputs[5] <== counterpartyRoot;
     terms.inputs[6] <== expiry;
     terms.inputs[7] <== salt;
@@ -172,26 +186,24 @@ template WithinMandate(depth) {
     totalOk.in[1] <== totalCap;
     totalOk.out === 1;
 
-    // 5. The class bit is set in the mask.
-    component maskBits = Num2Bits(32);
-    maskBits.in <== classMask;
-    component classIs[32];
-    signal picked[33];
-    picked[0] <== 0;
-    for (var i = 0; i < 32; i++) {
-        classIs[i] = IsEqual();
-        classIs[i].in[0] <== classId;
-        classIs[i].in[1] <== i;
-        picked[i + 1] <== picked[i] + classIs[i].out * maskBits.out[i];
+    // 5. The capability is in the capability set.
+    component capabilityLeaf = Poseidon(2);
+    capabilityLeaf.inputs[0] <== capabilityHi;
+    capabilityLeaf.inputs[1] <== capabilityLo;
+    component capabilities = MerkleRoot(capabilityDepth);
+    capabilities.leaf <== capabilityLeaf.out;
+    for (var i = 0; i < capabilityDepth; i++) {
+        capabilities.pathElements[i] <== capabilityPathElements[i];
+        capabilities.pathIndices[i] <== capabilityPathIndices[i];
     }
-    picked[32] === 1;
+    capabilities.root === capabilityRoot;
 
     // 6. The payee is in the counterparty set.
     component leaf = Poseidon(1);
     leaf.inputs[0] <== payee;
-    component tree = MerkleRoot(depth);
+    component tree = MerkleRoot(counterpartyDepth);
     tree.leaf <== leaf.out;
-    for (var i = 0; i < depth; i++) {
+    for (var i = 0; i < counterpartyDepth; i++) {
         tree.pathElements[i] <== pathElements[i];
         tree.pathIndices[i] <== pathIndices[i];
     }
@@ -221,4 +233,4 @@ template WithinMandate(depth) {
     newC.out === newCounter;
 }
 
-component main {public [mandate, termsCommitment, oldCounter, newCounter, nullifier, amount, payee, classId, now, nonce]} = WithinMandate(16);
+component main {public [mandate, termsCommitment, oldCounter, newCounter, nullifier, amount, payee, capabilityHi, capabilityLo, now, nonce]} = WithinMandate(16, 8);
