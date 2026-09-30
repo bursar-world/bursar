@@ -15,16 +15,28 @@ cd "$(dirname "$0")/../.."
 port="${BURSAR_ANVIL_PORT:-8546}"
 rpc="http://127.0.0.1:${port}"
 
+# Another node on the port would take every transaction meant for this one.
+if nc -z 127.0.0.1 "$port" 2>/dev/null; then
+  echo "port $port is in use; set BURSAR_ANVIL_PORT to a free one" >&2
+  exit 1
+fi
 anvil --chain-id 4663 --port "$port" --silent &
 anvil_pid=$!
-trap 'kill "$anvil_pid" 2>/dev/null || true' EXIT
+# The shielded run links against the Poseidon build of the other compiler profile, which leaves a
+# second copy of each library in the build cache. A clean build afterwards keeps the next
+# `forge test` from tripping over it.
+trap 'kill "$anvil_pid" 2>/dev/null || true; forge build --force >/dev/null 2>&1 || true' EXIT
 for _ in $(seq 50); do
   cast chain-id --rpc-url "$rpc" >/dev/null 2>&1 && break
   sleep 0.2
 done
+kill -0 "$anvil_pid" 2>/dev/null || { echo "anvil did not start" >&2; exit 1; }
 
 # shellcheck source=../env/local.env
 source script/env/local.env
+# anvil answers as chain 4663, so its transaction logs would land where a real mainnet run keeps
+# its own.
+export FOUNDRY_BROADCAST=cache/bursar/local-broadcast
 # anvil's account 9 places the fixtures, so the deploy key starts from nonce zero.
 fixtures=0xa0Ee7A142d267C1f36714E4a8F75612F20a79720
 
