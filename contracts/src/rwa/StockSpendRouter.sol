@@ -17,9 +17,9 @@ import {V4Swapper} from "./V4Swapper.sol";
 ///
 /// A mandate reaches this through `buy`, which has already checked the `rwa` class, the caps and
 /// the total. This contract checks the rest: the asset is on the mandate's own list, the
-/// purchase is under the asset's per-trade cap, the price guard passes, the caller's quote is
-/// within the asset's band of the feed, and the fill is no worse than the feed price less the
-/// mandate's slippage limit. It swaps only in the asset's pinned pool.
+/// purchase is under the asset's per-trade cap, the price guard passes before and after the
+/// swap, the caller's quote is within the asset's band of the feed, and the fill is no worse than
+/// the feed price less the mandate's slippage limit. It swaps only in the asset's pinned pool.
 ///
 /// The per-mandate list and slippage limit are set by the mandate's principal. A mandate with no
 /// list set can buy nothing here.
@@ -96,6 +96,9 @@ contract StockSpendRouter is IStockRouter, V4Swapper, ReentrancyGuard {
         (, amountOut) = _swap(
             SwapOrder({key: a.pool, zeroForOne: zeroForOne, exactIn: true, amount: usdgIn, limit: floor, to: to})
         );
+        // The purchase has to leave the pool inside the band as well as find it there, or a push
+        // to the band's edge earlier in the transaction lets the fill run past it.
+        guard.tradePrice(asset, msg.sender);
 
         emit StockBought(msg.sender, asset, usdgIn, amountOut, price);
     }

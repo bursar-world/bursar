@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useState } from 'react';
@@ -144,6 +144,7 @@ function useSet(contracts: ShieldedDeployment, reading: PoolReading | undefined)
     queryKey: ['shielded', 'set', contracts.ShieldedPool, reading?.events.toBlock.toString(), asp ?? 'local'],
     queryFn: () => readAssociationSet(contracts, reading as PoolReading, asp),
     enabled: reading !== undefined,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -198,6 +199,9 @@ function Connected({ contracts, wallet }: { readonly contracts: ShieldedDeployme
     queryKey: ['shielded', 'notes', wallet, pool.data?.events.toBlock.toString()],
     queryFn: () => ownNotes((unlocked as Unlocked).keys, contracts, (pool.data as PoolReading).events),
     enabled: unlocked !== undefined && pool.data !== undefined,
+    // The pool is read again every thirty seconds and the notes with it. Without the last answer held
+    // while the next one loads, the forms below unmount on every read and lose what was typed.
+    placeholderData: keepPreviousData,
   });
 
   const unlock = async () => {
@@ -358,12 +362,29 @@ function NoteList({
 }) {
   const open = notes.filter((note) => note.status === 'spendable');
   const setReady = setMatchesChain(set, reading.latestRoot);
+  // Held here, not in the form: a withdrawal that empties a deposit removes its card on the refresh
+  // that follows, and the receipt would go with it.
+  const [last, setLast] = useState<Withdrawn | undefined>(undefined);
 
   return (
     <Section title={open.length === 1 ? 'One deposit to spend from' : `${open.length} deposits to spend from`} description="Each deposit this wallet made, and what it still holds.">
+      {last && (
+        <Card>
+          <div className="space-y-1 text-detail" role="status">
+            <p>
+              The relayer sent {usdgText(last.amount)} USDG to <AddressView value={last.recipient} />.
+            </p>
+            <TxHash hash={last.hash} />
+          </div>
+        </Card>
+      )}
       {open.length === 0 ? (
         <Card>
-          <EmptyState title="Nothing in the pool belongs to this wallet yet.">Deposit above, then come back to spend from it.</EmptyState>
+          {notes.length === 0 ? (
+            <EmptyState title="Nothing in the pool belongs to this wallet yet.">Deposit above, then come back to spend from it.</EmptyState>
+          ) : (
+            <EmptyState title="Everything this wallet deposited has been spent or returned.">Deposit above to spend from the pool again.</EmptyState>
+          )}
         </Card>
       ) : (
         <div className="space-y-4">
@@ -378,6 +399,7 @@ function NoteList({
               set={set}
               inSet={setReady && labelInSet(set, note.label)}
               onDone={onDone}
+              onSent={setLast}
             />
           ))}
         </div>
@@ -395,6 +417,7 @@ function NoteCard({
   set,
   inSet,
   onDone,
+  onSent,
 }: {
   readonly contracts: ShieldedDeployment;
   readonly wallet: Address;
@@ -404,6 +427,7 @@ function NoteCard({
   readonly set: AssociationSet | undefined;
   readonly inSet: boolean;
   readonly onDone: () => void;
+  readonly onSent: (withdrawn: Withdrawn) => void;
 }) {
   const { writeContractAsync } = useWriteContract();
   const depositedHere = sameAddress(note.deposit.depositor, wallet);
@@ -420,7 +444,7 @@ function NoteCard({
           </Field>
           <Field label="Status">{inSet ? <Badge>Ready to spend</Badge> : <Badge tone="quiet">Waiting for approval</Badge>}</Field>
         </FieldGrid>
-        <WithdrawForm contracts={contracts} keys={keys} note={note} reading={reading} set={set} inSet={inSet} onDone={onDone} />
+        <WithdrawForm contracts={contracts} keys={keys} note={note} reading={reading} set={set} inSet={inSet} onDone={onDone} onSent={onSent} />
         {depositedHere && (
           <div className="space-y-2 border-t border-[color:var(--color-line)] pt-4">
             <p className="text-sm font-medium">Take it back publicly</p>
@@ -470,6 +494,7 @@ function WithdrawForm({
   set,
   inSet,
   onDone,
+  onSent,
 }: {
   readonly contracts: ShieldedDeployment;
   readonly keys: ShieldedKeys;
@@ -478,6 +503,7 @@ function WithdrawForm({
   readonly set: AssociationSet | undefined;
   readonly inSet: boolean;
   readonly onDone: () => void;
+  readonly onSent: (withdrawn: Withdrawn) => void;
 }) {
   const params = useSearchParams();
   const intent = intentFromQuery(params);
@@ -487,7 +513,6 @@ function WithdrawForm({
   const [text, setText] = useState('');
   const [amount, setAmount] = useState<bigint | undefined>(undefined);
   const [phase, setPhase] = useState<'idle' | 'proving'>('idle');
-  const [sent, setSent] = useState<{ hash: Hex; gasDropWei: string } | undefined>(undefined);
   const [problem, setProblem] = useState<string | undefined>(undefined);
 
   const quote = useQuery({
@@ -518,7 +543,7 @@ function WithdrawForm({
         events: reading.events,
         set,
       });
-      setSent({ hash: result.transactionHash, gasDropWei: result.gasDropWei });
+      onSent({ hash: result.transactionHash, recipient: recipient.value, amount });
       onDone();
     } catch (error) {
       setProblem(`Nothing was sent: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`);
@@ -562,18 +587,12 @@ function WithdrawForm({
       <Button tone="primary" onClick={() => void send()} disabled={!ready}>
         {phase === 'proving' ? 'Proving in this page' : 'Prove and send'}
       </Button>
-      {sent && (
-        <div className="space-y-1 text-detail">
-          <p>
-            Sent to <AddressView value={recipient.value ?? ('0x' as Address)} /> by the relayer.
-          </p>
-          <TxHash hash={sent.hash} />
-        </div>
-      )}
       {problem && <Problem text={problem} />}
     </div>
   );
 }
+
+type Withdrawn = { readonly hash: Hex; readonly recipient: Address; readonly amount: bigint };
 
 function Problem({ text }: { readonly text: string }) {
   return (

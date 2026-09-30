@@ -6,6 +6,7 @@ import {console2} from "forge-std/console2.sol";
 
 import {IPoolManager} from "../src/token/Buyback.sol";
 import {MandateAccountFactory} from "../src/MandateAccountFactory.sol";
+import {IMandateAccountFactory} from "../src/interfaces/IMandateAccountFactory.sol";
 import {AssetRegistry} from "../src/rwa/AssetRegistry.sol";
 import {PriceGuard} from "../src/rwa/PriceGuard.sol";
 import {StockSpendRouter} from "../src/rwa/StockSpendRouter.sol";
@@ -17,7 +18,8 @@ import {RwaConfig} from "./lib/RwaConfig.sol";
 
 /// The RWA lane (asset registry, price guard, stock router, treasury park and its two adapters)
 /// and a factory for accounts that unpark inside a spend. Admin of the registry and the park is
-/// the v2 AdminTimelock from construction.
+/// the v2 AdminTimelock from construction. The park takes mandates from that factory and from the
+/// live v2 and v2.1 factories, and from nothing else.
 ///
 ///   BURSAR_TIMELOCK=0x135e… BURSAR_ESCROW=0x4315… forge script script/DeployRwa.s.sol \
 ///     --rpc-url $RHC_RPC_URL --keystore $ETH_KEY --password-file $ETH_PASSWORD [--broadcast]
@@ -62,7 +64,12 @@ contract DeployRwa is Script {
             new PriceGuard(d.registry, IAccessRegistry(RwaConfig.ACCESS_REGISTRY), IStateView(RwaConfig.STATE_VIEW));
         IPoolManager pm = IPoolManager(RwaConfig.POOL_MANAGER);
         d.router = new StockSpendRouter(d.registry, d.guard, pm);
-        d.park = new TreasuryPark(RwaConfig.USDG, timelock);
+        d.factory = new MandateAccountFactory(escrow, RwaConfig.USDG);
+        IMandateAccountFactory[] memory factories = new IMandateAccountFactory[](3);
+        factories[0] = IMandateAccountFactory(RwaConfig.FACTORY_V2);
+        factories[1] = IMandateAccountFactory(RwaConfig.FACTORY_V21);
+        factories[2] = d.factory;
+        d.park = new TreasuryPark(RwaConfig.USDG, timelock, factories);
         d.sgovAdapter = new RobinhoodStockAdapter(address(d.park), RwaConfig.SGOV, d.registry, d.guard, pm);
         d.usdgAdapter =
             new UsdgAdapter(address(d.park), RwaConfig.USDG, RwaConfig.SGOV_PER_MANDATE, RwaConfig.SGOV_TOTAL);
@@ -70,6 +77,5 @@ contract DeployRwa is Script {
         adapters[0] = address(d.sgovAdapter);
         adapters[1] = address(d.usdgAdapter);
         d.park.initAdapters(adapters);
-        d.factory = new MandateAccountFactory(escrow, RwaConfig.USDG);
     }
 }

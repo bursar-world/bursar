@@ -12,10 +12,12 @@ import {IAgentRegistry} from "./interfaces/IAgentRegistry.sol";
 /// Directory of the counterparties a mandate may name, each backed by a stake in the
 /// settlement asset.
 ///
-/// The stake is collateral rather than a listing fee: it is what a dispute ruling takes
-/// from an agent that fails a job, and it is the number a principal is really trusting
-/// when it allowlists one. Exit runs through a delayed request so a stake cannot leave in
-/// the window between a bad job and the ruling on it.
+/// The stake is collateral rather than a listing fee: it is what governance can take from an
+/// agent that failed its counterparties, on a timelocked proposal that names the amount, and
+/// it is the number a principal is really trusting when it allowlists one. A dispute ruling
+/// never reaches it; a ruling moves the refund and the agent's reputation. Exit runs through a
+/// seven-day request so a stake cannot leave in the window between a bad job and the proposal
+/// that answers it.
 ///
 /// Every amount is denominated in the settlement asset's own units, six decimals for USDG.
 /// The native 18-decimal view of the same balance is never read; it is the same money
@@ -362,11 +364,11 @@ contract AgentRegistry is IAgentRegistry, Pausable, ReentrancyGuard {
         emit SlashBpsUpdated(newSlashBps);
     }
 
-    /// Names a second address allowed to rule against a stake. Re-pointable, unlike the escrow
-    /// pairing, because replacing a ruling authority moves custody of nothing. There is no
-    /// contract in this system that can size a ruling, so nothing calls this today.
+    /// Names a second address allowed to rule against a stake, and the zero address clears it.
+    /// Re-pointable, unlike the escrow pairing, because replacing a ruling authority moves
+    /// custody of nothing. There is no contract in this system that can size a ruling, so
+    /// nothing calls this today.
     function setSlasher(address newSlasher) external onlyAdmin {
-        if (newSlasher == address(0)) revert ZeroAddress();
         slasher = newSlasher;
         emit SlasherUpdated(newSlasher);
     }

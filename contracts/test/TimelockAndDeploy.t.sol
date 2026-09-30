@@ -86,7 +86,7 @@ contract MandateTimelockTest is Test {
 
         timelock = new AdminTimelock([signerA, signerB, signerC], guardian, PERIOD);
         reputation = new Reputation(
-            address(timelock), IReputation.CapCurve({baseCap: 100e6, capPerScore: 10e6, maxCap: 5_000e6})
+            address(timelock), IReputation.CapCurve({baseCap: 100e6, capPerScore: 10e6, maxCap: 1_100e6})
         );
     }
 
@@ -520,17 +520,24 @@ contract MandateTimelockTest is Test {
         timelock.guardianPause(targets);
     }
 
-    function test_guardianPause_revertsWhenATargetHasNoCode() public {
+    /// An address with no code accepts any call silently. It is recorded as skipped, never as
+    /// paused, and it does not stop the rest of the batch.
+    function test_guardianPause_skipsATargetWithNoCodeAndPausesTheRest() public {
         BrakeTarget target = new BrakeTarget();
+        address empty = makeAddr("notAContract");
         address[] memory targets = new address[](2);
-        targets[0] = address(target);
-        targets[1] = makeAddr("notAContract");
+        targets[0] = empty;
+        targets[1] = address(target);
+
+        vm.expectEmit(true, true, false, true, address(timelock));
+        emit AdminTimelock.GuardianPauseSkipped(empty, guardian, "");
+        vm.expectEmit(true, true, false, true, address(timelock));
+        emit AdminTimelock.GuardianPaused(address(target), guardian);
 
         vm.prank(guardian);
-        vm.expectRevert(AdminTimelock.NotAContract.selector);
         timelock.guardianPause(targets);
 
-        assertFalse(target.paused(), "a batch with a bad target pauses nothing");
+        assertTrue(target.paused(), "one bad entry held back the brake on the rest");
     }
 
     function test_guardian_cannotUnpauseAndCannotQueueTheRestart() public {
@@ -673,7 +680,8 @@ contract MandateTimelockTest is Test {
 
     function _curveCall(uint128 baseCap) internal pure returns (bytes memory) {
         return abi.encodeCall(
-            Reputation.setCurve, (IReputation.CapCurve({baseCap: baseCap, capPerScore: 10e6, maxCap: 5_000e6}))
+            Reputation.setCurve,
+            (IReputation.CapCurve({baseCap: baseCap, capPerScore: 10e6, maxCap: baseCap + 1_000e6}))
         );
     }
 
@@ -815,7 +823,7 @@ contract MandateWiringTest is Test {
     uint64 internal constant MIN_TTL = 5 minutes;
     uint64 internal constant MAX_TTL = 7 days;
     uint64 internal constant DISPUTE_WINDOW = 1 days;
-    uint64 internal constant DISPUTE_TIMEOUT = 2 days;
+    uint128 internal constant MIN_LOCK = 10_000;
     uint64 internal constant COMMIT_WINDOW = 1 hours;
     uint64 internal constant REVEAL_WINDOW = 1 hours;
     uint64 internal constant PERIOD = 3 days;
@@ -851,7 +859,7 @@ contract MandateWiringTest is Test {
 
         timelock = new AdminTimelock([signerA, signerB, signerC], guardian, PERIOD);
         reputation = new Reputation(
-            address(timelock), IReputation.CapCurve({baseCap: 100e6, capPerScore: 10e6, maxCap: 5_000e6})
+            address(timelock), IReputation.CapCurve({baseCap: 100e6, capPerScore: 10e6, maxCap: 1_100e6})
         );
         escrow = new Escrow(
             address(settlement),
@@ -863,7 +871,7 @@ contract MandateWiringTest is Test {
             MIN_TTL,
             MAX_TTL,
             DISPUTE_WINDOW,
-            DISPUTE_TIMEOUT
+            MIN_LOCK
         );
         oracleRegistry = new OracleRegistry(address(settlement), address(timelock), slashSink, _oracleConfig());
         agentRegistry = new AgentRegistry(IERC20(address(settlement)), address(this), slashSink, 100e6, 1_000);
@@ -934,18 +942,18 @@ contract MandateWiringTest is Test {
         assertEq(escrow.minTtl(), MIN_TTL);
         assertEq(escrow.maxTtl(), MAX_TTL);
         assertEq(escrow.disputeWindow(), DISPUTE_WINDOW);
-        assertEq(escrow.disputeTimeoutPeriod(), DISPUTE_TIMEOUT);
+        assertEq(escrow.minLock(), MIN_LOCK);
 
         IReputation.CapCurve memory curve = reputation.curve();
         assertEq(curve.baseCap, 100e6);
         assertEq(curve.capPerScore, 10e6);
-        assertEq(curve.maxCap, 5_000e6);
+        assertEq(curve.maxCap, 1_100e6);
 
         IOracleRegistry.Config memory cfg = oracleRegistry.config();
         assertEq(cfg.commitWindow, COMMIT_WINDOW);
         assertEq(cfg.revealWindow, REVEAL_WINDOW);
         assertEq(cfg.slashBps, 2_000);
-        assertEq(oracleRegistry.votingPeriod(), COMMIT_WINDOW + REVEAL_WINDOW);
+        assertEq(cfg.maxVoters, 64);
 
         assertEq(address(agentRegistry.settlementAsset()), address(settlement));
         assertEq(agentRegistry.minStake(), 100e6);
@@ -953,9 +961,8 @@ contract MandateWiringTest is Test {
         assertEq(agentRegistry.slashSink(), slashSink);
     }
 
-    /// The three invariants no constructor can see on its own.
+    /// The invariants no constructor can see on its own.
     function test_wiring_holdsTheCrossContractInvariants() public view {
-        assertGt(escrow.disputeTimeoutPeriod(), oracleRegistry.votingPeriod());
         assertGt(uint256(10_000), uint256(escrow.feeBps()) + escrow.resolverFeeBps());
         assertGt(reputation.curve().baseCap, 0);
         assertGt(timelock.timelockPeriod(), 0);
@@ -1004,7 +1011,7 @@ contract MandateWiringTest is Test {
             MIN_TTL,
             MAX_TTL,
             DISPUTE_WINDOW,
-            DISPUTE_TIMEOUT
+            MIN_LOCK
         );
 
         assertEq(address(bare.registry()), address(0), "address zero means the gate is off");
@@ -1026,6 +1033,37 @@ contract MandateWiringTest is Test {
 
         vm.expectRevert(AgentRegistry.NotAuthorized.selector);
         agentRegistry.setMinStake(1e6);
+    }
+
+    /// A target already paused, or one with no `pause()` at all, used to revert the whole batch
+    /// and hold back the brake on everything after it. Each target now stands alone.
+    function test_guardian_aBatchWithAPausedOrPauselessTargetStillStopsTheRest() public {
+        escrow.setPauser(address(timelock));
+
+        address[] memory first = new address[](1);
+        first[0] = address(escrow);
+        vm.prank(guardian);
+        timelock.guardianPause(first);
+
+        address[] memory batch = new address[](3);
+        batch[0] = address(escrow);
+        batch[1] = address(reputation);
+        batch[2] = address(oracleRegistry);
+
+        vm.expectEmit(true, true, false, true, address(timelock));
+        emit AdminTimelock.GuardianPauseSkipped(
+            address(escrow), guardian, abi.encodeWithSelector(Pausable.EnforcedPause.selector)
+        );
+        vm.expectEmit(true, true, false, true, address(timelock));
+        emit AdminTimelock.GuardianPauseSkipped(address(reputation), guardian, "");
+        vm.expectEmit(true, true, false, true, address(timelock));
+        emit AdminTimelock.GuardianPaused(address(oracleRegistry), guardian);
+
+        vm.prank(guardian);
+        timelock.guardianPause(batch);
+
+        assertTrue(escrow.paused());
+        assertTrue(oracleRegistry.paused(), "the registry was held back by the entries before it");
     }
 
     function test_guardian_brakesTheRegistryInOneBlockAndCannotRestartIt() public {
@@ -1066,7 +1104,7 @@ contract MandateWiringTest is Test {
             revealWindow: REVEAL_WINDOW,
             unbondingPeriod: 1 days,
             quorum: 3,
-            maxVoters: 7,
+            maxVoters: 64,
             maxDeviation: 15,
             slashBps: 2_000
         });
@@ -1158,7 +1196,11 @@ contract MandateDeployScriptTest is Test {
         _caseFeesConsumeAWholeSettlement();
         _caseEscrowsTighterFeeCeiling();
         _caseDisputeBondAtPar();
-        _caseDisputeTimeoutEqualsTheVotingWindow();
+        _caseTheRetiredDisputeTimeoutVariableIsRefused();
+        _caseAMinimumLockTooSmallToCarryABond();
+        _caseACapCeilingNoScoreReaches();
+        _caseAVoterCapBelowTheRoster();
+        _caseAVoteWindowUnderTenMinutes();
         _caseZeroTimelockPeriod();
         _casePeriodBelowTheTimelocksOwnFloor();
         _caseZeroBaseCap();
@@ -1386,14 +1428,61 @@ contract MandateDeployScriptTest is Test {
         script.run();
     }
 
-    /// A timeout inside the voting windows refunds every payer before a resolver can rule, so
-    /// equal is rejected. One second longer is accepted, in the last case below.
-    function _caseDisputeTimeoutEqualsTheVotingWindow() private {
+    /// The escrow has no dispute timeout of its own now. An operator's file that still carries
+    /// one would read as though a third exit existed, so the run refuses it by name.
+    function _caseTheRetiredDisputeTimeoutVariableIsRefused() private {
         _setBaseEnv();
-        _set("BURSAR_DISPUTE_TIMEOUT", "7200");
+        _set("BURSAR_DISPUTE_TIMEOUT", "172800");
 
-        vm.expectRevert(abi.encodeWithSelector(Deploy.DisputeTimeoutTooShort.selector, uint64(7_200), uint64(7_200)));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Deploy.RetiredEnv.selector,
+                _key("BURSAR_DISPUTE_TIMEOUT"),
+                "nothing: disputes exit through OracleRegistry"
+            )
+        );
         script.run();
+    }
+
+    /// Nineteen units at five percent is a bond of nothing.
+    function _caseAMinimumLockTooSmallToCarryABond() private {
+        _setBaseEnv();
+        _set("BURSAR_MIN_LOCK", "19");
+
+        vm.expectRevert(IEscrow.BadMinLock.selector);
+        script.run();
+        vm.stopBroadcast();
+    }
+
+    /// The live v2 curve: 25 plus 1 per point never reaches 250.
+    function _caseACapCeilingNoScoreReaches() private {
+        _setBaseEnv();
+        _set("BURSAR_CAP_BASE", "25000000");
+        _set("BURSAR_CAP_PER_SCORE", "1000000");
+        _set("BURSAR_CAP_MAX", "250000000");
+
+        vm.expectRevert(IReputation.BadCurve.selector);
+        script.run();
+        vm.stopBroadcast();
+    }
+
+    /// The live v2 cap of five voters let whoever committed first fill the panel.
+    function _caseAVoterCapBelowTheRoster() private {
+        _setBaseEnv();
+        _set("BURSAR_MAX_VOTERS", "5");
+
+        vm.expectRevert(IOracleRegistry.BadConfig.selector);
+        script.run();
+        vm.stopBroadcast();
+    }
+
+    function _caseAVoteWindowUnderTenMinutes() private {
+        _setBaseEnv();
+        _set("BURSAR_REVEAL_WINDOW", "599");
+
+        vm.expectRevert(IOracleRegistry.BadConfig.selector);
+        script.run();
+        vm.stopBroadcast();
     }
 
     function _caseZeroTimelockPeriod() private {
@@ -1515,14 +1604,14 @@ contract MandateDeployScriptTest is Test {
         assertEq(out.agentRegistry, address(0));
     }
 
-    /// The whole set constructs and wires with a dispute timeout one second past the voting
-    /// window, and the run reads every pairing back before it returns. Anything the readback
-    /// disagrees with stops the run, so reaching the end is the assertion.
+    /// The whole set constructs and wires, and the run reads every pairing back before it
+    /// returns. Anything the readback disagrees with stops the run, so reaching the end is the
+    /// assertion.
     function _caseDeploysTheSetThenReadsItsOwnWiringBack() private {
         _setBaseEnv();
-        _set("BURSAR_DISPUTE_TIMEOUT", "7201");
 
         Deploy.Deployment memory out = _runAsDeployKey();
+        assertEq(Escrow(out.escrow).minLock(), 10_000);
 
         assertEq(Escrow(out.escrow).deployer(), DEFAULT_SENDER);
         assertEq(Escrow(out.escrow).resolver(), out.oracleRegistry);
@@ -1620,8 +1709,9 @@ contract MandateDeployScriptTest is Test {
     }
 
     function _setBaseEnv() private {
-        // Cleared, not assumed absent, because one case sets it to prove the run rejects it.
+        // Cleared, not assumed absent, because a case sets each to prove the run rejects it.
         _set("BURSAR_RESOLVER_MIN_BOND", "");
+        _set("BURSAR_DISPUTE_TIMEOUT", "");
         // Same, and this one matters more: a value left over from the case that acknowledges
         // an EOA signer set would silence the refusal in every case after it.
         _set("BURSAR_ALLOW_EOA_GOVERNANCE", "");
@@ -1646,17 +1736,17 @@ contract MandateDeployScriptTest is Test {
         _set("BURSAR_MIN_TTL", vm.toString(uint256(5 minutes)));
         _set("BURSAR_MAX_TTL", vm.toString(uint256(7 days)));
         _set("BURSAR_DISPUTE_WINDOW", vm.toString(uint256(1 days)));
-        _set("BURSAR_DISPUTE_TIMEOUT", vm.toString(uint256(2 days)));
+        _set("BURSAR_MIN_LOCK", "10000");
 
         _set("BURSAR_CAP_BASE", "100000000");
         _set("BURSAR_CAP_PER_SCORE", "10000000");
-        _set("BURSAR_CAP_MAX", "5000000000");
+        _set("BURSAR_CAP_MAX", "1100000000");
 
         _set("BURSAR_COMMIT_WINDOW", "3600");
         _set("BURSAR_REVEAL_WINDOW", "3600");
         _set("BURSAR_UNBONDING_PERIOD", "86400");
         _set("BURSAR_RESOLVER_QUORUM", "3");
-        _set("BURSAR_MAX_VOTERS", "7");
+        _set("BURSAR_MAX_VOTERS", "64");
         _set("BURSAR_MAX_DEVIATION", "15");
         _set("BURSAR_RESOLVER_SLASH_BPS", "2000");
 

@@ -8,6 +8,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import {IMandateAccount} from "../interfaces/IMandateAccount.sol";
+import {IMandateAccountFactory} from "../interfaces/IMandateAccountFactory.sol";
 import {IParkAsset} from "./interfaces/IParkAsset.sol";
 import {ITreasuryPark} from "./interfaces/ITreasuryPark.sol";
 
@@ -37,15 +38,20 @@ contract ParkVault {
 /// Parking. The principal sends USDG from the mandate to `vaultOf(mandate)` with the mandate's
 /// own `withdraw`, then calls `park`. Only the amount above the principal's buffer can go: the
 /// mandate has to keep at least `buffer(mandate)` in USDG after the move, so spending keeps
-/// working while the market is closed and the treasury price is not trading.
+/// working while the market is closed and the treasury price is not trading. Only a mandate one
+/// of `factories` created can park; any other contract that answers `principal()` would book
+/// against the caps every mandate shares.
 ///
-/// Value. A position counts at raw × feed, less the asset's haircut, and only while the feed is
-/// inside the asset's valuation bound. Past it the position counts zero. No yield or projected
-/// return enters any figure here.
+/// Value. A position counts at raw × feed, less the asset's haircut, and only while the price
+/// guard calls it fresh: the feed inside the asset's valuation bound, the token, its oracle and
+/// the access registry unpaused, and the pinned pool inside its band of the feed. Otherwise the
+/// position counts zero. No yield or projected return enters any figure here.
 ///
 /// Unparking. The principal or the agent can sell a position back to USDG, delivered to the
 /// mandate. A mandate account that knows this contract calls `unparkFor` from inside a spend
-/// when its USDG balance is short, and the spend settles in the same transaction.
+/// when its USDG balance is short, and the spend settles in the same transaction. Disabling an
+/// adapter stops new parks in it and leaves every way out open: the money in it is still the
+/// mandate's.
 contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -64,6 +70,7 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
     address public pendingAdmin;
 
     address[] private _adapters;
+    IMandateAccountFactory[] private _factories;
     mapping(address adapter => bool) public isAdapter;
     mapping(address mandate => mapping(address adapter => Position)) private _positions;
     mapping(address adapter => uint256) public totalBasis;
@@ -82,6 +89,7 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
     error NotDeployer();
     error NotOperator();
     error NotPrincipal();
+    error NotFactoryAccount(address mandate);
     error UnknownAdapter(address adapter);
     error ZeroAmount();
     error VaultShort(uint256 held, uint256 needed);
@@ -96,10 +104,11 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
         _;
     }
 
-    constructor(address usdg_, address admin_) {
+    constructor(address usdg_, address admin_, IMandateAccountFactory[] memory factories_) {
         usdg = IERC20(usdg_);
         admin = admin_;
         deployer = msg.sender;
+        _factories = factories_;
         emit AdminTransferred(address(0), admin_);
     }
 
@@ -144,6 +153,7 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
         returns (uint256 rawOut)
     {
         _onlyOperator(mandate);
+        if (!_fromFactory(mandate)) revert NotFactoryAccount(mandate);
         if (!isAdapter[adapter]) revert UnknownAdapter(adapter);
         if (usdgIn == 0) revert ZeroAmount();
 
@@ -168,7 +178,6 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
         returns (uint256 usdgOut)
     {
         if (msg.sender != mandate) _onlyOperator(mandate);
-        if (!isAdapter[adapter]) revert UnknownAdapter(adapter);
         if (raw == 0) revert ZeroAmount();
         Position storage p = _positions[mandate][adapter];
         if (p.raw < raw) revert PositionShort(p.raw, raw);
@@ -179,27 +188,30 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
         emit Unparked(mandate, adapter, raw, usdgOut);
     }
 
-    /// Called by a mandate account inside a spend. Sells from the first positions that cover
-    /// the shortfall and delivers exactly `usdgNeeded`.
+    /// Called by a mandate account inside a spend. Sells positions in adapter order until the
+    /// shortfall is covered: exactly the remainder from a position worth more, the whole position
+    /// at market from one worth less, since a pool that fills under the feed never returns a
+    /// position's full feed value. An adapter that cannot sell right now is passed over, so SGOV
+    /// out of its trade bound on a Sunday leaves the USDG reserve to pay instead of failing the
+    /// spend.
     function unparkFor(uint256 usdgNeeded) external override nonReentrant {
         address mandate = msg.sender;
         uint256 left = usdgNeeded;
         uint256 n = _adapters.length;
         for (uint256 i; i < n && left != 0; ++i) {
             address adapter = _adapters[i];
-            if (!isAdapter[adapter]) continue;
             Position storage p = _positions[mandate][adapter];
             if (p.raw == 0) continue;
 
             (uint256 worth,,, bool fresh) = IParkAsset(adapter).value(p.raw);
             if (!fresh || worth == 0) continue;
 
-            uint256 take = worth < left ? worth : left;
-            uint256 rawIn = IParkAsset(adapter).releaseExact(take, p.raw, mandate, mandate);
+            (uint256 rawIn, uint256 usdgOut) = _release(adapter, mandate, p.raw, worth > left ? left : 0);
+            if (rawIn == 0) continue;
             _reduce(adapter, p, rawIn);
-            left -= take;
+            left = usdgOut < left ? left - usdgOut : 0;
 
-            emit Unparked(mandate, adapter, rawIn, take);
+            emit Unparked(mandate, adapter, rawIn, usdgOut);
         }
         if (left != 0) revert NothingToUnpark(left);
     }
@@ -218,6 +230,10 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
 
     function adapters() external view returns (address[] memory) {
         return _adapters;
+    }
+
+    function factories() external view returns (IMandateAccountFactory[] memory) {
+        return _factories;
     }
 
     function vaultOf(address mandate) public view returns (address) {
@@ -258,6 +274,24 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
 
     // --- internals ---
 
+    /// Sells `exact` USDG out of the position when that is set, falling back to the whole position
+    /// at market when the position turns out too small for it. Zeros mean the adapter could not
+    /// trade (a stale trade price, a paused token, a pool outside its band) and the caller moves
+    /// on to the next one.
+    function _release(address adapter, address mandate, uint256 raw, uint256 exact)
+        private
+        returns (uint256 rawIn, uint256 usdgOut)
+    {
+        if (exact != 0) {
+            try IParkAsset(adapter).releaseExact(exact, raw, mandate, mandate) returns (uint256 spent) {
+                return (spent, exact);
+            } catch {}
+        }
+        try IParkAsset(adapter).release(raw, 0, mandate, mandate) returns (uint256 out) {
+            return (raw, out);
+        } catch {}
+    }
+
     function _book(address mandate, address adapter, uint256 usdgIn) private {
         Position storage p = _positions[mandate][adapter];
         (uint128 perMandate, uint128 total) = IParkAsset(adapter).caps();
@@ -275,6 +309,20 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
         p.raw -= uint128(raw);
         p.basis -= uint128(cut);
         totalBasis[adapter] -= cut;
+    }
+
+    /// The test `CollateralVault.openLine` applies: the mandate is on its principal's list at one
+    /// of the known factories.
+    function _fromFactory(address mandate) private view returns (bool) {
+        address principal = IMandateAccount(mandate).principal();
+        uint256 n = _factories.length;
+        for (uint256 i; i < n; ++i) {
+            address[] memory list = _factories[i].accountsOf(principal);
+            for (uint256 j; j < list.length; ++j) {
+                if (list[j] == mandate) return true;
+            }
+        }
+        return false;
     }
 
     function _onlyOperator(address mandate) private view {

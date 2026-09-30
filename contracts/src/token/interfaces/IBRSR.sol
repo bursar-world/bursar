@@ -4,9 +4,10 @@ pragma solidity ^0.8.24;
 /// The BURSAR token: a fixed supply, minted once, split four ways at deployment.
 ///
 /// The token exists so that the parts of this system that are supposed to have capital at
-/// risk actually do. Staked BRSR takes first loss on the collateralized lane, resolver bonds
-/// are posted in it, a staked balance reduces the facilitator fee, and the parameters behind
-/// all three are governed. Nothing else is claimed for it.
+/// risk actually do. Staked BRSR takes first loss on the collateralized lane, at a capped rate,
+/// and the lender carries the rest. Resolver bonds are posted in it, a staked balance reduces
+/// the facilitator fee, and the parameters behind all three are governed. Nothing else is
+/// claimed for it.
 ///
 /// BRSR carries eighteen decimals. The settlement asset does not: USDG is six. The two unit
 /// systems meet inside the staking pool and nowhere else, and they are never added.

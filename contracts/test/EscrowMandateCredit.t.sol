@@ -39,6 +39,10 @@ contract CreditRulingStub {
     function rule(uint256 escrowId, uint16 refundBps) external {
         ESCROW.resolve(escrowId, refundBps, 1);
     }
+
+    function reopen(uint256 escrowId) external {
+        ESCROW.reopen(escrowId);
+    }
 }
 
 /// A payer that is a contract and has no idea what a spending mandate is. The escrow has to
@@ -55,7 +59,7 @@ contract HooklessPayer {
 
 /// A payer that burns every unit of gas it is handed. The escrow calls the credit hook on the
 /// same ruling that pays the payee, so an uncapped call here would let a payer starve its
-/// counterparty's settlement and take the whole lock back on the dispute timeout.
+/// counterparty's settlement and hold the dispute open for good.
 contract GreedyPayer {
     function lock(Escrow escrow, MockUsdg asset, address payee, uint128 amount, uint64 deadline)
         external
@@ -98,7 +102,7 @@ contract MandateCreditTest is Test {
     uint64 internal constant MIN_TTL = 1 hours;
     uint64 internal constant MAX_TTL = 30 days;
     uint64 internal constant DISPUTE_WINDOW = 1 days;
-    uint64 internal constant DISPUTE_TIMEOUT = 3 days;
+    uint128 internal constant MIN_LOCK = 10_000;
 
     bytes32 internal constant CAPABILITY = keccak256("mandate.credit.capability");
 
@@ -136,7 +140,7 @@ contract MandateCreditTest is Test {
             MIN_TTL,
             MAX_TTL,
             DISPUTE_WINDOW,
-            DISPUTE_TIMEOUT
+            MIN_LOCK
         );
         reputation.setEscrow(address(escrow));
 
@@ -232,16 +236,22 @@ contract MandateCreditTest is Test {
         assertEq(account.creditable(id), LOCK - refunded);
     }
 
-    function test_anUnheardDisputeHandsBackTheWholeLock() public {
+    /// A dispute nobody heard reopens the lock rather than refunding it, so the allowance stays
+    /// with the lock until the lock itself exits.
+    function test_anUnheardDisputeLeavesTheAllowanceWithTheReopenedLock() public {
         uint256 id = _spend();
 
         vm.prank(merchant);
         escrow.dispute(id);
+        resolver.reopen(id);
 
-        vm.warp(block.timestamp + DISPUTE_TIMEOUT + 1);
-        escrow.disputeTimeout(id);
+        assertEq(_dailySpent(), LOCK, "a reopened lock is still a live spend");
+        assertEq(account.creditable(id), LOCK);
 
-        assertEq(_dailySpent(), 0, "a dispute nobody ruled on still cost the mandate its budget");
+        vm.warp(escrow.getLock(id).deadline + 1);
+        escrow.timeout(id);
+
+        assertEq(_dailySpent(), 0, "the exit that ended the lock handed the budget back");
         assertEq(asset.balanceOf(address(account)), FUNDING);
     }
 

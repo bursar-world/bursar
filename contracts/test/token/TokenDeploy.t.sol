@@ -189,7 +189,7 @@ contract TokenDeployTest is Test {
             revealWindow: 1 hours,
             unbondingPeriod: 7 days,
             quorum: 2,
-            maxVoters: 5,
+            maxVoters: 64,
             maxDeviation: 10,
             slashBps: 2_000
         });
@@ -263,13 +263,18 @@ contract TokenDeployTest is Test {
         vm.expectRevert(Vesting.NotAdmin.selector);
         Vesting(out.vesting).sweep();
 
-        // Nothing can take stake until governance names the credit lane.
-        vm.expectRevert(IStaking.NotCreditManager.selector);
-        Staking(out.staking).slash(1, bytes32(0));
+        // Nothing can take stake until governance names a slasher, and nothing can trigger a
+        // buyback until it names a keeper.
+        vm.expectRevert(IStaking.NotSlasher.selector);
+        Staking(out.staking).slash(1);
+        vm.expectRevert(Buyback.NotKeeper.selector);
+        Buyback(out.buyback).buyback();
 
         vm.stopPrank();
 
         assertEq(Staking(out.staking).creditManager(), address(0));
+        assertEq(Staking(out.staking).slasher(), address(0));
+        assertEq(Buyback(out.buyback).keeper(), address(0));
     }
 
     /// BRSR has no administered surface at all, which is why no address appears in the
@@ -344,7 +349,12 @@ contract TokenDeployTest is Test {
         assertEq(Buyback(out.buyback).params().maxPriceMicroUsdPerBrsr, 0);
         assertEq(Buyback(out.buyback).available(), 0);
 
+        // Even the keeper governance names is refused until there is a ceiling.
+        address keeper = makeAddr("keeper");
+        _pass(out.buyback, abi.encodeCall(Buyback.setKeeper, (keeper)));
         settlement.mint(out.buyback, 1_000e6);
+        assertEq(Buyback(out.buyback).available(), 0);
+        vm.prank(keeper);
         vm.expectRevert(Buyback.PriceCeilingUnset.selector);
         Buyback(out.buyback).buyback();
     }
@@ -439,13 +449,17 @@ contract TokenDeployTest is Test {
         tiers[0] = IStaking.Tier({minStake: 1_000e18, rebateBps: 500});
         tiers[1] = IStaking.Tier({minStake: 50_000e18, rebateBps: 2_000});
 
+        address slasher = makeAddr("slasher");
+
         _pass(out.staking, abi.encodeCall(Staking.setMinBond, (25_000e18)));
         _pass(out.staking, abi.encodeCall(Staking.setTiers, (tiers)));
         _pass(out.staking, abi.encodeCall(Staking.setCreditManager, (creditLane)));
+        _pass(out.staking, abi.encodeCall(Staking.setSlasher, (slasher)));
 
         assertEq(staking.minBond(), 25_000e18);
         assertEq(staking.tiers().length, 2);
         assertEq(staking.creditManager(), creditLane);
+        assertEq(staking.slasher(), slasher);
         assertTrue(staking.isBondable(founderA, 25_000e18));
     }
 

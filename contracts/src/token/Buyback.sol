@@ -14,8 +14,8 @@ import {IStaking} from "./interfaces/IStaking.sol";
 ///
 /// The AMM this trades against is a live deployment on Robinhood Chain and is not built from this
 /// repository. Vendoring its source would pull in a second compiler version, a second EVM
-/// target and a submodule pinned to an upstream revision, for four function signatures. The
-/// four are reproduced instead, and they are ABI-exact: `Currency` and `IHooks` are value
+/// target and a submodule pinned to an upstream revision, for five function signatures. The
+/// five are reproduced instead, and they are ABI-exact: `Currency` and `IHooks` are value
 /// types over `address`, and `BalanceDelta` is a value type over `int256`, so the encodings
 /// below match the deployed manager byte for byte.
 interface IPoolManager {
@@ -50,8 +50,8 @@ struct SwapParams {
 }
 
 /// Turns protocol revenue into staked-side distribution: spends USDG on the BRSR pool and
-/// compounds what it bought into the staking pool, which raises what every share outstanding
-/// is worth without minting a single new one.
+/// compounds what it bought into the staking pool, which raises what every earning share is
+/// worth without minting a single new one.
 ///
 /// It buys and distributes rather than burning. Bonds in the dispute layer are posted in
 /// BRSR, so the token is the security budget of adjudication; destroying supply to raise a
@@ -64,14 +64,18 @@ struct SwapParams {
 /// address and cannot claim the escrow's fee destination, which stays with an address that can
 /// answer for itself.
 ///
-/// ## Why anyone may call this, and what that costs
+/// ## Who may call this, and what that costs
 ///
 /// `buyback` pays no bounty. The caller chooses no amount, no price, no deadline and no
 /// recipient, and the proceeds leave for the staking contract in the same transaction, so
-/// triggering one is worth nothing beyond the gas it costs. What the call cannot do is stay
-/// private. An observer who sees it pending can push the pool price up ahead of it and sell
-/// back afterwards, keeping the difference. Four things bound that, and none of them removes
-/// it:
+/// triggering one is worth nothing beyond the gas it costs.
+///
+/// It is still not open to anyone. An open buyback can be wrapped in a single transaction:
+/// push the pool price up, trigger the buy, sell back into it, and keep the difference. That
+/// needs no mempool and no luck, and on a thin pool the fill can be pushed right up to the
+/// ceiling every time. Only `keeper`, an address governance names, can call it, which closes
+/// the atomic version. The keeper's own transaction can still be seen and bracketed by whoever
+/// orders the block. Four things bound that, and none of them removes it:
 ///
 /// - **The ceiling.** `maxPriceMicroUsdPerBrsr` is the most governance will pay for a whole
 ///   BRSR, in micro-USD, and it is not read from the pool during the trade. A sandwicher can
@@ -83,11 +87,13 @@ struct SwapParams {
 ///
 ///   The unit is the one a person can check against a screen. A deployment starts at zero, and
 ///   zero blocks every trade, so an untuned buyback buys nothing at all. There is no value
-///   that means "no ceiling".
+///   that means "no ceiling". A ceiling also ages: it carries the time governance last set it,
+///   and after `maxCeilingAge` every buyback refuses until governance sets it again. A market
+///   moves, and a ceiling nobody has looked at in a week is a guess.
 /// - **The size.** One call spends at most `spendPerCall`, which bounds the sandwich that is
 ///   profitable around it.
 /// - **The window.** `maxSpendPerWindow` bounds what the whole strategy extracts per window,
-///   whoever triggers the calls and however many of them there are.
+///   however many calls the keeper makes.
 /// - **The interval.** `minInterval` stops a window's budget being spent across consecutive
 ///   blocks. The cap is a rate limit, not a lump anyone can pull at once.
 ///
@@ -144,6 +150,11 @@ contract Buyback is Pausable, ReentrancyGuard {
     /// rate limit.
     uint64 private constant MAX_WINDOW = 30 days;
 
+    /// Bounds on how long a ceiling stays usable. Under a day asks governance to restate the price
+    /// more often than any proposal cadence will; over a month is not a price anyone checked.
+    uint64 public constant MIN_CEILING_AGE = 1 days;
+    uint64 public constant MAX_CEILING_AGE = 30 days;
+
     /// Governance-owned, and every field is load-bearing. Read the invariants in `_validate`
     /// before changing any of them.
     struct Params {
@@ -192,7 +203,15 @@ contract Buyback is Pausable, ReentrancyGuard {
     address public admin;
     address public pendingAdmin;
 
+    /// The only address that can trigger a buyback. Unset, nothing can.
+    address public keeper;
+
     uint64 public lastBuybackAt;
+
+    /// When governance last set the parameters, and with them the ceiling, and how long the
+    /// ceiling is trusted after that.
+    uint64 public ceilingSetAt;
+    uint64 public maxCeilingAge;
 
     Params private _params;
     Window private _window;
@@ -206,11 +225,14 @@ contract Buyback is Pausable, ReentrancyGuard {
     event ParamsUpdated(Params params);
     event AdminTransferStarted(address indexed from, address indexed to);
     event AdminTransferred(address indexed from, address indexed to);
+    event KeeperUpdated(address indexed keeper);
+    event MaxCeilingAgeUpdated(uint64 age);
     event Swept(address indexed token, uint256 amount);
 
     error ZeroAddress();
     error NotAdmin();
     error NotAuthorized();
+    error NotKeeper();
     error NotPoolManager();
     error NotUnlocking();
     error AssetDecimalsMismatch(address token, uint8 found, uint8 expected);
@@ -222,6 +244,7 @@ contract Buyback is Pausable, ReentrancyGuard {
     error TooSoon(uint64 readyAt);
     error BelowMinimumSpend(uint256 availableMicroUsd, uint128 minSpendMicroUsd);
     error PriceCeilingUnset();
+    error PriceCeilingStale(uint64 staleSince);
     error SwapConsumedWrongAmount(uint256 requestedMicroUsd, uint256 spentMicroUsd);
     error SwapDirectionWrong(int256 inDelta, int256 outDelta);
     error MinimumOutNotMet(uint256 receivedWei, uint256 minOutWei);
@@ -303,20 +326,27 @@ contract Buyback is Pausable, ReentrancyGuard {
         _params = params_;
         // forge-lint: disable-next-line(unsafe-typecast)
         _window.start = uint64(block.timestamp);
+        ceilingSetAt = uint64(block.timestamp);
+        maxCeilingAge = 7 days;
 
         emit ParamsUpdated(params_);
+        emit MaxCeilingAgeUpdated(7 days);
         emit AdminTransferred(address(0), admin_);
     }
 
     /// Spends what the caps allow, at a price no worse than the governance ceiling, and hands
     /// the result to the staking pool. Reverts rather than buying badly.
     function buyback() external nonReentrant whenNotPaused returns (uint256 spentMicroUsd, uint256 receivedWei) {
+        if (msg.sender != keeper) revert NotKeeper();
+
         Params memory p = _params;
 
         // The state a deployment starts in and the state governance can return it to. Checked
         // first so an untuned contract says what is missing instead of failing further down on
         // a cooldown or a balance.
         if (p.maxPriceMicroUsdPerBrsr == 0) revert PriceCeilingUnset();
+        uint64 staleSince = ceilingSetAt + maxCeilingAge;
+        if (block.timestamp > staleSince) revert PriceCeilingStale(staleSince);
 
         uint64 readyAt = lastBuybackAt == 0 ? 0 : lastBuybackAt + p.minInterval;
         if (block.timestamp < readyAt) revert TooSoon(readyAt);
@@ -431,6 +461,8 @@ contract Buyback is Pausable, ReentrancyGuard {
         return abi.encode(owed, received);
     }
 
+    /// Every call restates the ceiling, so every call refreshes its age. A proposal that only
+    /// meant to move the spend still has to carry a ceiling somebody is prepared to sign today.
     function setParams(Params calldata params_) external onlyAdmin {
         Params memory current = _params;
         // Rolled against the old duration first. Changing the window length must not hand the
@@ -441,8 +473,21 @@ contract Buyback is Pausable, ReentrancyGuard {
 
         _validate(params_);
         _params = params_;
+        ceilingSetAt = uint64(block.timestamp);
 
         emit ParamsUpdated(params_);
+    }
+
+    /// Zero leaves nobody able to call `buyback`.
+    function setKeeper(address keeper_) external onlyAdmin {
+        keeper = keeper_;
+        emit KeeperUpdated(keeper_);
+    }
+
+    function setMaxCeilingAge(uint64 age) external onlyAdmin {
+        if (age < MIN_CEILING_AGE || age > MAX_CEILING_AGE) revert BadParams("maxCeilingAge");
+        maxCeilingAge = age;
+        emit MaxCeilingAgeUpdated(age);
     }
 
     /// Returns money to the treasury when the venue is gone, the pool is unusable, or a token
@@ -489,14 +534,15 @@ contract Buyback is Pausable, ReentrancyGuard {
         return _rolled(_window, _params.window);
     }
 
-    /// What a buyback would spend if it were called in this block, and zero when one would be
-    /// refused. A caller checks this before paying for a transaction that reverts.
+    /// What a buyback would spend if the keeper called it in this block, and zero when one
+    /// would be refused. The keeper checks this before paying for a transaction that reverts.
     function available() external view returns (uint256 spendMicroUsd) {
-        if (paused()) return 0;
+        if (paused() || keeper == address(0)) return 0;
         if (staking.totalShares() == 0) return 0;
 
         Params memory p = _params;
         if (p.maxPriceMicroUsdPerBrsr == 0) return 0;
+        if (block.timestamp > ceilingSetAt + maxCeilingAge) return 0;
         if (lastBuybackAt != 0 && block.timestamp < lastBuybackAt + p.minInterval) return 0;
 
         Window memory w = _rolled(_window, p.window);
@@ -519,8 +565,6 @@ contract Buyback is Pausable, ReentrancyGuard {
     /// the clock. Snapping to now would let a caller who waits out a window buy a fresh one on
     /// a schedule of their choosing.
     function _rolled(Window memory w, uint64 duration) private view returns (Window memory) {
-        if (duration == 0) return w;
-
         uint256 elapsed = block.timestamp - w.start;
         if (elapsed < duration) return w;
 

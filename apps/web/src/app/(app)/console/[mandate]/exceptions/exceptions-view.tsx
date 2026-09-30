@@ -4,8 +4,12 @@ import { isTotalBudgetWindow, mulBps } from '@bursar/core';
 import type { ContractSet } from '@bursar/core';
 import type { Micro } from '@bursar/core';
 import { LockStatus } from '@bursar/sdk';
+import { useQuery } from '@tanstack/react-query';
+import type { Address } from 'viem';
 
-import { escrowAbi, mandateAccountAbi } from '@/chain/abi';
+import { escrowAbi, mandateAccountAbi, oracleRegistryAbi } from '@/chain/abi';
+import { rhcClient } from '@/chain/client';
+import { readableDeployments } from '@/chain/deployments';
 import { ADDRESSES, shortAddress } from '@/chain/rhc';
 import { Address as AddressView, TxHash } from '@/components/address';
 import { LevelDot, levelWord } from '@/components/badge';
@@ -25,6 +29,7 @@ import { transferGates } from '../../lib/write-gates';
 import { useMandateScope } from '../mandate-scope';
 import { useWriteContract } from '@/wallet/write';
 import { ShareWithResolver } from '../../lib/share-with-resolver';
+import { RulingNote } from '../../../resolvers/ruling-note';
 
 /**
  * Everything that did not go through, with the reason attached.
@@ -190,12 +195,17 @@ export function ExceptionsView() {
                   key: 'outcome',
                   header: 'What happened',
                   cell: (lock) => (
-                    <span className="text-detail">
-                      <span className="font-medium">{returnable(lock, chainTime) ? OVERDUE_WORD : lockWord(lock.status)}. </span>
-                      <span className="text-[color:var(--color-muted)]">
-                        {returnable(lock, chainTime) ? OVERDUE_DETAIL : lockDetail(lock.status)}
+                    <div className="space-y-2">
+                      <span className="text-detail">
+                        <span className="font-medium">{returnable(lock, chainTime) ? OVERDUE_WORD : lockWord(lock.status)}. </span>
+                        <span className="text-[color:var(--color-muted)]">
+                          {returnable(lock, chainTime) ? OVERDUE_DETAIL : lockDetail(lock.status)}
+                        </span>
                       </span>
-                    </span>
+                      {(lock.status === LockStatus.Disputed || lock.status === LockStatus.Resolved) && (
+                        <LockRuling escrow={account?.escrow ?? ADDRESSES.escrow} lockId={lock.id} />
+                      )}
+                    </div>
                   ),
                 },
                 {
@@ -204,7 +214,7 @@ export function ExceptionsView() {
                   secondary: true,
                   cell: (lock) => (
                     <span className="text-detail text-[color:var(--color-muted)]">
-                      {returnable(lock, chainTime) ? 'Yours' : lock.status === LockStatus.Disputed ? 'The resolver' : 'The provider'}
+                      {whoseMove(lock.status, returnable(lock, chainTime))}
                     </span>
                   ),
                 },
@@ -468,3 +478,32 @@ function Attempted({ refusal, labelFor }: { readonly refusal: Refusal; readonly 
   );
 }
 
+
+/** Who has to act next on a payment that did not end in a delivery. */
+export function whoseMove(status: LockStatus, overdue: boolean): string {
+  if (overdue) return 'Yours';
+  if (status === LockStatus.Disputed) return 'The resolvers';
+  return 'Nobody, it is closed';
+}
+
+/**
+ * The published ruling behind a contested payment, found through the dispute registry that serves
+ * the mandate's escrow. The note says itself when nothing has been published yet.
+ */
+function LockRuling({ escrow, lockId }: { readonly escrow: Address; readonly lockId: bigint }) {
+  const tag = readableDeployments().find((entry) => entry.escrow.toLowerCase() === escrow.toLowerCase());
+  const dispute = useQuery({
+    queryKey: ['console', 'dispute-of-lock', escrow, lockId.toString()],
+    queryFn: async () =>
+      (await rhcClient().readContract({
+        address: tag!.oracleRegistry,
+        abi: oracleRegistryAbi,
+        functionName: 'disputeIdOf',
+        args: [lockId],
+      })) as bigint,
+    enabled: tag !== undefined,
+    staleTime: 60_000,
+  });
+  if (tag === undefined || dispute.data === undefined || dispute.data === 0n) return null;
+  return <RulingNote disputeId={dispute.data} {...(tag.current ? {} : { registry: tag.oracleRegistry })} />;
+}

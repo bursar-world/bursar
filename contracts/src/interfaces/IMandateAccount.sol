@@ -49,6 +49,7 @@ interface IMandateAccount {
     error BadLane();
     error RouterNotSet();
     error InsufficientOutput();
+    error AlreadyPrincipal();
 
     /// Both windows bind at once. A spend has to clear the per-call cap and leave room in
     /// the daily and the monthly bucket, so the tighter of the two is what an agent feels.
@@ -101,7 +102,7 @@ interface IMandateAccount {
         /// Lifetime ceiling on committed spend, net of refunds. Zero means no lifetime ceiling.
         uint128 totalCap;
         /// Where the funds settle: 0 escrow, 1 treasury, 2 collateral. The treasury lane is
-        /// `TreasuryPark`; the collateral lane is reserved so a mandate can name it later.
+        /// `TreasuryPark`; `CollateralVault` opens a credit line only for a mandate on lane 2.
         uint8 lane;
     }
 
@@ -118,8 +119,9 @@ interface IMandateAccount {
 
     /// A principal's consent to one spend above `approvalThreshold`. `approvalId` is chosen
     /// by the principal and burned on use, so approvals can be issued out of band and
-    /// consumed out of order. `amount` is a ceiling, not an exact match, which lets a
-    /// quoted price settle slightly under without a second round trip.
+    /// consumed out of order. A burned id stays burned for the life of the account, across
+    /// changes of principal. `amount` is a ceiling, not an exact match, which lets a quoted
+    /// price settle slightly under without a second round trip.
     struct SpendApproval {
         bytes32 approvalId;
         address merchant;
@@ -155,7 +157,6 @@ interface IMandateAccount {
     event Bought(address indexed asset, uint128 usdgIn, uint256 amountOut, uint256 quotedPriceE8);
     event RouterUpdated(address indexed router);
     event TreasuryParkUpdated(address indexed treasuryPark);
-    event TermsCommitted(bytes32 indexed termsCommitment, address indexed verifier);
 
     /// Locks `request.amount` in the escrow against the mandate. Reverts with
     /// `ApprovalRequired` at or above `approvalThreshold`; those spends go through
@@ -239,6 +240,8 @@ interface IMandateAccount {
     function approveSpend(SpendApproval calldata approval) external;
     function revokeApproval(bytes32 approvalId) external;
 
+    /// Names the next principal, who takes the account with `acceptPrincipal`. Refused for the
+    /// current principal: a handover to itself revokes nothing it has signed.
     function transferPrincipal(address to) external;
     function acceptPrincipal() external;
 
@@ -258,10 +261,6 @@ interface IMandateAccount {
 
     function setRouter(address router) external;
 
-    /// Records a commitment to off-chain terms and the verifier that will check proofs
-    /// against it. Nothing reads either yet.
-    function setTermsCommitment(bytes32 termsCommitment, address verifier) external;
-
     /// The treasury lane that covers a USDG shortfall inside `spend` and `buy`. Not on the
     /// first v2 accounts.
     function setTreasuryPark(address treasuryPark) external;
@@ -276,8 +275,6 @@ interface IMandateAccount {
     function totalSpent() external view returns (uint128);
     function lane() external view returns (uint8);
     function router() external view returns (address);
-    function termsCommitment() external view returns (bytes32);
-    function verifier() external view returns (address);
     function approvalEpoch() external view returns (uint64);
 
     /// What is left under the lifetime ceiling, or the uint128 maximum when there is none.
@@ -317,7 +314,8 @@ interface IMandateAccount {
 
     /// keccak256(
     ///   "Limits(uint128 perCallCap,uint128 dailyCap,uint128 monthlyCap,uint64 dailyWindow,"
-    ///   "uint64 monthlyWindow,uint128 approvalThreshold,uint64 validFrom,uint64 validUntil)"
+    ///   "uint64 monthlyWindow,uint128 approvalThreshold,uint64 validFrom,uint64 validUntil,"
+    ///   "uint32 classMask,uint128 totalCap,uint8 lane)"
     /// )
     // forge-lint: disable-next-item(mixed-case-function)
     function LIMITS_TYPEHASH() external pure returns (bytes32);
@@ -325,7 +323,8 @@ interface IMandateAccount {
     /// keccak256(
     ///   "SetLimits(Limits limits,uint256 nonce,uint64 deadline)"
     ///   "Limits(uint128 perCallCap,uint128 dailyCap,uint128 monthlyCap,uint64 dailyWindow,"
-    ///   "uint64 monthlyWindow,uint128 approvalThreshold,uint64 validFrom,uint64 validUntil)"
+    ///   "uint64 monthlyWindow,uint128 approvalThreshold,uint64 validFrom,uint64 validUntil,"
+    ///   "uint32 classMask,uint128 totalCap,uint8 lane)"
     /// )
     /// Referenced struct types follow the primary type in alphabetical order, per EIP-712.
     // forge-lint: disable-next-item(mixed-case-function)

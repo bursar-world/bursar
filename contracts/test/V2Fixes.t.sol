@@ -75,7 +75,7 @@ contract V2FixesTest is Test {
     uint128 private constant BOND = 2_000e18;
     uint64 private constant WINDOW = 1 hours;
     uint64 private constant MIN_TTL = 5 minutes;
-    uint64 private constant DISPUTE_TIMEOUT = 2 days;
+    uint128 private constant MIN_LOCK = 10_000;
     bytes32 private constant SALT = keccak256("v2.salt");
     bytes32 private constant CAPABILITY = keccak256("service:gpu.render:1");
 
@@ -111,9 +111,8 @@ contract V2FixesTest is Test {
         reputation = new MockReputation();
         timelock = new AdminTimelock([signerA, signerB, signerC], guardian, 1 hours);
 
-        escrow = new Escrow(
-            address(usdg), address(reputation), treasury, 100, 50, 500, MIN_TTL, 7 days, 1 hours, DISPUTE_TIMEOUT
-        );
+        escrow =
+            new Escrow(address(usdg), address(reputation), treasury, 100, 50, 500, MIN_TTL, 7 days, 1 hours, MIN_LOCK);
         registry = new OracleRegistry(
             address(usdg),
             address(timelock),
@@ -123,7 +122,7 @@ contract V2FixesTest is Test {
                 revealWindow: WINDOW,
                 unbondingPeriod: 7 days,
                 quorum: 2,
-                maxVoters: 5,
+                maxVoters: 64,
                 maxDeviation: 20,
                 slashBps: 1_000
             })
@@ -140,42 +139,6 @@ contract V2FixesTest is Test {
         r1 = _bond("r1");
         r2 = _bond("r2");
         r3 = _bond("r3");
-    }
-
-    // D17 ------------------------------------------------------------------------------------
-
-    function test_D17_disputeTimeoutRefusesWhileTheRegistryCanStillRule() public {
-        uint256 id = _lockAndDispute(payer);
-        uint256 disputeId = registry.disputeIdOf(id);
-        _vote(disputeId, 90, 90, 90);
-
-        vm.warp(block.timestamp + DISPUTE_TIMEOUT + 1);
-        vm.expectRevert(IEscrow.DisputeRulable.selector);
-        escrow.disputeTimeout(id);
-
-        registry.finalize(disputeId);
-        assertEq(uint8(escrow.getLock(id).status), uint8(IEscrow.LockStatus.Resolved));
-        assertGt(usdg.balanceOf(payee), 0, "the ruling paid the payee, the timeout did not refund the payer");
-    }
-
-    function test_D17_disputeTimeoutStillAnswersARegistryThatCannotBeRead() public {
-        MockUsdg asset = new MockUsdg();
-        Escrow orphan = new Escrow(
-            address(asset), address(new MockReputation()), treasury, 100, 50, 500, MIN_TTL, 7 days, 0, 1 days
-        );
-        DeadRegistry dead = new DeadRegistry();
-        orphan.setResolver(address(dead));
-
-        asset.mint(payer, AMOUNT + DISPUTE_BOND);
-        vm.startPrank(payer);
-        asset.approve(address(orphan), AMOUNT + DISPUTE_BOND);
-        uint256 id = orphan.lock(payee, CAPABILITY, bytes32(0), "", AMOUNT, uint64(block.timestamp + 1 days));
-        orphan.dispute(id);
-        vm.stopPrank();
-
-        vm.warp(block.timestamp + 1 days + 1);
-        orphan.disputeTimeout(id);
-        assertEq(asset.balanceOf(payer), AMOUNT + DISPUTE_BOND);
     }
 
     // D14 and D18 / M1 -----------------------------------------------------------------------
@@ -302,9 +265,10 @@ contract V2FixesTest is Test {
         uint256 id = _lockAndDispute(bondedPayer);
         uint256 disputeId = registry.disputeIdOf(id);
 
-        (address p, address q) = registry.partiesOf(disputeId);
+        (address p, address q, address principal_) = registry.partiesOf(disputeId);
         assertEq(p, payer);
         assertEq(q, payee);
+        assertEq(principal_, address(0), "a plain payer has no principal to bar");
 
         bytes32 commitment = registry.commitmentHash(disputeId, bondedPayer, 0, SALT);
         vm.prank(bondedPayer);
@@ -343,7 +307,7 @@ contract V2FixesTest is Test {
         new Reputation(address(this), IReputation.CapCurve({baseCap: 0, capPerScore: 0, maxCap: 0}));
 
         Reputation live =
-            new Reputation(address(this), IReputation.CapCurve({baseCap: 25e6, capPerScore: 1e6, maxCap: 250e6}));
+            new Reputation(address(this), IReputation.CapCurve({baseCap: 25e6, capPerScore: 2.25e6, maxCap: 250e6}));
         vm.expectRevert(IReputation.BadCurve.selector);
         live.setCurve(IReputation.CapCurve({baseCap: 0, capPerScore: 5e6, maxCap: 0}));
     }
@@ -358,23 +322,6 @@ contract V2FixesTest is Test {
 
         vm.expectRevert(AgentRegistry.BadConfig.selector);
         new AgentRegistry(usdg, address(this), sink, ceiling + 1, 1_000);
-    }
-
-    // D21 ------------------------------------------------------------------------------------
-
-    function test_D21_votingWindowsMustEndBeforeTheEscrowTimesOut() public {
-        IOracleRegistry.Config memory cfg = registry.config();
-        cfg.commitWindow = DISPUTE_TIMEOUT / 2;
-        cfg.revealWindow = DISPUTE_TIMEOUT / 2;
-        cfg.unbondingPeriod = 30 days;
-
-        vm.prank(address(timelock));
-        vm.expectRevert(IOracleRegistry.BadConfig.selector);
-        registry.setConfig(cfg);
-
-        OracleRegistry fresh = new OracleRegistry(address(usdg), address(timelock), sink, cfg);
-        vm.expectRevert(IOracleRegistry.BadConfig.selector);
-        fresh.setEscrow(address(escrow));
     }
 
     // D22 ------------------------------------------------------------------------------------
@@ -604,15 +551,6 @@ contract V2FixesTest is Test {
         account.buy(stock, 200e6, 1, 250e8);
     }
 
-    function test_termsCommitmentIsRecordedForTheVerifier() public {
-        MandateAccount account = _mandate(principal, _limits());
-        vm.prank(principal);
-        account.setTermsCommitment(keccak256("terms"), address(0xBEEF));
-
-        assertEq(account.termsCommitment(), keccak256("terms"));
-        assertEq(account.verifier(), address(0xBEEF));
-    }
-
     function test_eitherPartyCanGrantADisclosureOnADisputedLock() public {
         uint256 id = _lockAndDispute(payer);
 
@@ -715,16 +653,5 @@ contract V2FixesTest is Test {
             deadline: uint64(block.timestamp + 1 hours),
             spendClass: spendClass
         });
-    }
-}
-
-/// A resolver whose every call reverts, standing in for a registry that has stopped answering.
-contract DeadRegistry {
-    function openDispute(uint256, address, address) external pure returns (uint256) {
-        return 1;
-    }
-
-    fallback() external {
-        revert();
     }
 }

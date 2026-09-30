@@ -142,7 +142,7 @@ diagram is at [architecture.svg](https://github.com/bursar-world/.github/blob/ma
 |---|---|
 | Node.js | 22 or newer (`.nvmrc` pins 22) |
 | pnpm | 11.20.0, pinned in `packageManager`. `corepack enable` installs it. |
-| Foundry | 1.8 or newer, for the contracts |
+| Foundry | 1.8.1, pinned in `contracts/.foundry-version` |
 | Docker | Any current release, for the Postgres the facilitator uses |
 
 ### Install, build and test
@@ -161,7 +161,10 @@ The contracts need their Solidity dependencies once. `contracts/lib/` is not com
 
 ```sh
 cd contracts
-forge install --no-git foundry-rs/forge-std@v1.9.4 OpenZeppelin/openzeppelin-contracts@v5.1.0
+forge install --no-git --shallow \
+  foundry-rs/forge-std@1eea5bae12ae557d589f9f0f0edae2faa47cb262 \
+  OpenZeppelin/openzeppelin-contracts@69c8def5f222ff96f2b5beff05dfba996368aa79 \
+  OpenZeppelin/openzeppelin-contracts-upgradeable@723f8cab09cdae1aca9ec9cc1cfa040c2d4b06c1
 forge build
 forge test
 ```

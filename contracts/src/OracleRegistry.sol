@@ -13,10 +13,11 @@ import {IStaking} from "./token/interfaces/IStaking.sol";
 
 /// Bonded resolvers, commit-reveal voting, and the slashing that makes both mean something.
 ///
-/// A dispute has three permissionless exits: `finalize` when the vote produced a result,
-/// `failDispute` when it did not, and the escrow's own timeout when this contract never
-/// answers at all. Every one of them moves the lock on, which is the property that matters
-/// most here. A resolver quorum that can strand a payer's funds is worse than no quorum.
+/// A dispute has two permissionless exits: `finalize` when the vote produced a result and
+/// `failDispute` when it did not. Once the reveal window closes one of them is always open,
+/// and neither can be blocked by a party to the lock: the escrow books a payout it cannot
+/// deliver instead of reverting on it. That is the property that matters most here. A
+/// resolver quorum that can strand a payer's funds is worse than no quorum.
 ///
 /// A failed vote reopens the lock rather than refunding it. Otherwise a payer facing a thin
 /// bench could dispute, wait out an empty vote, and take back money for work it received.
@@ -54,9 +55,14 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
     uint8 private constant SCORE_MAX = 100;
     uint16 private constant BPS = 10_000;
 
-    /// Anyone bonded may crowd into a dispute, so the roster bounds the worst case a single
-    /// finalisation has to walk. `maxVoters` bounds it again per dispute.
+    /// Every seated resolver may vote on every dispute, so the roster is what bounds the worst
+    /// case a single finalisation has to walk.
     uint256 private constant MAX_RESOLVERS = 64;
+
+    /// The shortest commit or reveal window the config accepts. A resolver service polls, signs
+    /// and waits for inclusion; a window shorter than that is one only a party already watching
+    /// the mempool can vote in.
+    uint64 private constant MIN_WINDOW = 10 minutes;
 
     /// Refund tiers, in score points. A resolver ruling "not delivered" and one ruling
     /// "delivered badly" land on the same refund without having to agree on a number.
@@ -67,10 +73,11 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
     struct Parties {
         address payer;
         address payee;
+        address principal;
     }
 
     /// What reading a payer's principal may cost. A mandate account answers in a few thousand;
-    /// the cap keeps a hostile payer contract from making a vote expensive.
+    /// the cap keeps a hostile payer contract from making a dispute expensive to open.
     uint256 private constant PRINCIPAL_READ_GAS = 20_000;
 
     struct Vote {
@@ -240,7 +247,7 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
 
         disputeId = nextDisputeId++;
         disputeIdOf[escrowId] = disputeId;
-        _parties[disputeId] = Parties({payer: payer, payee: payee});
+        _parties[disputeId] = Parties({payer: payer, payee: payee, principal: _principalOf(payer)});
 
         uint64 commitEndsAt = uint64(block.timestamp) + _config.commitWindow;
         Dispute storage dispute = _disputes[disputeId];
@@ -413,7 +420,7 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
             return;
         }
 
-        // Bounded by `maxVoters`, which the config caps at the roster size.
+        // Bounded by the roster, which is capped at `MAX_RESOLVERS`.
         address[] storage roster = _voters[disputeId];
         for (uint256 i; i < roster.length; ++i) {
             address voter = roster[i];
@@ -453,6 +460,21 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
         emit UnallocatedSwept(sink, amount);
     }
 
+    /// Settlement asset held beyond the reward ledger. Only a transfer made outside
+    /// `notifyReward` leaves any, it is nobody's reward, and it goes where orphaned fees go.
+    function sweepSurplus() external nonReentrant returns (uint256 amount) {
+        IERC20 asset = IERC20(settlementAsset);
+        uint256 held = asset.balanceOf(address(this));
+        uint256 floated = rewardFloat;
+        if (held <= floated) revert NothingToClaim();
+        amount = held - floated;
+
+        address sink = slashSink;
+        asset.safeTransfer(sink, amount);
+
+        emit SurplusSwept(sink, amount);
+    }
+
     function slash(address resolver, uint128 amount) external onlyAdmin nonReentrant {
         if (resolver == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
@@ -471,9 +493,29 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
         emit ResolverSlashed(resolver, 0, taken);
     }
 
+    /// Unseats a resolver and returns what is left of its bond. The roster is capped, and a
+    /// seat held by a bond slashed to nothing, or by a resolver that stopped answering, would
+    /// otherwise be held for good. Refused while a vote the bond backs is still open.
+    function evict(address resolver) external onlyAdmin nonReentrant {
+        Resolver storage record = _resolvers[resolver];
+        _requireRegistered(record);
+        if (openVotes[resolver] != 0) revert BondLocked();
+
+        uint128 returned = record.bond;
+        record.bond = 0;
+        record.unbondingAt = 0;
+        record.status = ResolverStatus.Exited;
+
+        resolverCount -= 1;
+        totalBonded -= returned;
+
+        if (returned != 0) bondAsset.safeTransfer(resolver, returned);
+
+        emit ResolverEvicted(resolver, returned);
+    }
+
     function setConfig(Config calldata config_) external onlyAdmin {
         _validateConfig(config_);
-        _requireTimeoutOutlastsVote(escrow, config_);
         // Live disputes carry their own window ends, so a change here cannot move a clock that
         // resolvers are already voting against. Quorum and deviation are read at finalisation.
         _config = config_;
@@ -490,7 +532,6 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
         if (msg.sender != deployer) revert NotDeployer();
         if (escrow != address(0)) revert AlreadySet();
         if (escrow_ == address(0)) revert ZeroAddress();
-        _requireTimeoutOutlastsVote(escrow_, _config);
 
         escrow = escrow_;
         emit EscrowSet(escrow_);
@@ -568,14 +609,9 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
         return 0;
     }
 
-    function rulable(uint256 escrowId) external view returns (bool) {
-        DisputeStatus status = _disputes[disputeIdOf[escrowId]].status;
-        return status == DisputeStatus.Committing || status == DisputeStatus.Revealing;
-    }
-
-    function partiesOf(uint256 disputeId) external view returns (address payer, address payee) {
+    function partiesOf(uint256 disputeId) external view returns (address payer, address payee, address principal) {
         Parties storage parties = _parties[disputeId];
-        return (parties.payer, parties.payee);
+        return (parties.payer, parties.payee, parties.principal);
     }
 
     function getDispute(uint256 disputeId) external view returns (Dispute memory) {
@@ -613,14 +649,6 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
 
     function scoreMax() external pure returns (uint8) {
         return SCORE_MAX;
-    }
-
-    /// The escrow's `disputeTimeoutPeriod` has to exceed this, or a lock can be timed out from
-    /// under a vote that is still running and the resolvers slash each other over an outcome
-    /// nobody can act on. The sum cannot overflow: `_validateConfig` holds it below
-    /// `unbondingPeriod`, which is itself a uint64.
-    function votingPeriod() external view returns (uint64) {
-        return _config.commitWindow + _config.revealWindow;
     }
 
     /// Credits what arrived, not what was asked for. The bond asset is fixed, but a token that
@@ -731,31 +759,31 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
         }
     }
 
-    /// The payer is usually a mandate account, and the person behind it is its principal. A
-    /// payer that does not answer `principal()` is taken at its own address alone.
     function _isParty(uint256 disputeId, address voter) private view returns (bool) {
         Parties storage parties = _parties[disputeId];
-        if (voter == parties.payer || voter == parties.payee) return true;
-
-        address payer = parties.payer;
-        if (payer.code.length == 0) return false;
-        (bool ok, bytes memory data) = payer.staticcall{gas: PRINCIPAL_READ_GAS}(abi.encodeWithSignature("principal()"));
-        return ok && data.length >= 32 && abi.decode(data, (uint256)) == uint256(uint160(voter));
+        return voter == parties.payer || voter == parties.payee || voter == parties.principal;
     }
 
-    /// The escrow's timeout is the payer's exit from a registry that never answers. Inside the
-    /// voting windows it would refund a dispute the resolvers are still hearing.
-    function _requireTimeoutOutlastsVote(address escrow_, Config memory cfg) private view {
-        if (escrow_ == address(0)) return;
-        uint256 voting = uint256(cfg.commitWindow) + cfg.revealWindow;
-        if (IEscrow(escrow_).disputeTimeoutPeriod() <= voting) revert BadConfig();
+    /// The payer is usually a mandate account, and the person behind it is its principal. Read
+    /// once, when the dispute opens, and never again: a payer answering from `tx.origin`, or
+    /// from any state it can move, would otherwise choose who may vote at the moment each vote
+    /// lands. What it names here is the one address it can bar beyond itself and the payee. A
+    /// payer that does not answer is taken at its own address alone.
+    function _principalOf(address payer) private view returns (address) {
+        if (payer.code.length == 0) return address(0);
+        (bool ok, bytes memory data) = payer.staticcall{gas: PRINCIPAL_READ_GAS}(abi.encodeWithSignature("principal()"));
+        if (!ok || data.length < 32) return address(0);
+        uint256 word = abi.decode(data, (uint256));
+        // Held to the address range on the same line, so the cast cannot truncate.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return word > type(uint160).max ? address(0) : address(uint160(word));
     }
 
     function _deviation(uint8 score, uint8 median) private pure returns (uint8) {
         return score > median ? score - median : median - score;
     }
 
-    /// Insertion sort over at most `maxVoters` entries. On an even split the lower of the two
+    /// Insertion sort over at most `MAX_RESOLVERS` entries. On an even split the lower of the two
     /// middle scores wins the rounding, which resolves a tie toward the payer's refund.
     function _median(uint8[] memory scores) private pure returns (uint8) {
         uint256 n = scores.length;
@@ -774,10 +802,12 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
     }
 
     function _validateConfig(Config memory cfg) private pure {
-        if (cfg.commitWindow == 0 || cfg.revealWindow == 0) revert BadConfig();
-        if (cfg.quorum == 0 || cfg.maxVoters == 0) revert BadConfig();
-        if (cfg.quorum > cfg.maxVoters) revert BadConfig();
-        if (cfg.maxVoters > MAX_RESOLVERS) revert BadConfig();
+        if (cfg.commitWindow < MIN_WINDOW || cfg.revealWindow < MIN_WINDOW) revert BadConfig();
+        // A quorum above the roster is one no vote can reach, and every dispute would fail.
+        if (cfg.quorum == 0 || cfg.quorum > MAX_RESOLVERS) revert BadConfig();
+        // A cap below the roster lets whoever commits first fill the panel and shut every other
+        // resolver out of the vote.
+        if (cfg.maxVoters < MAX_RESOLVERS) revert BadConfig();
         if (cfg.maxDeviation > SCORE_MAX) revert BadConfig();
         // A zero slash leaves the only cost in the system a no-op while `ResolverSlashed` still
         // fires, which reads as enforcement to anyone watching the logs. Worse than no slash.

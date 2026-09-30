@@ -6,12 +6,8 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-/// The part of Staking the pool calls. `distribute` only accepts the address governance named
-/// as `creditManager`.
-interface ICreditStaking {
-    function creditManager() external view returns (address);
-    function distribute(uint256 amount) external;
-}
+import {Buyback} from "../token/Buyback.sol";
+import {ICreditStaking} from "./interfaces/ICreditStaking.sol";
 
 /// The lender side of the collateral lane: USDG an operator supplies, lent only to mandates
 /// that `CollateralVault` has checked against posted collateral.
@@ -20,9 +16,19 @@ interface ICreditStaking {
 /// debt costs `scaled × index`. Nothing else in the protocol borrows, and the only address that
 /// can open or close debt is the vault.
 ///
-/// Spread. The rate is `baseRateBps + slopeBps × utilisation`, a year's rate in basis points.
-/// All of it is booked to `reserves` and swept to Staking as USDG rewards. The lender earns
-/// principal back, not the spread, while the lane runs on operator capital.
+/// Spread. The rate is `baseRateBps + slopeBps × utilisation`, a year's rate in basis points,
+/// and it accrues on the debt. A repayment meets accrued spread before principal, and only
+/// spread that has been paid is booked to `reserves` and swept to Staking as USDG rewards. Spread
+/// on a debt that ends in a write-off was never paid, so it never reaches stakers out of the
+/// lender's cash. The lender earns principal back, not the spread, while the lane runs on
+/// operator capital.
+///
+/// Losses. A write-off books the unpaid debt as `badDebt`, and the lender carries it in USDG.
+/// Once Staking names this pool its slasher, the same write-off penalises stakers: the loss is
+/// converted to BRSR at the Buyback's price ceiling, the BRSR price governance restates on
+/// chain, and slashed up to the window cap. That BRSR goes to Staking's slash sink and none of
+/// it comes back to the lender. A ceiling that is unset, or older than the Buyback would trade
+/// on, is not a price, and nothing is slashed against it.
 ///
 /// Caps. `totalDebtCap` across all mandates and `perMandateCap` for one, both in USDG.
 contract CreditPool is ReentrancyGuard {
@@ -32,9 +38,20 @@ contract CreditPool is ReentrancyGuard {
     uint256 internal constant WAD = 1e18;
     uint256 internal constant YEAR = 365 days;
     uint256 internal constant MAX_RATE_BPS = 5_000;
+    /// One whole BRSR in wei. The ceiling is micro-USD per whole BRSR.
+    uint256 internal constant BRSR_UNIT = 1e18;
+
+    /// Why a write-off slashed nothing.
+    enum SlashSkip {
+        NotSlasher,
+        CeilingUnset,
+        CeilingStale
+    }
 
     IERC20 public immutable usdg;
     ICreditStaking public immutable staking;
+    /// Its price ceiling converts a write-off into BRSR.
+    Buyback public immutable buyback;
     address public immutable deployer;
 
     address public admin;
@@ -51,20 +68,23 @@ contract CreditPool is ReentrancyGuard {
     uint256 public borrowIndex = WAD;
     uint64 public lastAccrual;
     uint256 public totalScaled;
-    /// Spread earned and not yet swept to Staking.
+    /// Spread borrowers have paid that is not yet swept to Staking.
     uint256 public reserves;
     /// Debt written off after a position ran out of collateral.
     uint256 public badDebt;
     uint256 public spreadPaid;
 
     mapping(address mandate => uint256) public scaledDebtOf;
+    /// What each mandate borrowed and has not paid back.
+    mapping(address mandate => uint256) public principalOf;
 
     event VaultBound(address indexed vault);
     event Funded(address indexed from, uint256 amount);
     event LiquidityWithdrawn(address indexed to, uint256 amount);
     event Borrowed(address indexed mandate, address indexed to, uint256 amount, uint256 debt);
     event Repaid(address indexed mandate, address indexed payer, uint256 amount, uint256 debt);
-    event WrittenOff(address indexed mandate, uint256 amount);
+    event WrittenOff(address indexed mandate, uint256 amount, uint256 slashedBrsr);
+    event SlashSkipped(address indexed mandate, uint256 loss, SlashSkip reason);
     event SpreadSwept(uint256 amount);
     event CapsSet(uint128 totalDebtCap, uint128 perMandateCap);
     event RatesSet(uint16 baseRateBps, uint16 slopeBps);
@@ -79,6 +99,7 @@ contract CreditPool is ReentrancyGuard {
     error NotLender();
     error ZeroAddress();
     error ZeroAmount();
+    error BuybackStakingMismatch(address found, address expected);
     error BadRates();
     error TotalCapExceeded(uint256 debt, uint256 cap);
     error MandateCapExceeded(uint256 debt, uint256 cap);
@@ -99,6 +120,7 @@ contract CreditPool is ReentrancyGuard {
     constructor(
         address usdg_,
         address staking_,
+        address buyback_,
         address admin_,
         address lender_,
         uint128 totalDebtCap_,
@@ -106,11 +128,19 @@ contract CreditPool is ReentrancyGuard {
         uint16 baseRateBps_,
         uint16 slopeBps_
     ) {
-        if (usdg_ == address(0) || staking_ == address(0) || admin_ == address(0) || lender_ == address(0)) {
+        if (
+            usdg_ == address(0) || staking_ == address(0) || buyback_ == address(0) || admin_ == address(0)
+                || lender_ == address(0)
+        ) {
             revert ZeroAddress();
         }
+        // A write-off converts at this Buyback's ceiling and slashes this Staking, so the two
+        // have to be one deployment's pair.
+        address compoundsInto = address(Buyback(buyback_).staking());
+        if (compoundsInto != staking_) revert BuybackStakingMismatch(compoundsInto, staking_);
         usdg = IERC20(usdg_);
         staking = ICreditStaking(staking_);
+        buyback = Buyback(buyback_);
         admin = admin_;
         lender = lender_;
         deployer = msg.sender;
@@ -164,6 +194,7 @@ contract CreditPool is ReentrancyGuard {
         uint256 scaled = Math.mulDiv(amount, WAD, borrowIndex, Math.Rounding.Ceil);
         scaledDebtOf[mandate] += scaled;
         totalScaled += scaled;
+        principalOf[mandate] += amount;
 
         debt = debtOf(mandate);
         if (debt > perMandateCap) revert MandateCapExceeded(debt, perMandateCap);
@@ -175,15 +206,19 @@ contract CreditPool is ReentrancyGuard {
     }
 
     /// Clears what a liquidation could not cover once the position holds nothing more to sell.
-    function writeOff(address mandate) external onlyVault returns (uint256 amount) {
+    /// The debt stops accruing here. The spread in it was never paid, so none of it was booked.
+    /// The lender carries the loss in USDG whether or not stakers are slashed for it.
+    function writeOff(address mandate) external onlyVault nonReentrant returns (uint256 amount) {
         _accrue();
         uint256 scaled = scaledDebtOf[mandate];
         if (scaled == 0) return 0;
         amount = Math.mulDiv(scaled, borrowIndex, WAD, Math.Rounding.Ceil);
         scaledDebtOf[mandate] = 0;
+        principalOf[mandate] = 0;
         totalScaled -= scaled;
         badDebt += amount;
-        emit WrittenOff(mandate, amount);
+        uint256 slashedBrsr = _slash(mandate, amount);
+        emit WrittenOff(mandate, amount, slashedBrsr);
     }
 
     // --- anyone ---
@@ -197,15 +232,25 @@ contract CreditPool is ReentrancyGuard {
         uint256 owed = Math.mulDiv(scaled, borrowIndex, WAD, Math.Rounding.Ceil);
 
         uint256 burn;
+        uint256 principal = principalOf[mandate];
+        uint256 toPrincipal;
         if (amount >= owed) {
             paid = owed;
             burn = scaled;
+            toPrincipal = principal;
         } else {
             paid = amount;
             burn = Math.mulDiv(amount, WAD, borrowIndex);
+            // Spread first. Measured against the debt rounded down, principal never reads above
+            // what is owed.
+            uint256 debt = Math.mulDiv(scaled, borrowIndex, WAD);
+            uint256 spread = debt > principal ? debt - principal : 0;
+            toPrincipal = paid > spread ? paid - spread : 0;
         }
         scaledDebtOf[mandate] = scaled - burn;
         totalScaled -= burn;
+        principalOf[mandate] = principal - toPrincipal;
+        reserves += paid - toPrincipal;
 
         usdg.safeTransferFrom(msg.sender, address(this), paid);
         emit Repaid(mandate, msg.sender, paid, debtOf(mandate));
@@ -274,8 +319,7 @@ contract CreditPool is ReentrancyGuard {
     /// USDG that can be lent: the balance less the spread owed to stakers.
     function cash() public view returns (uint256) {
         uint256 held = usdg.balanceOf(address(this));
-        uint256 r = reserves + _pendingInterest();
-        return held > r ? held - r : 0;
+        return held > reserves ? held - reserves : 0;
     }
 
     /// Debt over debt plus cash, in basis points.
@@ -310,20 +354,38 @@ contract CreditPool is ReentrancyGuard {
 
     // --- internals ---
 
-    function _pendingInterest() private view returns (uint256) {
-        if (totalScaled == 0) return 0;
-        uint256 idx = currentIndex();
-        return Math.mulDiv(totalScaled, idx - borrowIndex, WAD);
-    }
-
     function _accrue() private {
         if (block.timestamp == lastAccrual) return;
-        if (totalScaled != 0) {
-            uint256 idx = currentIndex();
-            reserves += Math.mulDiv(totalScaled, idx - borrowIndex, WAD);
-            borrowIndex = idx;
-        }
+        if (totalScaled != 0) borrowIndex = currentIndex();
         lastAccrual = uint64(block.timestamp);
+    }
+
+    /// Slashes stakers for `loss`, converted to BRSR at the Buyback's ceiling. USDG has six
+    /// decimals, so the loss is already in micro-USD, and the quotient is rounded down. Staking
+    /// takes no more than its slash allowance.
+    function _slash(address mandate, uint256 loss) private returns (uint256) {
+        if (!_isSlasher()) return _skipSlash(mandate, loss, SlashSkip.NotSlasher);
+        uint256 ceiling = buyback.params().maxPriceMicroUsdPerBrsr;
+        if (ceiling == 0) return _skipSlash(mandate, loss, SlashSkip.CeilingUnset);
+        if (block.timestamp > buyback.ceilingSetAt() + buyback.maxCeilingAge()) {
+            return _skipSlash(mandate, loss, SlashSkip.CeilingStale);
+        }
+        return staking.slash(Math.mulDiv(loss, BRSR_UNIT, ceiling));
+    }
+
+    /// The first Staking deployment has no slasher role. Asked there, the call reverts, and the
+    /// write-off goes ahead without a slash rather than failing.
+    function _isSlasher() private view returns (bool) {
+        try staking.slasher() returns (address slasher) {
+            return slasher == address(this);
+        } catch {
+            return false;
+        }
+    }
+
+    function _skipSlash(address mandate, uint256 loss, SlashSkip reason) private returns (uint256) {
+        emit SlashSkipped(mandate, loss, reason);
+        return 0;
     }
 
     function _setCaps(uint128 t, uint128 m) private {

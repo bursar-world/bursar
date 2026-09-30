@@ -63,15 +63,20 @@ interface IUnlockCallbackR {
     function unlockCallback(bytes calldata data) external returns (bytes memory);
 }
 
-/// PoolManager and StateView in one. Each pool trades at its sqrt price with no fee and no
-/// price impact; the manager holds real balances and the lock closes only when every currency
-/// the caller moved nets to zero.
+/// PoolManager and StateView in one. Each pool fills at its sqrt price less the key's LP fee and a
+/// flat fill haircut, which together put a fill a little under the feed the way the live pools
+/// do. The mid stays put unless `impactBps` is set, in which case every swap moves it that far
+/// against the trader. The manager holds real balances and the lock closes only when every
+/// currency the caller moved nets to zero.
 contract MockV4 {
     uint256 internal constant Q96 = 1 << 96;
+    uint256 internal constant BPS = 10_000;
+    uint256 internal constant PIPS = 1_000_000;
 
     mapping(bytes32 => uint160) public sqrtPrice;
-    /// Output shaved off every swap, in bps, to model a pool that fills worse than its mid.
-    uint16 public haircutBps;
+    /// Output shaved off every swap on top of the fee, in bps: the depth the live pools lack.
+    uint16 public haircutBps = 10;
+    uint16 public impactBps;
 
     bool private _unlocked;
     address private _synced;
@@ -89,6 +94,10 @@ contract MockV4 {
         haircutBps = bps;
     }
 
+    function setImpact(uint16 bps) external {
+        impactBps = bps;
+    }
+
     function getSlot0(bytes32 id) external view returns (uint160, int24, uint24, uint24) {
         return (sqrtPrice[id], 0, 0, 0);
     }
@@ -104,31 +113,26 @@ contract MockV4 {
     }
 
     function swap(PoolKey memory key, SwapParams memory p, bytes calldata) external returns (int256) {
-        uint256 s = sqrtPrice[keccak256(abi.encode(key))];
+        bytes32 id = keccak256(abi.encode(key));
+        uint256 s = sqrtPrice[id];
         require(s != 0, "no pool");
         bool exactIn = p.amountSpecified < 0;
         uint256 amt = exactIn ? uint256(-p.amountSpecified) : uint256(p.amountSpecified);
         uint256 inAmt;
         uint256 outAmt;
-        if (p.zeroForOne) {
-            if (exactIn) {
-                inAmt = amt;
-                outAmt = Math.mulDiv(Math.mulDiv(amt, s, Q96), s, Q96);
-            } else {
-                outAmt = amt;
-                inAmt = Math.mulDiv(Math.mulDiv(amt, Q96, s, Math.Rounding.Ceil), Q96, s, Math.Rounding.Ceil);
-            }
+        if (exactIn) {
+            inAmt = amt;
+            outAmt = _atMid(amt * (PIPS - key.fee) / PIPS, s, p.zeroForOne) * (BPS - haircutBps) / BPS;
         } else {
-            if (exactIn) {
-                inAmt = amt;
-                outAmt = Math.mulDiv(Math.mulDiv(amt, Q96, s), Q96, s);
-            } else {
-                outAmt = amt;
-                inAmt = Math.mulDiv(Math.mulDiv(amt, s, Q96, Math.Rounding.Ceil), s, Q96, Math.Rounding.Ceil);
-            }
+            outAmt = amt;
+            uint256 net = Math.mulDiv(_atMidIn(amt, s, p.zeroForOne), BPS + haircutBps, BPS, Math.Rounding.Ceil);
+            inAmt = Math.mulDiv(net, PIPS, PIPS - key.fee, Math.Rounding.Ceil);
         }
-        if (exactIn) outAmt = outAmt * (10_000 - haircutBps) / 10_000;
-        else inAmt = inAmt * (10_000 + haircutBps) / 10_000;
+        if (impactBps != 0) {
+            // Selling currency0 lowers its price in currency1, and the reverse.
+            uint256 moved = p.zeroForOne ? BPS - impactBps : BPS + impactBps;
+            sqrtPrice[id] = uint160(Math.mulDiv(s, Math.sqrt(moved * 1e32), 1e18));
+        }
 
         (address cIn, address cOut) = p.zeroForOne ? (key.currency0, key.currency1) : (key.currency1, key.currency0);
         _move(cIn, -int256(inAmt));
@@ -154,10 +158,69 @@ contract MockV4 {
         IERC20(currency).transfer(to, amount);
     }
 
+    /// Output of `amountIn` at the mid. `sqrtPrice` is currency1 per currency0.
+    function _atMid(uint256 amountIn, uint256 s, bool zeroForOne) private pure returns (uint256) {
+        if (zeroForOne) return Math.mulDiv(Math.mulDiv(amountIn, s, Q96), s, Q96);
+        return Math.mulDiv(Math.mulDiv(amountIn, Q96, s), Q96, s);
+    }
+
+    /// Input that buys `amountOut` at the mid, rounded up.
+    function _atMidIn(uint256 amountOut, uint256 s, bool zeroForOne) private pure returns (uint256) {
+        if (zeroForOne) {
+            return Math.mulDiv(Math.mulDiv(amountOut, Q96, s, Math.Rounding.Ceil), Q96, s, Math.Rounding.Ceil);
+        }
+        return Math.mulDiv(Math.mulDiv(amountOut, s, Q96, Math.Rounding.Ceil), s, Q96, Math.Rounding.Ceil);
+    }
+
     function _move(address c, int256 d) private {
         require(_unlocked, "locked");
         if (_delta[c] == 0) _touched.push(c);
         _delta[c] += d;
+    }
+}
+
+/// The one factory read the RWA lane makes: which accounts a principal created.
+contract MockAccounts {
+    mapping(address => address[]) internal _list;
+
+    function add(address principal, address account) external {
+        _list[principal].push(account);
+    }
+
+    function accountsOf(address principal) external view returns (address[] memory) {
+        return _list[principal];
+    }
+}
+
+/// Answers `principal()` and `agent()` like a mandate and is nothing else.
+contract FakeMandate {
+    address public principal;
+    address public agent;
+
+    constructor(address p) {
+        principal = p;
+        agent = p;
+    }
+}
+
+/// The part of Staking the credit pool pays spread into.
+contract MockStaking {
+    IERC20 public immutable usdg;
+    address public creditManager;
+    uint256 public distributed;
+
+    constructor(IERC20 usdg_) {
+        usdg = usdg_;
+    }
+
+    function setCreditManager(address a) external {
+        creditManager = a;
+    }
+
+    function distribute(uint256 amount) external {
+        require(msg.sender == creditManager, "NotCreditManager");
+        usdg.transferFrom(msg.sender, address(this), amount);
+        distributed += amount;
     }
 }
 

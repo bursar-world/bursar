@@ -18,6 +18,13 @@ import {IAggregatorV3} from "./interfaces/IRwaExternal.sol";
 contract AssetRegistry {
     uint16 internal constant BPS = 10_000;
 
+    /// Outer bounds on what the admin can set. The band is how far a fill may land from the feed,
+    /// so a wide one is a standing discount to whoever trades against the lane. A price past a
+    /// week is not one to trade on, and past two weeks not one to count.
+    uint16 public constant MAX_BAND_BPS = 500;
+    uint32 public constant MAX_TRADE_STALENESS = 7 days;
+    uint32 public constant MAX_VALUATION_STALENESS = 14 days;
+
     struct Asset {
         address feed;
         /// Oldest feed answer a park, unpark or purchase will trade against.
@@ -28,8 +35,8 @@ contract AssetRegistry {
         uint16 bandBps;
         /// Taken off parked value before it counts as spending power.
         uint16 haircutBps;
-        /// Collateral terms, published now and read by the collateral lane later.
-        uint8 collateralTier;
+        /// A floor under the collateral lane's haircut for this asset; it can only tighten the
+        /// tier the vault puts the asset in.
         uint16 collateralHaircutBps;
         uint8 decimals;
         bool eligible;
@@ -131,8 +138,11 @@ contract AssetRegistry {
         if (asset == address(0) || config.feed == address(0)) revert ZeroAddress();
         if (IAggregatorV3(config.feed).decimals() != 8) revert FeedNot8Decimals(config.feed);
         if (
-            config.tradeStaleness == 0 || config.valuationStaleness < config.tradeStaleness || config.bandBps == 0
-                || config.bandBps >= BPS || config.haircutBps >= BPS || config.collateralHaircutBps >= BPS
+            config.tradeStaleness == 0 || config.tradeStaleness > MAX_TRADE_STALENESS
+                || config.valuationStaleness < config.tradeStaleness
+                || config.valuationStaleness > MAX_VALUATION_STALENESS || config.bandBps == 0
+                || config.bandBps > MAX_BAND_BPS || config.haircutBps >= BPS || config.collateralHaircutBps >= BPS
+                || config.perMandateCap > config.totalCap
         ) revert BadBounds();
 
         // One side of the pinned pool is the asset and the other is USDG, and it carries no hook:

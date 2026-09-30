@@ -877,7 +877,7 @@ contract MandateAccountWindowsTest is Test {
             principal, IReputation.CapCurve({baseCap: 1_000_000e6, capPerScore: 0, maxCap: 1_000_000e6})
         );
         Escrow escrow = new Escrow(
-            address(token), address(reputation), makeAddr("treasury"), 50, 50, 500, 1 minutes, 7 days, 1 hours, 2 days
+            address(token), address(reputation), makeAddr("treasury"), 50, 50, 500, 1 minutes, 7 days, 1 hours, 10_000
         );
         reputation.setEscrow(address(escrow));
 

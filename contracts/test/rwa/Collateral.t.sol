@@ -8,46 +8,19 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MandateAccount} from "../../src/MandateAccount.sol";
 import {IMandateAccount} from "../../src/interfaces/IMandateAccount.sol";
 import {IMandateAccountFactory} from "../../src/interfaces/IMandateAccountFactory.sol";
-import {IPoolManager, PoolKey} from "../../src/token/Buyback.sol";
+import {Buyback, IPoolManager, PoolKey} from "../../src/token/Buyback.sol";
+import {Staking} from "../../src/token/Staking.sol";
+import {IStaking} from "../../src/token/interfaces/IStaking.sol";
 import {AssetRegistry} from "../../src/rwa/AssetRegistry.sol";
 import {PriceGuard} from "../../src/rwa/PriceGuard.sol";
 import {CollateralVault} from "../../src/rwa/CollateralVault.sol";
 import {CreditPool} from "../../src/rwa/CreditPool.sol";
+import {V4Swapper} from "../../src/rwa/V4Swapper.sol";
+import {ICreditStaking} from "../../src/rwa/interfaces/ICreditStaking.sol";
 import {IAccessRegistry, IStateView} from "../../src/rwa/interfaces/IRwaExternal.sol";
+import {MockBRSR} from "../mocks/MockBRSR.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
-import {MockAccess, MockEscrow, MockFeed, MockStock, MockV4} from "./RwaMocks.sol";
-
-contract MockAccounts {
-    mapping(address => address[]) internal _list;
-
-    function add(address principal, address account) external {
-        _list[principal].push(account);
-    }
-
-    function accountsOf(address principal) external view returns (address[] memory) {
-        return _list[principal];
-    }
-}
-
-contract MockStaking {
-    IERC20 public immutable usdg;
-    address public creditManager;
-    uint256 public distributed;
-
-    constructor(IERC20 usdg_) {
-        usdg = usdg_;
-    }
-
-    function setCreditManager(address a) external {
-        creditManager = a;
-    }
-
-    function distribute(uint256 amount) external {
-        require(msg.sender == creditManager, "NotCreditManager");
-        usdg.transferFrom(msg.sender, address(this), amount);
-        distributed += amount;
-    }
-}
+import {MockAccess, MockAccounts, MockEscrow, MockFeed, MockStock, MockV4} from "./RwaMocks.sol";
 
 contract CollateralTest is Test {
     uint256 internal constant SPY_E8 = 771_21266423;
@@ -55,6 +28,9 @@ contract CollateralTest is Test {
     uint256 internal constant WAD = 1e18;
     // A Monday, 14:13 UTC, inside the 24/5 session.
     uint256 internal constant T0 = 1_790_000_000;
+    uint256 internal constant STAKE = 1_000_000e18;
+    /// Five cents a BRSR.
+    uint128 internal constant CEILING = 50_000;
 
     MockERC20 usdg;
     MockStock spy;
@@ -67,7 +43,9 @@ contract CollateralTest is Test {
     MockV4 v4;
     MockEscrow escrow;
     MockAccounts accounts;
-    MockStaking staking;
+    MockBRSR brsr;
+    Staking staking;
+    Buyback buyback;
 
     AssetRegistry reg;
     PriceGuard guard;
@@ -82,6 +60,9 @@ contract CollateralTest is Test {
     address lender = makeAddr("lender");
     address merchant = makeAddr("merchant");
     address keeper = makeAddr("keeper");
+    address staker = makeAddr("staker");
+    address slashSink = makeAddr("slashSink");
+    address treasury = makeAddr("treasury");
     bytes32 constant CAP = keccak256("service:gpu.render:1");
 
     function setUp() public {
@@ -100,7 +81,20 @@ contract CollateralTest is Test {
         v4 = new MockV4();
         escrow = new MockEscrow(IERC20(address(usdg)));
         accounts = new MockAccounts();
-        staking = new MockStaking(IERC20(address(usdg)));
+        brsr = new MockBRSR();
+        staking = new Staking(IERC20(address(brsr)), IERC20(address(usdg)), admin, slashSink, treasury, 7 days, 1e18);
+        buyback = new Buyback(
+            address(usdg),
+            address(brsr),
+            address(v4),
+            3000,
+            60,
+            address(0),
+            address(staking),
+            admin,
+            treasury,
+            _buybackParams(CEILING)
+        );
 
         PoolKey memory spyPool = _key(address(spy), 500, 10);
         PoolKey memory sgovPool = _key(address(sgov), 375, 4);
@@ -121,7 +115,7 @@ contract CollateralTest is Test {
         reg = new AssetRegistry(admin, address(usdg), assets, configs);
         guard = new PriceGuard(reg, IAccessRegistry(address(access)), IStateView(address(v4)));
 
-        pool = new CreditPool(address(usdg), address(staking), admin, lender, 100e6, 10e6, 200, 1_800);
+        pool = new CreditPool(address(usdg), address(staking), address(buyback), admin, lender, 100e6, 10e6, 200, 1_800);
         vault = new CollateralVault(
             reg,
             guard,
@@ -135,6 +129,7 @@ contract CollateralTest is Test {
             _assetTiers()
         );
         pool.bindVault(address(vault));
+        vm.prank(admin);
         staking.setCreditManager(address(pool));
 
         usdg.mint(lender, 1_000e6);
@@ -178,10 +173,11 @@ contract CollateralTest is Test {
 
     function test_health_maxWithNoDebt_andHeadroom() public {
         _deposit(spy, 0.01e18);
-        (, uint256 adj, uint256 debt, uint256 headroom, uint256 h) = vault.account(address(acct));
+        (uint256 value,, uint256 debt, uint256 headroom, uint256 h) = vault.account(address(acct));
         assertEq(debt, 0);
         assertEq(h, type(uint256).max);
-        assertEq(headroom, Math.mulDiv(adj, WAD, 1.25e18));
+        // Room to draw is at the after-hours haircut, 35% for the index tier.
+        assertEq(headroom, Math.mulDiv(value * 6_500 / 10_000, WAD, 1.25e18));
     }
 
     function test_value_usesFeedNotMultiplier() public {
@@ -210,7 +206,32 @@ contract CollateralTest is Test {
         assertLt(afterH, before);
     }
 
-    function test_haircut_mondayBeforeOneUtcIsAfterHours() public {
+    /// Draws are checked at the after-hours haircut, so a line drawn to the floor in session is
+    /// still above 1.0 when the weekend haircut takes over at Saturday 00:00 UTC, price unchanged.
+    function test_floorDraw_survivesWeekendSwitch() public {
+        _deposit(aapl, 0.04e18); // 12 USDG: 8.4 at the session haircut, 6 after hours
+        // The 6.7 USDG the session haircut alone would have lent.
+        vm.expectRevert(
+            abi.encodeWithSelector(CollateralVault.HealthTooLow.selector, Math.mulDiv(6e6, WAD, 6.7e6), 1.25e18)
+        );
+        _spendOnCredit(6.7e6);
+
+        (,,, uint256 headroom,) = vault.account(address(acct));
+        assertEq(headroom, 4.8e6);
+        _spendOnCredit(uint128(headroom));
+
+        vm.warp(1_790_380_801); // Saturday 00:00:01 UTC
+        aaplFeed.set(int256(300e8), 1_790_380_800 - 4 hours); // Friday's 20:00 close, fresh
+        (, bool afterHours) = vault.haircutOf(address(aapl));
+        assertTrue(afterHours);
+        uint256 h = vault.health(address(acct));
+        assertGe(h, 1.2e18);
+        vm.prank(keeper);
+        vm.expectRevert(abi.encodeWithSelector(CollateralVault.Healthy.selector, h));
+        vault.liquidate(address(acct), address(aapl));
+    }
+
+    function test_haircut_mondayBeforeOneUtcIsAfterHours() public view {
         assertFalse(vault.inSession(1_790_553_600 + 30 minutes)); // Monday 00:30 UTC
         assertTrue(vault.inSession(1_790_553_600 + 61 minutes));
         assertTrue(vault.inSession(1_790_553_600 + 4 days + 23 hours)); // Friday 23:00
@@ -261,9 +282,63 @@ contract CollateralTest is Test {
         assertEq(value, 0);
     }
 
+    /// A paused token cannot be sold, so it cannot back a draw that a liquidation might need it for.
+    function test_draw_refusedWhileTokenPaused() public {
+        _deposit(spy, 0.01e18);
+        spy.setTokenPaused(true);
+        (uint256 value,,, uint256 headroom,) = vault.account(address(acct));
+        assertEq(value, 0);
+        assertEq(headroom, 0);
+        vm.expectRevert(abi.encodeWithSelector(CollateralVault.HealthTooLow.selector, 0, 1.25e18));
+        _spendOnCredit(4e6);
+
+        spy.setTokenPaused(false);
+        access.setPaused(true);
+        vm.expectRevert(abi.encodeWithSelector(CollateralVault.HealthTooLow.selector, 0, 1.25e18));
+        _spendOnCredit(4e6);
+
+        access.setPaused(false);
+        _spendOnCredit(4e6);
+        assertEq(pool.debtOf(address(acct)), 4e6);
+    }
+
+    /// The 2026-06-23 rounds were 1e8 too large and fresh by every timestamp test. With the pool
+    /// at its real mid the position backs nothing: no draw, no withdrawal, no inflated value.
+    function test_draw_refusedOnMisScaledFeed() public {
+        _deposit(spy, 1e14); // 0.0001 SPY, about 0.077 USDG
+        spyFeed.set(int256(SPY_E8 * 1e8), block.timestamp);
+        (uint256 value, uint256 adjusted,, uint256 headroom,) = vault.account(address(acct));
+        assertEq(value, 0);
+        assertEq(adjusted, 0);
+        assertEq(headroom, 0);
+        vm.expectRevert(abi.encodeWithSelector(CollateralVault.HealthTooLow.selector, 0, 1.25e18));
+        _spendOnCredit(10e6);
+
+        // A line drawn on a good round cannot take its collateral out on a bad one.
+        spyFeed.set(int256(SPY_E8), block.timestamp);
+        _deposit(spy, 0.01e18);
+        _spendOnCredit(3e6);
+        spyFeed.set(int256(SPY_E8 * 1e8), block.timestamp);
+        vm.prank(principal);
+        vm.expectRevert(abi.encodeWithSelector(CollateralVault.HealthTooLow.selector, 0, 1.25e18));
+        vault.withdraw(address(acct), address(spy), 0.01e18, principal);
+
+        // A feed lagging a split: the pool halves and the feed still reads the old price.
+        spyFeed.set(int256(SPY_E8), block.timestamp);
+        _setPool(spy, SPY_E8 / 2);
+        (value,,, headroom,) = vault.account(address(acct));
+        assertEq(value, 0);
+        assertEq(headroom, 0);
+        vm.expectRevert(abi.encodeWithSelector(CollateralVault.HealthTooLow.selector, 0, 1.25e18));
+        _spendOnCredit(1e6);
+        vm.prank(principal);
+        vm.expectRevert(abi.encodeWithSelector(CollateralVault.HealthTooLow.selector, 0, 1.25e18));
+        vault.withdraw(address(acct), address(spy), 1e14, principal);
+    }
+
     function test_liquidation_deferredOnStaleOrPausedPrice() public {
         _deposit(spy, 0.01e18);
-        _spendOnCredit(4.5e6);
+        _spendOnCredit(4e6);
         spyFeed.set(int256(SPY_E8 / 2), block.timestamp - 27 hours);
         assertLt(vault.health(address(acct)), WAD);
         vm.expectRevert();
@@ -304,10 +379,10 @@ contract CollateralTest is Test {
     }
 
     function test_drawAboveHeadroomReverts() public {
-        _deposit(spy, 0.01e18); // adjusted 6.1697, headroom 4.9357
+        _deposit(spy, 0.01e18); // 7.7121 USDG, 5.0129 after hours, headroom 4.0103
         vm.expectRevert();
-        _spendOnCredit(5e6);
-        _spendOnCredit(4.9e6);
+        _spendOnCredit(4.1e6);
+        _spendOnCredit(4e6);
     }
 
     function test_caps_perMandate() public {
@@ -371,22 +446,29 @@ contract CollateralTest is Test {
         uint256 spread = pool.reserves();
         assertApproxEqAbs(spread, owed - 4e6, 1);
         pool.sweepSpread();
-        assertEq(staking.distributed(), spread);
+        assertEq(usdg.balanceOf(address(staking)), spread);
         assertApproxEqAbs(usdg.balanceOf(address(pool)), 30e6, 2);
     }
 
     function test_sweepRevertsUntilCreditManager() public {
+        vm.prank(admin);
         staking.setCreditManager(address(0));
         _deposit(spy, 0.01e18);
         _spendOnCredit(4e6);
         vm.warp(block.timestamp + 1 days);
-        vm.expectRevert("NotCreditManager");
+        usdg.mint(principal, 5e6);
+        vm.startPrank(principal);
+        usdg.approve(address(pool), type(uint256).max);
+        pool.repay(address(acct), 5e6);
+        vm.stopPrank();
+        assertGt(pool.reserves(), 0);
+        vm.expectRevert(IStaking.NotCreditManager.selector);
         pool.sweepSpread();
     }
 
     function test_withdrawCollateralBoundedByHealth() public {
         _deposit(spy, 0.01e18);
-        _spendOnCredit(4e6);
+        _spendOnCredit(3e6);
         vm.prank(principal);
         vm.expectRevert();
         vault.withdraw(address(acct), address(spy), 0.005e18, principal);
@@ -402,8 +484,8 @@ contract CollateralTest is Test {
     function test_liquidate_sellsOnlyTheSlice() public {
         _deposit(spy, 0.01e18);
         _deposit(aapl, 0.01e18);
-        _spendOnCredit(6e6);
-        _movePrice(spy, spyFeed, SPY_E8 * 60 / 100);
+        _spendOnCredit(5e6);
+        _movePrice(spy, spyFeed, SPY_E8 * 45 / 100);
         uint256 h = vault.health(address(acct));
         assertLt(h, WAD);
 
@@ -418,6 +500,44 @@ contract CollateralTest is Test {
         assertLt(after_, 1.1e18);
         assertLt(pool.debtOf(address(acct)), debtBefore);
         assertEq(vault.collateralOf(address(acct), address(spy)), 0.01e18 - sold);
+    }
+
+    /// Pushing one asset's pool past its band inside a transaction must not open the line's
+    /// other assets to a bounty sale, so the trigger counts that position at its feed.
+    function test_liquidate_ignoresPoolPushedPastBand() public {
+        _deposit(spy, 0.01e18);
+        _deposit(sgov, 0.02e18);
+        _spendOnCredit(5e6);
+        uint256 h = vault.health(address(acct));
+
+        _setPool(spy, SPY_E8 * 90 / 100);
+        assertEq(vault.health(address(acct)), h);
+        (,,, uint256 headroom,) = vault.account(address(acct));
+        assertEq(headroom, 0);
+        vm.expectRevert(abi.encodeWithSelector(CollateralVault.Healthy.selector, h));
+        vault.liquidate(address(acct), address(sgov));
+    }
+
+    /// A sale must leave the pool inside the band as well as find it there. Pushed to the band's
+    /// edge earlier in the same transaction, the pool would let the sale fill past it.
+    function test_liquidate_refusesManipulatedFill() public {
+        _deposit(spy, 0.01e18);
+        _deposit(aapl, 0.01e18);
+        _spendOnCredit(5e6);
+        uint256 price = SPY_E8 * 45 / 100;
+        _movePrice(spy, spyFeed, price);
+        v4.setImpact(50);
+
+        // 80 bps under the feed is inside the 100 bps band, and the sale takes it past.
+        _setPool(spy, price * 9_920 / 10_000);
+        vm.prank(keeper);
+        vm.expectPartialRevert(PriceGuard.PoolPriceDeviation.selector);
+        vault.liquidate(address(acct), address(spy));
+
+        // From the feed the same sale stays inside it.
+        _setPool(spy, price);
+        vm.prank(keeper);
+        assertGt(vault.liquidate(address(acct), address(spy)), 0);
     }
 
     function test_liquidate_refusesHealthy() public {
@@ -438,6 +558,132 @@ contract CollateralTest is Test {
         assertGt(pool.badDebt(), 0);
     }
 
+    /// One wei of another asset, posted by anyone, used to hold the write-off open for good while
+    /// the stranded debt kept costing the pool. Dust counts as nothing left to sell.
+    function test_dustDeposit_cannotBlockWriteOff() public {
+        _deposit(spy, 0.01e18);
+        _spendOnCredit(4e6);
+        address griefer = makeAddr("griefer");
+        sgov.mint(griefer, 1);
+        vm.startPrank(griefer);
+        sgov.approve(address(vault), 1);
+        vault.deposit(address(acct), address(sgov), 1);
+        vm.stopPrank();
+
+        _movePrice(spy, spyFeed, SPY_E8 / 4);
+        vault.liquidate(address(acct), address(spy));
+        assertEq(vault.collateralOf(address(acct), address(spy)), 0);
+        assertEq(pool.debtOf(address(acct)), 0);
+        assertGt(pool.badDebt(), 0);
+
+        // With nothing owed the dust is the principal's to take back.
+        vm.prank(principal);
+        vault.withdraw(address(acct), address(sgov), 1, principal);
+        assertEq(sgov.balanceOf(principal), 10e18 + 1);
+    }
+
+    /// A line whose collateral a sale could get nothing for is written off by the liquidation
+    /// call itself; trying to sell dust could only revert.
+    function test_liquidate_writesOffLineHoldingOnlyDust() public {
+        _deposit(spy, 0.01e18);
+        _spendOnCredit(4e6);
+        _movePrice(spy, spyFeed, 1e3); // $0.00001: the whole position is worth under a micro-USDG
+        vm.prank(keeper);
+        assertEq(vault.liquidate(address(acct), address(spy)), 0);
+        assertEq(pool.debtOf(address(acct)), 0);
+        assertEq(pool.badDebt(), 4e6);
+        assertEq(vault.collateralOf(address(acct), address(spy)), 0.01e18);
+    }
+
+    /// A year of spread on a line that never pays reaches no one. Only spread a borrower pays is
+    /// booked for stakers, so the lender loses the principal it lent and nothing more, and the
+    /// written-off debt stops growing.
+    function test_writeOff_reversesUnpaidSpread() public {
+        _deposit(spy, 0.01e18);
+        _spendOnCredit(4e6);
+        vm.warp(block.timestamp + 365 days);
+        assertGt(pool.debtOf(address(acct)), 4e6);
+        vm.expectRevert(CreditPool.NothingToSweep.selector);
+        pool.sweepSpread();
+
+        _movePrice(spy, spyFeed, 1e3);
+        vault.liquidate(address(acct), address(spy));
+        assertEq(pool.debtOf(address(acct)), 0);
+        assertEq(pool.principalOf(address(acct)), 0);
+        assertEq(pool.reserves(), 0);
+        assertEq(pool.cash(), 26e6); // 30 funded, 4 lent and lost
+        vm.expectRevert(CreditPool.NothingToSweep.selector);
+        pool.sweepSpread();
+
+        vm.warp(block.timestamp + 365 days);
+        assertEq(pool.debtOf(address(acct)), 0);
+        assertEq(pool.totalDebt(), 0);
+    }
+
+    /// A liquidation that falls short pays the spread first, and stakers get exactly that.
+    function test_shortLiquidation_paysSpreadBeforePrincipal() public {
+        _deposit(spy, 0.01e18);
+        _spendOnCredit(4e6);
+        vm.warp(block.timestamp + 365 days);
+        uint256 spread = pool.debtOf(address(acct)) - 4e6;
+
+        _movePrice(spy, spyFeed, SPY_E8 / 4);
+        vm.prank(keeper);
+        vault.liquidate(address(acct), address(spy));
+        assertEq(pool.debtOf(address(acct)), 0);
+        assertApproxEqAbs(pool.reserves(), spread, 1);
+        // What was written off is principal alone, and it is all the lender is down.
+        assertApproxEqAbs(pool.cash(), 30e6 - pool.badDebt(), 2);
+        pool.sweepSpread();
+        assertApproxEqAbs(usdg.balanceOf(address(staking)), spread, 1);
+        assertApproxEqAbs(pool.cash(), 30e6 - pool.badDebt(), 2);
+    }
+
+    /// Governance can take an asset out of its tier with positions still open. It then backs
+    /// nothing, and a line it leaves under water can still sell it to pay the debt down.
+    function test_untieredAsset_liquidatable() public {
+        _deposit(spy, 0.005e18);
+        _deposit(aapl, 0.02e18);
+        _spendOnCredit(4.4e6);
+        vm.prank(admin);
+        vault.setAssetTier(address(aapl), 0);
+        assertLt(vault.health(address(acct)), WAD);
+
+        CollateralVault.PositionView memory p = vault.positions(address(acct))[2];
+        assertEq(p.asset, address(aapl));
+        assertEq(p.haircutBps, 10_000);
+        assertTrue(p.fresh);
+        assertEq(p.value, 6e6);
+        assertEq(p.adjusted, 0);
+
+        vm.prank(keeper);
+        uint256 sold = vault.liquidate(address(acct), address(aapl));
+        assertGt(sold, 0);
+        assertLt(sold, 0.02e18);
+        assertGe(vault.health(address(acct)), 1.05e18);
+    }
+
+    /// An untiered position that can still be sold keeps the line open for its own sale; one that
+    /// cannot is no reason to leave the debt stranded.
+    function test_untieredAsset_holdsWriteOffOnlyWhileSellable() public {
+        _deposit(spy, 0.005e18);
+        _deposit(aapl, 0.02e18);
+        _spendOnCredit(4.4e6);
+        vm.prank(admin);
+        vault.setAssetTier(address(aapl), 0);
+        _movePrice(spy, spyFeed, 1e3); // the index position is dust now
+
+        vm.prank(keeper);
+        vm.expectPartialRevert(V4Swapper.SwapShort.selector);
+        vault.liquidate(address(acct), address(spy));
+
+        aapl.setOraclePaused(true);
+        vm.prank(keeper);
+        assertEq(vault.liquidate(address(acct), address(spy)), 0);
+        assertEq(pool.debtOf(address(acct)), 0);
+        assertEq(pool.badDebt(), 4.4e6);
+    }
+
     function test_adminOnly() public {
         vm.expectRevert(CollateralVault.NotAdmin.selector);
         vault.setAssetTier(address(spy), 0);
@@ -455,6 +701,139 @@ contract CollateralTest is Test {
         vault.deposit(address(prefund), address(spy), 1);
     }
 
+    // ---- first loss ----
+
+    /// The ceiling a write-off converts at has to belong to the Staking it slashes.
+    function test_pool_refusesAnotherStakingsBuyback() public {
+        Staking other =
+            new Staking(IERC20(address(brsr)), IERC20(address(usdg)), admin, slashSink, treasury, 7 days, 1e18);
+        vm.expectRevert(
+            abi.encodeWithSelector(CreditPool.BuybackStakingMismatch.selector, address(staking), address(other))
+        );
+        new CreditPool(address(usdg), address(other), address(buyback), admin, lender, 100e6, 10e6, 200, 1_800);
+    }
+
+    /// The 4 USDG written off comes out of stake at the five-cent ceiling: 80 BRSR, inside the
+    /// tenth of the pool a window allows. The lender is still down the whole 4 USDG.
+    function test_writeOff_slashesStakeAtTheCeiling() public {
+        _stake();
+        _nameSlasher();
+        _strandLine();
+
+        vm.expectEmit(address(pool));
+        emit CreditPool.WrittenOff(address(acct), 4e6, 80e18);
+        vault.liquidate(address(acct), address(spy));
+
+        assertEq(brsr.balanceOf(slashSink), 80e18);
+        assertEq(staking.totalStaked(), STAKE - 80e18);
+        assertEq(pool.badDebt(), 4e6);
+        assertEq(pool.cash(), 26e6);
+    }
+
+    /// The ceiling holds through the last second the Buyback would still trade on it. A second
+    /// later it is not a price: the debt is still written off, and no stake moves.
+    function test_writeOff_skipsSlashOnceTheCeilingIsStale() public {
+        _stake();
+        _nameSlasher();
+        MandateAccount second = _secondLine();
+        _deposit(spy, 0.01e18);
+        _spendOnCredit(4e6);
+        uint256 lastFresh = buyback.ceilingSetAt() + buyback.maxCeilingAge();
+        vm.warp(lastFresh);
+        _movePrice(spy, spyFeed, 1e3);
+
+        vault.liquidate(address(acct), address(spy));
+        uint256 slashed = STAKE - staking.totalStaked();
+        assertGt(slashed, 0);
+
+        vm.warp(lastFresh + 1);
+        uint256 debt = pool.debtOf(address(second));
+        vm.expectEmit(address(pool));
+        emit CreditPool.SlashSkipped(address(second), debt, CreditPool.SlashSkip.CeilingStale);
+        vm.expectEmit(address(pool));
+        emit CreditPool.WrittenOff(address(second), debt, 0);
+        vault.liquidate(address(second), address(spy));
+
+        assertEq(pool.debtOf(address(second)), 0);
+        assertEq(STAKE - staking.totalStaked(), slashed);
+        assertEq(brsr.balanceOf(slashSink), slashed);
+    }
+
+    function test_writeOff_skipsSlashOnUnsetCeiling() public {
+        _stake();
+        _nameSlasher();
+        vm.prank(admin);
+        buyback.setParams(_buybackParams(0));
+        _strandLine();
+
+        vm.expectEmit(address(pool));
+        emit CreditPool.SlashSkipped(address(acct), 4e6, CreditPool.SlashSkip.CeilingUnset);
+        vm.expectEmit(address(pool));
+        emit CreditPool.WrittenOff(address(acct), 4e6, 0);
+        vault.liquidate(address(acct), address(spy));
+
+        assertEq(staking.totalStaked(), STAKE);
+    }
+
+    /// Staking starts with no slasher. Until governance names the pool, a write-off takes no stake.
+    function test_writeOff_skipsSlashUntilNamedSlasher() public {
+        _stake();
+        _strandLine();
+
+        vm.expectEmit(address(pool));
+        emit CreditPool.SlashSkipped(address(acct), 4e6, CreditPool.SlashSkip.NotSlasher);
+        vm.expectEmit(address(pool));
+        emit CreditPool.WrittenOff(address(acct), 4e6, 0);
+        vault.liquidate(address(acct), address(spy));
+
+        assertEq(pool.debtOf(address(acct)), 0);
+        assertEq(staking.totalStaked(), STAKE);
+    }
+
+    /// The first Staking deployment has no slasher role, so asking it reverts. The write-off
+    /// must still clear the line.
+    function test_writeOff_standsWhenStakingHasNoSlasherRole() public {
+        _stake();
+        _nameSlasher();
+        vm.mockCallRevert(address(staking), abi.encodeCall(ICreditStaking.slasher, ()), "");
+        _strandLine();
+
+        vm.expectEmit(address(pool));
+        emit CreditPool.SlashSkipped(address(acct), 4e6, CreditPool.SlashSkip.NotSlasher);
+        vault.liquidate(address(acct), address(spy));
+
+        assertEq(pool.debtOf(address(acct)), 0);
+        assertEq(staking.totalStaked(), STAKE);
+    }
+
+    /// At one micro-USD a BRSR the 4 USDG loss is four million BRSR. Staking gives up the tenth
+    /// of the pool a window allows and no more, and a second write-off in the same block takes
+    /// nothing. The lender carries both losses in full.
+    function test_slash_neverExceedsTheAllowance() public {
+        _stake();
+        _nameSlasher();
+        vm.prank(admin);
+        buyback.setParams(_buybackParams(1));
+        MandateAccount second = _secondLine();
+        _strandLine();
+
+        uint256 allowance = staking.slashAllowance();
+        assertEq(allowance, STAKE / 10);
+        vm.expectEmit(address(pool));
+        emit CreditPool.WrittenOff(address(acct), 4e6, allowance);
+        vault.liquidate(address(acct), address(spy));
+        assertEq(staking.slashAllowance(), 0);
+
+        vm.expectEmit(address(pool));
+        emit CreditPool.WrittenOff(address(second), 4e6, 0);
+        vault.liquidate(address(second), address(spy));
+
+        assertEq(brsr.balanceOf(slashSink), allowance);
+        assertEq(staking.totalStaked(), STAKE - allowance);
+        assertEq(pool.badDebt(), 8e6);
+        assertEq(pool.cash(), 22e6);
+    }
+
     // ---- helpers ----
 
     function _deposit(MockStock token, uint256 raw) internal {
@@ -467,8 +846,44 @@ contract CollateralTest is Test {
         acct.spend(_req(amount), new bytes32[](0));
     }
 
+    /// Draws 4 USDG against 0.01 SPY, then drops SPY to dust, so the next liquidation writes the
+    /// whole 4 USDG off.
+    function _strandLine() internal {
+        _deposit(spy, 0.01e18);
+        _spendOnCredit(4e6);
+        _movePrice(spy, spyFeed, 1e3);
+    }
+
+    /// Another line drawn like `acct` will be: 4 USDG against 0.01 SPY.
+    function _secondLine() internal returns (MandateAccount second) {
+        second = _mandate(1);
+        vm.startPrank(principal);
+        vault.openLine(address(second));
+        vault.deposit(address(second), address(spy), 0.01e18);
+        vm.stopPrank();
+        vm.prank(agent);
+        second.spend(_req(4e6), new bytes32[](0));
+    }
+
+    function _stake() internal {
+        brsr.mint(staker, STAKE);
+        vm.startPrank(staker);
+        brsr.approve(address(staking), STAKE);
+        staking.stake(STAKE);
+        vm.stopPrank();
+    }
+
+    function _nameSlasher() internal {
+        vm.prank(admin);
+        staking.setSlasher(address(pool));
+    }
+
     function _movePrice(MockStock token, MockFeed feed, uint256 priceE8) internal {
         feed.set(int256(priceE8), block.timestamp);
+        _setPool(token, priceE8);
+    }
+
+    function _setPool(MockStock token, uint256 priceE8) internal {
         PoolKey memory k = reg.get(address(token)).pool;
         v4.setPrice(k, _sqrt(priceE8, k.currency0 == address(token)));
     }
@@ -515,6 +930,17 @@ contract CollateralTest is Test {
         return CollateralVault.Params({minBorrowHealth: 1.25e18, liquidationTarget: 1.05e18, bountyBps: 500});
     }
 
+    function _buybackParams(uint128 ceiling) internal pure returns (Buyback.Params memory) {
+        return Buyback.Params({
+            spendPerCallMicroUsd: 1e6,
+            maxSpendPerWindowMicroUsd: 10e6,
+            minSpendMicroUsd: 0.1e6,
+            maxPriceMicroUsdPerBrsr: ceiling,
+            window: 1 days,
+            minInterval: 1 hours
+        });
+    }
+
     function _tiers() internal pure returns (CollateralVault.Tier[] memory t) {
         t = new CollateralVault.Tier[](3);
         t[0] = CollateralVault.Tier(500, 1_000, 26 hours, 100 hours, "Treasury");
@@ -558,7 +984,6 @@ contract CollateralTest is Test {
             valuationStaleness: 100 hours,
             bandBps: band,
             haircutBps: 50,
-            collateralTier: 0,
             collateralHaircutBps: 0,
             decimals: 0,
             eligible: true,

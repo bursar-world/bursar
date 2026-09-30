@@ -70,9 +70,44 @@ contract StubEscrow {
         reopenCount += 1;
         lastReopenedId = id;
     }
+}
 
-    function disputeTimeoutPeriod() external pure returns (uint64) {
-        return 30 days;
+/// Opens disputes as a payer contract whose `principal()` answers with whoever sent the
+/// transaction. Read on every vote, that named every resolver voting from its own key as the
+/// payer's principal and barred it.
+contract OriginPayer {
+    function lock(Escrow escrow, MockUsdg asset, address payee, uint128 amount, uint64 deadline)
+        external
+        returns (uint256)
+    {
+        asset.approve(address(escrow), type(uint256).max);
+        return escrow.lock(payee, keccak256("capability"), keccak256("input"), "ipfs://in", amount, deadline);
+    }
+
+    function dispute(Escrow escrow, uint256 id) external {
+        escrow.dispute(id);
+    }
+
+    function principal() external view returns (address) {
+        return tx.origin;
+    }
+}
+
+/// A resolver seat bought by a party to the dispute, voting the way the party wants.
+contract SybilResolver {
+    bytes32 private constant SALT = keccak256("sybil");
+
+    function register(OracleRegistry registry, MockBRSR bond, uint128 amount) external {
+        bond.approve(address(registry), amount);
+        registry.register(amount);
+    }
+
+    function commit(OracleRegistry registry, uint256 disputeId, uint8 score) external {
+        registry.commitVote(disputeId, registry.commitmentHash(disputeId, address(this), score, SALT));
+    }
+
+    function reveal(OracleRegistry registry, uint256 disputeId, uint8 score) external {
+        registry.revealVote(disputeId, score, SALT);
     }
 }
 
@@ -83,7 +118,8 @@ contract OracleRegistryTest is Test {
     uint64 private constant REVEAL_WINDOW = 1 hours;
     uint64 private constant UNBONDING_PERIOD = 7 days;
     uint8 private constant QUORUM = 3;
-    uint8 private constant MAX_VOTERS = 5;
+    /// The roster's size. Anything lower lets the first committers fill the panel.
+    uint8 private constant MAX_VOTERS = 64;
     uint8 private constant MAX_DEVIATION = 10;
     uint16 private constant SLASH_BPS = 2_000;
 
@@ -199,38 +235,66 @@ contract OracleRegistryTest is Test {
         new OracleRegistry(address(usdg), admin, sink, cfg);
     }
 
-    function test_constructor_rejectsAQuorumAboveTheVoterCap() public {
+    function test_constructor_rejectsAQuorumNoRosterCouldReach() public {
         IOracleRegistry.Config memory cfg = _defaultConfig();
-        cfg.quorum = 6;
-        cfg.maxVoters = 5;
+        cfg.quorum = 65;
+        cfg.maxVoters = 255;
 
         vm.expectRevert(IOracleRegistry.BadConfig.selector);
         new OracleRegistry(address(usdg), admin, sink, cfg);
     }
 
-    function test_constructor_acceptsAQuorumEqualToTheVoterCap() public {
+    function test_constructor_acceptsAQuorumOfTheWholeRoster() public {
         IOracleRegistry.Config memory cfg = _defaultConfig();
-        cfg.quorum = 5;
-        cfg.maxVoters = 5;
+        cfg.quorum = 64;
 
         OracleRegistry fresh = new OracleRegistry(address(usdg), admin, sink, cfg);
-        assertEq(fresh.config().quorum, 5);
+        assertEq(fresh.config().quorum, 64);
     }
 
-    function test_constructor_rejectsAVoterCapAboveTheRosterSize() public {
+    /// A cap below the roster is a panel whoever commits first can fill, and the resolvers it
+    /// shuts out are then slashed or outvoted by the ones that got in.
+    function test_constructor_rejectsAVoterCapBelowTheRosterSize() public {
         IOracleRegistry.Config memory cfg = _defaultConfig();
-        cfg.maxVoters = 65;
+        cfg.maxVoters = 63;
 
         vm.expectRevert(IOracleRegistry.BadConfig.selector);
         new OracleRegistry(address(usdg), admin, sink, cfg);
+
+        vm.prank(admin);
+        vm.expectRevert(IOracleRegistry.BadConfig.selector);
+        registry.setConfig(cfg);
     }
 
-    function test_constructor_acceptsAVoterCapEqualToTheRosterSize() public {
+    function test_constructor_acceptsAVoterCapAtOrAboveTheRosterSize() public {
         IOracleRegistry.Config memory cfg = _defaultConfig();
         cfg.maxVoters = 64;
+        assertEq(new OracleRegistry(address(usdg), admin, sink, cfg).config().maxVoters, 64);
 
+        // The roster already bounds the panel, so a larger figure changes nothing.
+        cfg.maxVoters = 255;
+        assertEq(new OracleRegistry(address(usdg), admin, sink, cfg).config().maxVoters, 255);
+    }
+
+    function test_constructor_rejectsAWindowShorterThanTenMinutes() public {
+        IOracleRegistry.Config memory cfg = _defaultConfig();
+        cfg.commitWindow = 10 minutes - 1;
+        vm.expectRevert(IOracleRegistry.BadConfig.selector);
+        new OracleRegistry(address(usdg), admin, sink, cfg);
+
+        cfg.commitWindow = 10 minutes;
+        cfg.revealWindow = 10 minutes - 1;
+        vm.expectRevert(IOracleRegistry.BadConfig.selector);
+        new OracleRegistry(address(usdg), admin, sink, cfg);
+
+        vm.prank(admin);
+        vm.expectRevert(IOracleRegistry.BadConfig.selector);
+        registry.setConfig(cfg);
+
+        cfg.revealWindow = 10 minutes;
         OracleRegistry fresh = new OracleRegistry(address(usdg), admin, sink, cfg);
-        assertEq(fresh.config().maxVoters, 64);
+        assertEq(fresh.config().commitWindow, 10 minutes);
+        assertEq(fresh.config().revealWindow, 10 minutes);
     }
 
     function test_constructor_rejectsADeviationBandWiderThanTheScoreRange() public {
@@ -254,7 +318,7 @@ contract OracleRegistryTest is Test {
         cfg.unbondingPeriod = COMMIT_WINDOW + REVEAL_WINDOW;
 
         OracleRegistry fresh = new OracleRegistry(address(usdg), admin, sink, cfg);
-        assertEq(fresh.votingPeriod(), fresh.config().unbondingPeriod);
+        assertEq(fresh.config().unbondingPeriod, COMMIT_WINDOW + REVEAL_WINDOW);
     }
 
     function test_constructor_rejectsAZeroAssetAdminOrSink() public {
@@ -276,7 +340,6 @@ contract OracleRegistryTest is Test {
         assertEq(registry.slashSink(), sink);
         assertEq(registry.settlementAsset(), address(usdg));
         assertEq(registry.nextDisputeId(), 1);
-        assertEq(registry.votingPeriod(), COMMIT_WINDOW + REVEAL_WINDOW);
         assertEq(registry.scoreMax(), 100);
     }
 
@@ -867,21 +930,44 @@ contract OracleRegistryTest is Test {
         registry.commitVote(disputeId, keccak256("x"));
     }
 
-    function test_commitVote_rejectsTheVoterBeyondTheConfiguredCap() public {
-        uint256 disputeId = _openDispute();
+    /// A full roster, every seat voting on one dispute. Nobody is turned away however late it
+    /// commits, and the finalisation that walks all sixty-four votes stays well inside a block.
+    function test_commitVote_admitsEverySeatOnTheRoster() public {
+        OracleRegistry fresh = new OracleRegistry(address(usdg), admin, sink, _defaultConfig());
+        StubEscrow seat = new StubEscrow(fresh, IERC20(address(usdg)));
+        fresh.setEscrow(address(seat));
+        fresh.setStaking(address(pool));
 
-        _commit(r1, disputeId, 40, SALT);
-        _commit(r2, disputeId, 40, SALT);
-        _commit(r3, disputeId, 40, SALT);
-        _commit(r4, disputeId, 40, SALT);
-        _commit(r5, disputeId, 40, SALT);
-        assertEq(registry.getDispute(disputeId).commitCount, MAX_VOTERS);
+        address[] memory roster = new address[](64);
+        for (uint256 i; i < roster.length; ++i) {
+            roster[i] = makeAddr(string.concat("seat", vm.toString(i)));
+            bond.mint(roster[i], MIN_BOND);
+            vm.startPrank(roster[i]);
+            bond.approve(address(fresh), MIN_BOND);
+            fresh.register(MIN_BOND);
+            vm.stopPrank();
+        }
 
-        bytes32 latecomer = registry.commitmentHash(disputeId, r6, 40, SALT);
+        uint256 disputeId = seat.open(1);
+        for (uint256 i; i < roster.length; ++i) {
+            bytes32 commitment = fresh.commitmentHash(disputeId, roster[i], 40, SALT);
+            vm.prank(roster[i]);
+            fresh.commitVote(disputeId, commitment);
+        }
+        assertEq(fresh.getDispute(disputeId).commitCount, 64, "a seated resolver was turned away");
 
-        vm.prank(r6);
-        vm.expectRevert(IOracleRegistry.RosterFull.selector);
-        registry.commitVote(disputeId, latecomer);
+        vm.warp(fresh.getDispute(disputeId).commitEndsAt);
+        for (uint256 i; i < roster.length; ++i) {
+            vm.prank(roster[i]);
+            fresh.revealVote(disputeId, 40, SALT);
+        }
+
+        uint256 before = gasleft();
+        fresh.finalize(disputeId);
+        uint256 used = before - gasleft();
+
+        assertEq(fresh.getDispute(disputeId).rewardShares, 64);
+        assertLt(used, 8_000_000, "the widest vote no longer fits comfortably in a block");
     }
 
     function test_commitVote_commitmentBindsTheVoterSoAnotherResolverCannotReplayIt() public {
@@ -1305,7 +1391,6 @@ contract OracleRegistryTest is Test {
 
         assertEq(uint8(registry.getDispute(disputeId).status), uint8(IOracleRegistry.DisputeStatus.Revealing));
         assertEq(registry.openVotes(r1), 1);
-        assertTrue(registry.rulable(registry.getDispute(disputeId).escrowId));
 
         stub.setRefuseRulings(false);
         registry.finalize(disputeId);
@@ -1734,6 +1819,130 @@ contract OracleRegistryTest is Test {
         registry.slash(makeAddr("stranger"), 1e18);
     }
 
+    /// A slash takes the bond, not the seat. Before eviction existed a resolver slashed to
+    /// nothing held one of the sixty-four seats for good.
+    function test_slash_toNothingKeepsTheSeatUntilTheAdminEvicts() public {
+        uint256 seated = registry.resolverCount();
+
+        vm.prank(admin);
+        registry.slash(r1, type(uint128).max);
+
+        assertEq(registry.getResolver(r1).bond, 0);
+        assertEq(uint8(registry.getResolver(r1).status), uint8(IOracleRegistry.ResolverStatus.Active));
+        assertEq(registry.resolverCount(), seated, "the slash freed the seat by itself");
+
+        vm.prank(admin);
+        registry.evict(r1);
+        assertEq(registry.resolverCount(), seated - 1);
+    }
+
+    function test_evict_freesASeatOnAFullRosterAndReturnsTheBond() public {
+        uint256 open = 64 - registry.resolverCount();
+        for (uint256 i; i < open; ++i) {
+            _bond(string.concat("filler", vm.toString(i)), MIN_BOND);
+        }
+        assertEq(registry.resolverCount(), 64);
+
+        address newcomer = makeAddr("newcomer");
+        bond.mint(newcomer, MIN_BOND);
+        vm.startPrank(newcomer);
+        bond.approve(address(registry), MIN_BOND);
+        vm.expectRevert(IOracleRegistry.RosterFull.selector);
+        registry.register(MIN_BOND);
+        vm.stopPrank();
+
+        uint256 bondedBefore = registry.totalBonded();
+
+        vm.prank(admin);
+        vm.expectEmit(true, false, false, true, address(registry));
+        emit IOracleRegistry.ResolverEvicted(r2, BOND);
+        registry.evict(r2);
+
+        assertEq(uint8(registry.getResolver(r2).status), uint8(IOracleRegistry.ResolverStatus.Exited));
+        assertEq(registry.getResolver(r2).bond, 0);
+        assertEq(bond.balanceOf(r2), BOND, "the bond went back to the resolver it belonged to");
+        assertEq(registry.totalBonded(), bondedBefore - BOND);
+        assertEq(registry.resolverCount(), 63);
+
+        vm.prank(newcomer);
+        registry.register(MIN_BOND);
+        assertEq(registry.resolverCount(), 64);
+    }
+
+    function test_evict_waitsForEveryVoteTheBondBacks() public {
+        uint256 disputeId = _openDispute();
+        _commit(r1, disputeId, 40, SALT);
+
+        vm.prank(admin);
+        vm.expectRevert(IOracleRegistry.BondLocked.selector);
+        registry.evict(r1);
+
+        vm.warp(registry.getDispute(disputeId).commitEndsAt);
+        registry.failDispute(disputeId);
+
+        vm.prank(admin);
+        registry.evict(r1);
+        assertEq(uint8(registry.getResolver(r1).status), uint8(IOracleRegistry.ResolverStatus.Exited));
+    }
+
+    function test_evict_isTheAdminsCallAndOnlyForASeatedResolver() public {
+        vm.prank(r2);
+        vm.expectRevert(IOracleRegistry.NotAdmin.selector);
+        registry.evict(r1);
+
+        vm.prank(admin);
+        vm.expectRevert(IOracleRegistry.NotRegistered.selector);
+        registry.evict(makeAddr("stranger"));
+    }
+
+    function test_sweepSurplus_sendsAStrayTransferToTheSinkAndLeavesRewardsAlone() public {
+        uint256 disputeId = _finalizedDispute(40, 42, 45);
+        stub.postReward(disputeId, 30e6);
+        uint256 floated = registry.rewardFloat();
+
+        vm.expectRevert(IOracleRegistry.NothingToClaim.selector);
+        registry.sweepSurplus();
+
+        usdg.mint(address(registry), 7e6);
+
+        vm.expectEmit(true, false, false, true, address(registry));
+        emit IOracleRegistry.SurplusSwept(sink, 7e6);
+        assertEq(registry.sweepSurplus(), 7e6);
+
+        assertEq(usdg.balanceOf(sink), 7e6);
+        assertEq(registry.rewardFloat(), floated, "the sweep reached the reward ledger");
+        assertEq(usdg.balanceOf(address(registry)), floated);
+
+        vm.prank(r1);
+        assertEq(registry.claimRewards(), 10e6, "a resolver lost what it had earned");
+    }
+
+    /// The payer's principal is read once, when the dispute opens, and stored with the parties.
+    /// No vote calls back into the payer.
+    function test_openDispute_recordsThePrincipalOnceAndNeverAsksAgain() public {
+        OriginPayer payerContract = new OriginPayer();
+        address opener = makeAddr("opener");
+
+        vm.prank(address(stub), opener);
+        uint256 disputeId = registry.openDispute(1_234, address(payerContract), address(0xB0B));
+
+        (address payer, address payee, address principal) = registry.partiesOf(disputeId);
+        assertEq(payer, address(payerContract));
+        assertEq(payee, address(0xB0B));
+        assertEq(principal, opener, "the principal is what the payer answered at the open");
+
+        // Every resolver votes with itself as the origin, and none of them is the principal.
+        bytes32 commitment = registry.commitmentHash(disputeId, r1, 40, SALT);
+        vm.prank(r1, r1);
+        registry.commitVote(disputeId, commitment);
+
+        commitment = registry.commitmentHash(disputeId, opener, 40, SALT);
+        _bondAs(opener);
+        vm.prank(opener, opener);
+        vm.expectRevert(IOracleRegistry.PartyCannotVote.selector);
+        registry.commitVote(disputeId, commitment);
+    }
+
     function test_onlyTheAdminMovesTheSlashSinkAndNeverToZero() public {
         vm.prank(r1);
         vm.expectRevert(IOracleRegistry.NotAdmin.selector);
@@ -1894,6 +2103,14 @@ contract OracleRegistryTest is Test {
         });
     }
 
+    function _bondAs(address who) private {
+        bond.mint(who, BOND);
+        vm.startPrank(who);
+        bond.approve(address(registry), BOND);
+        registry.register(BOND);
+        vm.stopPrank();
+    }
+
     function _bond(string memory label, uint128 amount) private returns (address who) {
         who = makeAddr(label);
         bond.mint(who, amount);
@@ -2015,7 +2232,7 @@ contract OracleRegistryEscrowIntegrationTest is Test {
             1 hours,
             30 days,
             1 days,
-            7 days
+            10_000
         );
         registry = new OracleRegistry(
             address(token),
@@ -2026,7 +2243,7 @@ contract OracleRegistryEscrowIntegrationTest is Test {
                 revealWindow: REVEAL_WINDOW,
                 unbondingPeriod: 7 days,
                 quorum: 3,
-                maxVoters: 5,
+                maxVoters: 64,
                 maxDeviation: 10,
                 slashBps: 2_000
             })
@@ -2039,10 +2256,6 @@ contract OracleRegistryEscrowIntegrationTest is Test {
         escrow.setResolver(address(registry));
         registry.setEscrow(address(escrow));
         registry.setStaking(address(pool));
-
-        // The escrow's dispute timeout has to outlast a whole vote, or a lock can be refunded
-        // from under resolvers who are still voting on it.
-        assertGt(escrow.disputeTimeoutPeriod(), registry.votingPeriod());
 
         r1 = _bond("r1");
         r2 = _bond("r2");
@@ -2141,30 +2354,151 @@ contract OracleRegistryEscrowIntegrationTest is Test {
         assertEq(token.balanceOf(address(escrow)), 0);
     }
 
-    function test_integration_escrowDisputeTimeoutWaitsForAVoteThatCanStillClose() public {
-        uint256 lockId = _lock();
+    /// A payer contract that answers `principal()` with `tx.origin` names whoever sends each
+    /// transaction. Read on every vote, that barred every resolver voting from its own key and
+    /// left the payer's own seats to rule alone. Read once at the open, it names the key that
+    /// opened the dispute and nobody else.
+    function test_integration_aPayerCannotBarTheResolversByNamingEachVoterItsPrincipal() public {
+        OriginPayer origin = new OriginPayer();
+        token.mint(address(origin), AMOUNT);
+        uint256 lockId = origin.lock(escrow, token, payee, AMOUNT, _deadline());
 
-        token.mint(payer, DISPUTE_BOND);
-        vm.startPrank(payer);
-        token.approve(address(escrow), DISPUTE_BOND);
-        escrow.dispute(lockId);
-        vm.stopPrank();
-
+        address opener = makeAddr("opener");
+        token.mint(address(origin), DISPUTE_BOND);
+        vm.prank(opener, opener);
+        origin.dispute(escrow, lockId);
         uint256 disputeId = registry.disputeIdOf(lockId);
-        _vote(disputeId, 40, 42, 45);
 
-        vm.warp(block.timestamp + escrow.disputeTimeoutPeriod() + 1);
-        vm.expectRevert(IEscrow.DisputeRulable.selector);
-        escrow.disputeTimeout(lockId);
+        SybilResolver s1 = _sybil("sybil1");
+        SybilResolver s2 = _sybil("sybil2");
+        s1.commit(registry, disputeId, 0);
+        s2.commit(registry, disputeId, 0);
+
+        _commitAsItself(r1, disputeId, 90);
+        _commitAsItself(r2, disputeId, 90);
+        _commitAsItself(r3, disputeId, 90);
+
+        vm.warp(registry.getDispute(disputeId).commitEndsAt);
+        s1.reveal(registry, disputeId, 0);
+        s2.reveal(registry, disputeId, 0);
+        _revealAll(disputeId, 90);
 
         registry.finalize(disputeId);
 
-        assertEq(uint8(registry.getDispute(disputeId).status), uint8(IOracleRegistry.DisputeStatus.Finalized));
+        // Three honest scores against two: the payee is paid for the job it delivered, the seats
+        // the payer bought are slashed, and they earn nothing.
+        assertEq(registry.getDispute(disputeId).medianScore, 90);
+        assertEq(token.balanceOf(payee), (AMOUNT - RESOLVER_FEE) - ((AMOUNT - RESOLVER_FEE) * FEE_BPS) / 10_000);
+        assertEq(registry.getResolver(address(s1)).slashes, 1);
+        assertEq(registry.rewardsOf(address(s1)), 0);
+        assertGt(registry.rewardsOf(r1), 0);
+    }
+
+    /// Five seats used to go to whoever committed first, so three seats bought by the payer and
+    /// filled in the block the dispute opened left room for two honest votes and outvoted them.
+    /// Every seated resolver votes now, and the honest ones are not shut out, slashed or benched.
+    function test_integration_seatsBoughtByAPartyCannotCrowdTheResolversOut() public {
+        uint256 disputeId = _dispute(payer, _lock());
+
+        SybilResolver[3] memory sybils = [_sybil("sybil1"), _sybil("sybil2"), _sybil("sybil3")];
+        for (uint256 i; i < sybils.length; ++i) {
+            sybils[i].commit(registry, disputeId, 0);
+        }
+
+        _commitAsItself(r1, disputeId, 90);
+        _commitAsItself(r2, disputeId, 90);
+        _commitAsItself(r3, disputeId, 90);
+        assertEq(registry.getDispute(disputeId).commitCount, 6, "an honest resolver was turned away");
+
+        vm.warp(registry.getDispute(disputeId).commitEndsAt);
+        for (uint256 i; i < sybils.length; ++i) {
+            sybils[i].reveal(registry, disputeId, 0);
+        }
+        _revealAll(disputeId, 90);
+        registry.finalize(disputeId);
+
+        // Three against three has no centre. The payer is refunded, as for any vote with no
+        // result, and nobody who revealed is slashed for it.
+        assertEq(uint8(registry.getDispute(disputeId).status), uint8(IOracleRegistry.DisputeStatus.Failed));
+        assertEq(registry.getResolver(r1).bond, BOND);
+        assertEq(registry.getResolver(r2).bond, BOND);
+        assertEq(registry.getResolver(r3).bond, BOND);
+
+        // And the next dispute hears them.
+        uint256 next = _dispute(payer, _lock());
+        _commitAsItself(r1, next, 90);
+        assertEq(registry.getDispute(next).commitCount, 1);
+    }
+
+    /// The issuer freezes the payee while the vote runs. The ruling still lands, the payee's
+    /// leg is booked for later, and the voters' bonds come free.
+    function test_integration_aFrozenPayeeCannotHoldARulingOrTheVotersBonds() public {
+        uint256 lockId = _lock();
+        uint256 disputeId = _dispute(payer, lockId);
+        _vote(disputeId, 70, 70, 70);
+
+        token.setFrozen(payee, true);
+        registry.finalize(disputeId);
+
+        (uint128 refunded, uint128 paid) = _legs();
         assertEq(uint8(escrow.getLock(lockId).status), uint8(IEscrow.LockStatus.Resolved));
+        assertEq(token.balanceOf(payer), refunded, "the payer's leg landed");
+        assertEq(escrow.owed(payee), paid, "the frozen payee's leg was booked");
         assertEq(registry.openVotes(r1), 0);
         assertEq(registry.openVotes(r2), 0);
         assertEq(registry.openVotes(r3), 0);
-        assertEq(token.balanceOf(address(escrow)), 0);
+
+        vm.prank(r1);
+        registry.requestUnbond();
+        vm.warp(block.timestamp + 7 days);
+        vm.prank(r1);
+        registry.completeUnbond();
+        assertEq(bond.balanceOf(r1), BOND, "a voter left with its bond");
+
+        token.setFrozen(payee, false);
+        escrow.claim(payee);
+        assertEq(token.balanceOf(payee), paid);
+        assertEq(token.balanceOf(address(escrow)), escrow.feesAccrued());
+    }
+
+    function test_integration_aFrozenPayerCannotHoldARulingOpen() public {
+        uint256 lockId = _lock();
+        uint256 disputeId = _dispute(payee, lockId);
+        _vote(disputeId, 70, 70, 70);
+
+        token.setFrozen(payer, true);
+        registry.finalize(disputeId);
+
+        (uint128 refunded, uint128 paid) = _legs();
+        assertEq(uint8(escrow.getLock(lockId).status), uint8(IEscrow.LockStatus.Resolved));
+        assertEq(escrow.owed(payer), refunded, "the frozen payer's refund was booked");
+        assertEq(token.balanceOf(payee), paid + DISPUTE_BOND, "the payee was paid and vindicated");
+        assertEq(registry.openVotes(r1), 0);
+
+        token.setFrozen(payer, false);
+        escrow.claim(payer);
+        assertEq(token.balanceOf(payer), refunded);
+    }
+
+    function test_integration_aFrozenDisputerCannotHoldAFailedVoteOpen() public {
+        uint256 lockId = _lock();
+        uint256 disputeId = _dispute(payee, lockId);
+        _commitAsItself(r1, disputeId, 70);
+
+        token.setFrozen(payee, true);
+        vm.warp(registry.getDispute(disputeId).revealEndsAt);
+        registry.failDispute(disputeId);
+
+        assertEq(uint8(escrow.getLock(lockId).status), uint8(IEscrow.LockStatus.Locked), "the lock reopened");
+        assertEq(escrow.owed(payee), DISPUTE_BOND, "the frozen disputer's bond was booked");
+        assertEq(registry.openVotes(r1), 0);
+
+        vm.prank(r1);
+        registry.requestUnbond();
+        vm.warp(block.timestamp + 7 days);
+        vm.prank(r1);
+        registry.completeUnbond();
+        assertEq(uint8(registry.getResolver(r1).status), uint8(IOracleRegistry.ResolverStatus.Exited));
     }
 
     function _bond(string memory label) private returns (address who) {
@@ -2211,6 +2545,46 @@ contract OracleRegistryEscrowIntegrationTest is Test {
     function _deadline() private view returns (uint64) {
         return uint64(block.timestamp + 7 days);
     }
+
+    function _dispute(address disputer, uint256 lockId) private returns (uint256 disputeId) {
+        token.mint(disputer, DISPUTE_BOND);
+        vm.startPrank(disputer);
+        token.approve(address(escrow), DISPUTE_BOND);
+        escrow.dispute(lockId);
+        vm.stopPrank();
+        disputeId = registry.disputeIdOf(lockId);
+    }
+
+    /// Each resolver votes from its own key, so it is also the transaction's origin.
+    function _commitAsItself(address resolver, uint256 disputeId, uint8 score) private {
+        bytes32 commitment = registry.commitmentHash(disputeId, resolver, score, SALT);
+        vm.prank(resolver, resolver);
+        registry.commitVote(disputeId, commitment);
+    }
+
+    function _revealAll(uint256 disputeId, uint8 score) private {
+        vm.prank(r1);
+        registry.revealVote(disputeId, score, SALT);
+        vm.prank(r2);
+        registry.revealVote(disputeId, score, SALT);
+        vm.prank(r3);
+        registry.revealVote(disputeId, score, SALT);
+    }
+
+    function _sybil(string memory label) private returns (SybilResolver sybil) {
+        sybil = new SybilResolver();
+        vm.label(address(sybil), label);
+        bond.mint(address(sybil), MIN_BOND);
+        sybil.register(registry, bond, MIN_BOND);
+    }
+
+    /// 35% refund on a thousand: both legs are non-zero.
+    function _legs() private pure returns (uint128 refunded, uint128 paid) {
+        uint128 divisible = AMOUNT - RESOLVER_FEE;
+        refunded = (divisible * 3_500) / 10_000;
+        uint128 awarded = divisible - refunded;
+        paid = awarded - (awarded * FEE_BPS) / 10_000;
+    }
 }
 
 /// Drives the registry from every entry point at once, from the escrow seat, so the solvency
@@ -2223,6 +2597,12 @@ contract RegistryHandler is Test {
     error NothingRevealed();
 
     bytes32 private constant SALT = keccak256("mandate.invariant.salt");
+
+    /// The staking pool's floor in this fixture.
+    uint128 private constant FLOOR = 1_000e18;
+
+    /// Disputes `drive` took all the way to a ruling. Read by `afterInvariant`.
+    uint256 public finalized;
 
     /// A commitment the registry accepted. Held because a reveal drawn at random from the
     /// actor set and the dispute set almost never lands on one that was committed, and a
@@ -2254,26 +2634,26 @@ contract RegistryHandler is Test {
         return _actors;
     }
 
+    /// One prank per call, never a started one. A call that reverts under `startPrank` leaves
+    /// the prank standing, and every later step in the run then fails on the cheatcode rather
+    /// than on the contract, which is how an earlier version of this suite never reached a
+    /// single ruling.
     function register(uint256 actorSeed, uint128 amount) external {
         address who = _actor(actorSeed);
         amount = uint128(bound(amount, 1, 50_000e18));
 
-        BOND.mint(who, amount);
-        vm.startPrank(who);
-        BOND.approve(address(REGISTRY), amount);
+        _approveBond(who, amount);
+        vm.prank(who);
         REGISTRY.register(amount);
-        vm.stopPrank();
     }
 
     function increaseBond(uint256 actorSeed, uint128 amount) external {
         address who = _actor(actorSeed);
         amount = uint128(bound(amount, 1, 50_000e18));
 
-        BOND.mint(who, amount);
-        vm.startPrank(who);
-        BOND.approve(address(REGISTRY), amount);
+        _approveBond(who, amount);
+        vm.prank(who);
         REGISTRY.increaseBond(amount);
-        vm.stopPrank();
     }
 
     function requestUnbond(uint256 actorSeed) external {
@@ -2368,13 +2748,84 @@ contract RegistryHandler is Test {
         vm.warp(dispute.commitEndsAt);
     }
 
+    /// One dispute the whole way: opened, committed by every actor, revealed, finalised, paid
+    /// and claimed. A random walk lines those six steps up so rarely that a campaign of any
+    /// practical length used to finish without a single ruling, and the reward split, the
+    /// slash and the bond release all sit at the end of them.
+    ///
+    /// Whatever the run did to the actors first, they are seated again with a bond the floor
+    /// accepts. This step is about whether a vote can still be heard, not about who left.
+    function drive(uint256 scoreSeed) external {
+        uint8 score = uint8(bound(scoreSeed, 0, 100));
+        uint256 disputeId = REGISTRY.openDispute(_nextEscrowId++, address(0xA11CE), address(0xB0B));
+        _disputeIds.push(disputeId);
+
+        for (uint256 i; i < _actors.length; ++i) {
+            address who = _actors[i];
+            _seat(who);
+
+            _scores[disputeId][who] = score;
+            bytes32 commitment = REGISTRY.commitmentHash(disputeId, who, score, SALT);
+            vm.prank(who);
+            REGISTRY.commitVote(disputeId, commitment);
+            _commitments.push(Commitment({disputeId: disputeId, voter: who}));
+        }
+
+        vm.warp(REGISTRY.getDispute(disputeId).commitEndsAt);
+        for (uint256 i; i < _actors.length; ++i) {
+            vm.prank(_actors[i]);
+            REGISTRY.revealVote(disputeId, score, SALT);
+        }
+
+        REGISTRY.finalize(disputeId);
+        finalized += 1;
+
+        uint256 pot = 4e6;
+        TOKEN.mint(address(REGISTRY), pot);
+        REGISTRY.notifyReward(disputeId, pot);
+
+        for (uint256 i; i < _actors.length; ++i) {
+            vm.prank(_actors[i]);
+            REGISTRY.claimRewards();
+        }
+    }
+
     /// The registry rules and reopens through this seat.
     function resolve(uint256, uint16, uint8) external {}
 
     function reopen(uint256) external {}
 
-    function disputeTimeoutPeriod() external pure returns (uint64) {
-        return 30 days;
+    function disputeIds() external view returns (uint256[] memory) {
+        return _disputeIds;
+    }
+
+    function _seat(address who) private {
+        IOracleRegistry.Resolver memory record = REGISTRY.getResolver(who);
+
+        if (record.status == IOracleRegistry.ResolverStatus.Unbonding) {
+            vm.prank(who);
+            REGISTRY.cancelUnbond();
+        }
+
+        if (
+            record.status == IOracleRegistry.ResolverStatus.None
+                || record.status == IOracleRegistry.ResolverStatus.Exited
+        ) {
+            _approveBond(who, FLOOR);
+            vm.prank(who);
+            REGISTRY.register(FLOOR);
+        } else if (record.bond < FLOOR) {
+            uint128 topUp = FLOOR - record.bond;
+            _approveBond(who, topUp);
+            vm.prank(who);
+            REGISTRY.increaseBond(topUp);
+        }
+    }
+
+    function _approveBond(address who, uint128 amount) private {
+        BOND.mint(who, amount);
+        vm.prank(who);
+        BOND.approve(address(REGISTRY), amount);
     }
 
     function _actor(uint256 seed) private view returns (address) {
@@ -2422,7 +2873,7 @@ contract OracleRegistrySolvencyInvariants is Test {
                 revealWindow: 1 days,
                 unbondingPeriod: 2 days,
                 quorum: 2,
-                maxVoters: 4,
+                maxVoters: 64,
                 maxDeviation: 10,
                 slashBps: 2_000
             })
@@ -2453,6 +2904,35 @@ contract OracleRegistrySolvencyInvariants is Test {
 
     function invariant_unallocatedFeesNeverExceedTheRewardFloat() public view {
         assertLe(registry.unallocatedRewards(), registry.rewardFloat());
+    }
+
+    /// Every open vote is a commitment on a dispute that has not closed, and every such
+    /// commitment is an open vote. A count that drifts either way either pins a bond for good
+    /// or releases one a live vote still needs.
+    function invariant_openVotesEqualTheCommitmentsOnOpenDisputes() public view {
+        uint256[] memory ids = handler.disputeIds();
+        uint256 committed;
+        for (uint256 i; i < ids.length; ++i) {
+            IOracleRegistry.Dispute memory dispute = registry.getDispute(ids[i]);
+            bool open = dispute.status == IOracleRegistry.DisputeStatus.Committing
+                || dispute.status == IOracleRegistry.DisputeStatus.Revealing;
+            if (open) committed += dispute.commitCount;
+        }
+
+        address[4] memory actors = handler.actors();
+        uint256 held;
+        for (uint256 i; i < actors.length; ++i) {
+            held += registry.openVotes(actors[i]);
+        }
+        assertEq(held, committed);
+    }
+
+    /// A run that never reached a ruling proved nothing about the money paths. When the random
+    /// walk did not get there, one more dispute is driven from wherever the run left the
+    /// registry, which also proves a vote can still be heard from that state.
+    function afterInvariant() public {
+        if (handler.finalized() == 0) handler.drive(40);
+        assertGt(handler.finalized(), 0, "no dispute reached a ruling in this run");
     }
 
     function invariant_rosterCountMatchesTheBondedResolvers() public view {

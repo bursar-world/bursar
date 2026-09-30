@@ -52,9 +52,33 @@ contract V4MathTest is Test {
         // One tick is a part in ten thousand of price, so half that in the square root: 5e-5.
         // The Q96 route floors a square root whose magnitude falls as the ratio moves away from
         // one, so its error grows at the extremes: about 7e-8 at the price this repository
-        // seeds at, about 1.4e-6 at a price of one micro-dollar. A fifth of a tick covers the
-        // whole band.
+        // seeds at, about 3.5e-6 at a price of one micro-dollar. A fifth of a tick covers the
+        // whole band, and it is the gate `script/SeedPool.s.sol` applies.
         assertApproxEqRel(uint256(viaQ96), uint256(viaQ192), 1e13);
+    }
+
+    /// One to nine micro-dollars, the bottom of the range and where the Q96 route is least
+    /// precise. Each expected value is `isqrt((p << 192) / 1e18)` computed outside Solidity, and
+    /// the Q96 route lands inside the script's gate at every one of them. The gate used to be a
+    /// fiftieth of a tick, which refused six of the nine.
+    function test_theBottomOfTheRange() public pure {
+        uint160[9] memory expected = [
+            uint160(79228162514264337593),
+            112045541949572279837,
+            137227202865029797602,
+            158456325028528675187,
+            177159557114295710296,
+            194068571418249185253,
+            209618014845353321189,
+            224091083899144559674,
+            237684487542793012780
+        ];
+        for (uint256 i; i < expected.length; ++i) {
+            uint256 price = i + 1;
+            uint160 viaQ192 = V4Math.initialSqrtPriceX96(BRSR_UNIT, price);
+            assertEq(viaQ192, expected[i]);
+            assertApproxEqRel(uint256(V4Math.initialSqrtPriceX96ViaQ96(BRSR_UNIT, price)), uint256(viaQ192), 1e13);
+        }
     }
 
     /// The Q192 route squared is the ratio it was given, to within the last unit.

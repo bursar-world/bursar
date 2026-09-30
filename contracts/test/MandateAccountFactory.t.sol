@@ -36,7 +36,7 @@ contract MandateFactoryTest is Test {
             1 hours,
             30 days,
             1 days,
-            3 days
+            10_000
         );
 
         factory = new MandateAccountFactory(address(escrow), address(asset));

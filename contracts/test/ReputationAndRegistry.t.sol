@@ -20,8 +20,8 @@ import {MockUsdg} from "./mocks/MockUsdg.sol";
 
 /// Stands in for the oracle registry on the paths where the escrow only needs an adjudicator
 /// to exist. It records the dispute id it handed out and accepts a reward without opinion, so
-/// a reputation test can reach `resolve` and `disputeTimeout` without dragging commit-reveal
-/// voting into the fixture.
+/// a reputation test can reach `resolve` and `reopen` without dragging commit-reveal voting
+/// into the fixture.
 contract RepRegResolverStub {
     mapping(uint256 escrowId => uint256 disputeId) public disputeIdOf;
 
@@ -46,7 +46,8 @@ contract ReputationTest is Test {
 
     uint128 internal constant BASE_CAP = 100e6;
     uint128 internal constant CAP_PER_SCORE = 5e6;
-    uint128 internal constant MAX_CAP = 1_000e6;
+    /// The top of the curve, where a perfect score lands.
+    uint128 internal constant MAX_CAP = 600e6;
 
     Reputation internal reputation;
 
@@ -196,6 +197,36 @@ contract ReputationTest is Test {
         vm.stopPrank();
     }
 
+    /// A payee that paid itself vouched for its own work. The callback answers and nothing
+    /// moves, whichever way the self-lock ended.
+    function test_aLockAPayeePaidToItselfMovesNoCounter() public {
+        vm.recordLogs();
+        reputation.onReleased(payee, payee);
+        reputation.onTimedOut(payee, payee);
+        reputation.onDisputed(payee, payee);
+
+        (uint64 released, uint64 timedOut, uint64 disputed) = reputation.payeeStats(payee);
+        assertEq(uint256(released) + timedOut + disputed, 0);
+        (released, timedOut, disputed) = reputation.edges(payee, payee);
+        assertEq(uint256(released) + timedOut + disputed, 0);
+        assertEq(vm.getRecordedLogs().length, 0, "a counter event fired for a counter that did not move");
+        assertEq(reputation.capOf(payee), BASE_CAP);
+    }
+
+    function test_everyCounterThatMovesSaysSo() public {
+        vm.expectEmit(true, true, false, false, address(reputation));
+        emit IReputation.ReleaseCounted(payerA, payee);
+        reputation.onReleased(payerA, payee);
+
+        vm.expectEmit(true, true, false, false, address(reputation));
+        emit IReputation.TimeoutCounted(payerA, payee);
+        reputation.onTimedOut(payerA, payee);
+
+        vm.expectEmit(true, true, false, false, address(reputation));
+        emit IReputation.DisputeCounted(payerB, payee);
+        reputation.onDisputed(payerB, payee);
+    }
+
     /// The admin holds the curve, not the counters. A key that could write history could mint
     /// itself an unbounded cap.
     function test_theAdminCannotMoveACounterEither() public {
@@ -236,6 +267,22 @@ contract ReputationTest is Test {
         vm.prank(stranger);
         vm.expectRevert(IReputation.NotAdmin.selector);
         reputation.setCurve(IReputation.CapCurve({baseCap: 1, capPerScore: 1, maxCap: 2}));
+    }
+
+    /// The live curve had a base of 25, a slope of 1 and a ceiling of 250: a perfect score
+    /// reaches 125, and the 250 the deployment record published was a figure nothing paid.
+    function test_aCeilingNoScoreReachesIsRefused() public {
+        vm.expectRevert(IReputation.BadCurve.selector);
+        new Reputation(admin, IReputation.CapCurve({baseCap: 25e6, capPerScore: 1e6, maxCap: 250e6}));
+
+        vm.prank(admin);
+        vm.expectRevert(IReputation.BadCurve.selector);
+        reputation.setCurve(IReputation.CapCurve({baseCap: 25e6, capPerScore: 1e6, maxCap: 125e6 + 1}));
+
+        vm.prank(admin);
+        reputation.setCurve(IReputation.CapCurve({baseCap: 25e6, capPerScore: 1e6, maxCap: 125e6}));
+        _release(reputation, payerA, payee);
+        assertEq(reputation.capOf(payee), 125e6, "a perfect score lands exactly on the ceiling");
     }
 
     function test_setCurveRejectsACeilingBelowTheFloor() public {
@@ -333,8 +380,11 @@ contract ReputationTest is Test {
         uint8 failures
     ) public {
         uint128 floorCap = uint128(bound(baseCap, 0, type(uint128).max / 2));
-        uint128 ceilingCap = uint128(bound(maxCap, floorCap == 0 ? 1 : floorCap, type(uint128).max));
-        uint128 slope = uint128(bound(capPerScore, 0, type(uint128).max));
+        // A curve with neither floor nor slope reaches nothing, and a zero ceiling is refused.
+        uint128 slope = uint128(bound(capPerScore, floorCap == 0 ? 1 : 0, type(uint128).max));
+        uint256 reach = uint256(floorCap) + uint256(slope) * 100;
+        uint128 top = reach > type(uint128).max ? type(uint128).max : uint128(reach);
+        uint128 ceilingCap = uint128(bound(maxCap, floorCap == 0 ? 1 : floorCap, top));
 
         vm.prank(admin);
         reputation.setCurve(IReputation.CapCurve({baseCap: floorCap, capPerScore: slope, maxCap: ceilingCap}));
@@ -384,7 +434,7 @@ contract ReputationEscrowCountingTest is Test {
     uint64 internal constant MIN_TTL = 1 hours;
     uint64 internal constant MAX_TTL = 30 days;
     uint64 internal constant DISPUTE_WINDOW = 2 days;
-    uint64 internal constant DISPUTE_TIMEOUT = 5 days;
+    uint128 internal constant MIN_LOCK = 10_000;
 
     uint128 internal constant LOCK_AMOUNT = 100e6;
 
@@ -404,16 +454,7 @@ contract ReputationEscrowCountingTest is Test {
         asset = new MockUsdg();
         reputation = new Reputation(admin, IReputation.CapCurve({baseCap: 1_000e6, capPerScore: 10e6, maxCap: 2_000e6}));
         escrow = new Escrow(
-            address(asset),
-            address(reputation),
-            treasury,
-            FEE_BPS,
-            0,
-            0,
-            MIN_TTL,
-            MAX_TTL,
-            DISPUTE_WINDOW,
-            DISPUTE_TIMEOUT
+            address(asset), address(reputation), treasury, FEE_BPS, 0, 0, MIN_TTL, MAX_TTL, DISPUTE_WINDOW, MIN_LOCK
         );
         reputation.setEscrow(address(escrow));
 
@@ -567,23 +608,29 @@ contract ReputationEscrowCountingTest is Test {
         assertEq(disputed, 1);
     }
 
-    function test_anUnheardDisputeStillCountsOnce() public {
+    /// An unheard dispute reopens the lock and counts nothing. The exit that finally ends the
+    /// lock is the one its history records.
+    function test_anUnheardDisputeCountsOnlyTheExitThatEndsTheLock() public {
         uint256 id = _lock(LOCK_AMOUNT);
 
         vm.prank(payee);
         escrow.dispute(id);
 
-        vm.warp(block.timestamp + DISPUTE_TIMEOUT + 1);
-        escrow.disputeTimeout(id);
+        vm.prank(address(resolverStub));
+        escrow.reopen(id);
+        assertEq(_total(), 0, "a reopen is not an outcome");
 
-        (,, uint64 disputed) = reputation.payeeStats(payee);
-        assertEq(disputed, 1);
+        vm.warp(escrow.getLock(id).deadline + 1);
+        escrow.timeout(id);
+
+        (, uint64 timedOut,) = reputation.payeeStats(payee);
+        assertEq(timedOut, 1);
         assertEq(_total(), 1);
     }
 
     function test_theCapGatesTheLockAtItsExactBoundary() public {
         vm.prank(admin);
-        reputation.setCurve(IReputation.CapCurve({baseCap: 100e6, capPerScore: 5e6, maxCap: 1_000e6}));
+        reputation.setCurve(IReputation.CapCurve({baseCap: 100e6, capPerScore: 5e6, maxCap: 600e6}));
 
         assertEq(reputation.capOf(payee), 100e6);
 
@@ -598,7 +645,7 @@ contract ReputationEscrowCountingTest is Test {
     /// raises it and a timeout takes the headroom back.
     function test_theCapGrowsWithSettledWorkAndFallsBackOnAFailure() public {
         vm.prank(admin);
-        reputation.setCurve(IReputation.CapCurve({baseCap: 100e6, capPerScore: 5e6, maxCap: 1_000e6}));
+        reputation.setCurve(IReputation.CapCurve({baseCap: 100e6, capPerScore: 5e6, maxCap: 600e6}));
 
         uint256 first = _lock(100e6);
         vm.prank(payee);
@@ -656,8 +703,10 @@ contract ReputationEscrowCountingTest is Test {
         } else {
             vm.prank(payer);
             escrow.dispute(id);
-            vm.warp(block.timestamp + DISPUTE_TIMEOUT + 1);
-            escrow.disputeTimeout(id);
+            vm.prank(address(resolverStub));
+            escrow.reopen(id);
+            vm.warp(escrow.getLock(id).deadline + 1);
+            escrow.timeout(id);
         }
 
         uint256 expected = path == 2 ? 0 : 1;
@@ -683,7 +732,7 @@ contract ReputationEscrowCountingTest is Test {
         Reputation freshReputation =
             new Reputation(admin, IReputation.CapCurve({baseCap: 1_000e6, capPerScore: 10e6, maxCap: 2_000e6}));
         Escrow freshEscrow = new Escrow(
-            address(asset), address(freshReputation), treasury, FEE_BPS, 0, 0, MIN_TTL, MAX_TTL, window, DISPUTE_TIMEOUT
+            address(asset), address(freshReputation), treasury, FEE_BPS, 0, 0, MIN_TTL, MAX_TTL, window, MIN_LOCK
         );
         freshReputation.setEscrow(address(freshEscrow));
         return (freshReputation, freshEscrow);
@@ -1388,9 +1437,6 @@ contract AgentRegistryTest is Test {
         registry.setSlashBps(5_001);
 
         vm.expectRevert(AgentRegistry.ZeroAddress.selector);
-        registry.setSlasher(address(0));
-
-        vm.expectRevert(AgentRegistry.ZeroAddress.selector);
         registry.setSlashSink(address(0));
 
         registry.setSlashBps(5_000);
@@ -1399,6 +1445,26 @@ contract AgentRegistryTest is Test {
 
         assertEq(registry.slashBps(), 5_000);
         assertEq(registry.slashSink(), stranger);
+    }
+
+    /// The zero address clears the seat, and a cleared slasher rules on nothing.
+    function test_theSlasherCanBeClearedAndThenRulesOnNothing() public {
+        _register(agentA, 300e6);
+
+        vm.prank(admin);
+        vm.expectEmit(true, false, false, false, address(registry));
+        emit AgentRegistry.SlasherUpdated(address(0));
+        registry.setSlasher(address(0));
+        assertEq(registry.slasher(), address(0));
+
+        vm.prank(slasher);
+        vm.expectRevert(AgentRegistry.NotAuthorized.selector);
+        registry.slash(agentA, 1e6, bytes32("late"));
+
+        // The admin still rules, as it always could.
+        vm.prank(admin);
+        registry.slash(agentA, 1e6, bytes32("admin"));
+        assertEq(registry.stakeOf(agentA), 300e6 - 1e6);
     }
 
     /// Raising the floor binds the next registration and any partial exit. It does not

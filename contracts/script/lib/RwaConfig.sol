@@ -12,6 +12,11 @@ library RwaConfig {
     address internal constant STATE_VIEW = 0xF3334192D15450CdD385c8B70e03f9A6bD9E673b;
     address internal constant ACCESS_REGISTRY = 0xe10b6f6B275de231345c20D14Ab812db62151b00;
 
+    /// Earlier factories whose mandates may park: v2 accounts park through the principal, v2.1
+    /// accounts also unpark inside a spend.
+    address internal constant FACTORY_V2 = 0xe9f8cc653fF40E346e0591f353Be58DF0533cfD0;
+    address internal constant FACTORY_V21 = 0x669366d0Ae3C6b51fEDcf451A01bF741Fd2ed08D;
+
     address internal constant SGOV = 0x92FD66527192E3e61d4DDd13322Aa222DE86F9B5;
     address internal constant SPY = 0x117cc2133c37B721F49dE2A7a74833232B3B4C0C;
     address internal constant NVDA = 0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC;

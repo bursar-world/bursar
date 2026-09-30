@@ -30,8 +30,9 @@ interface IEscrow {
     error NotPendingTreasury();
     error BadFee();
     error NotPauser();
-    error DisputeRulable();
     error InsufficientGas();
+    error BelowMinLock();
+    error BadMinLock();
 
     enum LockStatus {
         None,
@@ -95,10 +96,13 @@ interface IEscrow {
     event DisclosureGranted(
         uint256 indexed id, address indexed grantor, address indexed resolver, bytes32 sliceCommit, bytes ciphertext
     );
+    event PaymentOwed(address indexed party, uint128 amount);
+    event OwedClaimed(address indexed party, uint128 amount);
 
     /// Pulls `amount` from the caller and opens a lock the payee can settle until `deadline`.
     /// The deadline has to sit strictly inside `[minTtl, maxTtl]` so neither side can create
-    /// a lock that is impossible to answer or one that ties funds up indefinitely.
+    /// a lock that is impossible to answer or one that ties funds up indefinitely, and the
+    /// amount has to reach `minLock`.
     ///
     /// Two admission checks stand in front of the transfer: the payee has to be allowed to
     /// trade by the agent registry, when one is wired, and `amount` has to sit inside the cap
@@ -124,9 +128,10 @@ interface IEscrow {
     /// Permissionless once the deadline passes. Refunds the payer in full.
     function timeout(uint256 id) external;
 
-    /// Contests a lock. Either party may contest one that is still open; only the payer may
-    /// contest one released inside `disputeWindow`, and that late complaint is recorded
-    /// against the payee's history and not ruled on, because the money has already moved.
+    /// Contests a lock. Either party may contest one that is still open and not past its
+    /// deadline, which by then is the payer's timeout refund; only the payer may contest one
+    /// released inside `disputeWindow`, and that late complaint is recorded against the
+    /// payee's history and not ruled on, because the money has already moved.
     ///
     /// Contesting an open lock posts a bond of `disputeBondBps` of the locked amount, which
     /// comes back only if the ruling lands on the disputer's side of the split.
@@ -148,11 +153,10 @@ interface IEscrow {
     /// resolver calls this, when the vote missed quorum.
     function reopen(uint256 id) external;
 
-    /// Permissionless refund of a dispute the resolver never ruled on. Without it, a
-    /// resolver that stops answering would hold the payer's funds forever. The bond comes
-    /// back whole: silence upstream is not the disputer's fault. Refused while the resolver
-    /// still reports the dispute as open, because it can still be ruled on or reopened.
-    function disputeTimeout(uint256 id) external;
+    /// Pays out what settlements booked to `party` when the settlement asset refused the
+    /// transfer at the time, usually because its issuer had frozen the address. Anyone may
+    /// call it; the money only ever goes to `party`.
+    function claim(address party) external returns (uint128 amount);
 
     /// Emits a disclosure for one resolver on a disputed lock. Either party may call it. The
     /// escrow stores nothing: the ciphertext is for the named resolver to read off the log.
@@ -191,6 +195,9 @@ interface IEscrow {
     /// computed against a settling lock, so it can never reach locked principal or a bond.
     function feesAccrued() external view returns (uint128);
 
+    /// What `claim` would pay `party` now.
+    function owed(address party) external view returns (uint128);
+
     function treasury() external view returns (address);
     function pendingTreasury() external view returns (address);
 
@@ -206,6 +213,6 @@ interface IEscrow {
     function minTtl() external view returns (uint64);
     function maxTtl() external view returns (uint64);
     function disputeWindow() external view returns (uint64);
-    function disputeTimeoutPeriod() external view returns (uint64);
+    function minLock() external view returns (uint128);
     function nextId() external view returns (uint256);
 }

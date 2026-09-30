@@ -29,6 +29,10 @@ import {IReputation} from "./interfaces/IReputation.sol";
 ///
 /// A dispute the resolvers cannot hear is not a refund either. It goes back to `Locked` with
 /// the deadline moved out, and the job finishes the way it would have without the dispute.
+///
+/// A payout the settlement asset refuses, because its issuer has frozen the recipient, is
+/// booked as owed and collected later through `claim`. One frozen party cannot hold a
+/// settlement, or the votes counted in it, in place for everyone else.
 contract Escrow is IEscrow, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -50,8 +54,8 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
     /// What the payer's refund hook is allowed to spend. The measured cost of the mandate
     /// account's own hook is under 25k, so this is several times what an honest one needs, and
     /// it is capped at all because the payer is the one address in a settlement that the escrow
-    /// does not choose. Uncapped, a payer contract could burn the gas of the ruling that pays
-    /// its counterparty and force the dispute into a timeout that refunds it in full.
+    /// does not choose. Uncapped, a payer contract could burn the gas of every ruling that pays
+    /// its counterparty and hold the dispute open for good.
     uint256 private constant CREDIT_GAS = 150_000;
 
     /// The four legs a ruling cuts a lock into. Carried together because they are derived in
@@ -70,7 +74,6 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
     uint64 public immutable minTtl;
     uint64 public immutable maxTtl;
     uint64 public immutable disputeWindow;
-    uint64 public immutable disputeTimeoutPeriod;
 
     /// Charged against the payee's side of a settlement and against nothing else: a refund,
     /// a timeout and a cancellation all return the payer's funds whole. Immutable, so no key
@@ -85,6 +88,10 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
     /// ruling lands on the disputer's side. Freezing a counterparty's money is otherwise free
     /// and a payee facing an unfavourable deadline would do it every time.
     uint16 public immutable disputeBondBps;
+
+    /// The smallest lock the escrow opens. The constructor holds it at or above the amount
+    /// whose dispute bond comes to one unit, so contesting a lock is never free.
+    uint128 public immutable minLock;
     // forge-lint: disable-end
 
     address public resolver;
@@ -106,6 +113,10 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
     /// reading, so a sweep cannot reach locked principal or a posted bond.
     uint128 public feesAccrued;
 
+    /// Payouts the settlement asset refused, per recipient. Held apart from every lock, so a
+    /// claim pays out of nothing but what a settlement already assigned to that address.
+    mapping(address party => uint128 amount) public owed;
+
     uint256 public nextId = 1;
 
     mapping(uint256 id => Lock) private _locks;
@@ -120,7 +131,7 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
         uint64 minTtl_,
         uint64 maxTtl_,
         uint64 disputeWindow_,
-        uint64 disputeTimeoutPeriod_
+        uint128 minLock_
     ) {
         if (settlementAsset_ == address(0) || reputation_ == address(0) || treasury_ == address(0)) {
             revert ZeroAddress();
@@ -130,9 +141,7 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
         // `lock` wants a deadline strictly inside the bounds, so maxTtl == minTtl + 1 admits
         // none and every lock would revert.
         if (uint256(minTtl_) + 1 >= maxTtl_) revert BadTtl();
-        // A zero period would let anyone refund a dispute in the block it was opened, before
-        // a resolver could vote.
-        if (disputeTimeoutPeriod_ == 0) revert BadTtl();
+        if (minLock_ == 0 || (disputeBondBps_ != 0 && _bps(minLock_, disputeBondBps_) == 0)) revert BadMinLock();
 
         settlementAsset = settlementAsset_;
         reputation = reputation_;
@@ -144,7 +153,7 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
         minTtl = minTtl_;
         maxTtl = maxTtl_;
         disputeWindow = disputeWindow_;
-        disputeTimeoutPeriod = disputeTimeoutPeriod_;
+        minLock = minLock_;
 
         emit TreasuryTransferred(address(0), treasury_);
     }
@@ -160,6 +169,7 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
         // Paying the escrow itself would leave the funds held but attributed to no lock.
         if (payee == address(0) || payee == address(this)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
+        if (amount < minLock) revert BelowMinLock();
         if (uint256(deadline) <= block.timestamp + minTtl || uint256(deadline) >= block.timestamp + maxTtl) {
             revert BadTtl();
         }
@@ -250,7 +260,7 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
 
         uint128 amount = entry.amount;
 
-        IERC20(settlementAsset).safeTransfer(payer, amount);
+        _pay(payer, amount);
         _notifyReputation(id, abi.encodeCall(IReputation.onTimedOut, (payer, entry.payee)));
 
         emit TimedOut(id);
@@ -277,6 +287,9 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
             // paid for work it did not get, and a payee holding delivered work against a
             // deadline about to refund the payer, both need the same freeze.
             if (msg.sender != payer && msg.sender != payee) revert NotParty();
+            // Past the deadline the payer is owed a timeout refund. A dispute there would trade
+            // that refund for a ruling, or for a reopen that hands the payee a fresh deadline.
+            if (block.timestamp > entry.deadline) revert TooLate();
 
             // Without an adjudicator a dispute is a unilateral clawback, so refuse to open one
             // the resolver cannot hear. A payee that never delivers is still answered by
@@ -322,7 +335,7 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
 
         // No reputation write: declining a job early is not a failure to deliver one, and
         // counting it as such would push payees to let locks run to timeout instead.
-        IERC20(settlementAsset).safeTransfer(payer, amount);
+        _pay(payer, amount);
 
         emit Cancelled(id);
 
@@ -363,13 +376,12 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
         // payment is a real result rather than a complaint the resolvers had to sit through.
         bool vindicated = shares == 0 || (entry.disputer == entry.payer ? refundBps >= HALF_BPS : refundBps <= HALF_BPS);
 
-        IERC20 asset = IERC20(settlementAsset);
-        if (split.refunded != 0) asset.safeTransfer(entry.payer, split.refunded);
-        if (split.paid != 0) asset.safeTransfer(entry.payee, split.paid);
+        _pay(entry.payer, split.refunded);
+        _pay(entry.payee, split.paid);
 
         if (bond != 0) {
             if (vindicated) {
-                asset.safeTransfer(entry.disputer, bond);
+                _pay(entry.disputer, bond);
                 emit BondReturned(id, entry.disputer, bond);
             } else {
                 emit BondForfeited(id, entry.disputer, bond);
@@ -413,51 +425,11 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
         address disputer = entry.disputer;
 
         if (bond != 0) {
-            IERC20(settlementAsset).safeTransfer(disputer, bond);
+            _pay(disputer, bond);
             emit BondReturned(id, disputer, bond);
         }
 
         emit DisputeReopened(id, deadline);
-    }
-
-    function disputeTimeout(uint256 id) external nonReentrant {
-        Lock storage entry = _locks[id];
-        if (entry.status != LockStatus.Disputed || entry.releasedAt != 0) revert BadStatus();
-        if (block.timestamp <= uint256(entry.disputedAt) + disputeTimeoutPeriod) revert TooEarly();
-
-        // While the resolver can still settle the dispute, it is the one that does. A timeout
-        // here would race a ruling or a reopen and hand the payer the lock outright. A resolver
-        // that cannot answer at all is the case this exit exists for, so a failed read lets it
-        // through.
-        try IOracleRegistry(resolver).rulable(id) returns (bool open) {
-            if (open) revert DisputeRulable();
-        } catch {}
-
-        entry.status = LockStatus.Resolved;
-        entry.counted = true;
-
-        uint128 amount = entry.amount;
-        uint128 bond = entry.bond;
-        entry.bond = 0;
-
-        address payer = entry.payer;
-        address disputer = entry.disputer;
-
-        // No fee on an unheard dispute, and no forfeiture. The protocol did not settle
-        // anything worth charging for, the resolvers did not rule, and a disputer cannot be
-        // charged for a vote that never happened. The payer carries the delay already.
-        IERC20 asset = IERC20(settlementAsset);
-        asset.safeTransfer(payer, amount);
-        if (bond != 0) {
-            asset.safeTransfer(disputer, bond);
-            emit BondReturned(id, disputer, bond);
-        }
-
-        _notifyReputation(id, abi.encodeCall(IReputation.onDisputed, (payer, entry.payee)));
-
-        emit Resolved(id, BPS, amount, 0);
-
-        _creditPayer(id, payer, amount);
     }
 
     function setResolver(address resolver_) external {
@@ -529,6 +501,19 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
         emit FeesSwept(to, amount);
     }
 
+    /// Permissionless, and paid to `party` only. A mandate account or the resolver registry has
+    /// no call of its own to collect with, and the destination is not the caller's to choose.
+    function claim(address party) external nonReentrant returns (uint128 amount) {
+        amount = owed[party];
+        if (amount == 0) revert ZeroAmount();
+
+        owed[party] = 0;
+
+        IERC20(settlementAsset).safeTransfer(party, amount);
+
+        emit OwedClaimed(party, amount);
+    }
+
     /// Two-step because the treasury is the only address that can name its successor. A
     /// single-step handover to an address nobody controls would strand the protocol's fee
     /// revenue permanently.
@@ -569,14 +554,18 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
     ///
     /// A refusal there is a broken pairing, not a settlement failure, and it must not unwind
     /// the ruling: the escrow is the registry's own caller here, so a revert would propagate
-    /// back into the finalisation that produced the ruling and leave the payer waiting out
-    /// the dispute timeout for a fee it never cared about. The fee has left either way, so
-    /// the identity above holds on both branches.
+    /// back into the finalisation that produced the ruling and leave the lock frozen over a
+    /// fee neither party cared about. The fee has left the lock either way, so the identity
+    /// above holds on every branch.
     function _rewardResolvers(uint256 id, uint128 amount) private {
         address resolver_ = resolver;
         uint256 disputeId = IOracleRegistry(resolver_).disputeIdOf(id);
 
-        IERC20(settlementAsset).safeTransfer(resolver_, amount);
+        // Nothing arrived, so there is nothing for the registry to book.
+        if (!_pay(resolver_, amount)) {
+            emit ResolverRewardUncredited(id, disputeId, amount);
+            return;
+        }
 
         uint256 before = gasleft();
         try IOracleRegistry(resolver_).notifyReward(disputeId, amount) {
@@ -585,6 +574,26 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
             _requireNotStarved(before);
             emit ResolverRewardUncredited(id, disputeId, amount);
         }
+    }
+
+    /// Pays `to`, or books the amount as owed to it when the settlement asset refuses the
+    /// transfer. USDG reverts every transfer to an address its issuer has frozen, and a
+    /// settlement that reverted on one such leg would strand the others with it.
+    ///
+    /// A transfer that failed for want of gas is the caller's doing, not the recipient's, and
+    /// is refused rather than booked, the same way the best-effort calls below treat it.
+    function _pay(address to, uint128 amount) private returns (bool paid) {
+        if (amount == 0) return true;
+
+        uint256 before = gasleft();
+        (bool ok, bytes memory data) = settlementAsset.call(abi.encodeCall(IERC20.transfer, (to, amount)));
+        // Read the way SafeERC20 reads it: no return data is a success, a returned false is not.
+        if (ok && (data.length == 0 || abi.decode(data, (bool)))) return true;
+
+        _requireNotStarved(before);
+        owed[to] += amount;
+
+        emit PaymentOwed(to, amount);
     }
 
     /// The resolver fee comes off the top, the refund splits what is left, and the protocol

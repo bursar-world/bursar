@@ -7,6 +7,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {MandateAccount} from "../../src/MandateAccount.sol";
 import {IMandateAccount} from "../../src/interfaces/IMandateAccount.sol";
+import {IMandateAccountFactory} from "../../src/interfaces/IMandateAccountFactory.sol";
 import {IPoolManager, PoolKey} from "../../src/token/Buyback.sol";
 import {AssetRegistry} from "../../src/rwa/AssetRegistry.sol";
 import {PriceGuard} from "../../src/rwa/PriceGuard.sol";
@@ -17,7 +18,7 @@ import {RobinhoodStockAdapter} from "../../src/rwa/adapters/RobinhoodStockAdapte
 import {UsdgAdapter} from "../../src/rwa/adapters/UsdgAdapter.sol";
 import {IAccessRegistry, IStateView} from "../../src/rwa/interfaces/IRwaExternal.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
-import {MockAccess, MockEscrow, MockFeed, MockStock, MockV4} from "./RwaMocks.sol";
+import {FakeMandate, MockAccess, MockAccounts, MockEscrow, MockFeed, MockStock, MockV4} from "./RwaMocks.sol";
 
 contract RwaTest is Test {
     uint256 internal constant SPY_E8 = 771_21266423;
@@ -34,6 +35,7 @@ contract RwaTest is Test {
     MockAccess access;
     MockV4 v4;
     MockEscrow escrow;
+    MockAccounts accounts;
 
     AssetRegistry reg;
     PriceGuard guard;
@@ -81,7 +83,10 @@ contract RwaTest is Test {
 
         guard = new PriceGuard(reg, IAccessRegistry(address(access)), IStateView(address(v4)));
         router = new StockSpendRouter(reg, guard, IPoolManager(address(v4)));
-        park = new TreasuryPark(address(usdg), admin);
+        accounts = new MockAccounts();
+        IMandateAccountFactory[] memory factories = new IMandateAccountFactory[](1);
+        factories[0] = IMandateAccountFactory(address(accounts));
+        park = new TreasuryPark(address(usdg), admin, factories);
         sgovAdapter = new RobinhoodStockAdapter(address(park), address(sgov), reg, guard, IPoolManager(address(v4)));
         usdgAdapter = new UsdgAdapter(address(park), address(usdg), 100e6, 1_000e6);
         address[] memory ads = new address[](2);
@@ -90,6 +95,7 @@ contract RwaTest is Test {
         park.initAdapters(ads);
 
         acct = new MandateAccount(principal, agent, address(usdg), address(escrow), _limits(7));
+        accounts.add(principal, address(acct));
         usdg.mint(address(acct), 200e6);
 
         vm.startPrank(principal);
@@ -142,6 +148,29 @@ contract RwaTest is Test {
         reg.setAsset(address(spy), c);
     }
 
+    function test_registry_rejectsWideBandAndLongStaleness() public {
+        AssetRegistry.Asset memory c = reg.get(address(spy));
+        c.bandBps = 501;
+        _expectBadBounds(c);
+        c.bandBps = 500;
+        c.tradeStaleness = 7 days;
+        c.valuationStaleness = 14 days;
+        vm.prank(admin);
+        reg.setAsset(address(spy), c);
+
+        c = reg.get(address(spy));
+        c.tradeStaleness = 7 days + 1;
+        _expectBadBounds(c);
+
+        c = reg.get(address(spy));
+        c.valuationStaleness = 14 days + 1;
+        _expectBadBounds(c);
+
+        c = reg.get(address(spy));
+        c.perMandateCap = c.totalCap + 1;
+        _expectBadBounds(c);
+    }
+
     function test_guard_midMatchesFeed() public view {
         uint256 mid = guard.poolPriceE8(address(spy));
         assertApproxEqRel(mid, SPY_E8, 1e12);
@@ -155,7 +184,7 @@ contract RwaTest is Test {
         vm.prank(agent);
         uint256 out = acct.buy(address(spy), 1e6, 0, SPY_E8);
         assertEq(spy.balanceOf(address(acct)), out);
-        assertApproxEqRel(out, Math.mulDiv(1e6, 1e20, SPY_E8), 1e12);
+        assertApproxEqRel(out, _filled(Math.mulDiv(1e6, 1e20, SPY_E8), address(spy)), 1e12);
         assertEq(usdg.balanceOf(address(acct)), 199e6);
         assertEq(acct.totalSpent(), 1e6);
     }
@@ -263,6 +292,20 @@ contract RwaTest is Test {
         acct.buy(address(spy), 1e6, 0, SPY_E8);
     }
 
+    /// A purchase must leave the pool inside the band as well as find it there. Pushed to the
+    /// band's edge earlier in the same transaction, the pool would let the fill run past it.
+    function test_buy_refusesManipulatedFill() public {
+        v4.setImpact(50);
+        _setPool(spy, SPY_E8 * 10_080 / 10_000); // 80 bps over the feed, inside the 100 bps band
+        vm.prank(agent);
+        vm.expectPartialRevert(PriceGuard.PoolPriceDeviation.selector);
+        acct.buy(address(spy), 1e6, 0, SPY_E8);
+
+        _setPool(spy, SPY_E8);
+        vm.prank(agent);
+        acct.buy(address(spy), 1e6, 0, SPY_E8);
+    }
+
     function test_buy_onlyPrincipalSetsPolicy() public {
         vm.prank(agent);
         vm.expectRevert(StockSpendRouter.NotPrincipal.selector);
@@ -278,7 +321,7 @@ contract RwaTest is Test {
         assertEq(basis, 50e6);
         assertTrue(fresh);
         assertEq(value, Math.mulDiv(raw, SGOV_E8, 1e20));
-        assertApproxEqAbs(value, 50e6, 2);
+        assertApproxEqAbs(value, _filled(50e6, address(sgov)), 2);
         assertEq(sgov.balanceOf(address(sgovAdapter)), raw);
         assertEq(park.spendingPower(address(acct)), 150e6 + Math.mulDiv(value, 9_950, 10_000));
     }
@@ -303,14 +346,17 @@ contract RwaTest is Test {
         vm.expectRevert(abi.encodeWithSelector(TreasuryPark.MandateCapExceeded.selector, 101e6, 100e6));
         park.park(address(acct), address(sgovAdapter), 1e6, 0);
 
+        // A second mandate under its own cap still meets the one they share.
         AssetRegistry.Asset memory c = reg.get(address(sgov));
-        c.perMandateCap = 1_000e6;
         c.totalCap = 100e6;
         vm.prank(admin);
         reg.setAsset(address(sgov), c);
+        MandateAccount second = new MandateAccount(principal, agent, address(usdg), address(escrow), _limits(7));
+        accounts.add(principal, address(second));
+        usdg.mint(park.vaultOf(address(second)), 1e6);
         vm.prank(principal);
         vm.expectRevert(abi.encodeWithSelector(TreasuryPark.TotalCapExceeded.selector, 101e6, 100e6));
-        park.park(address(acct), address(sgovAdapter), 1e6, 0);
+        park.park(address(second), address(sgovAdapter), 1e6, 0);
     }
 
     function test_park_staleFeed() public {
@@ -346,11 +392,44 @@ contract RwaTest is Test {
         assertEq(total, 0);
     }
 
+    function test_park_pausedTokenOrAccessCountsZero() public {
+        _park(50e6);
+        sgov.setTokenPaused(true);
+        (uint256 total,) = park.parkedValue(address(acct));
+        assertEq(total, 0);
+        sgov.setTokenPaused(false);
+        access.setPaused(true);
+        (total,) = park.parkedValue(address(acct));
+        assertEq(total, 0);
+        assertEq(park.spendingPower(address(acct)), 150e6);
+    }
+
+    /// Parked value off a mis-scaled answer would be spent before anyone noticed; the pool
+    /// catches it the way it catches a trade.
+    function test_park_misScaledFeedCountsZero() public {
+        _park(50e6);
+        sgovFeed.set(int256(SGOV_E8 * 1e8), block.timestamp);
+        (uint256 total,) = park.parkedValue(address(acct));
+        assertEq(total, 0);
+        (,,,,, bool fresh) = park.position(address(acct), address(sgovAdapter));
+        assertFalse(fresh);
+        assertEq(park.spendingPower(address(acct)), 150e6);
+    }
+
+    function test_unpark_refusesManipulatedFill() public {
+        uint256 raw = _park(50e6);
+        v4.setImpact(30);
+        _setPool(sgov, SGOV_E8 * 9_970 / 10_000); // 30 bps under the feed, inside the 50 bps band
+        vm.prank(principal);
+        vm.expectPartialRevert(PriceGuard.PoolPriceDeviation.selector);
+        park.unpark(address(acct), address(sgovAdapter), raw, 0);
+    }
+
     function test_unpark_returnsUsdgToMandate() public {
         uint256 raw = _park(50e6);
         vm.prank(agent);
         uint256 out = park.unpark(address(acct), address(sgovAdapter), raw, 0);
-        assertApproxEqAbs(out, 50e6, 2);
+        assertApproxEqAbs(out, _filled(_filled(50e6, address(sgov)), address(sgov)), 2);
         assertEq(usdg.balanceOf(address(acct)), 150e6 + out);
         (uint256 r, uint256 basis,,,,) = park.position(address(acct), address(sgovAdapter));
         assertEq(r, 0);
@@ -368,7 +447,7 @@ contract RwaTest is Test {
         assertEq(usdg.balanceOf(address(escrow)), 20e6);
         assertEq(usdg.balanceOf(address(acct)), 0);
         (,, uint256 value,,,) = park.position(address(acct), address(sgovAdapter));
-        assertApproxEqAbs(value, 85e6, 10);
+        assertApproxEqAbs(value, _filled(100e6, address(sgov)) - _cost(15e6, address(sgov)), 10);
     }
 
     function test_spend_staleParkedDefers() public {
@@ -387,6 +466,45 @@ contract RwaTest is Test {
         acct.spend(_req(5e6), new bytes32[](0));
     }
 
+    /// SGOV counts for 100 hours but trades only inside 26, so every Sunday its sale reverts. The
+    /// spend falls through to the USDG reserve instead of failing with it.
+    function test_unparkFor_fallsThroughWhenSgovTradeStale() public {
+        uint256 raw = _park(50e6);
+        _parkUsdg(50e6);
+        vm.prank(principal);
+        acct.withdraw(address(usdg), principal, 100e6);
+        vm.warp(block.timestamp + 30 hours);
+
+        vm.prank(agent);
+        acct.spend(_req(20e6), new bytes32[](0));
+        assertEq(usdg.balanceOf(address(escrow)), 20e6);
+        (uint256 sgovRaw,,,,,) = park.position(address(acct), address(sgovAdapter));
+        assertEq(sgovRaw, raw);
+        (uint256 reserve,,,,,) = park.position(address(acct), address(usdgAdapter));
+        assertEq(reserve, 30e6);
+    }
+
+    /// Asking the pool for a small position's full feed value as an exact output needs more SGOV
+    /// than the position holds once fills land under the feed. The position is sold whole and
+    /// the next adapter covers the rest.
+    function test_unparkFor_drainsSgovThenUsdg() public {
+        _park(10e6);
+        _parkUsdg(50e6);
+        vm.prank(principal);
+        acct.withdraw(address(usdg), principal, 140e6);
+        (,, uint256 worth,,,) = park.position(address(acct), address(sgovAdapter));
+
+        vm.prank(agent);
+        acct.spend(_req(20e6), new bytes32[](0));
+        assertEq(usdg.balanceOf(address(escrow)), 20e6);
+        assertEq(usdg.balanceOf(address(acct)), 0);
+        (uint256 raw, uint256 basis,,,,) = park.position(address(acct), address(sgovAdapter));
+        assertEq(raw, 0);
+        assertEq(basis, 0);
+        (uint256 reserve,,,,,) = park.position(address(acct), address(usdgAdapter));
+        assertApproxEqAbs(reserve, 30e6 + _filled(worth, address(sgov)), 2);
+    }
+
     function test_buy_unparksShortfall() public {
         _park(100e6);
         vm.prank(principal);
@@ -394,6 +512,24 @@ contract RwaTest is Test {
         vm.prank(agent);
         uint256 out = acct.buy(address(spy), 2e6, 0, SPY_E8);
         assertGt(out, 0);
+    }
+
+    /// Anything that answers `principal()` could otherwise book against the caps every mandate
+    /// shares, and a real account the factory never made is no different.
+    function test_park_refusesNonFactoryMandate() public {
+        address griefer = makeAddr("griefer");
+        FakeMandate fake = new FakeMandate(griefer);
+        usdg.mint(park.vaultOf(address(fake)), 100e6);
+        vm.prank(griefer);
+        vm.expectRevert(abi.encodeWithSelector(TreasuryPark.NotFactoryAccount.selector, address(fake)));
+        park.park(address(fake), address(sgovAdapter), 100e6, 0);
+
+        MandateAccount stray = new MandateAccount(principal, agent, address(usdg), address(escrow), _limits(7));
+        usdg.mint(park.vaultOf(address(stray)), 10e6);
+        vm.prank(principal);
+        vm.expectRevert(abi.encodeWithSelector(TreasuryPark.NotFactoryAccount.selector, address(stray)));
+        park.park(address(stray), address(sgovAdapter), 10e6, 0);
+        assertEq(park.totalBasis(address(sgovAdapter)), 0);
     }
 
     function test_park_onlyOperators() public {
@@ -407,6 +543,31 @@ contract RwaTest is Test {
         park.initAdapters(new address[](0));
         vm.expectRevert(RobinhoodStockAdapter.NotPark.selector);
         sgovAdapter.release(1, 0, address(this), address(this));
+    }
+
+    /// Disabling an adapter stops new parks in it; what is already there still comes out, inside
+    /// a spend or by hand.
+    function test_disabledAdapter_exitsStayOpen() public {
+        _park(50e6);
+        vm.prank(admin);
+        park.setAdapter(address(sgovAdapter), false);
+
+        vm.startPrank(principal);
+        acct.withdraw(address(usdg), park.vaultOf(address(acct)), 1e6);
+        vm.expectRevert(abi.encodeWithSelector(TreasuryPark.UnknownAdapter.selector, address(sgovAdapter)));
+        park.park(address(acct), address(sgovAdapter), 1e6, 0);
+        acct.withdraw(address(usdg), principal, 149e6);
+        vm.stopPrank();
+
+        vm.prank(agent);
+        acct.spend(_req(10e6), new bytes32[](0));
+        assertEq(usdg.balanceOf(address(escrow)), 10e6);
+
+        (uint256 raw,,,,,) = park.position(address(acct), address(sgovAdapter));
+        vm.prank(principal);
+        park.unpark(address(acct), address(sgovAdapter), raw, 0);
+        (raw,,,,,) = park.position(address(acct), address(sgovAdapter));
+        assertEq(raw, 0);
     }
 
     function test_returnIdle() public {
@@ -434,10 +595,41 @@ contract RwaTest is Test {
 
     // ---- helpers ----
 
+    /// What the mock pool pays for `atMid` of output at its mid: the LP fee comes off the input
+    /// and the fill haircut off the output.
+    function _filled(uint256 atMid, address asset) internal view returns (uint256) {
+        uint256 fee = reg.get(asset).pool.fee;
+        return atMid * (1e6 - fee) / 1e6 * (10_000 - v4.haircutBps()) / 10_000;
+    }
+
+    /// Value at the mid that it costs to take `out` from the mock pool.
+    function _cost(uint256 out, address asset) internal view returns (uint256) {
+        uint256 fee = reg.get(asset).pool.fee;
+        return Math.mulDiv(out * (10_000 + v4.haircutBps()) / 10_000, 1e6, 1e6 - fee);
+    }
+
+    function _expectBadBounds(AssetRegistry.Asset memory c) internal {
+        vm.prank(admin);
+        vm.expectRevert(AssetRegistry.BadBounds.selector);
+        reg.setAsset(address(spy), c);
+    }
+
+    function _setPool(MockStock token, uint256 priceE8) internal {
+        PoolKey memory k = reg.get(address(token)).pool;
+        v4.setPrice(k, _sqrt(priceE8, k.currency0 == address(token)));
+    }
+
     function _park(uint256 amount) internal returns (uint256 raw) {
         vm.startPrank(principal);
         acct.withdraw(address(usdg), park.vaultOf(address(acct)), amount);
         raw = park.park(address(acct), address(sgovAdapter), amount, 0);
+        vm.stopPrank();
+    }
+
+    function _parkUsdg(uint256 amount) internal {
+        vm.startPrank(principal);
+        acct.withdraw(address(usdg), park.vaultOf(address(acct)), amount);
+        park.park(address(acct), address(usdgAdapter), amount, amount);
         vm.stopPrank();
     }
 
@@ -509,7 +701,6 @@ contract RwaTest is Test {
             valuationStaleness: valuation,
             bandBps: band,
             haircutBps: haircut,
-            collateralTier: 0,
             collateralHaircutBps: 0,
             decimals: 0,
             eligible: true,

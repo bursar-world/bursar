@@ -4,8 +4,10 @@ The Solidity contracts that hold and move money in Bursar. A principal's spendin
 `MandateAccount`, so a payment past them reverts on chain rather than at a service. Payments to
 providers go through an `Escrow` that holds each one for the life of one job, with an on-chain
 dispute path. Everything that can be administered is administered by a two-of-three
-`AdminTimelock` with a 48-hour delay. The set is deployed on Robinhood Chain mainnet (chain 4663)
-and settles in USDG.
+`AdminTimelock`, whose delay is one hour in this development deployment and 48 hours at launch.
+Agent stakes, resolver bonds and BRSR stakes take seven days to withdraw whatever the delay, so
+for a staked party a pending change is notice rather than a way out. The set is deployed on
+Robinhood Chain mainnet (chain 4663) and settles in USDG.
 
 Read the status section of the root [README](../README.md) before funding anything on mainnet,
 and [SECURITY.md](../SECURITY.md) before reporting a problem.
@@ -28,20 +30,30 @@ and [SECURITY.md](../SECURITY.md) before reporting a problem.
 
 ## Build and test
 
-Requires [Foundry](https://getfoundry.sh) 1.8 or newer. Foundry downloads solc 0.8.24 and 0.8.28
-on the first build: Bursar's own contracts use 0.8.24, and the vendored Privacy Pools code and the
-shielded contracts that import it use 0.8.28, the compiler upstream was audited with
-(`compilation_restrictions` in `foundry.toml`).
+Requires [Foundry](https://getfoundry.sh) 1.8.1, the release pinned in
+[`.foundry-version`](.foundry-version), which CI installs as well. From this directory:
+
+```sh
+foundryup --install "$(cat .foundry-version)"
+```
+
+Foundry downloads solc 0.8.24 and 0.8.28 on the first build: Bursar's own contracts use 0.8.24, and
+the vendored Privacy Pools code and the shielded contracts that import it use 0.8.28, the compiler
+upstream was audited with (`compilation_restrictions` in `foundry.toml`).
 
 `lib/` is not committed and there are no git submodules. Install the dependencies once, from this
 directory:
 
 ```sh
-forge install --no-git foundry-rs/forge-std@v1.9.4 OpenZeppelin/openzeppelin-contracts@v5.1.0 \
-  OpenZeppelin/openzeppelin-contracts-upgradeable@v5.0.2
+forge install --no-git --shallow \
+  foundry-rs/forge-std@1eea5bae12ae557d589f9f0f0edae2faa47cb262 \
+  OpenZeppelin/openzeppelin-contracts@69c8def5f222ff96f2b5beff05dfba996368aa79 \
+  OpenZeppelin/openzeppelin-contracts-upgradeable@723f8cab09cdae1aca9ec9cc1cfa040c2d4b06c1
 ```
 
-These are the exact versions the deployed bytecode was built from.
+These are forge-std v1.9.4, OpenZeppelin Contracts v5.1.0 and OpenZeppelin Contracts Upgradeable
+v5.0.2, the exact sources the deployed bytecode was built from. CI installs them with the same
+command, by commit, because a tag can be moved.
 
 `vendor/` is committed and unmodified: Privacy Pools core v1.3.0 (0xbow, Apache-2.0,
 commit `c312dcd`), zk-kit `lean-imt.sol` 2.0.0 (MIT) and `poseidon-solidity` 0.0.5 (MIT). The

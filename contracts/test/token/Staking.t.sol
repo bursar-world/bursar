@@ -3,6 +3,8 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+
 import {BRSR} from "../../src/token/BRSR.sol";
 import {IBRSR} from "../../src/token/interfaces/IBRSR.sol";
 import {Staking} from "../../src/token/Staking.sol";
@@ -17,6 +19,7 @@ contract StakingTest is Test {
     address internal constant SLASH_SINK = address(0x51A5);
     address internal constant TREASURY = address(0x7EA5);
     address internal constant CREDIT = address(0xC2ED);
+    address internal constant SLASHER = address(0x51A5E2);
 
     uint64 internal constant UNBONDING = 7 days;
     uint256 internal constant MIN_BOND = 1_000e18;
@@ -34,6 +37,9 @@ contract StakingTest is Test {
         );
         staking = new Staking(brsr, usdg, address(this), SLASH_SINK, TREASURY, UNBONDING, MIN_BOND);
         staking.setCreditManager(CREDIT);
+        staking.setSlasher(SLASHER);
+        // These cases are about where a loss lands, not how fast one may. The cap has its own.
+        staking.setSlashLimit(10_000, 1 days);
 
         for (uint256 i; i < stakers.length; ++i) {
             brsr.transfer(stakers[i], 10_000_000e18);
@@ -118,8 +124,8 @@ contract StakingTest is Test {
         vm.prank(stakers[0]);
         staking.requestUnbond(shares);
 
-        vm.prank(CREDIT);
-        staking.slash(1_000e18, bytes32("loan-7"));
+        vm.prank(SLASHER);
+        staking.slash(1_000e18);
 
         vm.warp(block.timestamp + UNBONDING);
         vm.prank(stakers[0]);
@@ -153,11 +159,11 @@ contract StakingTest is Test {
         staking.pause();
 
         vm.prank(stakers[0]);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(IStaking.ExitsHeld.selector, uint64(block.timestamp) + 7 days));
         staking.completeUnbond();
 
         vm.prank(stakers[1]);
-        vm.expectRevert();
+        vm.expectRevert(Pausable.EnforcedPause.selector);
         staking.stake(1e18);
 
         staking.unpause();
@@ -178,8 +184,8 @@ contract StakingTest is Test {
         _stake(stakers[0], 1_000e18);
         _distribute(2_000_000);
 
-        vm.prank(CREDIT);
-        staking.slash(type(uint128).max, bytes32("loan-9"));
+        vm.prank(SLASHER);
+        staking.slash(type(uint128).max);
 
         assertEq(staking.totalStaked(), 0);
         assertEq(staking.totalShares(), 0);
@@ -258,10 +264,19 @@ contract StakingTest is Test {
         assertFalse(staking.isBondable(stakers[0], 1_000_000e18));
     }
 
-    function test_onlyTheCreditManagerCanSlash() public {
+    /// The credit lane pays the spread in and nothing more. Taking stake is the slasher's alone.
+    function test_onlyTheSlasherCanSlash() public {
         _stake(stakers[0], 100e18);
-        vm.expectRevert(IStaking.NotCreditManager.selector);
-        staking.slash(1e18, bytes32(0));
+
+        vm.expectRevert(IStaking.NotSlasher.selector);
+        staking.slash(1e18);
+
+        vm.prank(CREDIT);
+        vm.expectRevert(IStaking.NotSlasher.selector);
+        staking.slash(1e18);
+
+        vm.prank(SLASHER);
+        assertEq(staking.slash(1e18), 1e18);
     }
 
     /// The unit trap, proved instead of argued: eighteen-decimal shares divide six-decimal

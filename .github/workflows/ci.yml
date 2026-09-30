@@ -32,9 +32,11 @@ jobs:
           cache: pnpm
 
       # The SDK's gas-failure suite runs its cases against a local anvil.
+      - id: foundry
+        run: echo "version=$(cat contracts/.foundry-version)" >> "$GITHUB_OUTPUT"
       - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
         with:
-          version: v1.8.1
+          version: ${{ steps.foundry.outputs.version }}
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r build
@@ -53,16 +55,67 @@ jobs:
         with:
           persist-credentials: false
 
+      # contracts/.foundry-version pins the release; the contracts README installs from it too.
+      - name: Read the pinned Foundry release
+        id: foundry
+        run: echo "version=$(cat .foundry-version)" >> "$GITHUB_OUTPUT"
+
       - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
         with:
-          version: v1.8.1
+          version: ${{ steps.foundry.outputs.version }}
 
-      # contracts/lib is not committed. These are the exact tags Release 1 was built from, plus the
-      # upgradeable contracts the vendored Privacy Pools Entrypoint was built against.
+      # contracts/lib is not committed. forge-std v1.9.4 and OpenZeppelin Contracts v5.1.0, which
+      # Release 1 was built from, and OpenZeppelin Contracts Upgradeable v5.0.2, which the vendored
+      # Privacy Pools Entrypoint was built against. Pinned by commit because a tag can be moved; the
+      # contracts README gives the same command.
       - name: Install Solidity dependencies
-        run: forge install --no-git --shallow foundry-rs/forge-std@v1.9.4 OpenZeppelin/openzeppelin-contracts@v5.1.0 OpenZeppelin/openzeppelin-contracts-upgradeable@v5.0.2
+        run: |
+          forge install --no-git --shallow \
+            foundry-rs/forge-std@1eea5bae12ae557d589f9f0f0edae2faa47cb262 \
+            OpenZeppelin/openzeppelin-contracts@69c8def5f222ff96f2b5beff05dfba996368aa79 \
+            OpenZeppelin/openzeppelin-contracts-upgradeable@723f8cab09cdae1aca9ec9cc1cfa040c2d4b06c1
 
       - run: forge fmt --check
       - run: forge build
-      # Fork tests skip unless BURSAR_RHC_FORK_RPC is set, which CI does not do.
+
+      # An absolute path in the metadata changes the bytecode from one machine to the next, and is
+      # published along with the verified source.
+      - name: Refuse machine paths in the build output
+        run: |
+          status=0
+          grep -rlF -e "$GITHUB_WORKSPACE" -e /home/ -e /Users/ out || status=$?
+          if [ "$status" -ne 1 ]; then
+            echo "::error::out/ holds an absolute path (files listed above), or grep could not read it"
+            exit 1
+          fi
+
+      # Fails when a contract is over the EIP-170 runtime or the EIP-3860 initcode limit.
+      - run: forge build --sizes
+
+      # High severity, over the code that deploys. A finding that is by design carries an inline
+      # forge-lint disable comment saying why.
+      - run: forge lint --severity high --deny warnings src script
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      # @bursar/core commits the ABIs it generates from this build.
+      - name: Check the generated ABIs match the build
+        working-directory: .
+        run: |
+          pnpm install --frozen-lockfile --filter @bursar/core
+          pnpm --filter @bursar/core codegen
+          if ! git diff --exit-code -- packages/core/src/generated; then
+            echo "::error::packages/core/src/generated is stale: run pnpm --filter @bursar/core codegen after forge build and commit the result"
+            exit 1
+          fi
+
+      # Fork tests skip unless BURSAR_RHC_FORK_RPC is set, which CI does not do. The fixed seed lets a
+      # fuzz or invariant failure here replay locally with the same inputs.
       - run: forge test
+        env:
+          FOUNDRY_FUZZ_SEED: '0x4663'

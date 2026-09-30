@@ -4,10 +4,11 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
 import {AdminTimelock} from "../../src/AdminTimelock.sol";
-import {Buyback, PoolKey} from "../../src/token/Buyback.sol";
+import {Buyback, PoolKey, SwapParams} from "../../src/token/Buyback.sol";
 import {BRSR} from "../../src/token/BRSR.sol";
 import {Staking} from "../../src/token/Staking.sol";
 import {IBRSR} from "../../src/token/interfaces/IBRSR.sol";
@@ -20,8 +21,64 @@ contract WideToken is ERC20 {
     constructor() ERC20("Wide", "WIDE") {}
 }
 
+/// Trades the mock pool out of its own balance, the way anyone can trade the live one.
+/// `sandwich` is the trade an open buyback invites: push the price up, trigger the buy, sell back
+/// into it, all in one transaction.
+contract PoolTrader {
+    MockPoolManager internal immutable manager;
+    Buyback internal immutable buyback;
+
+    constructor(MockPoolManager manager_, Buyback buyback_) {
+        manager = manager_;
+        buyback = buyback_;
+    }
+
+    function buy(uint256 usdgIn) public returns (uint256 brsrOut) {
+        return abi.decode(manager.unlock(abi.encode(true, usdgIn)), (uint256));
+    }
+
+    function sell(uint256 brsrIn) public returns (uint256 usdgOut) {
+        return abi.decode(manager.unlock(abi.encode(false, brsrIn)), (uint256));
+    }
+
+    function sandwich(uint256 front) external {
+        buy(front);
+        buyback.buyback();
+        sell(buyback.brsr().balanceOf(address(this)));
+    }
+
+    function unlockCallback(bytes calldata data) external returns (bytes memory) {
+        (bool settlementIn, uint256 amountIn) = abi.decode(data, (bool, uint256));
+        bool zeroForOne = settlementIn == buyback.settlementIsCurrency0();
+
+        int256 delta = manager.swap(
+            PoolKey({
+                currency0: buyback.currency0(),
+                currency1: buyback.currency1(),
+                fee: buyback.poolFee(),
+                tickSpacing: buyback.poolTickSpacing(),
+                hooks: buyback.poolHooks()
+            }),
+            SwapParams({zeroForOne: zeroForOne, amountSpecified: -int256(amountIn), sqrtPriceLimitX96: 0}),
+            ""
+        );
+        int256 delta0 = int256(int128(delta >> 128));
+        int256 delta1 = int256(int128(delta));
+        (int256 inDelta, int256 outDelta) = zeroForOne ? (delta0, delta1) : (delta1, delta0);
+
+        (IERC20 tokenIn, IERC20 tokenOut) =
+            settlementIn ? (buyback.settlementAsset(), buyback.brsr()) : (buyback.brsr(), buyback.settlementAsset());
+        manager.sync(address(tokenIn));
+        tokenIn.transfer(address(manager), uint256(-inDelta));
+        manager.settle();
+        manager.take(address(tokenOut), address(this), uint256(outDelta));
+
+        return abi.encode(uint256(outDelta));
+    }
+}
+
 /// Revenue into the pool, at a price governance set and nobody else can move, in amounts the
-/// caps bound.
+/// caps bound, on the say-so of the one keeper governance named.
 contract BuybackTest is Test {
     event BuybackExecuted(address indexed caller, uint256 spentMicroUsd, uint256 receivedWei, uint256 minOutWei);
     event ParamsUpdated(Buyback.Params params);
@@ -38,6 +95,9 @@ contract BuybackTest is Test {
     uint256 internal constant POOL_PRICE = 2e18;
     uint128 internal constant CEILING = 1_000_000;
     uint256 internal constant POOL_PRICE_AT_CEILING = 1e18;
+
+    /// The ceiling proposed for the live pool, twenty per cent over its opening price.
+    uint128 internal constant LIVE_CEILING = 240;
 
     uint128 internal constant SPEND_PER_CALL = 100e6;
     uint128 internal constant MAX_PER_WINDOW = 500e6;
@@ -56,7 +116,8 @@ contract BuybackTest is Test {
     address internal treasury = makeAddr("treasury");
     address internal slashSink = makeAddr("slashSink");
     address internal staker = makeAddr("staker");
-    address internal caller = makeAddr("caller");
+    address internal keeper = makeAddr("keeper");
+    address internal stranger = makeAddr("stranger");
 
     function setUp() public {
         usdg = new MockUsdg();
@@ -99,6 +160,9 @@ contract BuybackTest is Test {
         staking.stake(1_000e18);
         vm.stopPrank();
 
+        vm.prank(admin);
+        buyback.setKeeper(keeper);
+
         _fund(1_000e6);
     }
 
@@ -126,8 +190,8 @@ contract BuybackTest is Test {
         uint256 valueBefore = staking.stakedValueOf(staker);
 
         vm.expectEmit(true, false, false, true, address(buyback));
-        emit BuybackExecuted(caller, SPEND_PER_CALL, 200e18, 100e18);
-        vm.prank(caller);
+        emit BuybackExecuted(keeper, SPEND_PER_CALL, 200e18, 100e18);
+        vm.prank(keeper);
         (uint256 spent, uint256 received) = buyback.buyback();
 
         assertEq(spent, SPEND_PER_CALL);
@@ -141,24 +205,24 @@ contract BuybackTest is Test {
         assertEq(brsr.allowance(address(buyback), address(staking)), 0);
     }
 
-    function test_theCallerGetsNothingBeyondTheGasItCost() public {
-        vm.prank(caller);
+    function test_theKeeperGetsNothingBeyondTheGasItCost() public {
+        vm.prank(keeper);
         buyback.buyback();
 
-        assertEq(brsr.balanceOf(caller), 0);
-        assertEq(usdg.balanceOf(caller), 0);
+        assertEq(brsr.balanceOf(keeper), 0);
+        assertEq(usdg.balanceOf(keeper), 0);
     }
 
-    /// The caller supplies no amount, no price, no deadline and no recipient. The only thing
+    /// The keeper supplies no amount, no price, no deadline and no recipient. The only thing
     /// it controls is when, and the interval bounds that.
-    function test_theCallerCannotPickThePrice() public {
+    function test_theKeeperCannotPickThePrice() public {
         (bool ok,) = address(buyback).call(abi.encodeWithSignature("buyback(uint256)", 1));
         assertFalse(ok);
 
         (ok,) = address(buyback).call(abi.encodeWithSignature("buyback(uint256,uint256)", 1, 1));
         assertFalse(ok);
 
-        vm.prank(caller);
+        vm.prank(keeper);
         buyback.buyback();
         assertEq(manager.lastAmountSpecified(), -int256(uint256(SPEND_PER_CALL)));
         assertEq(manager.lastHookData().length, 0);
@@ -169,7 +233,7 @@ contract BuybackTest is Test {
     function test_aFillAboveTheCeilingIsRefused() public {
         manager.setPrice(POOL_PRICE_AT_CEILING - 1);
 
-        vm.prank(caller);
+        vm.prank(keeper);
         vm.expectRevert(
             abi.encodeWithSelector(
                 Buyback.MinimumOutNotMet.selector, (SPEND_PER_CALL * (POOL_PRICE_AT_CEILING - 1)) / 1e6, 100e18
@@ -180,7 +244,7 @@ contract BuybackTest is Test {
         // Exactly at the ceiling clears. The number is a boundary, not an approximation of
         // one.
         manager.setPrice(POOL_PRICE_AT_CEILING);
-        vm.prank(caller);
+        vm.prank(keeper);
         (, uint256 received) = buyback.buyback();
         assertEq(received, 100e18);
     }
@@ -191,7 +255,7 @@ contract BuybackTest is Test {
         p.maxPriceMicroUsdPerBrsr = 250_000;
         _setParams(p);
 
-        vm.prank(caller);
+        vm.prank(keeper);
         vm.expectRevert(abi.encodeWithSelector(Buyback.MinimumOutNotMet.selector, 200e18, 400e18));
         buyback.buyback();
     }
@@ -202,7 +266,7 @@ contract BuybackTest is Test {
         uint256 spentTotal;
         for (uint256 i; i < 5; ++i) {
             vm.warp(block.timestamp + MIN_INTERVAL);
-            vm.prank(caller);
+            vm.prank(keeper);
             (uint256 spent,) = buyback.buyback();
             assertEq(spent, SPEND_PER_CALL);
             spentTotal += spent;
@@ -211,7 +275,7 @@ contract BuybackTest is Test {
 
         vm.warp(block.timestamp + MIN_INTERVAL);
         assertEq(buyback.available(), 0);
-        vm.prank(caller);
+        vm.prank(keeper);
         vm.expectRevert(abi.encodeWithSelector(Buyback.BelowMinimumSpend.selector, 0, MIN_SPEND));
         buyback.buyback();
 
@@ -219,7 +283,7 @@ contract BuybackTest is Test {
         // a clock of the caller's choosing.
         vm.warp(block.timestamp + WINDOW);
         assertEq(buyback.available(), SPEND_PER_CALL);
-        vm.prank(caller);
+        vm.prank(keeper);
         buyback.buyback();
         assertEq(buyback.window().spentMicroUsd, SPEND_PER_CALL);
     }
@@ -229,24 +293,24 @@ contract BuybackTest is Test {
         assertEq(buyback.nextBuybackAt(), 0);
         assertEq(buyback.available(), SPEND_PER_CALL);
 
-        vm.prank(caller);
+        vm.prank(keeper);
         buyback.buyback();
 
         uint64 readyAt = buyback.nextBuybackAt();
         assertEq(readyAt, uint64(block.timestamp) + MIN_INTERVAL);
         assertEq(buyback.available(), 0);
 
-        vm.prank(caller);
+        vm.prank(keeper);
         vm.expectRevert(abi.encodeWithSelector(Buyback.TooSoon.selector, readyAt));
         buyback.buyback();
 
         vm.warp(readyAt - 1);
-        vm.prank(caller);
+        vm.prank(keeper);
         vm.expectRevert(abi.encodeWithSelector(Buyback.TooSoon.selector, readyAt));
         buyback.buyback();
 
         vm.warp(readyAt);
-        vm.prank(caller);
+        vm.prank(keeper);
         buyback.buyback();
     }
 
@@ -256,7 +320,7 @@ contract BuybackTest is Test {
         p.maxSpendPerWindowMicroUsd = 5_000e6;
         _setParams(p);
 
-        vm.prank(caller);
+        vm.prank(keeper);
         (uint256 spent,) = buyback.buyback();
         assertEq(spent, 1_000e6);
         assertEq(usdg.balanceOf(address(buyback)), 0);
@@ -273,14 +337,14 @@ contract BuybackTest is Test {
         p.maxSpendPerWindowMicroUsd = 5_000e6;
         _setParams(p);
 
-        vm.prank(caller);
+        vm.prank(keeper);
         buyback.buyback();
         assertEq(usdg.balanceOf(address(buyback)), 0);
 
         _fund(MIN_SPEND - 1);
         vm.warp(block.timestamp + MIN_INTERVAL);
         assertEq(buyback.available(), 0);
-        vm.prank(caller);
+        vm.prank(keeper);
         vm.expectRevert(abi.encodeWithSelector(Buyback.BelowMinimumSpend.selector, MIN_SPEND - 1, MIN_SPEND));
         buyback.buyback();
     }
@@ -291,7 +355,7 @@ contract BuybackTest is Test {
     function test_aPartialFillIsRefusedRatherThanAccepted() public {
         manager.setFillBps(5_000);
 
-        vm.prank(caller);
+        vm.prank(keeper);
         vm.expectRevert(abi.encodeWithSelector(Buyback.SwapConsumedWrongAmount.selector, SPEND_PER_CALL, 50e6));
         buyback.buyback();
     }
@@ -301,7 +365,7 @@ contract BuybackTest is Test {
     function test_aSwapThatReportsTheWrongDirectionIsRefused() public {
         manager.setFlipDelta(true);
 
-        vm.prank(caller);
+        vm.prank(keeper);
         vm.expectRevert();
         buyback.buyback();
     }
@@ -309,30 +373,29 @@ contract BuybackTest is Test {
     function test_aSettlementThatCreditsLessThanWasSentIsRefused() public {
         manager.setSettleShortfall(1);
 
-        vm.prank(caller);
+        vm.prank(keeper);
         vm.expectRevert(abi.encodeWithSelector(Buyback.SettlementShort.selector, SPEND_PER_CALL - 1, SPEND_PER_CALL));
         buyback.buyback();
     }
 
+    /// A pool whose every share has asked to leave has nobody to credit. Stake behind an exit
+    /// request earns no compounds, so the buyback counts it as gone the moment it is requested.
     function test_aBuybackIntoAnEmptyStakingPoolIsRefusedBeforeTheTrade() public {
         uint256 shares = staking.sharesOf(staker);
         vm.prank(staker);
         staking.requestUnbond(shares);
-        vm.warp(block.timestamp + 7 days);
-        vm.prank(staker);
-        staking.completeUnbond();
 
         assertEq(staking.totalShares(), 0);
         assertEq(buyback.available(), 0);
 
-        vm.prank(caller);
+        vm.prank(keeper);
         vm.expectRevert(Buyback.NoStakeToDistributeTo.selector);
         buyback.buyback();
         assertEq(manager.swapCount(), 0);
     }
 
     function test_theCallbackRefusesEveryCallerButTheManager() public {
-        vm.prank(caller);
+        vm.prank(keeper);
         vm.expectRevert(Buyback.NotPoolManager.selector);
         buyback.unlockCallback(abi.encode(uint256(1), uint256(1)));
     }
@@ -346,7 +409,7 @@ contract BuybackTest is Test {
     }
 
     function test_theSwapCarriesThePoolTheContractWasBuiltAgainst() public {
-        vm.prank(caller);
+        vm.prank(keeper);
         buyback.buyback();
 
         (address c0, address c1, uint24 fee, int24 spacing, address hooks) = manager.lastKey();
@@ -381,13 +444,13 @@ contract BuybackTest is Test {
             bytes4(keccak256("setBrsr(address)"))
         ];
         for (uint256 i; i < absent.length; ++i) {
-            (bool ok,) = address(buyback).call(abi.encodePacked(absent[i], bytes32(uint256(uint160(caller)))));
+            (bool ok,) = address(buyback).call(abi.encodePacked(absent[i], bytes32(uint256(uint160(stranger)))));
             assertFalse(ok);
         }
     }
 
     function test_theBrakeStopsBuyingAndGovernanceRestartsIt() public {
-        vm.prank(caller);
+        vm.prank(keeper);
         vm.expectRevert(Buyback.NotAdmin.selector);
         buyback.pause();
 
@@ -395,13 +458,13 @@ contract BuybackTest is Test {
         buyback.pause();
 
         assertEq(buyback.available(), 0);
-        vm.prank(caller);
+        vm.prank(keeper);
         vm.expectRevert(Pausable.EnforcedPause.selector);
         buyback.buyback();
 
         vm.prank(admin);
         buyback.unpause();
-        vm.prank(caller);
+        vm.prank(keeper);
         buyback.buyback();
     }
 
@@ -409,7 +472,7 @@ contract BuybackTest is Test {
         Buyback.Params memory p = _params();
         p.spendPerCallMicroUsd = 50e6;
 
-        vm.prank(caller);
+        vm.prank(keeper);
         vm.expectRevert(Buyback.NotAdmin.selector);
         buyback.setParams(p);
 
@@ -468,7 +531,7 @@ contract BuybackTest is Test {
     /// It has to close the window rather than revert every call until the period rolls.
     function test_tighteningTheCapMidWindowClosesItRatherThanBreakingIt() public {
         _fund(10_000e6);
-        vm.prank(caller);
+        vm.prank(keeper);
         buyback.buyback();
 
         Buyback.Params memory p = _params();
@@ -478,7 +541,7 @@ contract BuybackTest is Test {
 
         vm.warp(block.timestamp + MIN_INTERVAL);
         assertEq(buyback.available(), 0);
-        vm.prank(caller);
+        vm.prank(keeper);
         vm.expectRevert(abi.encodeWithSelector(Buyback.BelowMinimumSpend.selector, 0, MIN_SPEND));
         buyback.buyback();
 
@@ -492,7 +555,7 @@ contract BuybackTest is Test {
         _fund(10_000e6);
         for (uint256 i; i < 5; ++i) {
             vm.warp(block.timestamp + MIN_INTERVAL);
-            vm.prank(caller);
+            vm.prank(keeper);
             buyback.buyback();
         }
         assertEq(buyback.window().spentMicroUsd, MAX_PER_WINDOW);
@@ -509,7 +572,7 @@ contract BuybackTest is Test {
         _fund(10_000e6);
         uint64 startedAt = buyback.window().start;
 
-        vm.prank(caller);
+        vm.prank(keeper);
         buyback.buyback();
 
         vm.warp(startedAt + WINDOW * 3 + 100);
@@ -519,7 +582,7 @@ contract BuybackTest is Test {
     }
 
     function test_sweepReturnsMoneyToTheTreasuryAndNowhereElse() public {
-        vm.prank(caller);
+        vm.prank(keeper);
         vm.expectRevert(Buyback.NotAdmin.selector);
         buyback.sweep(address(usdg), 1);
 
@@ -647,9 +710,11 @@ contract BuybackTest is Test {
             address(usdg), address(brsr), address(manager), 3000, 60, address(0), address(staking), admin, treasury, p
         );
         usdg.mint(address(unarmed), 1_000e6);
+        vm.prank(admin);
+        unarmed.setKeeper(keeper);
 
         assertEq(unarmed.available(), 0);
-        vm.prank(caller);
+        vm.prank(keeper);
         vm.expectRevert(Buyback.PriceCeilingUnset.selector);
         unarmed.buyback();
 
@@ -657,6 +722,139 @@ contract BuybackTest is Test {
         vm.prank(admin);
         unarmed.setParams(p);
         assertEq(unarmed.available(), SPEND_PER_CALL);
+    }
+
+    /// Nobody but the keeper can trigger a buy, the keeper is governance's to name, and a
+    /// deployment starts with none.
+    function test_onlyTheKeeperBuys() public {
+        vm.prank(stranger);
+        vm.expectRevert(Buyback.NotKeeper.selector);
+        buyback.buyback();
+
+        vm.prank(admin);
+        vm.expectRevert(Buyback.NotKeeper.selector);
+        buyback.buyback();
+
+        vm.prank(keeper);
+        vm.expectRevert(Buyback.NotAdmin.selector);
+        buyback.setKeeper(stranger);
+
+        Buyback fresh = new Buyback(
+            address(usdg),
+            address(brsr),
+            address(manager),
+            3000,
+            60,
+            address(0),
+            address(staking),
+            admin,
+            treasury,
+            _params()
+        );
+        usdg.mint(address(fresh), 1_000e6);
+        assertEq(fresh.keeper(), address(0));
+        assertEq(fresh.available(), 0);
+        vm.prank(keeper);
+        vm.expectRevert(Buyback.NotKeeper.selector);
+        fresh.buyback();
+
+        // Zero puts the contract back in that state.
+        vm.prank(admin);
+        buyback.setKeeper(address(0));
+        assertEq(buyback.available(), 0);
+        vm.prank(keeper);
+        vm.expectRevert(Buyback.NotKeeper.selector);
+        buyback.buyback();
+    }
+
+    /// A ceiling is trusted for `maxCeilingAge` after governance sets it. Past that the keeper is
+    /// refused too, until a proposal restates it.
+    function test_aStaleCeilingStopsTheKeeperUntilGovernanceRestatesIt() public {
+        uint64 staleSince = buyback.ceilingSetAt() + buyback.maxCeilingAge();
+        assertEq(buyback.maxCeilingAge(), 7 days);
+
+        // The last second it is trusted.
+        vm.warp(staleSince);
+        assertEq(buyback.available(), SPEND_PER_CALL);
+        vm.prank(keeper);
+        buyback.buyback();
+
+        vm.warp(staleSince + MIN_INTERVAL);
+        assertEq(buyback.available(), 0);
+        vm.prank(keeper);
+        vm.expectRevert(abi.encodeWithSelector(Buyback.PriceCeilingStale.selector, staleSince));
+        buyback.buyback();
+
+        _setParams(_params());
+        assertEq(buyback.ceilingSetAt(), block.timestamp);
+        assertEq(buyback.available(), SPEND_PER_CALL);
+        vm.prank(keeper);
+        buyback.buyback();
+    }
+
+    function test_theCeilingAgeStaysInsideItsBounds() public {
+        vm.prank(stranger);
+        vm.expectRevert(Buyback.NotAdmin.selector);
+        buyback.setMaxCeilingAge(2 days);
+
+        vm.startPrank(admin);
+        vm.expectRevert(abi.encodeWithSelector(Buyback.BadParams.selector, "maxCeilingAge"));
+        buyback.setMaxCeilingAge(1 days - 1);
+        vm.expectRevert(abi.encodeWithSelector(Buyback.BadParams.selector, "maxCeilingAge"));
+        buyback.setMaxCeilingAge(30 days + 1);
+
+        buyback.setMaxCeilingAge(1 days);
+        assertEq(buyback.maxCeilingAge(), 1 days);
+        buyback.setMaxCeilingAge(30 days);
+        assertEq(buyback.maxCeilingAge(), 30 days);
+        vm.stopPrank();
+    }
+
+    /// The live pool's shape: twenty-five USDG against 125,000 BRSR, which is $0.000200 a token,
+    /// at the 0.30% tier, with the parameters governance proposed for it and a ceiling at $0.000240.
+    function _liveShapedPool() internal {
+        manager.setReserves(25e6, 125_000e18, 3000);
+        usdg.mint(address(manager), 1_000e6);
+        _setParams(
+            Buyback.Params({
+                spendPerCallMicroUsd: 500_000,
+                maxSpendPerWindowMicroUsd: 5_000_000,
+                minSpendMicroUsd: 100_000,
+                maxPriceMicroUsdPerBrsr: LIVE_CEILING,
+                window: 1 days,
+                minInterval: 1 hours
+            })
+        );
+    }
+
+    /// The trade an open buyback invites: push the pool up, trigger the buy into the pushed
+    /// price, sell back into it, all in one transaction. Only the keeper can trigger a buy, so
+    /// the whole trade reverts. The keeper still fills at or under the ceiling, and once the
+    /// ceiling has gone a week without a proposal restating it the keeper is refused as well.
+    function test_buyback_refusesSandwichAndStaleCeiling() public {
+        _liveShapedPool();
+        PoolTrader trader = new PoolTrader(manager, buyback);
+        usdg.mint(address(trader), 10e6);
+
+        uint256[3] memory fronts = [uint256(2_000_000), 1_500_000, 1_000_000];
+        for (uint256 i; i < fronts.length; ++i) {
+            vm.expectRevert(Buyback.NotKeeper.selector);
+            trader.sandwich(fronts[i]);
+        }
+        assertEq(usdg.balanceOf(address(trader)), 10e6, "the trader moved the pool");
+        assertEq(manager.midMicroUsdPerBrsr(), 200, "the pool moved");
+
+        vm.prank(keeper);
+        (uint256 spent, uint256 received) = buyback.buyback();
+        assertEq(spent, 500_000);
+        assertLe(spent * 1e18, received * LIVE_CEILING, "filled above the ceiling");
+
+        uint64 staleSince = buyback.ceilingSetAt() + buyback.maxCeilingAge();
+        vm.warp(staleSince + 1);
+        assertEq(buyback.available(), 0);
+        vm.prank(keeper);
+        vm.expectRevert(abi.encodeWithSelector(Buyback.PriceCeilingStale.selector, staleSince));
+        buyback.buyback();
     }
 
     /// The value the testnet parameters carried as a placeholder that would "refuse every
@@ -678,7 +876,7 @@ contract BuybackTest is Test {
     function test_adminMovesInTwoSteps() public {
         address next = makeAddr("next");
 
-        vm.prank(caller);
+        vm.prank(stranger);
         vm.expectRevert(Buyback.NotAdmin.selector);
         buyback.transferAdmin(next);
 
@@ -690,7 +888,7 @@ contract BuybackTest is Test {
         buyback.transferAdmin(next);
         assertEq(buyback.admin(), admin);
 
-        vm.prank(caller);
+        vm.prank(stranger);
         vm.expectRevert(Buyback.NotAuthorized.selector);
         buyback.acceptAdmin();
 
@@ -700,8 +898,8 @@ contract BuybackTest is Test {
         assertEq(buyback.pendingAdmin(), address(0));
     }
 
-    /// `available` reports what a call would spend, so nobody pays for a reverting
-    /// transaction. It has to agree with `buyback` in every state.
+    /// `available` reports what a call would spend, so the keeper never pays for a reverting
+    /// transaction. It has to agree with `buyback` in every state, a stale ceiling included.
     function testFuzz_availableAgreesWithWhatABuybackSpends(uint64 balance, uint32 wait, bool paused) public {
         uint256 held = bound(balance, 0, 10_000e6);
         deal(address(usdg), address(buyback), held);
@@ -710,11 +908,11 @@ contract BuybackTest is Test {
             vm.prank(admin);
             buyback.pause();
         }
-        vm.warp(block.timestamp + bound(wait, 0, 3 days));
+        vm.warp(block.timestamp + bound(wait, 0, 10 days));
 
         uint256 quoted = buyback.available();
 
-        vm.prank(caller);
+        vm.prank(keeper);
         try buyback.buyback() returns (uint256 spent, uint256) {
             assertEq(spent, quoted);
             assertGt(quoted, 0);
@@ -723,22 +921,32 @@ contract BuybackTest is Test {
         }
     }
 
-    /// However the price moves, the contract either fills at or under the ceiling or buys
-    /// nothing. Nothing between those two states is reachable.
-    function testFuzz_aBuybackNeverFillsAboveTheCeiling(uint128 price) public {
-        uint256 poolPrice = bound(price, 0, 100e18);
-        manager.setPrice(poolPrice);
+    /// However far a trader pushes the pool ahead of the keeper, in either direction, the
+    /// buyback fills at or under the ceiling or buys nothing. Nothing between those two states
+    /// is reachable.
+    function testFuzz_aBuybackNeverFillsAboveTheCeiling(uint96 push, bool up) public {
+        _liveShapedPool();
+        PoolTrader trader = new PoolTrader(manager, buyback);
+        usdg.mint(address(trader), 50e6);
+        brsr.transfer(address(trader), 1_000_000e18);
 
+        if (up) trader.buy(bound(push, 1, 50e6));
+        else trader.sell(bound(push, 1e15, 1_000_000e18));
+
+        uint256 mid = manager.midMicroUsdPerBrsr();
         uint256 before = brsr.balanceOf(address(manager));
 
-        vm.prank(caller);
+        vm.prank(keeper);
         try buyback.buyback() returns (uint256 spent, uint256 received) {
             // What was paid per whole BRSR, at or under what governance allowed.
-            assertLe(spent * 1e18, received * CEILING);
+            assertLe(spent * 1e18, received * LIVE_CEILING);
             assertEq(before - brsr.balanceOf(address(manager)), received);
-        } catch {
+        } catch (bytes memory reason) {
+            assertEq(bytes4(reason), Buyback.MinimumOutNotMet.selector);
             assertEq(brsr.balanceOf(address(manager)), before);
-            assertLt(poolPrice, POOL_PRICE_AT_CEILING);
+            // Only a pool pushed close to the ceiling refuses; the fee and the buy's own impact
+            // are the rest of the gap.
+            assertGt(mid * 10_000, uint256(LIVE_CEILING) * 9_000);
         }
     }
 }
@@ -762,7 +970,7 @@ contract BuybackUnderTimelockTest is Test {
     address internal signerC = makeAddr("signerC");
     address internal guardian = makeAddr("guardian");
     address internal treasury = makeAddr("treasury");
-    address internal caller = makeAddr("caller");
+    address internal keeper = makeAddr("keeper");
 
     function setUp() public {
         timelock = new AdminTimelock([signerA, signerB, signerC], guardian, PERIOD);
@@ -810,6 +1018,18 @@ contract BuybackUnderTimelockTest is Test {
         brsr.approve(address(staking), 1_000e18);
         staking.stake(1_000e18);
         usdg.mint(address(buyback), 1_000e6);
+
+        _pass(abi.encodeCall(Buyback.setKeeper, (keeper)));
+    }
+
+    function _pass(bytes memory data) internal {
+        vm.prank(signerA);
+        uint256 id = timelock.propose(address(buyback), data);
+        vm.prank(signerB);
+        timelock.approve(id);
+        vm.warp(block.timestamp + PERIOD);
+        vm.prank(signerA);
+        timelock.execute(id);
     }
 
     function test_theDeployKeyAdministersNothing() public {
@@ -822,7 +1042,35 @@ contract BuybackUnderTimelockTest is Test {
         vm.expectRevert(Buyback.NotAdmin.selector);
         buyback.transferAdmin(address(this));
 
+        vm.expectRevert(Buyback.NotAdmin.selector);
+        buyback.setKeeper(address(this));
+
+        vm.expectRevert(Buyback.NotKeeper.selector);
+        buyback.buyback();
+
         assertEq(buyback.admin(), address(timelock));
+        assertEq(buyback.keeper(), keeper);
+    }
+
+    /// A signer is not the keeper either. Naming one is a proposal, and so is replacing it.
+    function test_theKeeperIsNamedByProposal() public {
+        vm.prank(signerA);
+        vm.expectRevert(Buyback.NotKeeper.selector);
+        buyback.buyback();
+
+        vm.prank(signerA);
+        vm.expectRevert(Buyback.NotAdmin.selector);
+        buyback.setKeeper(signerA);
+
+        address next = makeAddr("nextKeeper");
+        _pass(abi.encodeCall(Buyback.setKeeper, (next)));
+        assertEq(buyback.keeper(), next);
+
+        vm.prank(keeper);
+        vm.expectRevert(Buyback.NotKeeper.selector);
+        buyback.buyback();
+        vm.prank(next);
+        buyback.buyback();
     }
 
     /// The guardian stops it in one call with no approvals and no delay, and that is the only
@@ -861,7 +1109,7 @@ contract BuybackUnderTimelockTest is Test {
 
         // Buying carries on at the old ceiling for the length of the delay, which is the
         // exposure the brake exists to cover.
-        vm.prank(caller);
+        vm.prank(keeper);
         buyback.buyback();
 
         vm.warp(block.timestamp + PERIOD);
@@ -870,7 +1118,7 @@ contract BuybackUnderTimelockTest is Test {
         assertEq(buyback.params().maxPriceMicroUsdPerBrsr, 250_000);
 
         vm.warp(block.timestamp + 1 hours);
-        vm.prank(caller);
+        vm.prank(keeper);
         vm.expectRevert(abi.encodeWithSelector(Buyback.MinimumOutNotMet.selector, 200e18, 400e18));
         buyback.buyback();
     }

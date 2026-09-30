@@ -58,6 +58,10 @@ contract EscrowResolverStub {
     function rule(IEscrow escrow, uint256 id, uint16 refundBps) external {
         escrow.resolve(id, refundBps, 1);
     }
+
+    function giveBack(IEscrow escrow, uint256 id) external {
+        escrow.reopen(id);
+    }
 }
 
 /// Party gate with the answers written directly, so a test can put a payee in any of the four
@@ -128,7 +132,9 @@ contract EscrowTest is Test {
     uint64 internal constant MIN_TTL = 1 hours;
     uint64 internal constant MAX_TTL = 30 days;
     uint64 internal constant DISPUTE_WINDOW = 1 days;
-    uint64 internal constant DISPUTE_TIMEOUT = 3 days;
+
+    /// The deployment's floor, one cent of USDG.
+    uint128 internal constant MIN_LOCK = 10_000;
 
     /// A cap that never binds, so a lifecycle test never has to think about the curve. The
     /// tests that make the cap the subject deploy their own curve.
@@ -192,7 +198,7 @@ contract EscrowTest is Test {
         assertEq(escrow.minTtl(), MIN_TTL);
         assertEq(escrow.maxTtl(), MAX_TTL);
         assertEq(escrow.disputeWindow(), DISPUTE_WINDOW);
-        assertEq(escrow.disputeTimeoutPeriod(), DISPUTE_TIMEOUT);
+        assertEq(escrow.minLock(), MIN_LOCK);
         assertEq(escrow.nextId(), 1);
         assertEq(escrow.feesAccrued(), 0);
         assertEq(address(escrow.registry()), address(0));
@@ -210,7 +216,7 @@ contract EscrowTest is Test {
             MIN_TTL,
             MAX_TTL,
             DISPUTE_WINDOW,
-            DISPUTE_TIMEOUT
+            MIN_LOCK
         );
     }
 
@@ -226,7 +232,7 @@ contract EscrowTest is Test {
             MIN_TTL,
             MAX_TTL,
             DISPUTE_WINDOW,
-            DISPUTE_TIMEOUT
+            MIN_LOCK
         );
     }
 
@@ -242,7 +248,7 @@ contract EscrowTest is Test {
             MIN_TTL,
             MAX_TTL,
             DISPUTE_WINDOW,
-            DISPUTE_TIMEOUT
+            MIN_LOCK
         );
     }
 
@@ -278,7 +284,7 @@ contract EscrowTest is Test {
             MIN_TTL,
             MIN_TTL + 1,
             DISPUTE_WINDOW,
-            DISPUTE_TIMEOUT
+            MIN_LOCK
         );
 
         Escrow narrowest = new Escrow(
@@ -291,25 +297,21 @@ contract EscrowTest is Test {
             MIN_TTL,
             MIN_TTL + 2,
             DISPUTE_WINDOW,
-            DISPUTE_TIMEOUT
+            MIN_LOCK
         );
         assertEq(narrowest.maxTtl(), MIN_TTL + 2);
     }
 
-    function test_constructor_rejects_a_dispute_timeout_of_zero() public {
-        vm.expectRevert(IEscrow.BadTtl.selector);
-        new Escrow(
-            address(asset),
-            address(reputation),
-            treasury,
-            FEE_BPS,
-            RESOLVER_FEE_BPS,
-            BOND_BPS,
-            MIN_TTL,
-            MAX_TTL,
-            DISPUTE_WINDOW,
-            0
-        );
+    function test_constructor_rejects_a_minimum_lock_whose_bond_rounds_to_zero() public {
+        // At five percent the smallest lock that carries a bond of one unit is twenty units.
+        vm.expectRevert(IEscrow.BadMinLock.selector);
+        _escrowWithMinLock(BOND_BPS, 19);
+        assertEq(_escrowWithMinLock(BOND_BPS, 20).minLock(), 20);
+
+        // With no bond to protect, the floor only has to be above zero.
+        vm.expectRevert(IEscrow.BadMinLock.selector);
+        _escrowWithMinLock(0, 0);
+        assertEq(_escrowWithMinLock(0, 1).minLock(), 1);
     }
 
     function test_constructor_accepts_a_zero_dispute_window() public {
@@ -403,7 +405,7 @@ contract EscrowTest is Test {
 
     function test_lock_admits_the_payee_cap_exactly_and_refuses_one_unit_above_it() public {
         (Escrow capped,,) = _deploySetWithCurve(
-            IReputation.CapCurve({baseCap: 100e6, capPerScore: 1e6, maxCap: 300e6}),
+            IReputation.CapCurve({baseCap: 100e6, capPerScore: 1e6, maxCap: 200e6}),
             FEE_BPS,
             RESOLVER_FEE_BPS,
             BOND_BPS,
@@ -420,7 +422,7 @@ contract EscrowTest is Test {
 
     function test_lock_cap_rises_with_the_payees_settlement_history() public {
         (Escrow capped, Reputation rep,) = _deploySetWithCurve(
-            IReputation.CapCurve({baseCap: 100e6, capPerScore: 1e6, maxCap: 300e6}),
+            IReputation.CapCurve({baseCap: 100e6, capPerScore: 1e6, maxCap: 200e6}),
             FEE_BPS,
             RESOLVER_FEE_BPS,
             BOND_BPS,
@@ -886,14 +888,42 @@ contract EscrowTest is Test {
         assertEq(stub.opened(), 1);
     }
 
-    function test_dispute_takes_no_bond_when_the_amount_is_too_small_to_carry_one() public {
-        uint256 id = _lock(1);
+    function test_lock_refuses_an_amount_below_the_minimum_and_the_minimum_carries_a_bond() public {
+        vm.prank(payer);
+        vm.expectRevert(IEscrow.BelowMinLock.selector);
+        escrow.lock(payee, CAP_ID, INPUT_COMMIT, "", MIN_LOCK - 1, _deadline());
 
+        uint256 id = _lock(MIN_LOCK);
         vm.prank(payer);
         escrow.dispute(id);
 
-        assertEq(escrow.getLock(id).bond, 0);
-        assertEq(asset.balanceOf(address(escrow)), 1);
+        assertEq(escrow.getLock(id).bond, _bps(MIN_LOCK, BOND_BPS));
+        assertGt(escrow.getLock(id).bond, 0, "a dispute on the smallest lock cost nothing");
+    }
+
+    function test_dispute_on_an_open_lock_is_refused_once_the_deadline_has_passed() public {
+        uint256 onTime = _lock(AMOUNT);
+        uint256 late = _lock(AMOUNT);
+        uint64 deadline = escrow.getLock(late).deadline;
+
+        // On the deadline the payee can still deliver, so the lock can still be contested.
+        vm.warp(deadline);
+        vm.prank(payer);
+        escrow.dispute(onTime);
+
+        vm.warp(uint256(deadline) + 1);
+        vm.prank(payee);
+        vm.expectRevert(IEscrow.TooLate.selector);
+        escrow.dispute(late);
+        vm.prank(payer);
+        vm.expectRevert(IEscrow.TooLate.selector);
+        escrow.dispute(late);
+
+        // Past the deadline the payer is owed a refund, and a dispute cannot trade it away.
+        uint256 payerBefore = asset.balanceOf(payer);
+        escrow.timeout(late);
+        assertEq(asset.balanceOf(payer) - payerBefore, AMOUNT);
+        assertEq(resolverStub.opened(), 1);
     }
 
     function test_dispute_after_a_release_is_the_payers_alone_and_takes_no_bond() public {
@@ -961,9 +991,8 @@ contract EscrowTest is Test {
         vm.expectRevert(IEscrow.BadStatus.selector);
         resolverStub.rule(IEscrow(address(escrow)), id, 10_000);
 
-        vm.warp(block.timestamp + DISPUTE_TIMEOUT + 1);
         vm.expectRevert(IEscrow.BadStatus.selector);
-        escrow.disputeTimeout(id);
+        resolverStub.giveBack(IEscrow(address(escrow)), id);
 
         vm.prank(payer);
         vm.expectRevert(IEscrow.BadStatus.selector);
@@ -1204,75 +1233,139 @@ contract EscrowTest is Test {
         assertEq(asset.balanceOf(address(free)), 0);
     }
 
-    function test_disputeTimeout_returns_the_principal_and_the_bond_untouched() public {
+    function test_timeout_books_a_refund_the_asset_refuses_and_anyone_can_deliver_it_later() public {
+        uint256 id = _lock(AMOUNT);
+        asset.setFrozen(payer, true);
+        vm.warp(uint256(escrow.getLock(id).deadline) + 1);
+
+        vm.expectEmit(true, true, true, true, address(escrow));
+        emit IEscrow.PaymentOwed(payer, AMOUNT);
+        escrow.timeout(id);
+
+        _assertStatus(id, IEscrow.LockStatus.TimedOut);
+        assertEq(escrow.owed(payer), AMOUNT);
+        assertEq(asset.balanceOf(address(escrow)), AMOUNT, "the refund stayed, booked to the payer");
+
+        // Still frozen, so the claim fails and the booking stands.
+        vm.expectRevert(abi.encodeWithSelector(MockUsdg.AccountFrozen.selector, payer));
+        escrow.claim(payer);
+        assertEq(escrow.owed(payer), AMOUNT);
+
+        asset.setFrozen(payer, false);
+        uint256 payerBefore = asset.balanceOf(payer);
+
+        vm.expectEmit(true, true, true, true, address(escrow));
+        emit IEscrow.OwedClaimed(payer, AMOUNT);
+        vm.prank(stranger);
+        assertEq(escrow.claim(payer), AMOUNT);
+
+        assertEq(asset.balanceOf(payer) - payerBefore, AMOUNT, "the claim paid the party, not the caller");
+        assertEq(escrow.owed(payer), 0);
+        assertEq(asset.balanceOf(address(escrow)), 0);
+
+        vm.expectRevert(IEscrow.ZeroAmount.selector);
+        escrow.claim(payer);
+    }
+
+    function test_cancel_books_the_refund_of_a_frozen_payer() public {
+        uint256 id = _lock(AMOUNT);
+        asset.setFrozen(payer, true);
+
+        vm.prank(payee);
+        escrow.cancel(id);
+
+        _assertStatus(id, IEscrow.LockStatus.Cancelled);
+        assertEq(escrow.owed(payer), AMOUNT);
+        assertEq(asset.balanceOf(address(escrow)), AMOUNT);
+    }
+
+    function test_resolve_books_only_the_leg_the_asset_refuses() public {
         uint256 id = _lock(AMOUNT);
         uint128 bond = _bps(AMOUNT, BOND_BPS);
+        vm.prank(payer);
+        escrow.dispute(id);
 
+        asset.setFrozen(payee, true);
+        uint256 payerBefore = asset.balanceOf(payer);
+        resolverStub.rule(IEscrow(address(escrow)), id, 5_000);
+
+        (uint256 refunded, uint256 paid,, uint256 resolverFee) = _expectedSplit(AMOUNT, 5_000);
+        _assertStatus(id, IEscrow.LockStatus.Resolved);
+        assertEq(asset.balanceOf(payer) - payerBefore, refunded + bond, "the payer's leg and its bond still landed");
+        assertEq(escrow.owed(payee), paid, "the frozen payee's leg was booked");
+        assertEq(asset.balanceOf(address(resolverStub)), resolverFee);
+        assertEq(asset.balanceOf(address(escrow)), paid + escrow.feesAccrued());
+    }
+
+    function test_reopen_books_the_bond_of_a_frozen_disputer() public {
+        uint256 id = _lock(AMOUNT);
+        uint128 bond = _bps(AMOUNT, BOND_BPS);
         vm.prank(payee);
         escrow.dispute(id);
 
-        uint256 payerBefore = asset.balanceOf(payer);
-        uint256 payeeBefore = asset.balanceOf(payee);
+        asset.setFrozen(payee, true);
+        resolverStub.giveBack(IEscrow(address(escrow)), id);
 
-        vm.warp(uint256(escrow.getLock(id).disputedAt) + DISPUTE_TIMEOUT + 1);
-
-        vm.expectEmit(true, true, true, true, address(escrow));
-        emit IEscrow.BondReturned(id, payee, bond);
-        vm.expectEmit(true, true, true, true, address(escrow));
-        emit IEscrow.Resolved(id, 10_000, AMOUNT, 0);
-
-        // Permissionless, because the payer's funds must not depend on a resolver that has
-        // stopped answering.
-        vm.prank(stranger);
-        escrow.disputeTimeout(id);
-
-        assertEq(asset.balanceOf(payer) - payerBefore, AMOUNT);
-        assertEq(asset.balanceOf(payee) - payeeBefore, bond);
-        assertEq(escrow.feesAccrued(), 0);
-        assertEq(asset.balanceOf(address(resolverStub)), 0);
-        assertEq(asset.balanceOf(address(escrow)), 0);
-
-        (,, uint64 disputed) = reputation.payeeStats(payee);
-        assertEq(disputed, 1);
-        _assertStatus(id, IEscrow.LockStatus.Resolved);
+        _assertStatus(id, IEscrow.LockStatus.Locked);
+        assertEq(escrow.owed(payee), bond);
+        assertEq(asset.balanceOf(address(escrow)), uint256(AMOUNT) + bond);
     }
 
-    function test_disputeTimeout_is_refused_on_the_period_boundary_and_admitted_one_second_later() public {
+    function test_resolve_books_the_reward_of_a_frozen_resolver_and_does_not_announce_it() public {
         uint256 id = _lock(AMOUNT);
-        vm.prank(payer);
-        escrow.dispute(id);
-        uint64 disputedAt = escrow.getLock(id).disputedAt;
-
-        vm.warp(uint256(disputedAt) + DISPUTE_TIMEOUT);
-        vm.expectRevert(IEscrow.TooEarly.selector);
-        escrow.disputeTimeout(id);
-
-        vm.warp(uint256(disputedAt) + DISPUTE_TIMEOUT + 1);
-        escrow.disputeTimeout(id);
-        _assertStatus(id, IEscrow.LockStatus.Resolved);
-    }
-
-    function test_disputeTimeout_cannot_be_replayed_and_closes_the_ruling_out() public {
-        uint256 id = _lock(AMOUNT);
+        uint128 bond = _bps(AMOUNT, BOND_BPS);
         vm.prank(payer);
         escrow.dispute(id);
 
-        vm.warp(uint256(escrow.getLock(id).disputedAt) + DISPUTE_TIMEOUT + 1);
-        escrow.disputeTimeout(id);
+        asset.setFrozen(address(resolverStub), true);
+        (,,, uint256 resolverFee) = _expectedSplit(AMOUNT, 0);
 
-        vm.expectRevert(IEscrow.BadStatus.selector);
-        escrow.disputeTimeout(id);
-
-        vm.expectRevert(IEscrow.BadStatus.selector);
+        vm.expectEmit(true, true, true, true, address(escrow));
+        emit IEscrow.ResolverRewardUncredited(id, 1, uint128(resolverFee) + bond);
         resolverStub.rule(IEscrow(address(escrow)), id, 0);
+
+        _assertStatus(id, IEscrow.LockStatus.Resolved);
+        assertEq(escrow.owed(address(resolverStub)), resolverFee + bond);
+        assertEq(resolverStub.rewardCredited(), 0, "the registry was told of a reward that never arrived");
     }
 
-    function test_disputeTimeout_rejects_a_lock_that_was_never_contested() public {
+    /// A transfer that failed for want of gas is the caller's doing. Every gas limit either
+    /// pays the payer or reverts whole, and none of them leaves an IOU behind.
+    function test_no_gas_limit_turns_a_refund_into_an_iou() public {
         uint256 id = _lock(AMOUNT);
-        vm.warp(block.timestamp + DISPUTE_TIMEOUT + 1);
+        vm.warp(uint256(escrow.getLock(id).deadline) + 1);
+        uint256 payerBefore = asset.balanceOf(payer);
 
-        vm.expectRevert(IEscrow.BadStatus.selector);
-        escrow.disputeTimeout(id);
+        for (uint256 gas = 30_000; gas <= 200_000; gas += 1_000) {
+            uint256 snapshot = vm.snapshotState();
+
+            (bool ok,) = address(escrow).call{gas: gas}(abi.encodeCall(Escrow.timeout, (id)));
+            assertEq(escrow.owed(payer), 0, "a starved transfer was booked as owed");
+            if (ok) assertEq(asset.balanceOf(payer) - payerBefore, AMOUNT);
+
+            vm.revertToState(snapshot);
+        }
+    }
+
+    function test_a_payee_that_pays_itself_earns_no_history() public {
+        vm.prank(payee);
+        vm.expectRevert(IEscrow.BelowMinLock.selector);
+        escrow.lock(payee, CAP_ID, INPUT_COMMIT, "", 1, _deadline());
+
+        uint256 released = _lock(escrow, payee, payee, MIN_LOCK);
+        _release(escrow, released);
+        vm.warp(block.timestamp + DISPUTE_WINDOW + 1);
+        escrow.finalizeRelease(released);
+
+        uint256 timedOut = _lock(escrow, payee, payee, MIN_LOCK);
+        vm.warp(uint256(escrow.getLock(timedOut).deadline) + 1);
+        escrow.timeout(timedOut);
+
+        (uint64 releasedCount, uint64 timedOutCount, uint64 disputedCount) = reputation.payeeStats(payee);
+        assertEq(uint256(releasedCount) + timedOutCount + disputedCount, 0, "a self-lock moved a counter");
+        assertEq(reputation.score(payee), 0);
+        assertTrue(escrow.getLock(released).counted);
+        assertTrue(escrow.getLock(timedOut).counted);
     }
 
     function test_sweepFees_pays_the_treasury_only_what_settlements_accrued() public {
@@ -1513,7 +1606,7 @@ contract EscrowTest is Test {
     }
 
     function testFuzz_lock_and_release_conserve_the_locked_amount(uint128 amount) public {
-        amount = uint128(bound(amount, 1, 1e18));
+        amount = uint128(bound(amount, MIN_LOCK, 1e18));
 
         uint256 payerBefore = asset.balanceOf(payer);
         uint256 payeeBefore = asset.balanceOf(payee);
@@ -1530,7 +1623,7 @@ contract EscrowTest is Test {
     }
 
     function testFuzz_timeout_and_cancel_return_every_unit(uint128 amount, bool byTimeout) public {
-        amount = uint128(bound(amount, 1, 1e18));
+        amount = uint128(bound(amount, MIN_LOCK, 1e18));
 
         uint256 payerBefore = asset.balanceOf(payer);
         uint256 id = _lock(amount);
@@ -1550,7 +1643,7 @@ contract EscrowTest is Test {
     function testFuzz_resolve_conserves_the_principal_and_the_bond(uint128 amount, uint16 refundBps, bool payerDisputes)
         public
     {
-        amount = uint128(bound(amount, 1, 1e18));
+        amount = uint128(bound(amount, MIN_LOCK, 1e18));
         refundBps = uint16(bound(refundBps, 0, 10_000));
 
         // Carried in one struct because the five legs plus the two snapshots do not fit on
@@ -1582,28 +1675,6 @@ contract EscrowTest is Test {
         assertEq(asset.balanceOf(address(escrow)), c.feeLeg, "escrow keeps only unswept fees");
     }
 
-    function testFuzz_disputeTimeout_conserves_the_principal_and_the_bond(uint128 amount, bool payerDisputes) public {
-        amount = uint128(bound(amount, 1, 1e18));
-
-        uint256 payerBefore = asset.balanceOf(payer);
-        uint256 payeeBefore = asset.balanceOf(payee);
-
-        uint256 id = _lock(amount);
-        address disputer = payerDisputes ? payer : payee;
-
-        vm.prank(disputer);
-        escrow.dispute(id);
-
-        vm.warp(uint256(escrow.getLock(id).disputedAt) + DISPUTE_TIMEOUT + 1);
-        escrow.disputeTimeout(id);
-
-        assertEq(asset.balanceOf(payer), payerBefore);
-        assertEq(asset.balanceOf(payee), payeeBefore);
-        assertEq(escrow.feesAccrued(), 0);
-        assertEq(asset.balanceOf(address(resolverStub)), 0);
-        assertEq(asset.balanceOf(address(escrow)), 0);
-    }
-
     function testFuzz_lock_admits_a_deadline_only_strictly_inside_the_ttl_band(uint64 offset) public {
         uint256 deadline = bound(uint256(offset), 0, uint256(MAX_TTL) + 2 hours) + block.timestamp;
         bool admissible = deadline > block.timestamp + MIN_TTL && deadline < block.timestamp + MAX_TTL;
@@ -1621,8 +1692,8 @@ contract EscrowTest is Test {
     }
 
     function testFuzz_sweepFees_leaves_every_live_lock_fully_funded(uint128 live, uint128 settled) public {
-        live = uint128(bound(live, 1, 1e18));
-        settled = uint128(bound(settled, 1, 1e18));
+        live = uint128(bound(live, MIN_LOCK, 1e18));
+        settled = uint128(bound(settled, MIN_LOCK, 1e18));
 
         uint256 liveId = _lock(live);
         _release(escrow, _lock(settled));
@@ -1691,7 +1762,22 @@ contract EscrowTest is Test {
             MIN_TTL,
             MAX_TTL,
             disputeWindow_,
-            DISPUTE_TIMEOUT
+            MIN_LOCK
+        );
+    }
+
+    function _escrowWithMinLock(uint16 bondBps_, uint128 minLock_) private returns (Escrow) {
+        return new Escrow(
+            address(asset),
+            address(reputation),
+            treasury,
+            FEE_BPS,
+            RESOLVER_FEE_BPS,
+            bondBps_,
+            MIN_TTL,
+            MAX_TTL,
+            DISPUTE_WINDOW,
+            minLock_
         );
     }
 
@@ -1801,7 +1887,7 @@ contract EscrowLifecycleHandler is Test {
     }
 
     function lockJob(uint256 payerSeed, uint256 payeeSeed, uint128 amount, uint64 ttl) external {
-        uint128 value = uint128(bound(uint256(amount), 1, 1e18));
+        uint128 value = uint128(bound(uint256(amount), escrow.minLock(), 1e18));
         uint64 deadline = uint64(block.timestamp + bound(uint256(ttl), MIN_TTL + 1, MAX_TTL - 1));
 
         vm.prank(_actor(payerSeed));
@@ -1875,13 +1961,22 @@ contract EscrowLifecycleHandler is Test {
         }
     }
 
-    function timeoutDispute(uint256 idSeed) external {
-        (uint256 id,) = _pick(idSeed);
-        if (id == 0) return;
+    /// The issuer's freeze, on any side of a settlement. Every exit still has to land, with the
+    /// frozen share booked instead of paid.
+    function freeze(uint256 actorSeed, bool frozen) external {
+        asset.setFrozen(_actor(actorSeed), frozen);
+    }
 
-        try escrow.disputeTimeout(id) {}
+    function claimOwed(uint256 actorSeed) external {
+        try escrow.claim(_actor(actorSeed)) returns (uint128) {}
         catch {
             ++rejected;
+        }
+    }
+
+    function owedTotal() external view returns (uint256 total) {
+        for (uint256 i; i < actors.length; ++i) {
+            total += escrow.owed(actors[i]);
         }
     }
 
@@ -1926,7 +2021,7 @@ contract EscrowSolvencyInvariantTest is Test {
             address(this), IReputation.CapCurve({baseCap: type(uint128).max, capPerScore: 0, maxCap: type(uint128).max})
         );
         escrow = new Escrow(
-            address(asset), address(rep), makeAddr("invariantTreasury"), 250, 100, 500, 1 hours, 30 days, 1 days, 3 days
+            address(asset), address(rep), makeAddr("invariantTreasury"), 250, 100, 500, 1 hours, 30 days, 1 days, 10_000
         );
         rep.setEscrow(address(escrow));
 
@@ -1936,7 +2031,7 @@ contract EscrowSolvencyInvariantTest is Test {
         address[3] memory actors = [makeAddr("alpha"), makeAddr("beta"), makeAddr("gamma")];
         handler = new EscrowLifecycleHandler(escrow, asset, stub, actors);
 
-        bytes4[] memory selectors = new bytes4[](10);
+        bytes4[] memory selectors = new bytes4[](11);
         selectors[0] = EscrowLifecycleHandler.lockJob.selector;
         selectors[1] = EscrowLifecycleHandler.releaseJob.selector;
         selectors[2] = EscrowLifecycleHandler.finalizeJob.selector;
@@ -1944,18 +2039,19 @@ contract EscrowSolvencyInvariantTest is Test {
         selectors[4] = EscrowLifecycleHandler.cancelJob.selector;
         selectors[5] = EscrowLifecycleHandler.disputeJob.selector;
         selectors[6] = EscrowLifecycleHandler.resolveJob.selector;
-        selectors[7] = EscrowLifecycleHandler.timeoutDispute.selector;
-        selectors[8] = EscrowLifecycleHandler.sweep.selector;
-        selectors[9] = EscrowLifecycleHandler.skipAhead.selector;
+        selectors[7] = EscrowLifecycleHandler.freeze.selector;
+        selectors[8] = EscrowLifecycleHandler.claimOwed.selector;
+        selectors[9] = EscrowLifecycleHandler.sweep.selector;
+        selectors[10] = EscrowLifecycleHandler.skipAhead.selector;
 
         targetContract(address(handler));
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
     }
 
     /// The balance is fully accounted for at every point in the lifecycle: principal still
-    /// held, bonds posted against a live ruling, and fees booked but not yet swept. Anything
-    /// else in the balance would be value the escrow cannot pay out, and anything missing
-    /// would be a lock it can no longer honour.
+    /// held, bonds posted against a live ruling, fees booked but not yet swept, and payouts
+    /// booked to a frozen party. Anything else in the balance would be value the escrow cannot
+    /// pay out, and anything missing would be a lock it can no longer honour.
     function invariant_escrow_holds_the_live_principal_and_the_unswept_fees() public view {
         uint256 held;
         uint256 last = escrow.nextId();
@@ -1970,7 +2066,7 @@ contract EscrowSolvencyInvariantTest is Test {
             }
         }
 
-        assertEq(asset.balanceOf(address(escrow)), held + escrow.feesAccrued());
+        assertEq(asset.balanceOf(address(escrow)), held + escrow.feesAccrued() + handler.owedTotal());
     }
 
     function invariant_a_settled_lock_never_carries_a_bond_forward() public view {

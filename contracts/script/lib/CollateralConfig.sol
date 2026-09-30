@@ -1,12 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {VmSafe} from "forge-std/Vm.sol";
+
 import {CollateralVault} from "../../src/rwa/CollateralVault.sol";
 import {RwaConfig} from "./RwaConfig.sol";
 
 /// Launch terms of the collateral lane on Robinhood Chain 4663. Development parameters: the
 /// caps, haircuts and liquidation terms are on the record's production checklist for review.
 library CollateralConfig {
+    VmSafe private constant VM = VmSafe(address(uint160(uint256(keccak256("hevm cheat code")))));
+
+    error BuybackNotContract(address buyback);
+
     address internal constant REGISTRY = 0xe77600c2E4597CEC78A3653Fb1f393A0C68c9cD1;
     address internal constant GUARD = 0x341Df9BC51f6329F3B6acC2CF7280eB644eE1120;
     address internal constant FACTORY_V21 = 0x669366d0Ae3C6b51fEDcf451A01bF741Fd2ed08D;
@@ -23,6 +29,13 @@ library CollateralConfig {
     /// covers a three-day weekend (docs/14).
     uint32 internal constant SESSION_STALENESS = 93_600;
     uint32 internal constant VALUATION_STALENESS = 360_000;
+
+    /// The Buyback whose price ceiling converts a write-off into BRSR, from `BURSAR_BUYBACK`. The
+    /// pool refuses one that does not compound into `STAKING`.
+    function buyback() internal view returns (address b) {
+        b = VM.envAddress("BURSAR_BUYBACK");
+        if (b.code.length == 0) revert BuybackNotContract(b);
+    }
 
     function params() internal pure returns (CollateralVault.Params memory) {
         return CollateralVault.Params({minBorrowHealth: 1.25e18, liquidationTarget: 1.05e18, bountyBps: 500});
