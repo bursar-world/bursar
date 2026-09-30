@@ -140,7 +140,23 @@ export {
   oracleRegistryAbiV1,
 } from './abi-v1.js';
 
-export { V1_ABIS, V2_ABIS, contractSetOf, contractSetOfEscrow } from './contract-set.js';
+export {
+  adminTimelockAbiV2,
+  escrowAbiV2,
+  mandateAccountAbiV2,
+  mandateAccountFactoryAbiV2,
+  oracleRegistryAbiV2,
+} from './abi-v2.js';
+
+export {
+  CURRENT_CONTRACT_SET,
+  V1_ABIS,
+  V2_ABIS,
+  V3_ABIS,
+  contractSetOf,
+  contractSetOfEscrow,
+  contractSetOfRegistry,
+} from './contract-set.js';
 export type { ContractSet } from './contract-set.js';
 
 export { CircuitBreaker } from './rpc/breaker.js';

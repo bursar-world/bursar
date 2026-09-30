@@ -150,14 +150,16 @@ describe('deployment records', () => {
     expect(() => deployment('rhc-testnet' as never)).toThrow(/codegen/);
   });
 
-  it('answers for Robinhood Chain with v2 and keeps v1 live and readable by name', () => {
-    expect(deploymentForChain(4663).network).toBe('rhc-mainnet-v2');
+  // Written to hold before and after the v3 record lands: whichever set is newest answers, and the
+  // two before it stay readable behind it.
+  it('answers for Robinhood Chain with the newest set and keeps v2 and v1 readable behind it', () => {
+    const line = deploymentsForChain(4663).map((d) => d.network);
+    expect(line.slice(-2)).toEqual(['rhc-mainnet-v2', 'rhc-mainnet']);
+    expect(deploymentForChain(4663).network).toBe(line[0]);
     expect(deployment('rhc-mainnet-v2').supersedes).toBe('rhc-mainnet');
     expect(deployment('rhc-mainnet').chainId).toBe(4663);
-    expect(deployment('rhc-mainnet').retired).toBeUndefined();
-    expect(deploymentsForChain(4663).map((d) => d.network)).toEqual(['rhc-mainnet-v2', 'rhc-mainnet']);
     expect(isSuperseded(deployment('rhc-mainnet'))).toBe(true);
-    expect(isSuperseded(deployment('rhc-mainnet-v2'))).toBe(false);
+    expect(isSuperseded(deployment('rhc-mainnet-v2'))).toBe(line[0] !== 'rhc-mainnet-v2');
   });
 
   it('finds the record behind a contract address, whichever set it belongs to', () => {
@@ -244,6 +246,42 @@ describe('retired deployments', () => {
     expect(book.deployment('example-net' as never).retired).toBeUndefined();
   });
 
+  it('reads a third set on top of two, newest first, and lets only the newest answer', async () => {
+    const v2 = { ...raw, network: 'example-net-v2', supersedes: 'example-net' };
+    const v3 = { ...raw, network: 'example-net-v3', supersedes: 'example-net-v2' };
+    const book = await withAddressBook({ 'example-net': raw, 'example-net-v2': v2, 'example-net-v3': v3 });
+
+    expect(book.deploymentForChain(EXAMPLE_CHAIN).network).toBe('example-net-v3');
+    expect(book.deploymentsForChain(EXAMPLE_CHAIN).map((d) => d.network)).toEqual([
+      'example-net-v3',
+      'example-net-v2',
+      'example-net',
+    ]);
+  });
+
+  // Retiring a set stops new work on it. Its open locks and disputes are still on chain, so the
+  // services that settle them keep reading it for as long as a newer set names it.
+  it('keeps retired sets readable behind the one that superseded them', async () => {
+    const v1 = { ...raw, retired: RETIRED_REASON };
+    const v2 = { ...raw, network: 'example-net-v2', supersedes: 'example-net', retired: RETIRED_REASON };
+    const v3 = { ...raw, network: 'example-net-v3', supersedes: 'example-net-v2' };
+    const book = await withAddressBook({ 'example-net': v1, 'example-net-v2': v2, 'example-net-v3': v3 });
+
+    expect(book.deploymentForChain(EXAMPLE_CHAIN).network).toBe('example-net-v3');
+    expect(book.deploymentsForChain(EXAMPLE_CHAIN).map((d) => d.network)).toEqual([
+      'example-net-v3',
+      'example-net-v2',
+      'example-net',
+    ]);
+    expect(book.liveDeployments().map((d) => d.network)).toEqual(['example-net-v3']);
+  });
+
+  it('leaves out a retired record nothing supersedes', async () => {
+    const book = await withAddressBook({ 'example-net': raw, 'example-old': retiredRecord() });
+
+    expect(book.deploymentsForChain(OTHER_EXAMPLE_CHAIN)).toEqual([]);
+  });
+
   it('reports a chain nobody has deployed to as unknown, not retired', async () => {
     const book = await withAddressBook({ 'example-net': raw, 'example-old': retiredRecord() });
     const error = capture(() => book.deploymentForChain(46630)) as BursarError;
@@ -327,6 +365,19 @@ describe('selecting what the address book may hold', () => {
     ];
 
     expect(() => selectDeploymentRecords(three)).toThrow(/both claim chain/);
+  });
+
+  it('keeps a record a retired successor took over from off its chain', () => {
+    const line = [
+      { name: 'example-net', json: raw },
+      {
+        name: 'example-net-v2',
+        json: { ...raw, network: 'example-net-v2', supersedes: 'example-net', retired: RETIRED_REASON },
+      },
+      { name: 'example-net-v3', json: { ...raw, network: 'example-net-v3', supersedes: 'example-net-v2' } },
+    ];
+
+    expect(selectDeploymentRecords(line)).toHaveLength(3);
   });
 
   it('lets two retired records share a chain, because nothing resolves them by one', () => {

@@ -49,14 +49,15 @@ export type Deployment = {
   /** Anything the deploy left unfinished. Present means a human still owes an action. */
   readonly pending?: string;
   /**
-   * Why this deployment is history, in a sentence. Present means it is kept as the record of what
-   * ran and is never resolved by chain id again.
+   * Why this deployment takes no new work, in a sentence. Present means it never answers a lookup
+   * by chain id again. A retired record a newer one supersedes is still read, because its locks and
+   * disputes are still on chain; one nothing supersedes is kept only as the record of what ran.
    */
   readonly retired?: string;
   /**
-   * The record this one replaces on its chain. The replaced record stays live and readable by
-   * name, because its contracts still hold locks and disputes, but it no longer answers a lookup
-   * by chain id.
+   * The record this one replaces on its chain. The replaced record stays readable by name and
+   * through `deploymentsForChain`, because its contracts still hold locks and disputes, but it no
+   * longer answers a lookup by chain id.
    */
   readonly supersedes?: string;
   /** A development deployment: live on its chain, with settings that change before launch. */
@@ -426,7 +427,9 @@ export function selectDeploymentRecords(
   const heads = new Map<number, string>();
   for (const file of live) {
     const { chainId } = parseDeployment(file.json, file.name);
-    const replaced = live.some(
+    // A retired successor still replaces what it names: retiring it later does not hand its
+    // chain back to the record it took over from.
+    const replaced = selected.some(
       (other) =>
         supersededName(other.json) === file.name &&
         parseDeployment(other.json, other.name).chainId === chainId,

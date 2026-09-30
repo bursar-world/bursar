@@ -49,28 +49,33 @@ function nameOf(d: Deployment): string {
 }
 
 /**
- * Whether a newer live record on the same chain names this one in `supersedes`. A superseded
- * record is still live: its contracts hold locks and disputes that have to be read and settled.
- * It only stops answering for its chain.
+ * Whether a newer record on the same chain names this one in `supersedes`. A superseded record's
+ * contracts still hold locks and disputes that have to be read and settled, so it stays readable;
+ * it only stops answering for its chain.
  */
 export function isSuperseded(d: Deployment): boolean {
   const name = nameOf(d);
-  return liveDeployments().some((other) => other.chainId === d.chainId && other.supersedes === name);
+  return Object.values(DEPLOYMENTS).some((other) => other.chainId === d.chainId && other.supersedes === name);
 }
 
 /**
- * Every live record on a chain, newest first: the one that answers for the chain, then the record
- * it supersedes, and so on down the line. What a service that has to serve old contracts as well
- * as new ones iterates.
+ * Every record a service on a chain still reads, newest first: the one that answers for the chain,
+ * then the record it supersedes, and so on down the line. What a service that has to serve old
+ * contracts as well as new ones iterates.
+ *
+ * The line is followed through retired records too. Retiring a set stops it taking new work; the
+ * locks and disputes already opened on it are still on chain and still have to be settled. A
+ * retired record nothing supersedes is history and is left out.
  */
 export function deploymentsForChain(chainId: number): readonly Deployment[] {
-  const live = liveDeployments().filter((d) => d.chainId === chainId);
+  const onChain = Object.values(DEPLOYMENTS).filter((d) => d.chainId === chainId);
+  const live = onChain.filter((d) => d.retired === undefined);
   const ordered: Deployment[] = [];
   let next = live.find((d) => !isSuperseded(d));
   while (next !== undefined && !ordered.includes(next)) {
     ordered.push(next);
     const older = next.supersedes;
-    next = older === undefined ? undefined : live.find((d) => nameOf(d) === older);
+    next = older === undefined ? undefined : onChain.find((d) => nameOf(d) === older);
   }
   return [...ordered, ...live.filter((d) => !ordered.includes(d))];
 }

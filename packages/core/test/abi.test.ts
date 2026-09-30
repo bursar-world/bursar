@@ -1,9 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { getAbiItem, toFunctionSelector } from 'viem';
-import { BURSAR_ABIS, mandateAccountAbi, escrowAbi, settlementAssetAbi } from '../src/generated/abi.js';
+import { BURSAR_ABIS, mandateAccountAbi, escrowAbi, oracleRegistryAbi, settlementAssetAbi } from '../src/generated/abi.js';
 import { escrowAbiV1, mandateAccountAbiV1 } from '../src/abi-v1.js';
-import { V1_ABIS, contractSetOfEscrow } from '../src/contract-set.js';
-import { deployment } from '../src/deployments.js';
+import { escrowAbiV2, mandateAccountAbiV2, oracleRegistryAbiV2 } from '../src/abi-v2.js';
+import {
+  CURRENT_CONTRACT_SET,
+  V1_ABIS,
+  V2_ABIS,
+  V3_ABIS,
+  contractSetOf,
+  contractSetOfEscrow,
+  contractSetOfRegistry,
+} from '../src/contract-set.js';
+import { deployment, parseDeployment } from '../src/deployments.js';
+import { RAW_DEPLOYMENTS } from '../src/generated/deployments.js';
 
 describe('generated ABIs', () => {
   it('covers every deployed contract', () => {
@@ -122,6 +132,50 @@ describe('the frozen v1 ABIs', () => {
   it('pick the set by the escrow a mandate names', () => {
     expect(contractSetOfEscrow(deployment('rhc-mainnet').contracts.Escrow)).toBe('v1');
     expect(contractSetOfEscrow(deployment('rhc-mainnet-v2').contracts.Escrow)).toBe('v2');
+    expect(contractSetOfRegistry(deployment('rhc-mainnet-v2').contracts.OracleRegistry)).toBe('v2');
     expect(V1_ABIS.MandateAccount).toBe(mandateAccountAbiV1);
+  });
+});
+
+const functionNames = (abi: readonly { type: string; name?: string }[]) =>
+  abi.filter((e) => e.type === 'function').map((e) => e.name);
+
+describe('the frozen v2 ABIs', () => {
+  it('keep the dispute timeout the v2 escrow still answers, and nothing v3 added', () => {
+    expect(functionNames(escrowAbiV2)).toContain('disputeTimeout');
+    expect(functionNames(escrowAbiV2)).toContain('disputeTimeoutPeriod');
+    for (const added of ['claim', 'owed', 'minLock']) expect(functionNames(escrowAbiV2)).not.toContain(added);
+  });
+
+  it('read the v2 parties as two addresses and the v3 parties as three', () => {
+    expect(getAbiItem({ abi: oracleRegistryAbiV2, name: 'partiesOf' })?.outputs).toHaveLength(2);
+    expect(getAbiItem({ abi: oracleRegistryAbi, name: 'partiesOf' })?.outputs).toHaveLength(3);
+  });
+
+  it('share the account shape with v3, down to the eleven-field limits', () => {
+    expect(getAbiItem({ abi: mandateAccountAbiV2, name: 'limits' })?.outputs[0]?.components).toHaveLength(11);
+    expect(V2_ABIS.MandateAccount).toBe(mandateAccountAbiV2);
+  });
+});
+
+describe('the v3 ABIs', () => {
+  it('floor the lock, book what a frozen address cannot take, and drop the dispute timeout', () => {
+    for (const added of ['claim', 'owed', 'minLock']) expect(functionNames(escrowAbi)).toContain(added);
+    expect(functionNames(escrowAbi)).not.toContain('disputeTimeout');
+    expect(functionNames(escrowAbi)).not.toContain('disputeTimeoutPeriod');
+    expect(functionNames(oracleRegistryAbi)).not.toContain('rulable');
+    expect(V3_ABIS.Escrow).toBe(escrowAbi);
+  });
+
+  it('answer for any record the frozen sets do not name', () => {
+    const v3 = parseDeployment({
+      ...(RAW_DEPLOYMENTS['rhc-mainnet-v2'] as Record<string, unknown>),
+      network: 'rhc-mainnet-v3',
+      supersedes: 'rhc-mainnet-v2',
+    });
+
+    expect(contractSetOf(v3)).toBe('v3');
+    expect(CURRENT_CONTRACT_SET).toBe('v3');
+    expect(contractSetOf(deployment('rhc-mainnet-v2'))).toBe('v2');
   });
 });

@@ -1074,24 +1074,6 @@ export const mandateAccountAbi = [
   },
   {
     "type": "function",
-    "name": "setTermsCommitment",
-    "inputs": [
-      {
-        "name": "termsCommitment_",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "verifier_",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "setTreasuryPark",
     "inputs": [
       {
@@ -1277,19 +1259,6 @@ export const mandateAccountAbi = [
   },
   {
     "type": "function",
-    "name": "termsCommitment",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "totalCap",
     "inputs": [],
     "outputs": [
@@ -1362,19 +1331,6 @@ export const mandateAccountAbi = [
         "name": "",
         "type": "uint64",
         "internalType": "uint64"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "verifier",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -1892,25 +1848,6 @@ export const mandateAccountAbi = [
   },
   {
     "type": "event",
-    "name": "TermsCommitted",
-    "inputs": [
-      {
-        "name": "termsCommitment",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "verifier",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
     "name": "TreasuryParkUpdated",
     "inputs": [
       {
@@ -1950,6 +1887,11 @@ export const mandateAccountAbi = [
   {
     "type": "error",
     "name": "AllowlistGateActive",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "AlreadyPrincipal",
     "inputs": []
   },
   {
@@ -2545,9 +2487,9 @@ export const escrowAbi = [
         "internalType": "uint64"
       },
       {
-        "name": "disputeTimeoutPeriod_",
-        "type": "uint64",
-        "internalType": "uint64"
+        "name": "minLock_",
+        "type": "uint128",
+        "internalType": "uint128"
       }
     ],
     "stateMutability": "nonpayable"
@@ -2570,6 +2512,25 @@ export const escrowAbi = [
       }
     ],
     "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "claim",
+    "inputs": [
+      {
+        "name": "party",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "amount",
+        "type": "uint128",
+        "internalType": "uint128"
+      }
+    ],
     "stateMutability": "nonpayable"
   },
   {
@@ -2607,32 +2568,6 @@ export const escrowAbi = [
         "name": "",
         "type": "uint16",
         "internalType": "uint16"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "disputeTimeout",
-    "inputs": [
-      {
-        "name": "id",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "disputeTimeoutPeriod",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint64",
-        "internalType": "uint64"
       }
     ],
     "stateMutability": "view"
@@ -2872,6 +2807,19 @@ export const escrowAbi = [
   },
   {
     "type": "function",
+    "name": "minLock",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint128",
+        "internalType": "uint128"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "minTtl",
     "inputs": [],
     "outputs": [
@@ -2892,6 +2840,25 @@ export const escrowAbi = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "owed",
+    "inputs": [
+      {
+        "name": "party",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "amount",
+        "type": "uint128",
+        "internalType": "uint128"
       }
     ],
     "stateMutability": "view"
@@ -3391,6 +3358,25 @@ export const escrowAbi = [
   },
   {
     "type": "event",
+    "name": "OwedClaimed",
+    "inputs": [
+      {
+        "name": "party",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "Paused",
     "inputs": [
       {
@@ -3424,6 +3410,25 @@ export const escrowAbi = [
         "type": "uint256",
         "indexed": true,
         "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "PaymentOwed",
+    "inputs": [
+      {
+        "name": "party",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
       }
     ],
     "anonymous": false
@@ -3661,6 +3666,11 @@ export const escrowAbi = [
   },
   {
     "type": "error",
+    "name": "BadMinLock",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "BadRefund",
     "inputs": []
   },
@@ -3676,7 +3686,7 @@ export const escrowAbi = [
   },
   {
     "type": "error",
-    "name": "DisputeRulable",
+    "name": "BelowMinLock",
     "inputs": []
   },
   {
@@ -4199,10 +4209,67 @@ export const reputationAbi = [
   },
   {
     "type": "event",
+    "name": "DisputeCounted",
+    "inputs": [
+      {
+        "name": "payer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "payee",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "EscrowSet",
     "inputs": [
       {
         "name": "escrow",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ReleaseCounted",
+    "inputs": [
+      {
+        "name": "payer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "payee",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "TimeoutCounted",
+    "inputs": [
+      {
+        "name": "payer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "payee",
         "type": "address",
         "indexed": true,
         "internalType": "address"
@@ -4544,6 +4611,19 @@ export const oracleRegistryAbi = [
   },
   {
     "type": "function",
+    "name": "evict",
+    "inputs": [
+      {
+        "name": "resolver",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "failDispute",
     "inputs": [
       {
@@ -4797,6 +4877,11 @@ export const oracleRegistryAbi = [
         "name": "payee",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "principal",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -4996,25 +5081,6 @@ export const oracleRegistryAbi = [
   },
   {
     "type": "function",
-    "name": "rulable",
-    "inputs": [
-      {
-        "name": "escrowId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "scoreMax",
     "inputs": [],
     "outputs": [
@@ -5174,6 +5240,19 @@ export const oracleRegistryAbi = [
   },
   {
     "type": "function",
+    "name": "sweepSurplus",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "sweepUnallocated",
     "inputs": [],
     "outputs": [
@@ -5246,19 +5325,6 @@ export const oracleRegistryAbi = [
         "name": "",
         "type": "address[]",
         "internalType": "address[]"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "votingPeriod",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint64",
-        "internalType": "uint64"
       }
     ],
     "stateMutability": "view"
@@ -5479,6 +5545,25 @@ export const oracleRegistryAbi = [
   },
   {
     "type": "event",
+    "name": "ResolverEvicted",
+    "inputs": [
+      {
+        "name": "resolver",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "returned",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "ResolverRegistered",
     "inputs": [
       {
@@ -5599,6 +5684,25 @@ export const oracleRegistryAbi = [
         "type": "address",
         "indexed": true,
         "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SurplusSwept",
+    "inputs": [
+      {
+        "name": "slashSink",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -5855,11 +5959,6 @@ export const oracleRegistryAbi = [
   {
     "type": "error",
     "name": "NotEscrow",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "NotPauser",
     "inputs": []
   },
   {
@@ -7680,6 +7779,31 @@ export const adminTimelockAbi = [
   },
   {
     "type": "event",
+    "name": "GuardianPauseSkipped",
+    "inputs": [
+      {
+        "name": "target",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "guardian",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "reason",
+        "type": "bytes",
+        "indexed": false,
+        "internalType": "bytes"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "GuardianPaused",
     "inputs": [
       {
@@ -7901,11 +8025,6 @@ export const adminTimelockAbi = [
   },
   {
     "type": "error",
-    "name": "NotAContract",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "NotGuardian",
     "inputs": []
   },
@@ -7991,11 +8110,6 @@ export const assetRegistryAbi = [
             "internalType": "uint16"
           },
           {
-            "name": "collateralTier",
-            "type": "uint8",
-            "internalType": "uint8"
-          },
-          {
             "name": "collateralHaircutBps",
             "type": "uint16",
             "internalType": "uint16"
@@ -8074,6 +8188,45 @@ export const assetRegistryAbi = [
   },
   {
     "type": "function",
+    "name": "MAX_BAND_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MAX_TRADE_STALENESS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MAX_VALUATION_STALENESS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "acceptAdmin",
     "inputs": [],
     "outputs": [],
@@ -8145,11 +8298,6 @@ export const assetRegistryAbi = [
             "name": "haircutBps",
             "type": "uint16",
             "internalType": "uint16"
-          },
-          {
-            "name": "collateralTier",
-            "type": "uint8",
-            "internalType": "uint8"
           },
           {
             "name": "collateralHaircutBps",
@@ -8317,11 +8465,6 @@ export const assetRegistryAbi = [
             "name": "haircutBps",
             "type": "uint16",
             "internalType": "uint16"
-          },
-          {
-            "name": "collateralTier",
-            "type": "uint8",
-            "internalType": "uint8"
           },
           {
             "name": "collateralHaircutBps",
@@ -8751,6 +8894,40 @@ export const priceGuardAbi = [
         "name": "priceE8",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "valuation",
+    "inputs": [
+      {
+        "name": "asset",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "priceE8",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "updatedAt",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "unpaused",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "inBand",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "stateMutability": "view"
@@ -9372,6 +9549,11 @@ export const treasuryParkAbi = [
         "name": "admin_",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "factories_",
+        "type": "address[]",
+        "internalType": "contract IMandateAccountFactory[]"
       }
     ],
     "stateMutability": "nonpayable"
@@ -9437,6 +9619,19 @@ export const treasuryParkAbi = [
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "factories",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address[]",
+        "internalType": "contract IMandateAccountFactory[]"
       }
     ],
     "stateMutability": "view"
@@ -9970,6 +10165,17 @@ export const treasuryParkAbi = [
     "type": "error",
     "name": "NotDeployer",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotFactoryAccount",
+    "inputs": [
+      {
+        "name": "mandate",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   },
   {
     "type": "error",
@@ -11716,6 +11922,11 @@ export const creditPoolAbi = [
         "internalType": "address"
       },
       {
+        "name": "buyback_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
         "name": "admin_",
         "type": "address",
         "internalType": "address"
@@ -11858,6 +12069,19 @@ export const creditPoolAbi = [
   },
   {
     "type": "function",
+    "name": "buyback",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract Buyback"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "capacityFor",
     "inputs": [
       {
@@ -11994,6 +12218,25 @@ export const creditPoolAbi = [
         "name": "",
         "type": "uint128",
         "internalType": "uint128"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "principalOf",
+    "inputs": [
+      {
+        "name": "mandate",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -12487,6 +12730,31 @@ export const creditPoolAbi = [
   },
   {
     "type": "event",
+    "name": "SlashSkipped",
+    "inputs": [
+      {
+        "name": "mandate",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "loss",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "reason",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "enum CreditPool.SlashSkip"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "SpreadSwept",
     "inputs": [
       {
@@ -12526,6 +12794,12 @@ export const creditPoolAbi = [
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
+      },
+      {
+        "name": "slashedBrsr",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -12534,6 +12808,22 @@ export const creditPoolAbi = [
     "type": "error",
     "name": "BadRates",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BuybackStakingMismatch",
+    "inputs": [
+      {
+        "name": "found",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "expected",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   },
   {
     "type": "error",

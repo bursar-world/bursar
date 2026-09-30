@@ -9,6 +9,13 @@ import {
   oracleRegistryAbiV1,
 } from './abi-v1.js';
 import {
+  adminTimelockAbiV2,
+  escrowAbiV2,
+  mandateAccountAbiV2,
+  mandateAccountFactoryAbiV2,
+  oracleRegistryAbiV2,
+} from './abi-v2.js';
+import {
   adminTimelockAbi,
   escrowAbi,
   mandateAccountAbi,
@@ -17,16 +24,28 @@ import {
 } from './generated/abi.js';
 
 /**
- * Which build of the contracts a deployment runs. The generated ABIs describe the current source;
- * v1 is the set still on chain 4663 under rhc-mainnet, read through a frozen copy of its ABIs.
+ * Which build of the contracts a deployment runs. The generated ABIs describe the current source,
+ * v3. v1 and v2 are the sets still on chain 4663 under rhc-mainnet and rhc-mainnet-v2, each read
+ * through a frozen copy of its own ABIs.
+ *
+ * v2 and v3 accounts share one shape: the same limits, classes and lanes. What moved between them
+ * is the escrow and the dispute layer. A v3 escrow floors the lock size, books a payout a frozen
+ * address cannot take as owed, and has no dispute timeout; a v3 registry records the payer's
+ * principal with the parties.
  */
-export type ContractSet = 'v1' | 'v2';
+export type ContractSet = 'v1' | 'v2' | 'v3';
 
-/** Records deployed from the v1 source. Named, because the frozen ABIs describe exactly these. */
-const V1_RECORDS: ReadonlySet<string> = new Set(['rhc-mainnet']);
+/** The set the generated ABIs describe, and the one a record no frozen set names runs. */
+export const CURRENT_CONTRACT_SET: ContractSet = 'v3';
+
+/** Records deployed from earlier source. Named, because each frozen copy describes exactly these. */
+const FROZEN_RECORDS: ReadonlyMap<string, ContractSet> = new Map([
+  ['rhc-mainnet', 'v1'],
+  ['rhc-mainnet-v2', 'v2'],
+]);
 
 export function contractSetOf(d: Deployment): ContractSet {
-  return V1_RECORDS.has(d.network) ? 'v1' : 'v2';
+  return FROZEN_RECORDS.get(d.network) ?? CURRENT_CONTRACT_SET;
 }
 
 /**
@@ -35,6 +54,12 @@ export function contractSetOf(d: Deployment): ContractSet {
  */
 export function contractSetOfEscrow(escrow: Address): ContractSet | undefined {
   const d = deploymentByContract('Escrow', escrow);
+  return d === undefined ? undefined : contractSetOf(d);
+}
+
+/** The same, for a dispute registry. */
+export function contractSetOfRegistry(registry: Address): ContractSet | undefined {
+  const d = deploymentByContract('OracleRegistry', registry);
   return d === undefined ? undefined : contractSetOf(d);
 }
 
@@ -47,6 +72,14 @@ export const V1_ABIS = {
 } as const;
 
 export const V2_ABIS = {
+  MandateAccount: mandateAccountAbiV2,
+  MandateAccountFactory: mandateAccountFactoryAbiV2,
+  Escrow: escrowAbiV2,
+  OracleRegistry: oracleRegistryAbiV2,
+  AdminTimelock: adminTimelockAbiV2,
+} as const;
+
+export const V3_ABIS = {
   MandateAccount: mandateAccountAbi,
   MandateAccountFactory: mandateAccountFactoryAbi,
   Escrow: escrowAbi,
