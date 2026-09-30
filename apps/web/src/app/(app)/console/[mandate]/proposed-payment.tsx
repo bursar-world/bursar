@@ -7,7 +7,7 @@ import type { Address } from 'viem';
 import { Button } from '@/components/button';
 import { AmountInput } from '@/components/amount-input';
 import { Card, Section } from '@/components/layout';
-import { usd } from '@/money';
+import { usd, usdExact } from '@/money';
 import { ChecksList, StatusRow } from '@/components/status';
 import { AddressInput, readAddress } from '@/components/address-input';
 import { readUsdgAmount } from '../lib/amount';
@@ -146,30 +146,35 @@ export function ProposedPayment() {
 /**
  * The answer in one line, over the rows that explain it. The rows name each condition on its own;
  * this says what they add up to for the payment on the screen, funds included, since the contract's
- * preview checks the limits and not the balance.
+ * preview checks the limits and not the balance. Nor does it check the escrow's floor, which a
+ * payment under would clear every limit and still be refused at.
  */
 function Verdict() {
   const { system, proposed } = useMandateScope();
   const amount = proposed.amount;
   const held = system.funding.facts.mandateBalance;
+  const floor = system.snapshot?.escrow.minLock;
   const levels = [system.permission.level, system.mandate.level];
   if (levels.includes('unknown')) return null;
 
   const short = amount !== undefined && held !== undefined && held < amount;
+  const underFloor = amount !== undefined && floor !== undefined && amount < floor;
   const waits = system.permission.level !== 'blocked' && /signature|approv/i.test(system.mandate.headline);
   const blocked = !waits && levels.includes('blocked');
   const subject = amount === undefined ? 'A payment like this' : `A payment of ${usd(amount)}`;
 
   const line = blocked
     ? `${subject} would be refused. The reason is below.`
-    : waits
-      ? `${subject} would wait for your approval before it settles.`
-      : `${subject} would go through within the limits.`;
+    : underFloor
+      ? `A payment of ${usdExact(amount)} would be refused by the escrow, which opens no payment under ${usdExact(floor)}.`
+      : waits
+        ? `${subject} would wait for your approval before it settles.`
+        : `${subject} would go through within the limits.`;
 
   return (
     <div className="space-y-1" role="status">
       <p className="text-sm font-medium">{line}</p>
-      {short && !blocked && (
+      {short && !blocked && !underFloor && (
         <p className="text-detail text-[color:var(--color-state-attention)]">
           The mandate holds {usd(held!)}, less than this payment, so it would fail on funds unless the account can draw the
           difference in the same transaction.
