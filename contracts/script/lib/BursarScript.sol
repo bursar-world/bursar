@@ -319,6 +319,14 @@ abstract contract BursarScript is Script {
         return false;
     }
 
+    /// An address read that has to answer. A contract that does not implement the read reverts
+    /// with nothing to explain it; this names the read and the address instead.
+    function _read(address target, bytes memory call, string memory what) internal view returns (address) {
+        (bool ok, bytes memory answer) = target.staticcall(call);
+        if (!ok || answer.length < 32) revert NoAnswer(what, target);
+        return abi.decode(answer, (address));
+    }
+
     function _requireCode(string memory what, address account) internal view {
         if (account.code.length == 0) revert NotContract(what, account);
     }

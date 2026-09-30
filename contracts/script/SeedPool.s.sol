@@ -374,6 +374,9 @@ contract SeedPool is PoolSeeding {
         _warnIfCeilingBelow(m.buyback, midScaled);
         _requireNear(midScaled);
 
+        address recorded = _recordAddress(K.SEEDER);
+        if (recorded != address(0)) _requireSeederFor(V4LiquiditySeeder(recorded), m);
+
         Plan memory plan = _plan(m.buyback, sqrtPriceX96, _brsrFor(usdgSide, sqrtPriceX96), usdgSide);
         uint128 before = m.stateView.getLiquidity(m.id);
 
@@ -384,13 +387,11 @@ contract SeedPool is PoolSeeding {
 
         if (!_allowed("i-am-adding-to-the-market")) return;
 
-        address recorded = _recordAddress(K.SEEDER);
         vm.startBroadcast(msg.sender);
         // Anyone may add, so a seeder deployed here belongs to governance from its first block.
         V4LiquiditySeeder s = recorded == address(0)
             ? new V4LiquiditySeeder(m.manager, address(m.buyback), m.buyback.admin())
             : V4LiquiditySeeder(recorded);
-        if (recorded != address(0)) _requireSeederFor(s, m);
         IERC20(address(m.buyback.brsr())).approve(address(s), plan.brsrNeeded);
         IERC20(address(m.buyback.settlementAsset())).approve(address(s), plan.usdgNeeded);
         (uint256 brsrIn, uint256 usdgIn) =

@@ -100,15 +100,31 @@ contract DeployCollateral is BursarScript {
         _requireUnrecorded(K.CREDIT_POOL);
         _requireUnrecorded(K.COLLATERAL_VAULT);
 
-        _expect("registry.settlementAsset", asset, AssetRegistry(registry).settlementAsset());
-        _expect("registry.admin", timelock, AssetRegistry(registry).admin());
-        _expect("guard.registry", registry, address(PriceGuard(guard).registry()));
-        _expect("factory.escrow", escrow, IMandateAccountFactory(factory).escrow());
-        _expect("staking.rewardToken", asset, address(Staking(staking).rewardToken()));
-        _expect("staking.admin", timelock, Staking(staking).admin());
-        address compoundsInto = address(Buyback(buyback).staking());
+        _expect(
+            "registry.settlementAsset",
+            asset,
+            _read(registry, abi.encodeWithSignature("settlementAsset()"), "AssetRegistry.settlementAsset")
+        );
+        _expect("registry.admin", timelock, _read(registry, abi.encodeWithSignature("admin()"), "AssetRegistry.admin"));
+        _expect("guard.registry", registry, _read(guard, abi.encodeWithSignature("registry()"), "PriceGuard.registry"));
+        _expect(
+            "factory.escrow",
+            escrow,
+            _read(factory, abi.encodeWithSignature("escrow()"), "MandateAccountFactory.escrow")
+        );
+        _expect(
+            "staking.rewardToken",
+            asset,
+            _read(staking, abi.encodeWithSignature("rewardToken()"), "Staking.rewardToken")
+        );
+        _expect("staking.admin", timelock, _read(staking, abi.encodeWithSignature("admin()"), "Staking.admin"));
+        address compoundsInto = _read(buyback, abi.encodeWithSignature("staking()"), "Buyback.staking");
         if (compoundsInto != staking) revert BuybackStakingMismatch(compoundsInto, staking);
-        _expect("buyback.poolManager", poolManager, address(Buyback(buyback).poolManager()));
+        _expect(
+            "buyback.poolManager",
+            poolManager,
+            _read(buyback, abi.encodeWithSignature("poolManager()"), "Buyback.poolManager")
+        );
 
         for (uint256 i; i < collateral.length; ++i) {
             if (!AssetRegistry(registry).isRegistered(collateral[i])) revert NotRecorded(K.RWA_ASSETS);

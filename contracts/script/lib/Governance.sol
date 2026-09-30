@@ -80,13 +80,13 @@ abstract contract Governance is BursarScript {
         _loadPrefix();
         _requireChain();
         Call[] memory calls = _calls();
+        _requireSigner(calls);
         vm.startBroadcast(msg.sender);
         for (uint256 i; i < calls.length; ++i) {
             Call memory call = calls[i];
             if (_applied(call)) continue;
             (bool found,) = _find(call);
             if (found) continue;
-            _requireSigner(call.timelock);
             uint256 id = AdminTimelock(call.timelock).propose(call.target, call.data);
             console2.log(string.concat("proposed #", vm.toString(id), " ", call.label));
         }
@@ -97,6 +97,7 @@ abstract contract Governance is BursarScript {
         _loadPrefix();
         _requireChain();
         Call[] memory calls = _calls();
+        _requireSigner(calls);
         vm.startBroadcast(msg.sender);
         for (uint256 i; i < calls.length; ++i) {
             Call memory call = calls[i];
@@ -108,7 +109,6 @@ abstract contract Governance is BursarScript {
             }
             AdminTimelock timelock = AdminTimelock(call.timelock);
             if (timelock.hasApproved(id, msg.sender)) continue;
-            _requireSigner(call.timelock);
             timelock.approve(id);
             console2.log(string.concat("approved #", vm.toString(id), " ", call.label));
         }
@@ -119,6 +119,7 @@ abstract contract Governance is BursarScript {
         _loadPrefix();
         _requireChain();
         Call[] memory calls = _calls();
+        _requireSigner(calls);
         vm.startBroadcast(msg.sender);
         for (uint256 i; i < calls.length; ++i) {
             Call memory call = calls[i];
@@ -138,7 +139,6 @@ abstract contract Governance is BursarScript {
                 console2.log(string.concat("waiting on an earlier call: #", vm.toString(id), " ", call.label));
                 continue;
             }
-            _requireSigner(call.timelock);
             AdminTimelock(call.timelock).execute(id);
             console2.log(string.concat("executed #", vm.toString(id), " ", call.label));
         }
@@ -159,7 +159,13 @@ abstract contract Governance is BursarScript {
         }
     }
 
-    function _requireSigner(address timelock) private view {
-        if (!AdminTimelock(timelock).isSigner(msg.sender)) revert NotSigner(timelock, msg.sender);
+    /// The key has to sign for every timelock with work left in the batch. Checked before the
+    /// broadcast opens, so a wrong key stops the run with nothing queued.
+    function _requireSigner(Call[] memory calls) private view {
+        for (uint256 i; i < calls.length; ++i) {
+            if (_applied(calls[i])) continue;
+            address timelock = calls[i].timelock;
+            if (!AdminTimelock(timelock).isSigner(msg.sender)) revert NotSigner(timelock, msg.sender);
+        }
     }
 }
