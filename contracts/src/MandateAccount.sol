@@ -33,16 +33,9 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
         "SpendApproval(bytes32 approvalId,address merchant,bytes32 capabilityId," "uint128 amount,uint64 expiry)"
     );
 
-    /// `digest` doubles as the registration flag: an approval the principal never wrote on
-    /// chain has none, so the empty-signature path cannot match it.
     uint8 private constant CLASS_HIRE = 1;
     uint8 private constant CLASS_RWA = 2;
     uint8 private constant MAX_LANE = 2;
-
-    struct Approval {
-        bytes32 digest;
-        bool spent;
-    }
 
     /// What a spend committed and which buckets it came out of. The epochs are what make a
     /// refund creditable to those two buckets and to no others, and they fit beside the
@@ -88,8 +81,6 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
     uint128 public override totalSpent;
 
     address public override router;
-    bytes32 public override termsCommitment;
-    address public override verifier;
 
     /// Where the idle part of this budget is parked. A spend or purchase the USDG balance cannot
     /// cover asks it for the difference and settles in the same transaction. Zero switches that
@@ -97,12 +88,21 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
     address public override treasuryPark;
 
     /// Moves when the principal changes hands, which strands every approval the previous
-    /// principal registered. Approvals are keyed under it.
+    /// principal registered. Registered approvals are keyed under it; burned ids are not.
     uint64 public override approvalEpoch;
 
     Window private _daily;
     Window private _monthly;
-    mapping(uint64 epoch => mapping(bytes32 => Approval)) private _approvals;
+
+    /// The digest of each approval the principal wrote on chain. It doubles as the registration
+    /// flag: an approval never registered has none, so the empty-signature path cannot match it.
+    mapping(uint64 epoch => mapping(bytes32 approvalId => bytes32 digest)) private _registered;
+
+    /// Ids spent or revoked, for the life of the account. Never keyed by epoch: a signature
+    /// carries no epoch, so a burn that reset with the principal would let a principal who
+    /// handed the account away and took it back replay everything it had already signed.
+    mapping(bytes32 approvalId => bool) private _burned;
+
     mapping(uint256 escrowId => SpendRecord) private _spends;
 
     modifier onlyPrincipal() {
@@ -147,17 +147,16 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
         if (request.amount > approval.amount) revert ApprovalMismatch();
         if (block.timestamp > approval.expiry) revert ApprovalExpired();
 
-        Approval storage stored = _approvals[approvalEpoch][approval.approvalId];
-        if (stored.spent) revert ApprovalSpent();
+        if (_burned[approval.approvalId]) revert ApprovalSpent();
 
         bytes32 digest = _approvalDigest(approval);
         if (signature.length == 0) {
-            if (stored.digest != digest) revert ApprovalMismatch();
+            if (_registered[approvalEpoch][approval.approvalId] != digest) revert ApprovalMismatch();
         } else if (!SignatureChecker.isValidSignatureNow(principal, digest, signature)) {
             revert BadSignature();
         }
 
-        stored.spent = true;
+        _burned[approval.approvalId] = true;
 
         escrowId = _spend(request, merchantProof, true);
 
@@ -193,8 +192,8 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
         if (committed == 0) revert UnknownSpend();
         if (amount > committed) revert CreditExceedsSpend();
 
-        // Decremented rather than cleared: a split ruling refunds part of the lock, and the
-        // rest can still come back later through a second exit.
+        // Decremented rather than cleared, so the record keeps the part of a split ruling that
+        // paid the merchant. Every exit is final, so nothing credits the same lock twice.
         record.amount = committed - amount;
 
         Window memory daily = _rolled(_daily);
@@ -338,26 +337,27 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
         // An approval that never expires is a second mandate with no limits attached to it.
         if (block.timestamp > approval.expiry) revert ApprovalExpired();
 
-        Approval storage stored = _approvals[approvalEpoch][approval.approvalId];
-        if (stored.spent) revert ApprovalSpent();
+        if (_burned[approval.approvalId]) revert ApprovalSpent();
 
-        stored.digest = _approvalDigest(approval);
+        _registered[approvalEpoch][approval.approvalId] = _approvalDigest(approval);
 
         emit SpendApproved(approval.approvalId, approval.merchant, approval.amount, approval.expiry);
     }
 
     function revokeApproval(bytes32 approvalId) external override onlyPrincipal {
-        Approval storage stored = _approvals[approvalEpoch][approvalId];
-        if (stored.spent) revert ApprovalSpent();
+        if (_burned[approvalId]) revert ApprovalSpent();
 
         // Burning the id is what reaches an approval that only ever existed as a signature.
-        stored.spent = true;
+        _burned[approvalId] = true;
 
         emit ApprovalRevoked(approvalId);
     }
 
     function transferPrincipal(address to) external override onlyPrincipal {
         if (to == address(0)) revert ZeroAddress();
+        // A handover to itself would only move the epoch, and nothing a principal already
+        // signed is revoked by that. `revokeApproval` is how an approval is withdrawn.
+        if (to == msg.sender) revert AlreadyPrincipal();
 
         pendingPrincipal = to;
 
@@ -373,6 +373,7 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
 
         // Consent does not transfer. Approvals the previous principal registered, and limit
         // changes it signed and held back, would otherwise stay spendable under the new one.
+        // Its signed approvals need nothing here: they no longer verify against `principal`.
         ++approvalEpoch;
         ++nonce;
 
@@ -449,12 +450,6 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
         emit TreasuryParkUpdated(treasuryPark_);
     }
 
-    function setTermsCommitment(bytes32 termsCommitment_, address verifier_) external override onlyPrincipal {
-        termsCommitment = termsCommitment_;
-        verifier = verifier_;
-        emit TermsCommitted(termsCommitment_, verifier_);
-    }
-
     function grantDisclosure(uint256 escrowId, address resolver, bytes32 sliceCommit, bytes calldata ciphertext)
         external
         override
@@ -486,8 +481,7 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
     }
 
     function approvals(bytes32 approvalId) external view override returns (bool registered, bool spent) {
-        Approval storage stored = _approvals[approvalEpoch][approvalId];
-        return (stored.digest != bytes32(0), stored.spent);
+        return (_registered[approvalEpoch][approvalId] != bytes32(0), _burned[approvalId]);
     }
 
     function creditable(uint256 escrowId) external view override returns (uint128) {

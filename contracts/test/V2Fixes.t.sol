@@ -604,15 +604,6 @@ contract V2FixesTest is Test {
         account.buy(stock, 200e6, 1, 250e8);
     }
 
-    function test_termsCommitmentIsRecordedForTheVerifier() public {
-        MandateAccount account = _mandate(principal, _limits());
-        vm.prank(principal);
-        account.setTermsCommitment(keccak256("terms"), address(0xBEEF));
-
-        assertEq(account.termsCommitment(), keccak256("terms"));
-        assertEq(account.verifier(), address(0xBEEF));
-    }
-
     function test_eitherPartyCanGrantADisclosureOnADisputedLock() public {
         uint256 id = _lockAndDispute(payer);
 

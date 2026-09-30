@@ -858,6 +858,57 @@ contract MandateAccountAuthTest is MandateAccountAuthFixture {
         account.spendApproved(_request(merchant, 500e6), noProof, approval, signature);
     }
 
+    /// A signature carries no principal period, so a burn that reset with the principal let a
+    /// principal who handed the account away and took it back spend everything it had already
+    /// signed, a second time. Spent and revoked ids now stay burned for the account's life.
+    function test_aSpentOrRevokedSignatureStaysBurnedAcrossAHandoverAndBack() public {
+        (address successor,) = makeAddrAndKey("successor");
+        IMandateAccount.SpendApproval memory spent =
+            _approval(keccak256("job-1"), merchant, 500e6, uint64(block.timestamp + 30 days));
+        IMandateAccount.SpendApproval memory revoked =
+            _approval(keccak256("job-2"), merchant, 500e6, uint64(block.timestamp + 30 days));
+        bytes memory spentSignature = _sign(principalKey, _approvalDigest(account.DOMAIN_SEPARATOR(), spent));
+        bytes memory revokedSignature = _sign(principalKey, _approvalDigest(account.DOMAIN_SEPARATOR(), revoked));
+
+        vm.prank(agent);
+        account.spendApproved(_request(merchant, 500e6), noProof, spent, spentSignature);
+        vm.prank(principal);
+        account.revokeApproval(revoked.approvalId);
+
+        vm.prank(principal);
+        account.transferPrincipal(successor);
+        vm.prank(successor);
+        account.acceptPrincipal();
+        vm.prank(successor);
+        account.transferPrincipal(principal);
+        vm.prank(principal);
+        account.acceptPrincipal();
+        assertEq(account.principal(), principal);
+        assertEq(account.approvalEpoch(), 2);
+
+        (, bool burned) = account.approvals(spent.approvalId);
+        assertTrue(burned, "the round trip unburned a spent id");
+
+        vm.prank(agent);
+        vm.expectRevert(IMandateAccount.ApprovalSpent.selector);
+        account.spendApproved(_request(merchant, 500e6), noProof, spent, spentSignature);
+
+        vm.prank(agent);
+        vm.expectRevert(IMandateAccount.ApprovalSpent.selector);
+        account.spendApproved(_request(merchant, 500e6), noProof, revoked, revokedSignature);
+    }
+
+    /// A handover to itself only moved the epoch, which revoked nothing the principal had signed
+    /// and read as though it had.
+    function test_aPrincipalCannotHandTheAccountToItself() public {
+        vm.prank(principal);
+        vm.expectRevert(IMandateAccount.AlreadyPrincipal.selector);
+        account.transferPrincipal(principal);
+
+        assertEq(account.pendingPrincipal(), address(0));
+        assertEq(account.approvalEpoch(), 0);
+    }
+
     function test_signedApprovalForAnotherAccountIsRejected() public {
         MandateAccount sibling = _newAccount(principal);
         IMandateAccount.SpendApproval memory approval =
