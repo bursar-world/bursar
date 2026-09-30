@@ -3,15 +3,18 @@
  *
  * @bursar/core generates the settlement contracts the same way and remains the source for those.
  * The token set landed after that codegen ran, so until core carries it this script reads the same
- * two inputs core reads: the compiled artifacts and the deployment record written by the deploy.
+ * two inputs core reads: the compiled artifacts and the deployment records written by the deploys.
  * Nothing here is typed by hand.
  *
  *   pnpm --filter @bursar/web codegen:token
  */
-import { readFileSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { basename, resolve } from 'node:path';
+
+import { selectDeploymentRecords } from '@bursar/core';
 
 const ROOT = resolve(import.meta.dirname, '../../..');
+const DEPLOYMENTS = resolve(ROOT, 'contracts/deployments');
 const OUT = resolve(import.meta.dirname, '../src/chain/generated/token.ts');
 const CONTRACTS = ['BRSR', 'Vesting', 'Staking', 'Buyback'] as const;
 
@@ -23,7 +26,63 @@ type Record_ = {
   supply: Record<string, string>;
 };
 
-const record = JSON.parse(readFileSync(resolve(ROOT, 'contracts/deployments/rhc-mainnet-token.json'), 'utf8')) as Record_;
+/** The parts of a core record that name a redeployed token set. */
+type CoreRecord = {
+  network: string;
+  chainId: number;
+  supersedes?: string;
+  contracts: Record<string, string>;
+  token?: Record<string, unknown>;
+  external?: Record<string, unknown>;
+};
+
+const record = JSON.parse(readFileSync(resolve(DEPLOYMENTS, 'rhc-mainnet-token.json'), 'utf8')) as Record_;
+
+/**
+ * The newest core record on the token's chain that deployed its own Staking and Buyback, which it
+ * records under `token`. From v3 on the two are redeployed with the core set and answer to its
+ * timelock; the token record still answers for the supply and whoever holds it.
+ */
+function successor(chainId: number): { name: string; json: CoreRecord } | undefined {
+  const files = readdirSync(DEPLOYMENTS)
+    .filter((file) => file.endsWith('.json'))
+    .sort()
+    .map((file) => ({ name: basename(file, '.json'), json: JSON.parse(readFileSync(resolve(DEPLOYMENTS, file), 'utf8')) as unknown }));
+  const core = selectDeploymentRecords(files)
+    .map((file) => ({ name: file.name, json: file.json as CoreRecord }))
+    .filter((file) => file.json.chainId === chainId);
+
+  let next = core.find((file) => !core.some((other) => other.json.supersedes === file.name));
+  const seen = new Set<string>();
+  while (next !== undefined && !seen.has(next.name)) {
+    seen.add(next.name);
+    const token = next.json.token;
+    if (typeof token?.['Staking'] === 'string' && typeof token['Buyback'] === 'string') return next;
+    const older = next.json.supersedes;
+    next = older === undefined ? undefined : core.find((file) => file.name === older);
+  }
+  return undefined;
+}
+
+const newer = successor(record.chainId);
+const overlay = (name: string, value: unknown): string | undefined => (typeof value === 'string' ? value : record.contracts[name]);
+
+const addresses = [...CONTRACTS, 'PoolManager' as const].map((name) => {
+  const value =
+    newer === undefined
+      ? record.contracts[name]
+      : name === 'PoolManager'
+        ? overlay(name, newer.json.external?.['PoolManager'])
+        : overlay(name, newer.json.token?.[name]);
+  if (!value) throw new Error(`${name} is missing from the token deployment record.`);
+  return `  ${name}: '${value}',`;
+});
+
+const roles = (['adminTimelock', 'community', 'treasury', 'liquidity'] as const).map((name) => {
+  const value = name === 'adminTimelock' && newer !== undefined ? newer.json.contracts['AdminTimelock'] : record.roles[name];
+  if (typeof value !== 'string') throw new Error(`roles.${name} is missing from the token deployment record.`);
+  return `  ${name}: '${value}',`;
+});
 
 const abis = CONTRACTS.map((name) => {
   const artifact = JSON.parse(readFileSync(resolve(ROOT, `contracts/out/${name}.sol/${name}.json`), 'utf8')) as { abi: unknown };
@@ -31,22 +90,15 @@ const abis = CONTRACTS.map((name) => {
   return `export const ${key} = ${JSON.stringify(artifact.abi, null, 2)} as const;`;
 });
 
-const addresses = CONTRACTS.concat('PoolManager' as never).map((name) => {
-  const value = record.contracts[name];
-  if (!value) throw new Error(`${name} is missing from the token deployment record.`);
-  return `  ${name}: '${value}',`;
-});
-
-const roles = (['adminTimelock', 'community', 'treasury', 'liquidity'] as const).map((name) => {
-  const value = record.roles[name];
-  if (typeof value !== 'string') throw new Error(`roles.${name} is missing from the token deployment record.`);
-  return `  ${name}: '${value}',`;
-});
+const sources =
+  newer === undefined
+    ? 'contracts/deployments/rhc-mainnet-token.json'
+    : `contracts/deployments/rhc-mainnet-token.json and\n// contracts/deployments/${newer.name}.json`;
 
 writeFileSync(
   OUT,
   `// Generated by scripts/token-codegen.ts from contracts/out and
-// contracts/deployments/rhc-mainnet-token.json. Do not edit by hand.
+// ${sources}. Do not edit by hand.
 // Regenerate with \`pnpm --filter @bursar/web codegen:token\`.
 import type { Address } from 'viem';
 
@@ -75,4 +127,4 @@ ${abis.join('\n\n')}
   'utf8',
 );
 
-console.log(`Wrote ${OUT}`);
+console.log(`Wrote ${OUT}${newer === undefined ? '' : `, with Staking and Buyback from ${newer.name}`}`);
