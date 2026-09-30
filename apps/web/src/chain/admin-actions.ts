@@ -406,14 +406,14 @@ export const ADMIN_ACTIONS: readonly AdminAction[] = [
     functionName: 'setTiers',
     label: 'Set the staking fee rebate tiers',
     consequence:
-      'The table decides how much a staked balance takes off the settlement fee on the staker’s own payouts. It ships empty, so every rebate reads zero until this lands. At most eight rungs, ascending in both columns, and no rung above 50%.',
+      'The table decides how much a staked balance takes off the facilitator fee on payouts the staker receives through it. It ships empty, so every rebate reads zero until this lands. At most eight rungs, ascending in both columns, and no rung above 50%.',
     shape: {
       kind: 'rows',
       rowLabel: 'Rung',
       maxRows: LIMITS.stakingTiers,
       row: [
         { name: 'minStake', label: 'Staked at least', kind: 'brsr', help: 'Has to be higher than the rung above it.', placeholder: '25000' },
-        { name: 'rebateBps', label: 'Off the settlement fee', kind: 'bps', help: '500 is 5%. Has to be higher than the rung above it, and at most 5000.', placeholder: '500' },
+        { name: 'rebateBps', label: 'Off the facilitator fee', kind: 'bps', help: '500 is 5%. Has to be higher than the rung above it, and at most 5000.', placeholder: '500' },
       ],
     },
   },

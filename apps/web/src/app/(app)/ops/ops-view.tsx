@@ -422,7 +422,7 @@ function ParameterSections({
                 caption="Fee rebate by staked balance"
                 columns={[
                   { key: 'min', header: 'Staked at least', align: 'right', cell: (row) => <span className="tabular">{formatBrsrAmount(row.minStake)}</span> },
-                  { key: 'rebate', header: 'Off the settlement fee', align: 'right', cell: (row) => <span className="tabular">{formatBps(BigInt(row.rebateBps))}</span> },
+                  { key: 'rebate', header: 'Off the facilitator fee', align: 'right', cell: (row) => <span className="tabular">{formatBps(BigInt(row.rebateBps))}</span> },
                 ]}
               />
             </div>
