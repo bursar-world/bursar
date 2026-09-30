@@ -18,6 +18,7 @@ const CHAIN = '4663';
 const SOURCIFY = 'https://sourcify.dev/server';
 const STORE = 'https://eth-bytecode-db.services.blockscout.com/api/v2';
 const EXPLORER = `https://api.blockscout.com/${CHAIN}/api/v2`;
+const RPC = process.env.RHC_RPC_URL ?? 'https://rpc.mainnet.chain.robinhood.com';
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 const args = process.argv.slice(2);
@@ -82,17 +83,31 @@ async function sourcify(entry, input) {
 async function store(entry, input) {
   const creation = await fetch(`${EXPLORER}/addresses/${entry.address}?apikey=${key}`).then((r) => r.json());
   const hash = creation.creation_transaction_hash ?? creation.creation_tx_hash;
+  // A contract a factory created has no creation input of its own in the transaction, so the store
+  // gets its deployed code instead.
   let bytecode = null;
+  let bytecodeType = 'DEPLOYED_BYTECODE';
   if (hash) {
     const tx = await fetch(`${EXPLORER}/transactions/${hash}?apikey=${key}`).then((r) => r.json());
-    bytecode = tx.raw_input;
+    if (!tx.to) {
+      bytecode = tx.raw_input;
+      bytecodeType = 'CREATION_INPUT';
+    }
+  }
+  if (!bytecode) {
+    const code = await fetch(RPC, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getCode', params: [entry.address, 'latest'] }),
+    }).then((r) => r.json());
+    bytecode = code.result;
   }
   const r = await fetch(`${STORE}/verifier/solidity/sources:verify-standard-json`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       bytecode: bytecode ?? '0x',
-      bytecodeType: bytecode ? 'CREATION_INPUT' : 'DEPLOYED_BYTECODE',
+      bytecodeType,
       compilerVersion: entry.compiler,
       input: JSON.stringify(input),
       metadata: { chainId: CHAIN, contractAddress: entry.address },
