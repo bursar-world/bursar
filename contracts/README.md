@@ -233,9 +233,19 @@ node script/verify.mjs --status                # only report
 ```
 
 Each entry names the contract's address, compiler, constructor arguments and linked libraries, and
-its compiler input sits beside the manifest as `<name>.json`. For a newly deployed contract, write
-that input with `forge verify-contract <address> <path>:<Contract> --show-standard-json-input`, and
-take the constructor arguments from the run's transaction log.
+its compiler input sits beside the manifest as `<name>.json`. After a deployment,
+`script/verification-inputs.mjs` writes both for every contract the record names, from the logs
+the deploy scripts left in `broadcast/`:
+
+```sh
+node script/verification-inputs.mjs --record deployments/rhc-mainnet-v3.json --prefix v3
+```
+
+It compiles each input with the solc that built the contract and accepts it only when the result
+is the creation code in the deploy transaction, byte for byte; what follows that code in the
+transaction is the constructor arguments. Contracts a run linked with `--libraries` carry those
+libraries in their metadata, so their inputs and entries carry them too. `--check` reports without
+writing.
 
 ## License
 

@@ -5,10 +5,13 @@ submit one of these to an explorer or to Sourcify to check that the source here 
 `manifest.json` lists each contract's address, compiler, constructor arguments and linked libraries, and
 whether its input matches exactly or partially.
 
-Ten inputs give a partial match only: the compiled code equals the code on chain except for the metadata
-hash that solc appends to it. They are the two collateral contracts, `CreditPool` and `CollateralVault`,
-and the eight shielded-pool contracts: `ShieldedPool`, `ShieldedRelay`, the `Entrypoint` implementation
-and proxy, `CommitmentVerifier`, `WithdrawalVerifier`, `PoseidonT3` and `PoseidonT4`. Their deployed
-metadata was built with absolute remappings, which appear here as repository-relative paths, and the
-metadata hash covers the remappings. The next contract set redeploys eight of them from a build without
-absolute paths; `PoseidonT3` and `PoseidonT4` carry over unchanged. Every other input matches exactly.
+The `v3-` entries are the current contract set on Robinhood Chain. `script/verification-inputs.mjs` wrote
+them from the deploy logs and compiled each input before accepting it: every one reproduces the creation
+code of its deploy transaction byte for byte, metadata included. The six contracts built for the shielded
+pool carry the two Poseidon libraries in `settings.libraries`, because the run that deployed them linked
+the libraries at compile time and solc records that in the metadata.
+
+The other entries belong to the earlier sets, kept as the account of what ran. Ten of them match only
+partially: `CreditPool`, `CollateralVault` and the eight shielded-pool contracts were built with absolute
+remappings, which appear here as repository-relative paths, and the metadata hash covers the remappings.
+`PoseidonT3` and `PoseidonT4` carry over into the current set unchanged, so those two stay partial.

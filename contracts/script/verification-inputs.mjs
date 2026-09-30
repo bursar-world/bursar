@@ -111,6 +111,8 @@ function walk(directory) {
       object: strip(object),
       metadataWindow: metadataWindow(strip(object), strip(runtime)),
       version: metadata.compiler.version,
+      // foundry.toml builds the 0.8.28 set for Prague through its `prague` profile.
+      profile: metadata.settings.evmVersion === 'prague' ? 'prague' : 'default',
     });
   }
 }
@@ -177,6 +179,12 @@ for (const [key, { address, path }] of named) {
   const creation = creations.get(key);
   if (!creation) continue;
   const name = nameFor(path);
+  // A contract carried over from an earlier set keeps the entry that set wrote for it.
+  const earlier = Object.entries(manifest).find(([other, entry]) => !other.startsWith(`${prefix}-`) && entry.address.toLowerCase() === key);
+  if (earlier) {
+    console.log(`kept ${earlier[0]} ${address}`);
+    continue;
+  }
   const candidates = artifacts.filter((a) => (creation.name ? a.name === creation.name : true) && similar(a, creation.code));
   if (candidates.length !== 1) {
     fail(name, address, candidates.length === 0 ? 'no artifact resembles its creation code' : `${candidates.length} artifacts resemble it: ${candidates.map((c) => c.id).join(', ')}`);
@@ -188,7 +196,13 @@ for (const [key, { address, path }] of named) {
 
   let input;
   try {
-    input = JSON.parse(execFileSync('forge', ['verify-contract', address, artifact.id, '--show-standard-json-input', ...libraryFlags], { cwd: ROOT, encoding: 'utf8', maxBuffer: 1 << 26 }));
+    input = JSON.parse(
+      execFileSync('forge', ['verify-contract', address, artifact.id, '--show-standard-json-input', '--compiler-version', artifact.version.split('+')[0], '--compilation-profile', artifact.profile, ...libraryFlags], {
+        cwd: ROOT,
+        encoding: 'utf8',
+        maxBuffer: 1 << 26,
+      }),
+    );
   } catch (error) {
     fail(name, address, `forge could not write the input: ${error.message.split('\n')[0]}`);
     continue;
