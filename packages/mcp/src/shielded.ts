@@ -9,15 +9,26 @@ import {
   fetchAssociationSet,
   fetchPoolEvents,
   fetchRelayQuote,
+  isStaleSetRefusal,
   leanRoot,
   proofToWire,
   recoverNotes,
+  ShieldedServiceError,
   shieldedEntrypointAbi,
   shieldedPoolAbi,
   submitRelay,
   withdrawalContext,
 } from '@bursar/sdk';
-import type { Note, NoteSecrets, OwnedNote, PoolEvents, RelayQuote, ShieldedKeys, SolidityProof } from '@bursar/sdk';
+import type {
+  Note,
+  NoteSecrets,
+  OwnedNote,
+  PoolEvents,
+  RelayQuote,
+  RelayResult,
+  ShieldedKeys,
+  SolidityProof,
+} from '@bursar/sdk';
 import { formatEther, getAddress } from 'viem';
 import type { Address, Hex } from 'viem';
 
@@ -220,28 +231,53 @@ export function createShieldedGateway(options: {
             }
 
             const withdrawn = grossUp(input.amount, BigInt(q.feeBps));
-            const { events, root, labels, spendable, approved } = await notesOf(keys);
-            if (root === null || labels === null) {
-              throw new ToolError(
-                'association_set_unavailable',
-                'The association-set root on chain could not be matched to a set of deposits, so no withdrawal ' +
-                  'can be proven right now. Try again after the provider posts its next root.',
-              );
-            }
-            const note = pickNote(spendable, approved, withdrawn);
             const withdrawal = {
               processooor: d.ShieldedRelay,
               data: encodeRelayData({ recipient: input.recipient, feeRecipient: q.feeRecipient, relayFeeBPS: BigInt(q.feeBps) }),
             };
-            const { proof, change } = await prove({
-              note,
-              amount: withdrawn,
-              change: changeSecrets(keys, note.label, BigInt(note.withdrawals)),
-              stateLeaves: events.leaves,
-              aspLabels: labels,
-              context: withdrawalContext(withdrawal, scope),
-            });
-            const sent = await submitRelay(relayerUrl as string, { withdrawal, proof: proofToWire(proof), gasDrop: input.gasDrop });
+
+            // Reads the pool and the association set afresh each time, so a second attempt proves
+            // against the roots as they stand then.
+            const attempt = async (): Promise<{ change: Note; sent: RelayResult }> => {
+              const { events, root, labels, spendable, approved } = await notesOf(keys);
+              if (root === null || labels === null) {
+                throw new ToolError(
+                  'association_set_unavailable',
+                  'The association-set root on chain could not be matched to a set of deposits, so no withdrawal ' +
+                    'can be proven right now. Try again after the provider posts its next root.',
+                );
+              }
+              const note = pickNote(spendable, approved, withdrawn);
+              const { proof, change } = await prove({
+                note,
+                amount: withdrawn,
+                change: changeSecrets(keys, note.label, BigInt(note.withdrawals)),
+                stateLeaves: events.leaves,
+                aspLabels: labels,
+                context: withdrawalContext(withdrawal, scope),
+              });
+              const sent = await submitRelay(relayerUrl as string, { withdrawal, proof: proofToWire(proof), gasDrop: input.gasDrop });
+              return { change, sent };
+            };
+
+            // A root can move between the proof and the submission: the provider posts a new
+            // association set, or the pool's state moves on. The pool refuses the stale proof and
+            // spends nothing, so the proof is made once more against the new roots.
+            let result: { change: Note; sent: RelayResult };
+            try {
+              result = await attempt();
+            } catch (error) {
+              if (!provedAgainstMovedRoot(error)) throw error;
+              result = await attempt().catch((again: unknown) => {
+                if (!provedAgainstMovedRoot(again)) throw again;
+                throw new ToolError(
+                  'shielded_roots_moved',
+                  'The pool refused this payment twice because its roots moved while the proof was being made. ' +
+                    'Nothing was spent and the deposit is untouched. Try again in a few minutes.',
+                );
+              });
+            }
+            const { change, sent } = result;
             const fee = (withdrawn * BigInt(q.feeBps)) / 10_000n;
             return {
               status: 'sent',
@@ -306,6 +342,16 @@ async function rootPosting(
   } catch {
     return { index: null, postedAt: null };
   }
+}
+
+/**
+ * Whether the relayer turned a withdrawal away because a root it was proved against has moved: the
+ * association set is no longer the latest, or the pool's state root has aged out of the history it
+ * keeps. Either way nothing was spent, and a proof made against the current roots can go through.
+ */
+function provedAgainstMovedRoot(error: unknown): boolean {
+  if (isStaleSetRefusal(error)) return true;
+  return error instanceof ShieldedServiceError && error.code === 'would_revert' && error.message.includes('UnknownStateRoot');
 }
 
 /** The withdrawal that leaves `amount` with the recipient after the relayer's cut. */

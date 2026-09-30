@@ -64,13 +64,35 @@ const events: PoolEvents = {
   toBlock: 20n,
 };
 
-type World = { root: bigint | null; blocked: Address[]; quote: Record<string, unknown> };
+type Refusal = { status: number; error: string; detail: string };
+
+type World = {
+  root: bigint | null;
+  blocked: Address[];
+  quote: Record<string, unknown>;
+  /** What the relayer answers the next submissions with, in order. Empty lets them through. */
+  refusals: Refusal[];
+  /** The root the provider has posted by the time a refused submission comes back. */
+  rootAfterRefusal?: bigint;
+};
+
+const STALE_SET: Refusal = {
+  status: 409,
+  error: 'stale_association_set',
+  detail: 'The association set changed since this proof was made. Prove again against the latest set.',
+};
+const UNKNOWN_STATE_ROOT: Refusal = {
+  status: 400,
+  error: 'would_revert',
+  detail: 'The pool would refuse this withdrawal: UnknownStateRoot.',
+};
 
 function setup(overrides: Partial<World> = {}, relayerUrl: string | null = RELAYER_URL) {
   const world: World = {
     root: leanRoot([big.label, small.label]),
     blocked: [],
     quote: { relay: D.ShieldedRelay, feeRecipient: D.relayer, feeBps: 100, gasDropWei: '150000000000000', chainId: 4663 },
+    refusals: [],
     ...overrides,
   };
   const client = {
@@ -92,6 +114,11 @@ function setup(overrides: Partial<World> = {}, relayerUrl: string | null = RELAY
     if (path === '/v1/quote') return Response.json(world.quote);
     if (path === '/v1/relay') {
       relayed.push(JSON.parse(String(init?.body)) as RelayRequest);
+      const refusal = world.refusals.shift();
+      if (refusal !== undefined) {
+        if (world.rootAfterRefusal !== undefined) world.root = world.rootAfterRefusal;
+        return Response.json({ error: refusal.error, detail: refusal.detail }, { status: refusal.status });
+      }
       return Response.json({ transactionHash: TX, gasDropWei: '150000000000000' });
     }
     return Response.json({ error: 'not found' }, { status: 404 });
@@ -234,6 +261,55 @@ describe('the shielded tools', () => {
     expect(request.withdrawal.processooor).toBe(D.ShieldedRelay);
     expect(decodeRelayData(request.withdrawal.data)).toEqual({ recipient: RECIPIENT, feeRecipient: D.relayer, relayFeeBPS: 100n });
     expect(proven[0]?.context).toBe(withdrawalContext(request.withdrawal, scope));
+  });
+
+  it('proves again against the new association set when the provider posts one mid-payment', async () => {
+    // The first proof is made while only the large deposit is approved; the provider approves the
+    // small one before the relayer submits, and the pool refuses a proof against the older root.
+    const { context, relayed, proven } = setup({
+      root: leanRoot([big.label]),
+      refusals: [STALE_SET],
+      rootAfterRefusal: leanRoot([big.label, small.label]),
+    });
+
+    const result = parse(await callTool(context, 'shielded_pay', { recipient: RECIPIENT, amount: '20000' }));
+
+    expect(result).toMatchObject({ status: 'sent', txHash: TX });
+    expect(relayed).toHaveLength(2);
+    expect(proven.map((p) => p.aspLabels)).toEqual([[big.label], [big.label, small.label]]);
+    expect(proven[1]?.note.label).toBe(small.label);
+  });
+
+  it('proves again when the pool no longer knows the state root the proof was made against', async () => {
+    const { context, relayed, proven } = setup({ refusals: [UNKNOWN_STATE_ROOT] });
+
+    const result = parse(await callTool(context, 'shielded_pay', { recipient: RECIPIENT, amount: '20000' }));
+
+    expect(result['status']).toBe('sent');
+    expect(relayed).toHaveLength(2);
+    expect(proven).toHaveLength(2);
+  });
+
+  it('says so plainly when the roots move again before the second proof lands', async () => {
+    const { context, relayed } = setup({ refusals: [STALE_SET, STALE_SET] });
+
+    const result = parse(await callTool(context, 'shielded_pay', { recipient: RECIPIENT, amount: '20000' }));
+
+    expect(result['error']).toBe('shielded_roots_moved');
+    expect(result['message']).toContain('Nothing was spent and the deposit is untouched.');
+    expect(relayed).toHaveLength(2);
+  });
+
+  it('does not prove again for a refusal a new proof cannot clear', async () => {
+    const { context, relayed, proven } = setup({
+      refusals: [{ status: 409, error: 'already_spent', detail: 'This note has already been withdrawn.' }],
+    });
+
+    const result = parse(await callTool(context, 'shielded_pay', { recipient: RECIPIENT, amount: '20000' }));
+
+    expect(result['error']).not.toBe('shielded_roots_moved');
+    expect(relayed).toHaveLength(1);
+    expect(proven).toHaveLength(1);
   });
 
   it('refuses what one deposit cannot cover, or a deposit not approved yet', async () => {
