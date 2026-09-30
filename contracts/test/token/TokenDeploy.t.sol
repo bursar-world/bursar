@@ -263,14 +263,18 @@ contract TokenDeployTest is Test {
         vm.expectRevert(Vesting.NotAdmin.selector);
         Vesting(out.vesting).sweep();
 
-        // Nothing can take stake until governance names a slasher.
+        // Nothing can take stake until governance names a slasher, and nothing can trigger a
+        // buyback until it names a keeper.
         vm.expectRevert(IStaking.NotSlasher.selector);
         Staking(out.staking).slash(1);
+        vm.expectRevert(Buyback.NotKeeper.selector);
+        Buyback(out.buyback).buyback();
 
         vm.stopPrank();
 
         assertEq(Staking(out.staking).creditManager(), address(0));
         assertEq(Staking(out.staking).slasher(), address(0));
+        assertEq(Buyback(out.buyback).keeper(), address(0));
     }
 
     /// BRSR has no administered surface at all, which is why no address appears in the
@@ -345,7 +349,12 @@ contract TokenDeployTest is Test {
         assertEq(Buyback(out.buyback).params().maxPriceMicroUsdPerBrsr, 0);
         assertEq(Buyback(out.buyback).available(), 0);
 
+        // Even the keeper governance names is refused until there is a ceiling.
+        address keeper = makeAddr("keeper");
+        _pass(out.buyback, abi.encodeCall(Buyback.setKeeper, (keeper)));
         settlement.mint(out.buyback, 1_000e6);
+        assertEq(Buyback(out.buyback).available(), 0);
+        vm.prank(keeper);
         vm.expectRevert(Buyback.PriceCeilingUnset.selector);
         Buyback(out.buyback).buyback();
     }

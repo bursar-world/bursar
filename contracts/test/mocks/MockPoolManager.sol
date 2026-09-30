@@ -14,9 +14,13 @@ interface IUnlockCallback {
 /// moved is settled to zero.
 ///
 /// The types are the ones `Buyback` declares, so an encoding that would miss the live manager
-/// misses this one too. The price is a constant, not a curve, because the contract under
-/// test never reads a price: what it checks is how much arrived, and a curve would only make
-/// the expected figure harder to state in the test.
+/// misses this one too. By default the price is a constant, not a curve, because the contract
+/// under test never reads a price: what it checks is how much arrived, and a curve would only
+/// make the expected figure harder to state in the test.
+///
+/// `setReserves` turns it into a constant-product market instead, for the tests that are about
+/// the price moving: every swap moves it, in either direction, so a trader can push the price
+/// ahead of a buyback and sell back into it afterwards the way one would on the live pool.
 ///
 /// The knobs exist to reproduce failures a real venue can produce. A hook may rewrite either
 /// leg of a swap, a pool that runs out of liquidity fills part of an exact-input order, and a
@@ -57,6 +61,13 @@ contract MockPoolManager {
     /// would.
     uint256 public settleShortfall;
 
+    /// Set by `setReserves`. The pool then prices off these two balances as x * y = k, and the
+    /// fee, in pips, comes off the input and stays in the pool.
+    bool public curve;
+    uint256 public reserveSettlement;
+    uint256 public reserveBrsr;
+    uint24 public feePips;
+
     /// Pool keys this manager will trade. An unregistered key reverts, which is what an
     /// uninitialised pool does on the live chain.
     mapping(bytes32 id => bool live) public pools;
@@ -90,6 +101,18 @@ contract MockPoolManager {
 
     function setSettleShortfall(uint256 amount) external {
         settleShortfall = amount;
+    }
+
+    function setReserves(uint256 settlementReserve, uint256 brsrReserve, uint24 fee) external {
+        curve = true;
+        reserveSettlement = settlementReserve;
+        reserveBrsr = brsrReserve;
+        feePips = fee;
+    }
+
+    /// The curve's mid in micro-USD for one whole BRSR.
+    function midMicroUsdPerBrsr() external view returns (uint256) {
+        return (reserveSettlement * 1e18) / reserveBrsr;
     }
 
     function unlock(bytes calldata data) external returns (bytes memory result) {
@@ -127,17 +150,36 @@ contract MockPoolManager {
 
         uint256 requested = uint256(-params.amountSpecified);
         uint256 consumed = (requested * fillBps) / 10_000;
-        uint256 produced = (consumed * price) / SETTLEMENT_UNIT;
+
+        // The fixed price only ever takes the settlement asset in and pays BRSR out. The curve
+        // trades both ways, in the direction the caller asked for.
+        bool settlementIn = !curve || params.zeroForOne == (address(settlement) < address(brsr));
+        uint256 produced = curve ? _trade(consumed, settlementIn) : (consumed * price) / SETTLEMENT_UNIT;
 
         (int128 inLeg, int128 outLeg) = flipDelta
             ? (int128(int256(consumed)), -int128(int256(produced)))
             : (-int128(int256(consumed)), int128(int256(produced)));
 
-        _delta[msg.sender][address(settlement)] += inLeg;
-        _delta[msg.sender][address(brsr)] += outLeg;
+        (address inCurrency, address outCurrency) =
+            settlementIn ? (address(settlement), address(brsr)) : (address(brsr), address(settlement));
+        _delta[msg.sender][inCurrency] += inLeg;
+        _delta[msg.sender][outCurrency] += outLeg;
 
         (int128 amount0, int128 amount1) = params.zeroForOne ? (inLeg, outLeg) : (outLeg, inLeg);
         swapDelta = int256((uint256(uint128(amount0)) << 128) | uint256(uint128(amount1)));
+    }
+
+    function _trade(uint256 amountIn, bool settlementIn) private returns (uint256 amountOut) {
+        uint256 net = (amountIn * (1e6 - feePips)) / 1e6;
+        if (settlementIn) {
+            amountOut = (reserveBrsr * net) / (reserveSettlement + net);
+            reserveSettlement += amountIn;
+            reserveBrsr -= amountOut;
+        } else {
+            amountOut = (reserveSettlement * net) / (reserveBrsr + net);
+            reserveBrsr += amountIn;
+            reserveSettlement -= amountOut;
+        }
     }
 
     function sync(address currency) external {
