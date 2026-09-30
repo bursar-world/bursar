@@ -189,7 +189,7 @@ contract TokenDeployTest is Test {
             revealWindow: 1 hours,
             unbondingPeriod: 7 days,
             quorum: 2,
-            maxVoters: 5,
+            maxVoters: 64,
             maxDeviation: 10,
             slashBps: 2_000
         });
