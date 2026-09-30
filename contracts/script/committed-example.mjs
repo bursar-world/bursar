@@ -10,8 +10,8 @@
 // signature and prints the three variables create() reads, as export lines. It reads the committed
 // mandate factory from BURSAR_RECORD, asks the chain at RHC_RPC_URL where create() will put the
 // account the sealed copy is bound to, and lets the example pay one counterparty,
-// BURSAR_EXAMPLE_PAYEE. The SDK has to be built: pnpm install, then pnpm --filter @bursar/sdk build,
-// from the repository root.
+// BURSAR_EXAMPLE_PAYEE. The SDK has to be built, with the workspace packages it imports:
+// pnpm install, then pnpm --filter "@bursar/sdk..." build, from the repository root.
 
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -35,7 +35,7 @@ let sdk;
 try {
   sdk = await load(join(SDK, 'dist', 'index.js'));
 } catch {
-  fail('The SDK is not built: run pnpm install, then pnpm --filter @bursar/sdk build, from the repository root.');
+  fail('The SDK is not built: run pnpm install, then pnpm --filter "@bursar/sdk..." build, from the repository root.');
 }
 
 if (command === 'message') {

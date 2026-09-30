@@ -28,8 +28,8 @@ and the whole sequence has been rehearsed on a copy of mainnet with the same com
 
 **Tools.** Foundry 1.8.1 and the dependencies, installed as [`../README.md`](../README.md)
 describes, and `jq`. Run everything from `contracts/`. The committed example mandate in step 4
-also needs Node 22 and the SDK, built once from the repository root with
-`pnpm install && pnpm --filter @bursar/sdk build`.
+also needs Node 22 and the SDK, built once from the repository root, with the workspace packages
+it imports, by `pnpm install && pnpm --filter "@bursar/sdk..." build`.
 
 **Keys.** Each key signs from its own encrypted keystore. None is ever typed, and no private key
 appears in a command, a variable or a file. The operations key tooling (`ops/rhc-env.sh` in the
