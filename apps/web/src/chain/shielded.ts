@@ -21,11 +21,11 @@ export function shieldedContracts(): ShieldedDeployment | undefined {
 }
 
 /**
- * What a funds-key signature is bound to: the wallet, this chain and the shielded pool. Without a
- * pool on record there is no funds key, so no deposit keys and no hidden owners either.
+ * What a funds-key signature is bound to: the wallet and this chain, and no contract, so the same
+ * signature keeps finding the same deposits and hidden owners after a redeploy.
  */
-export function fundsKeyContext(account: Address, contracts: ShieldedDeployment): FundsKeyContext {
-  return { account, chainId: CHAIN_ID, pool: contracts.ShieldedPool };
+export function fundsKeyContext(account: Address): FundsKeyContext {
+  return { account, chainId: CHAIN_ID };
 }
 
 /** Service endpoints, set at build time. Empty means not configured. */

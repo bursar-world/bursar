@@ -47,7 +47,7 @@ const POOL: Address = '0x9F9914dd397a9e9462Dd7cB6891Ab835119297C7';
 const RELAY: Address = '0xEb4978Cab69FF3B958f6Fd1B852C1Ae3d4Ba84f2';
 const WALLET = privateKeyToAccount('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d');
 const OTHER_WALLET = privateKeyToAccount('0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a');
-const CONTEXT = { account: WALLET.address, chainId: 4663, pool: POOL };
+const CONTEXT = { account: WALLET.address, chainId: 4663 };
 const FUNDS_SIGNATURE = await WALLET.signTypedData(fundsKeyTypedData(CONTEXT));
 const keys = deriveShieldedKeys(FUNDS_SIGNATURE, CONTEXT);
 const scope = scopeOf(POOL, 4663, USDG);
@@ -74,7 +74,6 @@ describe('shielded keys and notes', () => {
       // The viewing-key signature opens terms and scans announcements; it never reaches a note.
       await WALLET.signMessage({ message: viewingKeyMessage(WALLET.address) }),
       await OTHER_WALLET.signTypedData(fundsKeyTypedData(CONTEXT)),
-      await WALLET.signTypedData(fundsKeyTypedData({ ...CONTEXT, pool: RELAY })),
       await WALLET.signTypedData(fundsKeyTypedData({ ...CONTEXT, chainId: 46630 })),
       `0x${'ab'.repeat(32)}${'cd'.repeat(32)}1b`,
       '0x1234',
@@ -96,16 +95,15 @@ describe('shielded keys and notes', () => {
     expect(scope).toBe(869543705072628544128504902837391379516070938188476514926978342993992889566n);
   });
 
-  it('matches the scope and commitments in the forge fixture', async () => {
+  it('matches the scope and commitments in the forge fixture, from the same keys at another pool', () => {
     const fixture = JSON.parse(readFileSync(new URL('../../../contracts/test/fixtures/shielded.json', import.meta.url), 'utf8'));
     const pool = getContractAddress({ from: '0x00000000000000000000000000000000000e0002', nonce: 0n });
     const fixtureScope = scopeOf(pool, 4663, USDG);
     expect(fixtureScope.toString()).toBe(fixture.scope);
-    const context = { ...CONTEXT, pool };
-    const fixtureKeys = deriveShieldedKeys(await WALLET.signTypedData(fundsKeyTypedData(context)), context);
-    const note = noteOf(1_000_000n, labelOf(fixtureScope, 1n), depositSecrets(fixtureKeys, fixtureScope, 0n));
+    // The funds key names no pool: the wallet's one signature finds its notes in the fixture's pool too.
+    const note = noteOf(1_000_000n, labelOf(fixtureScope, 1n), depositSecrets(keys, fixtureScope, 0n));
     expect(note.commitment.toString()).toBe(fixture.deposit1.commitment);
-    expect(precommitmentOf(depositSecrets(fixtureKeys, fixtureScope, 0n)).toString()).toBe(fixture.deposit1.precommitment);
+    expect(precommitmentOf(depositSecrets(keys, fixtureScope, 0n)).toString()).toBe(fixture.deposit1.precommitment);
   });
 
   it('round-trips relay data', () => {

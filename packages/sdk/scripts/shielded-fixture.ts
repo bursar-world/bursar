@@ -37,7 +37,7 @@ const FEE_RECIPIENT: Address = '0x00000000000000000000000000000000000e0011';
 const DIRECT: Address = '0x00000000000000000000000000000000000e0012';
 // The depositor's funds key: a real EIP-712 signature by a throwaway test wallet.
 const WALLET = privateKeyToAccount('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d');
-const context = { account: WALLET.address, chainId: CHAIN_ID, pool: POOL };
+const context = { account: WALLET.address, chainId: CHAIN_ID };
 
 const keys = deriveShieldedKeys(await WALLET.signTypedData(fundsKeyTypedData(context)), context);
 const scope = scopeOf(POOL, CHAIN_ID, ASSET);

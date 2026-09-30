@@ -243,6 +243,7 @@ export {
 } from './seal.js';
 
 export {
+  FUNDS_KEY_DOMAIN_SALT,
   FUNDS_KEY_VERSION,
   FUNDS_KEY_WARNING,
   FundsKeySignatureError,

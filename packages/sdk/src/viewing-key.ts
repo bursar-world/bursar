@@ -6,10 +6,11 @@
  * secp256k1 key pair whose public half is published through ERC-6538 so counterparties can seal
  * payloads to it. It reads; it cannot move anything.
  *
- * The funds key. A second signature, over EIP-712 typed data bound to the chain and the shielded
- * pool (`fundsKeyTypedData`), whose type and text tell the wallet's prompt that it controls funds.
- * The shielded note keys and the stealth spending key come from it, and only after the signature
- * is checked to recover to the wallet it is for.
+ * The funds key. A second signature, over EIP-712 typed data bound to the wallet and the chain
+ * (`fundsKeyTypedData`), whose type and text tell the wallet's prompt that it controls funds. The
+ * shielded note keys and the stealth spending key come from it, and only after the signature is
+ * checked to recover to the wallet it is for. The signature is a seed and is never sent on chain,
+ * so it names no contract: redeploying the pool or the factories leaves every key where it was.
  *
  * The same wallet signing the same message gives the same keys, so nothing has to be stored: the
  * console asks for the signature again. That holds for wallets that sign deterministically
@@ -19,7 +20,7 @@
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { hkdf } from '@noble/hashes/hkdf';
 import { sha256 } from '@noble/hashes/sha2';
-import { bytesToHex, getAddress, hashTypedData, hexToBytes, isAddressEqual, type Address, type Hex } from 'viem';
+import { bytesToHex, getAddress, hashTypedData, hexToBytes, isAddressEqual, keccak256, toBytes, type Address, type Hex } from 'viem';
 import { publicKeyToAddress } from 'viem/accounts';
 
 export const VIEWING_KEY_VERSION = 1;
@@ -40,13 +41,16 @@ export function viewingKeyMessage(account: Address): string {
 export const FUNDS_KEY_WARNING =
   'This signature controls funds. It creates the keys that spend your shielded USDG and act for the hidden owner and agent of your private mandates. Sign it only in the Bursar console.';
 
-/** Where a funds key is valid: the wallet it belongs to, the chain and the shielded pool. */
-export type FundsKeyContext = { readonly account: Address; readonly chainId: number; readonly pool: Address };
+/** Whose funds key it is: the wallet that signs and the chain it is for. */
+export type FundsKeyContext = { readonly account: Address; readonly chainId: number };
+
+/** Separates this domain from any other named the same; fixed, like the name and version. */
+export const FUNDS_KEY_DOMAIN_SALT: Hex = keccak256(toBytes('bursar.funds-key.v1'));
 
 /** The EIP-712 request the wallet signs for the funds key, ready for `signTypedData`. */
 export function fundsKeyTypedData(context: FundsKeyContext) {
   return {
-    domain: { name: 'Bursar', version: '1', chainId: context.chainId, verifyingContract: getAddress(context.pool) },
+    domain: { name: 'Bursar funds key', version: '1', chainId: context.chainId, salt: FUNDS_KEY_DOMAIN_SALT },
     types: {
       KeyThatControlsFunds: [
         { name: 'warning', type: 'string' },
@@ -61,7 +65,7 @@ export function fundsKeyTypedData(context: FundsKeyContext) {
 
 export class FundsKeySignatureError extends Error {
   constructor() {
-    super('This is not the funds-key signature of this wallet for this chain and pool.');
+    super('This is not the funds-key signature of this wallet for this chain.');
     this.name = 'FundsKeySignatureError';
   }
 }
@@ -82,8 +86,8 @@ function signer(digest: Hex, signature: Hex): Address {
 
 /**
  * The key material behind a funds-key signature. Refuses a signature that does not recover to
- * `context.account` over exactly `fundsKeyTypedData(context)`: a viewing-key signature, one made
- * for another pool or chain, or bytes that are not a signature at all.
+ * `context.account` over exactly `fundsKeyTypedData(context)`: a viewing-key signature, another
+ * wallet's, one made for another chain, or bytes that are not a signature at all.
  */
 export function fundsKeyMaterial(signature: Hex, context: FundsKeyContext): Uint8Array {
   if (!isAddressEqual(signer(hashTypedData(fundsKeyTypedData(context)), signature), context.account)) {

@@ -10,9 +10,10 @@
  * the recipient carries no trace of the depositor's wallet. Whatever is not withdrawn stays in the
  * pool as a new note owned by the same secrets.
  *
- * The note secrets are derived from the funds-key signature (EIP-712, bound to this chain and pool;
- * see `viewing-key.ts`), never from the viewing key, so a wallet that signs deterministically
- * recovers every note from chain data alone and a shared viewing key opens no note.
+ * The note secrets are derived from the funds-key signature (EIP-712, bound to the wallet and the
+ * chain; see `viewing-key.ts`), never from the viewing key, so a wallet that signs deterministically
+ * recovers every note from chain data alone and a shared viewing key opens no note. Each note's
+ * secrets also hash in the pool's scope, so one funds key serves every pool.
  *
  * This module has no Node dependency and no prover. Proving lives in `@bursar/sdk/shielded-prove`
  * so the 17 MB proving key is only loaded where a proof is actually made.

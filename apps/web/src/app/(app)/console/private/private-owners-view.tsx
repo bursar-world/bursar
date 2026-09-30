@@ -41,7 +41,6 @@ export function PrivateOwnersView() {
   const { signMessageAsync } = useSignMessage();
   const { signTypedDataAsync } = useSignTypedData();
   const contracts = privateContracts();
-  const shielded = shieldedContracts();
   const [found, setFound] = useState<Found | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | undefined>(undefined);
@@ -60,7 +59,7 @@ export function PrivateOwnersView() {
     </div>
   );
 
-  if (contracts === undefined || shielded === undefined) {
+  if (contracts === undefined) {
     return (
       <div className="space-y-8">
         {header}
@@ -87,7 +86,7 @@ export function PrivateOwnersView() {
       let current = keys;
       if (!current) {
         const { fundsKeyTypedData, viewingKeyMessage } = await import('@bursar/sdk');
-        const context = fundsKeyContext(owner, shielded);
+        const context = fundsKeyContext(owner);
         const viewing = await signMessageAsync({ message: viewingKeyMessage(owner) });
         current = await ownerKeysFrom(viewing, await signTypedDataAsync(fundsKeyTypedData(context)), context);
       }

@@ -77,7 +77,6 @@ export function StealthCreate({
   readonly label: string;
 }) {
   const factory = privateContracts()?.CommittedMandateFactory;
-  const shielded = shieldedContracts();
   const { signMessageAsync } = useSignMessage();
   const { signTypedDataAsync } = useSignTypedData();
   const [prepared, setPrepared] = useState<Prepared | undefined>(undefined);
@@ -90,9 +89,6 @@ export function StealthCreate({
   const sealed = useRef<{ terms: TermsDocument; ciphertext: Hex; salt: Hex } | undefined>(undefined);
 
   if (factory === undefined) return null;
-  if (shielded === undefined) {
-    return <Problem text="Hidden owners take their keys from a funds key bound to the shielded pool, and this network records no pool." />;
-  }
   if (created && prepared) return <StealthCreated created={created} prepared={prepared} />;
 
   const prepare = async () => {
@@ -100,7 +96,7 @@ export function StealthCreate({
     setProblem(undefined);
     try {
       const { fundsKeyTypedData, planStealthMandate, viewingKeyMessage } = await import('@bursar/sdk');
-      const context = fundsKeyContext(owner, shielded);
+      const context = fundsKeyContext(owner);
       const viewing = await signMessageAsync({ message: viewingKeyMessage(owner) });
       const keys = await ownerKeysFrom(viewing, await signTypedDataAsync(fundsKeyTypedData(context)), context);
       setPrepared({ keys, plan: planStealthMandate(keys.stealth) });

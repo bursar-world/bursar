@@ -26,7 +26,7 @@ import {
   scanOwnedMandates,
   spareForAgent,
 } from '@/chain/stealth';
-import { fundsKeyContext, shieldedContracts } from '@/chain/shielded';
+import { fundsKeyContext } from '@/chain/shielded';
 import { addressSegment, ADDRESS_ROUTES } from '@/lib/path';
 
 const owner = privateKeyToAccount('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d');
@@ -36,7 +36,7 @@ const USDG = '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168' as Address;
 const GWEI = 1_000_000_000n;
 
 async function keysOf(account: typeof owner) {
-  const context = fundsKeyContext(account.address, shieldedContracts()!);
+  const context = fundsKeyContext(account.address);
   const viewing = await account.signMessage({ message: viewingKeyMessage(account.address) });
   return ownerKeysFrom(viewing, await account.signTypedData(fundsKeyTypedData(context)), context);
 }
@@ -159,10 +159,10 @@ describe('recovering private mandates', () => {
 });
 
 describe('the funds key', () => {
-  it('is bound to this chain and the recorded pool, and refuses the viewing-key signature', async () => {
-    const shielded = shieldedContracts()!;
-    const context = fundsKeyContext(owner.address, shielded);
-    expect(context).toEqual({ account: owner.address, chainId: 4663, pool: shielded.ShieldedPool });
+  it('is bound to the wallet and this chain, names no contract, and refuses the viewing-key signature', async () => {
+    const context = fundsKeyContext(owner.address);
+    expect(context).toEqual({ account: owner.address, chainId: 4663 });
+    expect(fundsKeyTypedData(context).domain).not.toHaveProperty('verifyingContract');
     const viewing = await owner.signMessage({ message: viewingKeyMessage(owner.address) });
     await expect(ownerKeysFrom(viewing, viewing, context)).rejects.toThrow(/funds-key signature/);
   });

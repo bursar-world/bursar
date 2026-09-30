@@ -7,6 +7,9 @@
  * the pool pays the note's whole value back to the wallet that deposited it, in the open, with no
  * association set and no relayer involved. Without --send it only lists what it would return.
  *
+ * It is needed once. The funds key names no contract, so notes made under it stay findable with the
+ * same signature in any later pool, and a redeploy leaves nothing to migrate.
+ *
  *   MIGRATE_PRIVATE_KEY=0x… pnpm --filter @bursar/sdk exec tsx scripts/migrate-shielded-notes.ts [--send]
  *
  * RHC_RPC_URL overrides the public endpoint. MIGRATE_POOL, MIGRATE_SCOPE and MIGRATE_FROM_BLOCK

@@ -1,10 +1,11 @@
 import { secp256k1 } from '@noble/curves/secp256k1';
-import { bytesToHex, encodeAbiParameters, encodeEventTopics, type Address, type Hex, type Log } from 'viem';
+import { bytesToHex, encodeAbiParameters, encodeEventTopics, keccak256, toBytes, type Address, type Hex, type Log } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { describe, expect, it } from 'vitest';
 
 import {
   ERC5564_ANNOUNCER,
+  FUNDS_KEY_DOMAIN_SALT,
   FundsKeySignatureError,
   InvalidArgumentError,
   announceArgs,
@@ -61,9 +62,7 @@ const owner = privateKeyToAccount('0x59c6995e998f97a5a0044966f0945389dc9e86dae88
 const stranger = privateKeyToAccount('0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a');
 const FACTORY = '0xdbB3bD6172132d9049b2825C5deA18d0Bb2A30D1' as const;
 const MANDATE = '0x1A118049d8a039e58BC5DC1e692c16Fa45037aBc' as const;
-const POOL = '0x9F9914dd397a9e9462Dd7cB6891Ab835119297C7' as const;
-
-const contextOf = (account: typeof owner) => ({ account: account.address, chainId: 4663, pool: POOL });
+const contextOf = (account: typeof owner) => ({ account: account.address, chainId: 4663 });
 
 async function signaturesOf(account: typeof owner) {
   return {
@@ -138,7 +137,7 @@ describe('the owner’s stealth keys', () => {
     expect((await keysOf(stranger)).metaAddress).not.toBe(keys.metaAddress);
   });
 
-  it('refuse a spending key from any signature that is not this wallet’s funds key for this chain and pool', async () => {
+  it('refuse a spending key from any signature that is not this wallet’s funds key for this chain', async () => {
     const context = contextOf(owner);
     const { viewing } = await signaturesOf(owner);
     const refusals = [
@@ -146,8 +145,7 @@ describe('the owner’s stealth keys', () => {
       viewing,
       // Another wallet signing the owner's request.
       await stranger.signTypedData(fundsKeyTypedData(context)),
-      // The owner's funds key for another pool, and for another chain.
-      await owner.signTypedData(fundsKeyTypedData({ ...context, pool: MANDATE })),
+      // The owner's funds key for another chain.
       await owner.signTypedData(fundsKeyTypedData({ ...context, chainId: 1 })),
       // Bytes that are not a signature.
       `0x${'ab'.repeat(65)}` as Hex,
@@ -159,12 +157,20 @@ describe('the owner’s stealth keys', () => {
     }
   });
 
-  it('say in the typed data itself that the signature controls funds', () => {
+  it('say in the typed data itself that the signature controls funds, and name no contract', () => {
     const request = fundsKeyTypedData(contextOf(owner));
     expect(request.primaryType).toBe('KeyThatControlsFunds');
     expect(request.message.warning).toMatch(/^This signature controls funds\./);
-    expect(request.domain).toEqual({ name: 'Bursar', version: '1', chainId: 4663, verifyingContract: POOL });
-    expect(request.message.wallet).toBe(owner.address);
+    expect(request.message).toMatchObject({ wallet: owner.address, version: 1n });
+    // Chain and a fixed salt only: a redeployed pool or factory must not move anyone's keys.
+    expect(request.domain).toEqual({
+      name: 'Bursar funds key',
+      version: '1',
+      chainId: 4663,
+      salt: '0x3a44b72822e1b88522db32f53a6200454b0a2fdad87c4fd8261e4820dbe11ccf',
+    });
+    expect(FUNDS_KEY_DOMAIN_SALT).toBe(keccak256(toBytes('bursar.funds-key.v1')));
+    expect('verifyingContract' in request.domain).toBe(false);
   });
 });
 

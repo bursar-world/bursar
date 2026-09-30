@@ -83,8 +83,8 @@ type Unlocked = { readonly keys: ShieldedKeys };
  * The shielded USDG pool.
  *
  * One signature derives the keys behind every deposit this wallet made: the funds key, a typed-data
- * request bound to this chain and pool that says in the wallet it controls funds. The viewing key
- * never reaches a deposit. The page finds the deposits in the pool's public events, shows what each
+ * request bound to the wallet and this chain that says in the wallet it controls funds. The viewing
+ * key never reaches a deposit. The page finds the deposits in the pool's public events, shows what each
  * still holds, and proves withdrawals in the browser. The relayer submits them, so the connected
  * wallet never appears on a payout.
  */
@@ -205,12 +205,12 @@ function Connected({ contracts, wallet }: { readonly contracts: ShieldedDeployme
     setProblem(undefined);
     try {
       const { fundsKeyTypedData } = await import('@bursar/sdk');
-      const context = fundsKeyContext(wallet, contracts);
+      const context = fundsKeyContext(wallet);
       setUnlocked({ keys: await shieldedKeysFrom(await signTypedDataAsync(fundsKeyTypedData(context)), context) });
     } catch (error) {
       setProblem(
         error instanceof Error && error.name === 'FundsKeySignatureError'
-          ? 'That signature did not come from this wallet for this pool, so no key was derived. Smart-contract wallets cannot unlock deposits here.'
+          ? 'That signature did not come from this wallet, so no key was derived. Smart-contract wallets cannot unlock deposits here.'
           : 'The signature was declined, so your deposits stay locked.',
       );
     } finally {
