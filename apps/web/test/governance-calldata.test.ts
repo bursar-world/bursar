@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { Address, Hex } from 'viem';
 
 import { ADDRESSES } from '@/chain';
+import { TOKEN_ADDRESSES } from '@/chain/generated/token';
 import {
   ADMIN_ACTIONS,
   GOVERNED,
@@ -27,9 +28,12 @@ import type { AdminAction, AdminDraft } from '@/chain/admin-actions';
  * something other than the call it was built from.
  */
 
-/** The two proposals live on chain 4663 on 2026-09-22, read back with cast. */
+/**
+ * The two proposals live on chain 4663 on 2026-09-22, read back with cast. The staking pool is
+ * whichever one the address book names, so the reading holds after the pool is replaced.
+ */
 const AGENT_REGISTRY = '0x4a9e90F15c0FEC02f7592C6E618cd3B64076035b' as Address;
-const STAKING = '0x3f2a0E7822B30aD928488F053348b137866Cf962' as Address;
+const STAKING = TOKEN_ADDRESSES.Staking;
 const ACCEPT_ADMIN_CALLDATA = '0x0e18b681' as Hex;
 const SET_TIERS_CALLDATA =
   '0xe2058f5f0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000054b40b1f852bda0000000000000000000000000000000000000000000000000000000000000000001f400000000000000000000000000000000000000000000152d02c7e14af680000000000000000000000000000000000000000000000000000000000000000003e80000000000000000000000000000000000000000000069e10de76676d080000000000000000000000000000000000000000000000000000000000000000007d000000000000000000000000000000000000000000002116545850052128000000000000000000000000000000000000000000000000000000000000000000bb8' as Hex;
@@ -447,7 +451,7 @@ describe('the catalogue', () => {
 });
 
 describe('the proposals on the token governance delay', () => {
-  const STAKING_ADDRESS = '0x3f2a0E7822B30aD928488F053348b137866Cf962' as const;
+  const STAKING_ADDRESS = TOKEN_ADDRESSES.Staking;
 
   it('reads proposal 10 as naming a credit manager on the staking pool', () => {
     const reading = readCall(STAKING_ADDRESS, '0x69dd793b000000000000000000000000c217af334e6eac06b774b5059b16257695937b0a');

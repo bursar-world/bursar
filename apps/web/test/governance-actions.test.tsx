@@ -157,7 +157,11 @@ describe('the governance delays on this chain', () => {
 
   it('lists the current delay first, once, named for the contracts it administers', () => {
     expect(tags[0]?.current).toBe(true);
-    expect(tags[0]?.name).toBe('Payment, dispute and credit contracts');
+    // From the third set on, the token contracts answer to the same delay as the payment contracts.
+    const alsoToken = tags[0]?.address.toLowerCase() === TOKEN_ROLES.adminTimelock.toLowerCase();
+    expect(tags[0]?.name).toBe(
+      alsoToken ? 'Token, staking and buyback, and the payment, dispute and credit contracts' : 'Payment, dispute and credit contracts',
+    );
     expect(new Set(tags.map((tag) => tag.address.toLowerCase())).size).toBe(tags.length);
   });
 

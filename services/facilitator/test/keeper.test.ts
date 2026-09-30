@@ -167,7 +167,7 @@ describe('on-chain collateral reader', () => {
       4663,
     );
     const position = await reader!.read('0x4686C3566E1C50b4cC14c37A1088b7892d7D7407');
-    expect(calls).toEqual(['0x4AB6d4859D56452736f8b70749880CaFfC5c62C4']);
+    expect(calls).toEqual([collateralDeployment(4663)?.CollateralVault]);
     expect(position.healthFactor).toBe(1.9922);
     expect(position.headroomMicro).toBe(11_875n);
   });

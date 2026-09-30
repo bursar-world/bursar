@@ -134,7 +134,9 @@ describe('config with a third contract set', () => {
     const v3 = {
       ...v2,
       network: 'rhc-mainnet-v3',
+      status: 'live',
       supersedes: 'rhc-mainnet-v2',
+      supersededBy: undefined,
       contracts: {
         AdminTimelock: fill('1'),
         Reputation: fill('2'),

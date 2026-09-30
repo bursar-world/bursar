@@ -31,7 +31,8 @@ describe('the shielded pool deployment', () => {
   it('is recorded for Robinhood Chain with the launch limits', () => {
     const contracts = shieldedContracts();
     expect(contracts).toBeDefined();
-    expect(poolLimits(contracts!)).toEqual(limits);
+    // The third set's pool takes 1 USDG at least, 100 USDG a deposit and 1,000 USDG in all.
+    expect(poolLimits(contracts!)).toEqual({ minimumDeposit: 1_000_000n, maxDeposit: 100_000_000n, maxTotal: 1_000_000_000n });
   });
 });
 
