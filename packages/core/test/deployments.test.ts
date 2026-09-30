@@ -16,6 +16,7 @@ import {
   selectDeploymentRecords,
 } from '../src/deployments.js';
 import type { DeploymentRecordFile } from '../src/deployments.js';
+import { RHC_MAINNET } from '../src/chain.js';
 import { BursarError } from '../src/errors.js';
 import { RAW_DEPLOYMENTS } from '../src/generated/deployments.js';
 
@@ -101,6 +102,27 @@ const tokenRecord = {
 
 const raw = exampleRecord();
 
+/**
+ * A record as the v3 deploy scripts write it: the chain's endpoints left to the chain, what was
+ * applied under `parameters` rather than `verifiedOnChain`, a token section, and the flags a run
+ * reads before it starts. Addresses are made up.
+ */
+function scriptedRecord(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const { rpc: _rpc, explorer: _explorer, verifiedOnChain: _verified, ...rest } = exampleRecord();
+  return {
+    ...rest,
+    network: 'rhc-mainnet-v3',
+    chainId: 4663,
+    status: 'deployed',
+    local: false,
+    fromBlock: 1,
+    supersedes: 'rhc-mainnet-v2',
+    token: { Staking: fill('f'), Buyback: fill('0'), keeper: fill('9') },
+    parameters: { 'Escrow.minLock': '10000' },
+    ...overrides,
+  };
+}
+
 describe('deployment records', () => {
   it('matches what a deploy wrote, field for field', () => {
     const expected = Object.fromEntries(selectDeploymentRecords(onDisk).map((f) => [f.name, f.json]));
@@ -120,6 +142,19 @@ describe('deployment records', () => {
     expect(parsed.chainId).toBe(EXAMPLE_CHAIN);
     expect(parsed.contracts.AdminTimelock).toBe(fill('1'));
     expect(parsed.retired).toBeUndefined();
+  });
+
+  it('reads a record the v3 deploy scripts write, with the chain its own endpoints', () => {
+    const parsed = parseDeployment(scriptedRecord());
+
+    expect(parsed.rpc).toBe(RHC_MAINNET.rpcUrl);
+    expect(parsed.explorer).toBe(RHC_MAINNET.explorer);
+    expect(parsed.verifiedOnChain).toEqual({});
+    expect(parsed.supersedes).toBe('rhc-mainnet-v2');
+  });
+
+  it('still asks a record on any other chain for its endpoints', () => {
+    expect(() => parseDeployment(scriptedRecord({ chainId: EXAMPLE_CHAIN }))).toThrow(/has no "rpc"/);
   });
 
   it('refuses a record that is not six-decimal', () => {
@@ -319,6 +354,13 @@ describe('selecting what the address book may hold', () => {
     for (const file of onDisk.filter((f) => !isMandateDeploymentRecord(f.json))) {
       expect(selected).not.toContain(file.name);
     }
+  });
+
+  it('keeps a rehearsal record out of the address book, whatever chain it names', () => {
+    const rehearsal = [{ name: 'rhc-mainnet-v3', json: scriptedRecord({ local: true }) }];
+
+    expect(isMandateDeploymentRecord(rehearsal[0]?.json)).toBe(false);
+    expect(selectDeploymentRecords(rehearsal)).toEqual([]);
   });
 
   it('tolerates a directory with nothing in it', () => {

@@ -1,4 +1,5 @@
 import type { Address } from 'viem';
+import { RHC_MAINNET } from './chain.js';
 import { BursarError } from './errors.js';
 import { MICRO_DECIMALS } from './money.js';
 
@@ -36,6 +37,7 @@ export type DeploymentRoles = {
 export type Deployment = {
   readonly network: string;
   readonly chainId: number;
+  /** The chain's own public endpoints when the record names none, as the v3 records do. */
   readonly rpc: string;
   readonly explorer: string;
   readonly settlementAsset: Address;
@@ -44,7 +46,10 @@ export type Deployment = {
   readonly deployer: Address;
   readonly contracts: Readonly<Record<MandateContractName, Address>>;
   readonly roles: DeploymentRoles;
-  /** Wiring read back from chain after the deploy, keyed as "contract.field". */
+  /**
+   * Wiring read back from chain after the deploy, keyed as "contract.field". Empty for a v3 record,
+   * which keeps what it applied and read back under `parameters`.
+   */
   readonly verifiedOnChain: Readonly<Record<string, string | number>>;
   /** Anything the deploy left unfinished. Present means a human still owes an action. */
   readonly pending?: string;
@@ -213,7 +218,9 @@ export function parseDeployment(json: unknown, label = 'record'): Deployment {
     }
   }
 
-  const verified = object(field(record, name, 'verifiedOnChain'), name, 'verifiedOnChain');
+  // Records from the v3 deploy scripts keep what they read back under `parameters` instead.
+  const verified =
+    record['verifiedOnChain'] === undefined ? {} : object(record['verifiedOnChain'], name, 'verifiedOnChain');
   const verifiedOnChain: Record<string, string | number> = {};
   for (const [key, value] of Object.entries(verified)) {
     if (typeof value !== 'string' && typeof value !== 'number') {
@@ -230,11 +237,20 @@ export function parseDeployment(json: unknown, label = 'record'): Deployment {
     return typeof value === 'string' ? value : undefined;
   };
 
+  // Robinhood Chain's public endpoints are fixed, and the v3 deploy scripts leave them to the chain
+  // rather than write them into every record. Any other chain still has to name its own.
+  const endpoint = (key: 'rpc' | 'explorer'): string =>
+    record[key] === undefined && chainId === RHC_MAINNET.chainId
+      ? key === 'rpc'
+        ? RHC_MAINNET.rpcUrl
+        : RHC_MAINNET.explorer
+      : str(record, name, key);
+
   return Object.freeze({
     network: name,
     chainId,
-    rpc: str(record, name, 'rpc'),
-    explorer: str(record, name, 'explorer'),
+    rpc: endpoint('rpc'),
+    explorer: endpoint('explorer'),
     settlementAsset: address(record, name, 'settlementAsset'),
     settlementDecimals: MICRO_DECIMALS,
     deployer: address(record, name, 'deployer'),
@@ -385,10 +401,14 @@ export type DeploymentRecordFile = {
  *
  * That directory holds more than the core six. The token deployment lives there too, under the
  * same network name and chain id and with none of these addresses. A record is recognised by the
- * contract set it carries, not by the name of the file it arrived in.
+ * contract set it carries, not by the name of the file it arrived in, and a record marked `local`
+ * is a rehearsal and never one.
  */
 export function isMandateDeploymentRecord(json: unknown): boolean {
   if (typeof json !== 'object' || json === null || Array.isArray(json)) return false;
+  // A rehearsal's addresses are on a throwaway chain that may carry this chain's id. Served as the
+  // real thing, they would send payments to contracts that exist nowhere else.
+  if ((json as { local?: unknown }).local === true) return false;
   const contracts = (json as { contracts?: unknown }).contracts;
   if (typeof contracts !== 'object' || contracts === null || Array.isArray(contracts)) return false;
   const named = contracts as Record<string, unknown>;
