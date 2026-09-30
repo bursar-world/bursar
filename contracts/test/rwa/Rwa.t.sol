@@ -545,6 +545,31 @@ contract RwaTest is Test {
         sgovAdapter.release(1, 0, address(this), address(this));
     }
 
+    /// Disabling an adapter stops new parks in it; what is already there still comes out, inside
+    /// a spend or by hand.
+    function test_disabledAdapter_exitsStayOpen() public {
+        _park(50e6);
+        vm.prank(admin);
+        park.setAdapter(address(sgovAdapter), false);
+
+        vm.startPrank(principal);
+        acct.withdraw(address(usdg), park.vaultOf(address(acct)), 1e6);
+        vm.expectRevert(abi.encodeWithSelector(TreasuryPark.UnknownAdapter.selector, address(sgovAdapter)));
+        park.park(address(acct), address(sgovAdapter), 1e6, 0);
+        acct.withdraw(address(usdg), principal, 149e6);
+        vm.stopPrank();
+
+        vm.prank(agent);
+        acct.spend(_req(10e6), new bytes32[](0));
+        assertEq(usdg.balanceOf(address(escrow)), 10e6);
+
+        (uint256 raw,,,,,) = park.position(address(acct), address(sgovAdapter));
+        vm.prank(principal);
+        park.unpark(address(acct), address(sgovAdapter), raw, 0);
+        (raw,,,,,) = park.position(address(acct), address(sgovAdapter));
+        assertEq(raw, 0);
+    }
+
     function test_returnIdle() public {
         address vault = park.vaultOf(address(acct));
         vm.prank(principal);

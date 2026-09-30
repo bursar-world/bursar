@@ -13,6 +13,7 @@ import {AssetRegistry} from "../../src/rwa/AssetRegistry.sol";
 import {PriceGuard} from "../../src/rwa/PriceGuard.sol";
 import {CollateralVault} from "../../src/rwa/CollateralVault.sol";
 import {CreditPool} from "../../src/rwa/CreditPool.sol";
+import {V4Swapper} from "../../src/rwa/V4Swapper.sol";
 import {IAccessRegistry, IStateView} from "../../src/rwa/interfaces/IRwaExternal.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockAccess, MockAccounts, MockEscrow, MockFeed, MockStock, MockV4} from "./RwaMocks.sol";
@@ -629,6 +630,51 @@ contract CollateralTest is Test {
         pool.sweepSpread();
         assertApproxEqAbs(staking.distributed(), spread, 1);
         assertApproxEqAbs(pool.cash(), 30e6 - pool.badDebt(), 2);
+    }
+
+    /// Governance can take an asset out of its tier with positions still open. It then backs
+    /// nothing, and a line it leaves under water can still sell it to pay the debt down.
+    function test_untieredAsset_liquidatable() public {
+        _deposit(spy, 0.005e18);
+        _deposit(aapl, 0.02e18);
+        _spendOnCredit(4.4e6);
+        vm.prank(admin);
+        vault.setAssetTier(address(aapl), 0);
+        assertLt(vault.health(address(acct)), WAD);
+
+        CollateralVault.PositionView memory p = vault.positions(address(acct))[2];
+        assertEq(p.asset, address(aapl));
+        assertEq(p.haircutBps, 10_000);
+        assertTrue(p.fresh);
+        assertEq(p.value, 6e6);
+        assertEq(p.adjusted, 0);
+
+        vm.prank(keeper);
+        uint256 sold = vault.liquidate(address(acct), address(aapl));
+        assertGt(sold, 0);
+        assertLt(sold, 0.02e18);
+        assertGe(vault.health(address(acct)), 1.05e18);
+    }
+
+    /// An untiered position that can still be sold keeps the line open for its own sale; one that
+    /// cannot is no reason to leave the debt stranded.
+    function test_untieredAsset_holdsWriteOffOnlyWhileSellable() public {
+        _deposit(spy, 0.005e18);
+        _deposit(aapl, 0.02e18);
+        _spendOnCredit(4.4e6);
+        vm.prank(admin);
+        vault.setAssetTier(address(aapl), 0);
+        _movePrice(spy, spyFeed, 1e3); // the index position is dust now
+
+        vm.prank(keeper);
+        vm.expectPartialRevert(V4Swapper.SwapShort.selector);
+        vault.liquidate(address(acct), address(spy));
+
+        aapl.setOraclePaused(true);
+        vm.prank(keeper);
+        assertEq(vault.liquidate(address(acct), address(spy)), 0);
+        assertEq(pool.debtOf(address(acct)), 0);
+        assertEq(pool.badDebt(), 4.4e6);
     }
 
     function test_adminOnly() public {

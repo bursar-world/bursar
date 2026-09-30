@@ -30,7 +30,9 @@ import {ITreasuryPark} from "./interfaces/ITreasuryPark.sol";
 /// Haircuts. Every accepted asset sits in a tier with a market-session haircut and a wider
 /// after-hours haircut. After hours is outside the US equities 24/5 session (Monday 01:00 UTC to
 /// Saturday 00:00 UTC, the conservative edge across daylight saving), or whenever the feed has
-/// been silent longer than the tier's session bound, which catches exchange holidays.
+/// been silent longer than the tier's session bound, which catches exchange holidays. An asset
+/// taken out of its tier with positions still open counts at a 100% haircut, on the registry's
+/// valuation bound, and can still be sold out of a line that falls under 1.0.
 ///
 /// Health. `health = Σ(value × (1 − haircut)) / debt` at the haircut that applies now, 1e18 =
 /// 1.0. Below 1.0 anyone can call `liquidate`, which sells only the slice of one asset that
@@ -386,12 +388,18 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         (uint256 priceE8, uint256 updatedAt, bool unpaused, bool inBand) = guard.valuation(asset);
         p.updatedAt = updatedAt;
         p.priceE8 = priceE8;
-        if (priceE8 == 0 || p.tier == 0) return (p, 0, 0);
-        Tier storage t = _tiers[p.tier - 1];
+        if (priceE8 == 0) return (p, 0, 0);
         AssetRegistry.Asset memory a = registry.get(asset);
-        (uint16 live, uint16 closed,) = _haircuts(t, a.collateralHaircutBps, updatedAt);
+        uint16 live = uint16(BPS);
+        uint16 closed = uint16(BPS);
+        uint32 bound = a.valuationStaleness;
+        if (p.tier != 0) {
+            Tier storage t = _tiers[p.tier - 1];
+            (live, closed,) = _haircuts(t, a.collateralHaircutBps, updatedAt);
+            bound = t.valuationStaleness;
+        }
         p.haircutBps = live;
-        bool counted = block.timestamp - updatedAt <= t.valuationStaleness && unpaused;
+        bool counted = block.timestamp - updatedAt <= bound && unpaused;
         p.fresh = counted && inBand;
         if (!counted || p.raw == 0) return (p, 0, 0);
         uint256 atFeed = Math.mulDiv(p.raw, priceE8, 10 ** (uint256(a.decimals) + 2));
@@ -464,9 +472,9 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         (,,, uint256 adjusted) = _totals(mandate);
         uint256 need = Math.mulDiv(params.liquidationTarget, pool.debtOf(mandate), WAD);
         if (need <= adjusted) return 0;
-        (uint16 h,) = haircutOf(asset);
+        (PositionView memory p,,) = _position(mandate, asset);
         uint256 gross = Math.mulDiv(params.liquidationTarget, BPS - params.bountyBps, BPS);
-        uint256 kept = Math.mulDiv(WAD, BPS - h, BPS);
+        uint256 kept = Math.mulDiv(WAD, BPS - p.haircutBps, BPS);
         if (gross <= kept) return type(uint256).max;
         return Math.mulDiv(need - adjusted, WAD, gross - kept);
     }
@@ -506,16 +514,21 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         if (pool.debtOf(mandate) > 0 && _exhausted(mandate)) pool.writeOff(mandate);
     }
 
-    /// Nothing is left that a sale could turn into USDG: every position is empty, or its band
-    /// floor at a price the vault trusts rounds to nothing. A position without a trusted price
-    /// holds the write-off open, since the price may come back.
+    /// Nothing is left that a sale could turn into USDG. A position a sale can still get
+    /// something for holds the write-off open, and so does a tiered one waiting on its price.
+    /// Dust does not, whose band floor rounds to nothing, and neither does an untiered token
+    /// that cannot be sold now: governance dropped it and it may never price again.
     function _exhausted(address mandate) private view returns (bool) {
         uint256 n = _assets.length;
         for (uint256 i; i < n; ++i) {
             address asset = _assets[i];
             if (collateralOf[mandate][asset] == 0) continue;
             (PositionView memory p,,) = _position(mandate, asset);
-            if (!p.fresh || Math.mulDiv(p.value, BPS - registry.get(asset).bandBps, BPS) != 0) return false;
+            if (!p.fresh) {
+                if (p.tier != 0) return false;
+                continue;
+            }
+            if (Math.mulDiv(p.value, BPS - registry.get(asset).bandBps, BPS) != 0) return false;
         }
         return true;
     }

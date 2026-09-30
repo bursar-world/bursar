@@ -49,7 +49,9 @@ contract ParkVault {
 ///
 /// Unparking. The principal or the agent can sell a position back to USDG, delivered to the
 /// mandate. A mandate account that knows this contract calls `unparkFor` from inside a spend
-/// when its USDG balance is short, and the spend settles in the same transaction.
+/// when its USDG balance is short, and the spend settles in the same transaction. Disabling an
+/// adapter stops new parks in it and leaves every way out open: the money in it is still the
+/// mandate's.
 contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -176,7 +178,6 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
         returns (uint256 usdgOut)
     {
         if (msg.sender != mandate) _onlyOperator(mandate);
-        if (!isAdapter[adapter]) revert UnknownAdapter(adapter);
         if (raw == 0) revert ZeroAmount();
         Position storage p = _positions[mandate][adapter];
         if (p.raw < raw) revert PositionShort(p.raw, raw);
@@ -199,7 +200,6 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
         uint256 n = _adapters.length;
         for (uint256 i; i < n && left != 0; ++i) {
             address adapter = _adapters[i];
-            if (!isAdapter[adapter]) continue;
             Position storage p = _positions[mandate][adapter];
             if (p.raw == 0) continue;
 
