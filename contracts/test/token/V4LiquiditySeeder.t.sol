@@ -39,6 +39,10 @@ contract PoolIdentity {
 /// guards and the callback binding; the curve is exercised against the real Uniswap deployment
 /// in `TokenRailFork.t.sol`, where a stub could not be made to agree with the contract by
 /// accident.
+///
+/// Fees are the one piece of v4 behaviour modelled closely: set with `setFees`, they are credited
+/// into the caller's delta on the next change to the position and reported separately as
+/// `feesAccrued`, the way the live manager reports them.
 contract StubPoolManager {
     error CurrencyNotSettled(address currency, int256 delta);
     error NotUnlocked();
@@ -56,11 +60,13 @@ contract StubPoolManager {
     uint256 public rate0 = 1e9;
     uint256 public rate1 = 1e9;
 
-    /// Hands back a credit on both legs instead of a debt, the way a withdrawal or an accrued
-    /// fee does.
-    bool public credit;
+    /// Fees the position has accrued since it was last touched, paid out on the next touch.
+    uint256 public fees0;
+    uint256 public fees1;
     /// Credits less on settle than arrived, the way a fee-taking token would.
     uint256 public settleShortfall;
+
+    mapping(bytes32 id => uint128 liquidity) public liquidityOf;
 
     bool public unlocked;
     address private syncedCurrency;
@@ -79,8 +85,9 @@ contract StubPoolManager {
         rate1 = r1;
     }
 
-    function setCredit(bool on) external {
-        credit = on;
+    function setFees(uint256 amount0, uint256 amount1) external {
+        fees0 = amount0;
+        fees1 = amount1;
     }
 
     function setSettleShortfall(uint256 amount) external {
@@ -123,14 +130,23 @@ contract StubPoolManager {
         int128 amount0 = int128(int256((magnitude * rate0) / 1e9));
         int128 amount1 = int128(int256((magnitude * rate1) / 1e9));
 
-        bool paying = params.liquidityDelta > 0 && !credit;
-        (int128 leg0, int128 leg1) = paying ? (-amount0, -amount1) : (amount0, amount1);
+        bool adding = params.liquidityDelta > 0;
+        (int128 leg0, int128 leg1) = adding ? (-amount0, -amount1) : (amount0, amount1);
+        leg0 += int128(int256(fees0));
+        leg1 += int128(int256(fees1));
 
         _delta[msg.sender][currency0] += leg0;
         _delta[msg.sender][currency1] += leg1;
+        liquidityOf[id] = adding ? liquidityOf[id] + uint128(magnitude) : liquidityOf[id] - uint128(magnitude);
 
-        callerDelta = int256((uint256(uint128(leg0)) << 128) | uint256(uint128(leg1)));
-        feesAccrued = 0;
+        callerDelta = _pack(leg0, leg1);
+        feesAccrued = _pack(int128(int256(fees0)), int128(int256(fees1)));
+        fees0 = 0;
+        fees1 = 0;
+    }
+
+    function _pack(int128 a, int128 b) private pure returns (int256) {
+        return int256((uint256(uint128(a)) << 128) | uint256(uint128(b)));
     }
 
     function sync(address currency) external {
@@ -202,6 +218,7 @@ contract V4LiquiditySeederTest is Test {
         assertEq(seeder.poolHooks(), identity.poolHooks());
         assertEq(seeder.buyback(), address(identity));
         assertEq(seeder.owner(), owner);
+        assertEq(seeder.pendingOwner(), address(0));
         assertEq(seeder.poolId(), keccak256(abi.encode(seeder.key())));
     }
 
@@ -316,36 +333,159 @@ contract V4LiquiditySeederTest is Test {
 
     /// v4 credits a position's accrued fees into the same delta as the principal, so an add
     /// against a position that has already earned can come back in credit on a leg. The callback
-    /// takes it rather than assuming the sign from the direction of the call, and the refund
-    /// then carries it out to whoever funded the add.
-    function test_anAddThatComesBackInCreditIsCollected() public {
+    /// takes that rather than assuming the sign from the direction of the call. The fees are the
+    /// position's, so they stay here for the owner: the adder pays what the liquidity cost and
+    /// gets back the rest of what it offered, never more.
+    function test_anAddKeepsTheFeesThePositionEarnedForTheOwner() public {
         _open();
-        manager.setCredit(true);
+        vm.prank(owner);
+        seeder.addLiquidity(TICK_LOWER, TICK_UPPER, LIQUIDITY, LIQUIDITY, LIQUIDITY);
 
         IERC20 c0 = IERC20(seeder.currency0());
         IERC20 c1 = IERC20(seeder.currency1());
-        deal(address(c0), address(manager), LIQUIDITY);
-        deal(address(c1), address(manager), LIQUIDITY);
-        uint256 before0 = c0.balanceOf(owner);
-        uint256 before1 = c1.balanceOf(owner);
+        // More fees than the next add costs on one leg, fewer on the other.
+        deal(address(c0), address(manager), c0.balanceOf(address(manager)) + 3 * uint256(LIQUIDITY));
+        deal(address(c1), address(manager), c1.balanceOf(address(manager)) + 7);
+        manager.setFees(3 * uint256(LIQUIDITY), 7);
 
-        vm.prank(owner);
-        (uint256 amount0, uint256 amount1) = seeder.addLiquidity(TICK_LOWER, TICK_UPPER, LIQUIDITY, 0, 0);
+        _fund(outsider);
+        uint256 before0 = c0.balanceOf(outsider);
+        uint256 before1 = c1.balanceOf(outsider);
+
+        vm.expectEmit(false, false, false, true, address(seeder));
+        emit V4LiquiditySeeder.FeesCollected(TICK_LOWER, TICK_UPPER, 3 * uint256(LIQUIDITY), 7);
+        vm.prank(outsider);
+        (uint256 amount0, uint256 amount1) =
+            seeder.addLiquidity(TICK_LOWER, TICK_UPPER, LIQUIDITY, LIQUIDITY, LIQUIDITY);
 
         assertEq(amount0, LIQUIDITY);
         assertEq(amount1, LIQUIDITY);
-        assertEq(c0.balanceOf(owner) - before0, LIQUIDITY, "the credit did not reach the funder");
-        assertEq(c1.balanceOf(owner) - before1, LIQUIDITY, "the credit did not reach the funder");
+        assertEq(before0 - c0.balanceOf(outsider), LIQUIDITY, "the adder did not pay for its liquidity");
+        assertEq(before1 - c1.balanceOf(outsider), LIQUIDITY, "the adder did not pay for its liquidity");
+        assertEq(c0.balanceOf(address(seeder)), 3 * uint256(LIQUIDITY), "the fees left with the adder");
+        assertEq(c1.balanceOf(address(seeder)), 7, "the fees left with the adder");
+        assertEq(manager.deltaOf(address(seeder), seeder.currency0()), 0);
+        assertEq(manager.deltaOf(address(seeder), seeder.currency1()), 0);
+
+        vm.prank(outsider);
+        vm.expectRevert(V4LiquiditySeeder.NotOwner.selector);
+        seeder.sweep(address(c0), outsider, 1);
+
+        vm.prank(owner);
+        seeder.sweep(address(c0), owner, 3 * uint256(LIQUIDITY));
         assertEq(c0.balanceOf(address(seeder)), 0);
-        assertEq(c1.balanceOf(address(seeder)), 0);
-        assertEq(seeder.liquidityOf(TICK_LOWER, TICK_UPPER), LIQUIDITY);
     }
 
-    function test_onlyTheOwnerAdds() public {
+    /// Adding is open to anyone and gives the liquidity away: it joins the owner's position and
+    /// only the owner can take it back out.
+    function test_anyoneCanAddAndOnlyTheOwnerTakesItOut() public {
         _open();
-        vm.expectRevert(V4LiquiditySeeder.NotOwner.selector);
+        _fund(outsider);
+
         vm.prank(outsider);
         seeder.addLiquidity(TICK_LOWER, TICK_UPPER, LIQUIDITY, LIQUIDITY, LIQUIDITY);
+        assertEq(seeder.liquidityOf(TICK_LOWER, TICK_UPPER), LIQUIDITY);
+
+        vm.prank(outsider);
+        vm.expectRevert(V4LiquiditySeeder.NotOwner.selector);
+        seeder.removeLiquidity(TICK_LOWER, TICK_UPPER, LIQUIDITY, 0, 0, outsider);
+
+        address recipient = makeAddr("recipient");
+        vm.prank(owner);
+        seeder.removeLiquidity(TICK_LOWER, TICK_UPPER, LIQUIDITY, LIQUIDITY, LIQUIDITY, recipient);
+        assertEq(IERC20(seeder.currency0()).balanceOf(recipient), LIQUIDITY);
+    }
+
+    /// The pool opens once, and a seeder deployed after that adds to it without opening it. This
+    /// is the path a redeployed seeder takes against the live pool.
+    function test_aSecondSeederAddsToAnInitialisedPool() public {
+        _open();
+        vm.prank(owner);
+        seeder.addLiquidity(TICK_LOWER, TICK_UPPER, LIQUIDITY, LIQUIDITY, LIQUIDITY);
+
+        address timelock = makeAddr("timelock");
+        V4LiquiditySeeder second = new V4LiquiditySeeder(address(manager), address(identity), timelock);
+        assertEq(second.poolId(), seeder.poolId());
+        assertEq(second.owner(), timelock);
+
+        _fund(outsider);
+        vm.startPrank(outsider);
+        IERC20(second.currency0()).approve(address(second), type(uint256).max);
+        IERC20(second.currency1()).approve(address(second), type(uint256).max);
+        second.addLiquidity(TICK_LOWER, TICK_UPPER, LIQUIDITY, LIQUIDITY, LIQUIDITY);
+        vm.stopPrank();
+
+        assertEq(second.liquidityOf(TICK_LOWER, TICK_UPPER), LIQUIDITY);
+        assertEq(manager.liquidityOf(seeder.poolId()), 2 * uint256(LIQUIDITY));
+
+        // Opening it again is refused by the manager, whoever asks.
+        bytes32 id = second.poolId();
+        vm.prank(timelock);
+        vm.expectRevert(abi.encodeWithSelector(StubPoolManager.AlreadyInitialized.selector, id));
+        second.initializePool(1120455419495722798374);
+    }
+
+    /// A removal pays the position's fees out with the principal, to the same recipient.
+    function test_aRemovalPaysTheFeesToItsRecipient() public {
+        _open();
+        vm.prank(owner);
+        seeder.addLiquidity(TICK_LOWER, TICK_UPPER, LIQUIDITY, LIQUIDITY, LIQUIDITY);
+
+        deal(seeder.currency0(), address(manager), IERC20(seeder.currency0()).balanceOf(address(manager)) + 11);
+        manager.setFees(11, 0);
+
+        address recipient = makeAddr("recipient");
+        vm.prank(owner);
+        (uint256 amount0, uint256 amount1) =
+            seeder.removeLiquidity(TICK_LOWER, TICK_UPPER, LIQUIDITY, LIQUIDITY + 11, LIQUIDITY, recipient);
+
+        assertEq(amount0, uint256(LIQUIDITY) + 11);
+        assertEq(amount1, LIQUIDITY);
+        assertEq(IERC20(seeder.currency0()).balanceOf(recipient), uint256(LIQUIDITY) + 11);
+        assertEq(IERC20(seeder.currency0()).balanceOf(address(seeder)), 0);
+    }
+
+    /// The owner can hand the position on, and keeps every power until the new owner accepts.
+    function test_ownershipMovesInTwoSteps() public {
+        address next = makeAddr("timelock");
+
+        vm.prank(outsider);
+        vm.expectRevert(V4LiquiditySeeder.NotOwner.selector);
+        seeder.transferOwnership(next);
+
+        vm.prank(owner);
+        vm.expectRevert(V4LiquiditySeeder.ZeroAddress.selector);
+        seeder.transferOwnership(address(0));
+
+        vm.expectEmit(true, true, false, false, address(seeder));
+        emit V4LiquiditySeeder.OwnershipTransferStarted(owner, next);
+        vm.prank(owner);
+        seeder.transferOwnership(next);
+        assertEq(seeder.owner(), owner);
+        assertEq(seeder.pendingOwner(), next);
+
+        vm.prank(outsider);
+        vm.expectRevert(V4LiquiditySeeder.NotPendingOwner.selector);
+        seeder.acceptOwnership();
+
+        vm.expectEmit(true, true, false, false, address(seeder));
+        emit V4LiquiditySeeder.OwnershipTransferred(owner, next);
+        vm.prank(next);
+        seeder.acceptOwnership();
+        assertEq(seeder.owner(), next);
+        assertEq(seeder.pendingOwner(), address(0));
+
+        brsr.mint(address(seeder), 7);
+        vm.prank(owner);
+        vm.expectRevert(V4LiquiditySeeder.NotOwner.selector);
+        seeder.sweep(address(brsr), owner, 7);
+        vm.prank(owner);
+        vm.expectRevert(V4LiquiditySeeder.NotOwner.selector);
+        seeder.initializePool(1120455419495722798374);
+
+        vm.prank(next);
+        seeder.sweep(address(brsr), next, 7);
+        assertEq(brsr.balanceOf(next), 7);
     }
 
     function test_zeroLiquidityIsRefused() public {
@@ -505,5 +645,14 @@ contract V4LiquiditySeederTest is Test {
     function _open() private {
         vm.prank(owner);
         seeder.initializePool(1120455419495722798374);
+    }
+
+    function _fund(address who) private {
+        brsr.mint(who, 1_000_000e18);
+        usdg.mint(who, 1_000_000e6);
+        vm.startPrank(who);
+        brsr.approve(address(seeder), type(uint256).max);
+        usdg.approve(address(seeder), type(uint256).max);
+        vm.stopPrank();
     }
 }

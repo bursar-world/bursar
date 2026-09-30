@@ -7,12 +7,13 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 
 import {PoolKey} from "./Buyback.sol";
 
-/// The two pool-manager functions `Buyback` does not call, declared the same way and for the
-/// same reason: four signatures do not justify a submodule pinned to an upstream revision and a
-/// second compiler version. `Currency` and `IHooks` are value types over `address` and
-/// `BalanceDelta` is a value type over `int256`, so these encodings match the deployed manager
-/// byte for byte. Both selectors were read out of the runtime at
-/// `0x8366a39CC670B4001A1121B8F6A443A643e40951` before this file was written.
+/// The six pool-manager functions this contract calls, declared here for the reason `Buyback`
+/// declares its five: a handful of signatures does not justify a submodule pinned to an upstream
+/// revision and a second compiler version. `Currency` and `IHooks` are value types over `address`
+/// and `BalanceDelta` is a value type over `int256`, so these encodings match the deployed
+/// manager byte for byte. The two `Buyback` does not call, `initialize` and `modifyLiquidity`,
+/// were read out of the runtime at `0x8366a39CC670B4001A1121B8F6A443A643e40951` before this file
+/// was written.
 interface IPoolManagerLiquidity {
     function unlock(bytes calldata data) external returns (bytes memory);
 
@@ -38,6 +39,17 @@ struct ModifyLiquidityParams {
     int24 tickUpper;
     int256 liquidityDelta;
     bytes32 salt;
+}
+
+/// One liquidity change as the callback receives it. Every field is static, so this decodes the
+/// same bytes `_run` encodes field by field.
+struct Change {
+    int24 tickLower;
+    int24 tickUpper;
+    int256 liquidityDelta;
+    uint256 amount0Max;
+    uint256 amount1Max;
+    address to;
 }
 
 /// The five values that name the pool `Buyback` trades. Read from the live buyback at
@@ -70,6 +82,15 @@ interface IBuybackPool {
 /// of one seed and whatever the position did not take goes straight back to them in the same
 /// transaction.
 ///
+/// ## Who can do what
+///
+/// Anyone can add liquidity, paid for out of their own balance, and in doing so gives it away:
+/// the position belongs to this contract, and only the owner can take liquidity back out or
+/// sweep the fees it earned. On a live deployment the owner is the admin timelock, so the
+/// market stays open unless a proposal closes it. Opening the pool is the owner's too, because
+/// the opening price is the one decision here that cannot be taken back. Ownership moves in two
+/// steps, and the incoming owner has to accept it.
+///
 /// ## The decimal trap, stated once
 ///
 /// `sqrtPriceX96` is a ratio of **raw token units**. BRSR carries eighteen decimals and USDG
@@ -100,10 +121,11 @@ contract V4LiquiditySeeder is ReentrancyGuard {
     uint24 public immutable poolFee;
     int24 public immutable poolTickSpacing;
     address public immutable poolHooks;
-
-    /// The only address that may open the pool, add to the position or take it back out.
-    address public immutable owner;
     // forge-lint: disable-end
+
+    /// Opens the pool, takes liquidity out and sweeps. Nothing else is reserved to it.
+    address public owner;
+    address public pendingOwner;
 
     /// Liquidity this contract holds per tick range, its own copy of what the manager records.
     /// A range that reads zero here has nothing of ours in it.
@@ -116,13 +138,17 @@ contract V4LiquiditySeeder is ReentrancyGuard {
 
     event PoolInitialized(uint160 sqrtPriceX96, int24 tick);
     event LiquidityAdded(int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 amount0, uint256 amount1);
+    event FeesCollected(int24 tickLower, int24 tickUpper, uint256 amount0, uint256 amount1);
     event LiquidityRemoved(
         int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 amount0, uint256 amount1, address to
     );
     event Swept(address indexed token, address indexed to, uint256 amount);
+    event OwnershipTransferStarted(address indexed from, address indexed to);
+    event OwnershipTransferred(address indexed from, address indexed to);
 
     error ZeroAddress();
     error NotOwner();
+    error NotPendingOwner();
     error NotPoolManager();
     error UnexpectedCallback();
     error CallbackNotConsumed();
@@ -155,6 +181,8 @@ contract V4LiquiditySeeder is ReentrancyGuard {
         poolTickSpacing = pool.poolTickSpacing();
         poolHooks = pool.poolHooks();
         owner = owner_;
+
+        emit OwnershipTransferred(address(0), owner_);
     }
 
     /// Opens the pool at `sqrtPriceX96` and returns the tick the manager put it at.
@@ -170,14 +198,18 @@ contract V4LiquiditySeeder is ReentrancyGuard {
 
     /// Adds `liquidity` over `[tickLower, tickUpper]`, paid for out of the caller's balance.
     ///
+    /// Open to anyone. What is added joins this contract's position and only the owner can take
+    /// it back out, so calling this gives the liquidity away.
+    ///
     /// `amount0Max` and `amount1Max` are the guard that matters. Liquidity is a unit nobody can
     /// check by eye; the two maxima are the amounts of BRSR and USDG the caller is willing to
     /// part with, and the call reverts rather than take a wei more of either. Both are pulled up
     /// front because the manager is paid from this contract's own balance during the callback,
-    /// and the remainder goes back in the same transaction.
+    /// and the remainder goes back in the same transaction. Fees the position had accrued are
+    /// credited into the same settlement and stay here for the owner; the caller gets back what
+    /// the liquidity did not cost, never the fees.
     function addLiquidity(int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 amount0Max, uint256 amount1Max)
         external
-        onlyOwner
         nonReentrant
         returns (uint256 amount0, uint256 amount1)
     {
@@ -187,15 +219,18 @@ contract V4LiquiditySeeder is ReentrancyGuard {
         uint256 before0 = _pull(currency0, amount0Max);
         uint256 before1 = _pull(currency1, amount1Max);
 
-        (amount0, amount1) =
+        uint256 fees0;
+        uint256 fees1;
+        (amount0, amount1, fees0, fees1) =
             _run(tickLower, tickUpper, int256(uint256(liquidity)), amount0Max, amount1Max, address(this));
 
         liquidityOf[tickLower][tickUpper] += liquidity;
 
-        _refund(currency0, before0);
-        _refund(currency1, before1);
+        _refund(currency0, before0 + fees0);
+        _refund(currency1, before1 + fees1);
 
         emit LiquidityAdded(tickLower, tickUpper, liquidity, amount0, amount1);
+        if (fees0 != 0 || fees1 != 0) emit FeesCollected(tickLower, tickUpper, fees0, fees1);
     }
 
     /// Takes `liquidity` back out of the position and sends the proceeds to `to`.
@@ -204,7 +239,8 @@ contract V4LiquiditySeeder is ReentrancyGuard {
     /// forever: a venue can be abandoned, a key can be rotated, and the alternative to this
     /// function is liquidity nobody can reach. `amount0Min` and `amount1Min` are the caller's
     /// floor on what comes back, which is what a price that moved between the read and the
-    /// transaction shows up as.
+    /// transaction shows up as. Fees the position accrued come out with it, to the same
+    /// recipient.
     function removeLiquidity(
         int24 tickLower,
         int24 tickUpper,
@@ -220,7 +256,7 @@ contract V4LiquiditySeeder is ReentrancyGuard {
         if (held < liquidity) revert InsufficientLiquidity(held, liquidity);
         liquidityOf[tickLower][tickUpper] = held - liquidity;
 
-        (amount0, amount1) = _run(tickLower, tickUpper, -int256(uint256(liquidity)), 0, 0, to);
+        (amount0, amount1,,) = _run(tickLower, tickUpper, -int256(uint256(liquidity)), 0, 0, to);
 
         if (amount0 < amount0Min) revert AmountBelowMinimum(currency0, amount0, amount0Min);
         if (amount1 < amount1Min) revert AmountBelowMinimum(currency1, amount1, amount1Min);
@@ -228,13 +264,27 @@ contract V4LiquiditySeeder is ReentrancyGuard {
         emit LiquidityRemoved(tickLower, tickUpper, liquidity, amount0, amount1, to);
     }
 
-    /// Returns anything left sitting here. Fees a position accrues in v4 are credited on the
-    /// next `modifyLiquidity` against it, so they arrive through `removeLiquidity` and land
-    /// here when that call takes more out than the withdrawal asked for.
+    /// Sends on whatever sits here. v4 credits a position's fees on the next `modifyLiquidity`
+    /// against it: a removal pays them to its own recipient, and an add, which anyone can make,
+    /// leaves them here. Anything sent here by mistake leaves the same way.
     function sweep(address token, address to, uint256 amount) external onlyOwner {
         if (token == address(0) || to == address(0)) revert ZeroAddress();
         IERC20(token).safeTransfer(to, amount);
         emit Swept(token, to, amount);
+    }
+
+    /// Step one of two. The current owner keeps every power until the new one accepts.
+    function transferOwnership(address to) external onlyOwner {
+        if (to == address(0)) revert ZeroAddress();
+        pendingOwner = to;
+        emit OwnershipTransferStarted(owner, to);
+    }
+
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner) revert NotPendingOwner();
+        emit OwnershipTransferred(owner, msg.sender);
+        owner = msg.sender;
+        pendingOwner = address(0);
     }
 
     /// The pool key, assembled from the five immutables. Every call here sends this and nothing
@@ -259,31 +309,54 @@ contract V4LiquiditySeeder is ReentrancyGuard {
         if (expected == bytes32(0) || keccak256(data) != expected) revert UnexpectedCallback();
         delete _callbackHash;
 
-        (int24 tickLower, int24 tickUpper, int256 liquidityDelta, uint256 amount0Max, uint256 amount1Max, address to) =
-            abi.decode(data, (int24, int24, int256, uint256, uint256, address));
+        Change memory change = abi.decode(data, (Change));
 
-        (int256 callerDelta,) = poolManager.modifyLiquidity(
+        (int256 callerDelta, int256 feesAccrued) = poolManager.modifyLiquidity(
             key(),
             ModifyLiquidityParams({
-                tickLower: tickLower, tickUpper: tickUpper, liquidityDelta: liquidityDelta, salt: bytes32(0)
+                tickLower: change.tickLower,
+                tickUpper: change.tickUpper,
+                liquidityDelta: change.liquidityDelta,
+                salt: bytes32(0)
             }),
             ""
         );
 
-        // The delta packs two signed 128-bit amounts into one word, amount0 above amount1.
+        // Each delta packs two signed 128-bit amounts into one word, amount0 above amount1.
+        bool adding = change.liquidityDelta > 0;
+        (uint256 amount0, uint256 fees0) =
+            _leg(currency0, callerDelta >> 128, feesAccrued >> 128, adding, change.amount0Max, change.to);
+        (uint256 amount1, uint256 fees1) =
+            _leg(currency1, callerDelta, feesAccrued, adding, change.amount1Max, change.to);
+
+        return abi.encode(amount0, amount1, fees0, fees1);
+    }
+
+    /// Settles one currency and returns what the liquidity cost in it, or on a removal what it
+    /// paid out, with the fees the position had accrued in it. Each argument carries its leg
+    /// in the low 128 bits.
+    ///
+    /// `delta` is the principal and the fees together, and both signs are handled on both paths
+    /// rather than assumed from the direction. An add owes the pool on every leg its range
+    /// covers, but the fees credited into the same delta can outweigh what a leg owes. A removal
+    /// is paid on every leg, and one the manager says owes anything is refused by its zero
+    /// maxima.
+    function _leg(address currency, int256 packedDelta, int256 packedFees, bool adding, uint256 maximum, address to)
+        private
+        returns (uint256 amount, uint256 fees)
+    {
         // forge-lint: disable-start(unsafe-typecast)
-        int256 delta0 = int256(int128(callerDelta >> 128));
-        int256 delta1 = int256(int128(callerDelta));
+        int256 delta = int256(int128(packedDelta));
+        fees = uint256(uint128(int128(packedFees)));
         // forge-lint: disable-end
 
-        // Both signs are handled on both paths rather than assumed from the direction. A
-        // withdrawal that leaves the position in credit on one currency and in debt on the
-        // other is what a range the price has crossed looks like, and fees a position already
-        // accrued are credited into this same delta.
-        uint256 moved0 = _settleOrTake(currency0, delta0, amount0Max, to);
-        uint256 moved1 = _settleOrTake(currency1, delta1, amount1Max, to);
+        uint256 moved = _settleOrTake(currency, delta, maximum, to);
+        if (!adding) return (moved, fees);
 
-        return abi.encode(moved0, moved1);
+        // The fees taken back out leave what the liquidity itself cost. That is what the caller
+        // pays and what the maximum bounds.
+        amount = _cost(delta - int256(fees));
+        if (amount > maximum) revert AmountAboveMaximum(currency, amount, maximum);
     }
 
     /// Pays what is owed or collects what is due, and returns the amount either way.
@@ -312,6 +385,10 @@ contract V4LiquiditySeeder is ReentrancyGuard {
         poolManager.take(currency, to, moved);
     }
 
+    function _cost(int256 principal) private pure returns (uint256) {
+        return principal < 0 ? uint256(-principal) : 0;
+    }
+
     function _run(
         int24 tickLower,
         int24 tickUpper,
@@ -319,7 +396,7 @@ contract V4LiquiditySeeder is ReentrancyGuard {
         uint256 amount0Max,
         uint256 amount1Max,
         address to
-    ) private returns (uint256 amount0, uint256 amount1) {
+    ) private returns (uint256 amount0, uint256 amount1, uint256 fees0, uint256 fees1) {
         bytes memory payload = abi.encode(tickLower, tickUpper, liquidityDelta, amount0Max, amount1Max, to);
         _callbackHash = keccak256(payload);
         bytes memory result = poolManager.unlock(payload);
@@ -329,7 +406,7 @@ contract V4LiquiditySeeder is ReentrancyGuard {
             delete _callbackHash;
             revert CallbackNotConsumed();
         }
-        (amount0, amount1) = abi.decode(result, (uint256, uint256));
+        (amount0, amount1, fees0, fees1) = abi.decode(result, (uint256, uint256, uint256, uint256));
     }
 
     function _requireTicks(int24 tickLower, int24 tickUpper) private view {
@@ -347,13 +424,14 @@ contract V4LiquiditySeeder is ReentrancyGuard {
     }
 
     /// Sends back whatever of the pulled amount the position did not take. Measured against the
-    /// mark rather than against the whole balance, so a stray amount that was already sitting
-    /// here is not handed to whoever happens to seed next; that leaves through `sweep`.
+    /// mark, raised by the fees this add collected, rather than against the whole balance, so
+    /// neither a stray amount already sitting here nor the position's fees are handed to
+    /// whoever happens to add next; both leave through `sweep`.
     ///
     /// The subtraction cannot underflow: the callback refuses to pay more of either currency
     /// than the maximum, and the maximum is what this call pulled.
-    function _refund(address currency, uint256 before) private {
-        uint256 unspent = IERC20(currency).balanceOf(address(this)) - before;
+    function _refund(address currency, uint256 mark) private {
+        uint256 unspent = IERC20(currency).balanceOf(address(this)) - mark;
         if (unspent != 0) IERC20(currency).safeTransfer(msg.sender, unspent);
     }
 }
