@@ -4,15 +4,20 @@ import type { Brsr } from '@/money';
 /**
  * Why a staked balance earns the rebate it earns.
  *
- * `Staking.rebateBpsOf` measures the ladder against `activeStakeOf`, which is shares less the
- * shares already asked back:
+ * `Staking.rebateBpsOf` measures the ladder against the earning shares alone, priced with one
+ * share more than the account holds:
  *
- *     uint256 value = activeStakeOf(account);
+ *     uint256 value = _stakeFor(position.shares + 1);
  *
- * So a position sitting above a tier and a position sitting above the same tier with a withdrawal
- * pending read the same on the pool total and differently on the rebate. The page used to explain
- * every zero with "the table is not set", which was true before the tiers landed and is now the
- * wrong cause printed next to the right number.
+ * The extra share gives back the fraction a deposit leaves in the pool, so a stake of exactly a
+ * tier's amount reads that tier even after a compound has moved the price. It also means the
+ * earning stake shown on the page can sit a hair under the tier the contract awards, so the tier is
+ * taken from the contract's own answer and never re-derived from the stake.
+ *
+ * A position sitting above a tier and the same position with a withdrawal pending read the same on
+ * the pool total and differently on the rebate, because a request moves its stake out of the
+ * earning shares. The page used to explain every zero with "the table is not set", which was true
+ * before the tiers landed and is now the wrong cause printed next to the right number.
  */
 export type RebateTier = { readonly minStake: Brsr; readonly rebateBps: number };
 
@@ -58,8 +63,8 @@ export function rebateReason(tiers: readonly RebateTier[] | undefined, position:
   if (floor === undefined) return { kind: 'no-table' };
 
   if (position.rebateBps > 0) {
-    const held = ladder.filter((tier) => position.activeStake !== undefined && position.activeStake >= tier.minStake);
-    const current = held[held.length - 1] ?? floor;
+    const reached = ladder.filter((tier) => position.activeStake !== undefined && position.activeStake >= tier.minStake);
+    const current = ladder.find((tier) => tier.rebateBps === position.rebateBps) ?? reached[reached.length - 1] ?? floor;
     const next = ladder.find((tier) => tier.minStake > current.minStake);
     return {
       kind: 'earning',

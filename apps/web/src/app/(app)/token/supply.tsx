@@ -43,7 +43,7 @@ export function SupplySection({ data, blockedBy }: { readonly data: TokenPageDat
       allocation: BRSR_SUPPLY.community,
       holder: TOKEN_ROLES.community,
       holderLabel: 'Token governance delay',
-      terms: 'Staking rewards, resolver incentives and integration grants. Each release is a proposal that waits out the 48-hour delay on the token contracts.',
+      terms: 'Staking rewards, resolver incentives and integration grants. Each release is a proposal that waits out this delay.',
       heldNow: extras?.holders.community,
     },
     {
@@ -70,7 +70,7 @@ export function SupplySection({ data, blockedBy }: { readonly data: TokenPageDat
       allocation: BRSR_SUPPLY.liquidity,
       holder: TOKEN_ROLES.liquidity,
       holderLabel: 'Liquidity key',
-      terms: 'Reserved for the BRSR/USDG pool. That pool has not been initialised, so the share waits on this key.',
+      terms: 'Reserved for the BRSR/USDG pool. What has not gone into the pool waits on this key.',
       heldNow: extras?.holders.liquidity,
     },
   ];

@@ -1,16 +1,20 @@
 'use client';
 
+import type { Address as AddressValue } from 'viem';
 
 import { ADDRESSES, TOKEN_ADDRESSES, buybackAbi, isZeroAddress, sameAddress } from '@/chain';
 import { collateralLane } from '@/chain/collateral';
 import type { EscrowRead } from '@/chain';
 import { Address } from '@/components/address';
-import { Instant } from '@/components/instant';
+import { Countdown, Instant } from '@/components/instant';
 import { Card, Field, FieldGrid, Section } from '@/components/layout';
 import { TxButton } from '@/components/tx-button';
+import { formatDuration } from '@/lib';
 import { bps, usdExact } from '@/money';
 import type { AnyState } from '@/state';
 
+import { tokenFailure } from './refusal';
+import { buybackTrigger, ceilingStaleAt } from './state';
 import type { TokenPageData } from './use-token-page';
 import { useWriteContract } from '@/wallet/write';
 
@@ -43,23 +47,14 @@ export function FeeFlowSection({
       ? 'Spread swept from the credit pool is paid to stakers today.'
       : 'Until governance names the credit pool on the staking contract, spread collects in the credit pool and nothing is paid out. The proposal that names it is on the governance page.';
 
-  const canTrigger =
-    buyback !== undefined && buyback.paused === false && buyback.available !== undefined && buyback.available > 0n;
-
-  // A control that is off says why it is off. Each of these is a different answer to that, and
-  // an unread contract is not the same answer as an empty one. Nothing is claimed until the
-  // reading has landed, so a page still loading does not accuse the contract of silence.
-  const holdReason = canTrigger || data.token === undefined
-    ? undefined
-    : buyback === undefined
-    ? 'The buyback contract did not answer this reading, so a buy cannot be triggered from here until it does.'
-    : buyback.paused === undefined
-    ? 'Whether the buyback is paused could not be read, and a buy is refused while it is.'
-    : buyback.paused
-    ? 'The buyback is paused, so it cannot spend.'
-    : buyback.available === undefined
-    ? 'What a buy could spend could not be read, so the trigger stays off until the next reading lands.'
-    : 'There is nothing to spend right now, so a buy would do nothing.';
+  // A control that is off says why it is off, and an unread contract is not the same answer as an
+  // empty one. Nothing is claimed until the reading has landed.
+  const now = Date.now();
+  const { isKeeper, canTrigger, hold: holdReason } = buybackTrigger(buyback, data.account, data.token === undefined, now);
+  const staleAt = ceilingStaleAt(buyback);
+  const stale = staleAt !== undefined && staleAt.getTime() < now;
+  const keeper = buyback?.keeper;
+  const keeperNamed = keeper !== undefined && !isZeroAddress(keeper);
 
   return (
     <Section title="Where the revenue comes from and where it goes" description="Two charges, both in USDG, and both made today.">
@@ -104,13 +99,16 @@ export function FeeFlowSection({
             failed at once the loss would stop at its own balance. The treasury behind it stays out of reach.
           </li>
           <li>
-            <span className="font-medium">Buyback to the pool.</span> The contract spends that USDG on the BRSR/USDG pool, under a per-call size, a window cap and a price floor governance sets. Anyone may trigger it. The
-            caller picks no amount, no price, no deadline and no recipient, so triggering one is worth nothing beyond
-            the gas it costs.
+            <span className="font-medium">Buyback to the pool.</span> The contract spends that USDG on the BRSR/USDG pool,
+            under a per-call size, a window cap and a price ceiling governance sets. Only the keeper governance names can
+            trigger it, which stops anyone from wrapping a buy inside a transaction of their own. The keeper picks no
+            amount, no price, no deadline and no recipient. A ceiling nobody has restated within its set age stops every
+            buy until governance sets it again.
           </li>
           <li>
             <span className="font-medium">Pool to the staking contract.</span> What it bought is compounded into the
-            staking pool. No new shares are minted, so each share outstanding is worth more BRSR than it was.
+            staking pool. No new shares are minted, so each earning share is worth more BRSR than it was. Stake behind an
+            exit request does not share in it.
           </li>
           <li>
             <span className="font-medium">Collateralized-lane spread to the staking contract.</span> The spread is
@@ -124,19 +122,51 @@ export function FeeFlowSection({
         title="The buyback right now"
         description="Read from the contract."
         actions={
-          <TxButton
-            label="Trigger a buy"
-            tone="secondary"
-            disabled={!canTrigger}
-            blockedBy={blockedBy}
-            send={() => writeContractAsync({ address: TOKEN_ADDRESSES.Buyback, abi: buybackAbi, functionName: 'buyback' })}
-            onConfirmed={data.refresh}
-          />
+          isKeeper ? (
+            <TxButton
+              label="Trigger a buy"
+              tone="secondary"
+              disabled={!canTrigger}
+              blockedBy={blockedBy}
+              send={() =>
+                writeContractAsync({ address: TOKEN_ADDRESSES.Buyback, abi: buybackAbi, functionName: 'buyback' }).catch(
+                  (caught: unknown) => {
+                    throw tokenFailure(caught, { action: 'Trigger a buy', contract: 'buyback' });
+                  },
+                )
+              }
+              onConfirmed={data.refresh}
+            />
+          ) : undefined
         }
       >
         <FieldGrid columns={3}>
-          <Field label="Available to spend" hint="What a call right now would spend, after the interval and the window cap.">
+          <Field
+            label="Available to spend"
+            hint="What the keeper's next call would spend. Zero whenever that call would be refused, whatever the balance."
+          >
             <span className="tabular">{buyback?.available === undefined ? unread : usdExact(buyback.available)}</span>
+          </Field>
+          <Field label="Price ceiling" hint="The most a buy pays for one whole BRSR. Zero refuses every buy.">
+            <span className="tabular">
+              {buyback === undefined ? unread : buyback.ceiling === 0n ? 'Unset' : `${usdExact(buyback.ceiling)} per BRSR`}
+            </span>
+          </Field>
+          <Field label="Ceiling set" hint="Every change to the buyback's limits restates the ceiling and restarts its age.">
+            {buyback?.ceilingSetAt === undefined ? unread : <Instant at={buyback.ceilingSetAt} />}
+          </Field>
+          <Field
+            label={stale ? 'Stale since' : 'Usable until'}
+            hint={
+              buyback?.maxCeilingAge === undefined
+                ? 'After this every buy is refused until governance sets the ceiling again.'
+                : `A ceiling stays usable for ${formatDuration(Number(buyback.maxCeilingAge))} after it is set.`
+            }
+          >
+            {staleAt === undefined ? unread : stale ? <Instant at={staleAt} /> : <Countdown to={staleAt} />}
+          </Field>
+          <Field label="Keeper" hint="The only address that can trigger a buy.">
+            {keeper === undefined ? unread : keeperNamed ? <KeeperLabel keeper={keeper} you={isKeeper} /> : 'None named'}
           </Field>
           <Field label="Size per call" hint="The most one buy may spend.">
             <span className="tabular">{buyback === undefined ? unread : usdExact(buyback.spendPerCall)}</span>
@@ -167,11 +197,21 @@ export function FeeFlowSection({
         {holdReason && <p className="mt-4 max-w-3xl text-detail text-[color:var(--color-muted)]">{holdReason}</p>}
 
         <p className="mt-4 max-w-3xl text-sm">
-          The BRSR/USDG pool has not been initialised, so there is nothing for a buy to trade against. The
-          price floor in the contract is set where it refuses every trade. Governance sets a real one before the pool
-          is seeded.
+          The ceiling is not read from the pool during a trade, so a price pushed up in front of a buy cannot drag it
+          along. It is a number governance restates, and it ages: once it passes the age above without being set again,
+          the contract treats it as no price at all and refuses every buy.
         </p>
       </Card>
     </Section>
   );
 }
+
+function KeeperLabel({ keeper, you }: { readonly keeper: AddressValue; readonly you: boolean }) {
+  return (
+    <>
+      <Address value={keeper} />
+      {you && <span className="ml-2 text-detail text-[color:var(--color-muted)]">This wallet</span>}
+    </>
+  );
+}
+

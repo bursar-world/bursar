@@ -9,6 +9,9 @@ import { bps, formatBrsr } from '@/money';
 
 import type { TokenPageData } from './use-token-page';
 
+/** The registry seats at most this many resolvers, whatever its rules say. */
+const ROSTER = 64;
+
 const STATUS_WORD: Readonly<Record<number, string>> = {
   0: 'Not registered',
   1: 'Active',
@@ -59,7 +62,7 @@ export function BondingSection({ data }: { readonly data: TokenPageData }) {
           <Field label="Votes needed to settle a dispute">
             <span className="tabular">{bond?.quorum ?? unread}</span>
           </Field>
-          <Field label="Most voters on one dispute" hint="Bounds what a single dispute can cost the roster.">
+          <Field label="Most voters on one dispute" hint={votersHint(bond?.maxVoters)}>
             <span className="tabular">{bond?.maxVoters ?? unread}</span>
           </Field>
           <Field label="Dispute registry">
@@ -147,4 +150,10 @@ export function BondingSection({ data }: { readonly data: TokenPageData }) {
       )}
     </Section>
   );
+}
+
+function votersHint(maxVoters: number | undefined): string {
+  return maxVoters !== undefined && maxVoters >= ROSTER
+    ? `Every seated resolver may vote on every dispute. The roster holds at most ${ROSTER}.`
+    : `At most this many resolvers may commit on one dispute. The roster holds at most ${ROSTER}.`;
 }

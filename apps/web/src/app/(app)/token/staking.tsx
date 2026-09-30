@@ -4,6 +4,7 @@ import { useState } from 'react';
 
 import { TOKEN_ADDRESSES, isZeroAddress, brsrAbi, sameAddress, stakingAbi } from '@/chain';
 import { collateralLane } from '@/chain/collateral';
+import type { PendingExit, StakingPool } from '@/chain/token';
 import { Address } from '@/components/address';
 import { AmountInput } from '@/components/amount-input';
 import { Countdown, Instant } from '@/components/instant';
@@ -17,6 +18,8 @@ import type { Brsr } from '@/money';
 import type { AnyState } from '@/state';
 
 import { rebateReason, rebateSentence } from './rebate';
+import { tokenFailure } from './refusal';
+import { allowanceHint, brakeHint, capSentence, exitStage, slasherSentence } from './state';
 import type { TokenPageData } from './use-token-page';
 import { useWriteContract } from '@/wallet/write';
 
@@ -24,8 +27,9 @@ import { useWriteContract } from '@/wallet/write';
  * The staking surface.
  *
  * What a staker is exposed to comes before what the position pays, and both come before the
- * controls. The credit pool writes bad debt off against its own lender and never calls
- * `Staking.slash`, so the page says stake is not first-loss cover rather than implying it is.
+ * controls. Stake is first-loss cover for the collateralized lane at a capped rate, and whether a
+ * write-off can reach it today is a reading, not a sentence: it depends on whom the pool names as
+ * its slasher.
  */
 export function StakingSection({ data, blockedBy }: { readonly data: TokenPageData; readonly blockedBy: readonly AnyState[] }) {
   const pool = data.token?.pool;
@@ -37,31 +41,28 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
   const unread = unreadWord(data);
   const laneUnread = data.extras === undefined ? 'Reading' : 'Not read';
 
-  const maturesAt =
-    position?.unbondingAt && pool?.unbondingPeriod !== undefined
-      ? new Date(position.unbondingAt.getTime() + Number(pool.unbondingPeriod) * 1000)
-      : null;
-
   return (
-    <Section title="Staking" description="Where the collateralized lane's spread and the buyback arrive, and the fee rebate a staked balance earns.">
+    <Section
+      title="Staking"
+      description="First-loss cover for the collateralized lane, where its spread and the buyback arrive, and the fee rebate a staked balance earns."
+    >
       <Card title="What staking here exposes you to">
         <div className="max-w-3xl space-y-3 text-sm">
           <p>
-            Staked BRSR does not cover credit defaults. The collateralized lane lends USDG from a separate credit pool
-            against posted stock and treasury tokens. When a line&rsquo;s collateral cannot repay its debt, the shortfall
-            is written off inside that credit pool and falls on the pool&rsquo;s lender, not on stakers. The credit pool
-            has no call that takes stake.
+            Staked BRSR takes first loss on the collateralized lane. That lane lends USDG from a separate credit pool
+            against posted stock and treasury tokens. When a line&rsquo;s collateral cannot repay its debt, the credit
+            pool writes the shortfall off, and where the staking contract names that pool as its slasher, the write-off
+            takes stake: the loss is converted to BRSR at the buyback&rsquo;s price ceiling and sent to the slash sink.
+            The lender carries whatever the stake does not cover.
           </p>
+          <p>{capSentence(pool)}</p>
+          <p>{slasherSentence(pool, creditPool, data.token === undefined)}</p>
           <p>
-            The staking contract lets exactly one address take stake: the credit manager governance names. Naming a
-            different one is a proposal that waits out the 48-hour delay and appears on the governance page before it
-            can run. What staking does carry is the BRSR price itself, which can fall, and the exit wait below.
-          </p>
-          <p>
-            In exchange the pool is where the collateralized lane&rsquo;s spread is paid, in USDG. The buyback
-            compounds purchased BRSR into the same pool. A staked balance also takes a rebate off the facilitator fee
-            on that party&rsquo;s own settlements. None of these is a rate. None is promised. What arrives depends on
-            how much the system is used.
+            In exchange the pool is where the collateralized lane&rsquo;s spread is paid, in USDG, and where the buyback
+            compounds the BRSR it buys, which raises what each earning share is worth. A staked balance also takes a
+            rebate off the facilitator fee on that party&rsquo;s own settlements. None of these is a rate. None is
+            promised. What arrives depends on how much the system is used. Staking also carries the BRSR price itself,
+            which can fall, and the exit wait below.
           </p>
         </div>
       </Card>
@@ -92,20 +93,48 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
             anywhere on the page, so a staker reading 0% beside it was told the wrong cause. What a
             tier is measured against is the part that is not obvious, and it belongs here.
           */}
-          <Field label="Fee rebate tiers" hint="Each tier is measured against active stake, so a pending withdrawal counts against it.">
+          <Field label="Fee rebate tiers" hint="Each tier is measured against earning stake, so stake behind an exit request does not count toward it.">
             {pool?.tiers === undefined ? unread : pool.tiers.length === 0 ? 'None set' : `${pool.tiers.length} tiers`}
           </Field>
-          <Field label="Exit wait" hint="How long a withdrawal request sits before it can complete.">
+          <Field label="Slasher" hint="The one address that can take stake to cover a write-off.">
+            {pool?.slasher === undefined ? (
+              unread
+            ) : isZeroAddress(pool.slasher) ? (
+              'None named'
+            ) : (
+              <Address value={pool.slasher} label={sameAddress(pool.slasher, creditPool) ? 'Credit pool' : undefined} />
+            )}
+          </Field>
+          <Field label="Slash allowance" hint={allowanceHint(pool)}>
+            <span className="tabular">{amountOr(pool?.slashAllowance, unread)}</span>
+          </Field>
+          <Field label="Exit wait" hint="How long an exit request waits before it can complete. It earns nothing while it waits.">
             {pool?.unbondingPeriod === undefined ? unread : formatDuration(Number(pool.unbondingPeriod))}
           </Field>
-          <Field label="In the pool">
+          <Field label="Time to complete" hint="How long a request stays open once it is ready. After that it lapses until it is put back to work.">
+            {pool?.unbondWindow === undefined ? unread : formatDuration(Number(pool.unbondWindow))}
+          </Field>
+          <Field label="In the pool" hint="Earning stake and stake behind exit requests together.">
             <span className="tabular">{amountOr(pool?.totalStaked, unread)}</span>
+          </Field>
+          <Field label="Behind exit requests" hint="Earns nothing, and takes its share of any slash until it leaves.">
+            <span className="tabular">{amountOr(pool?.unbondingStaked, unread)}</span>
           </Field>
           <Field label="Reward asset" hint="Spread is distributed in the settlement asset, not in BRSR.">
             {pool?.rewardToken === undefined ? unread : <Address value={pool.rewardToken} label="USDG" />}
           </Field>
-          <Field label="Brake" hint="Deposits and withdrawals stop while paused. Claiming spread stays open.">
-            {pool?.paused === undefined ? unread : pool.paused ? 'Paused' : 'Running'}
+          <Field label="Brake" hint={brakeHint(pool)}>
+            {pool?.paused === undefined ? (
+              unread
+            ) : !pool.paused ? (
+              'Running'
+            ) : pool.exitsHeldUntil ? (
+              <>
+                Paused, exits held until <Instant at={pool.exitsHeldUntil} />
+              </>
+            ) : (
+              'Paused'
+            )}
           </Field>
         </FieldGrid>
 
@@ -133,14 +162,14 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
           <Card title="Your position">
             <StatGrid columns={4}>
               <Stat
-                label="Active stake"
+                label="Earning stake"
                 value={amountOr(position?.activeStake, unread)}
-                hint="Earning spread and counted for the rebate."
+                hint="Earning spread and compounds, and counted for the rebate."
               />
               <Stat
                 label="Held in the pool"
                 value={amountOr(position?.stakedValue, unread)}
-                hint="Including anything already on its way out."
+                hint="Including an exit on its way out, which earns nothing and still takes losses."
               />
               <Stat
                 label="Spread to claim"
@@ -174,8 +203,8 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
                 <Field label="In your wallet">
                   <span className="tabular">{amountOr(data.token?.balance, unread)}</span>
                 </Field>
-                <Field label="Shares" hint="What you own is a fraction of the pool, not a balance inside it.">
-                  <span className="tabular">{position === undefined ? unread : position.shares.toString()}</span>
+                <Field label="Earning shares" hint="What you own is a fraction of the pool, not a balance inside it.">
+                  <span className="tabular">{position?.shares === undefined ? unread : position.shares.toString()}</span>
                 </Field>
                 <Field label="Staking contract">
                   <Address value={TOKEN_ADDRESSES.Staking} />
@@ -185,7 +214,7 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
           </Card>
 
           <StakeCard data={data} blockedBy={blockedBy} />
-          <ExitCard data={data} blockedBy={blockedBy} maturesAt={maturesAt} />
+          <ExitCard data={data} blockedBy={blockedBy} />
           <ClaimCard data={data} blockedBy={blockedBy} />
         </>
       )}
@@ -237,7 +266,7 @@ function StakeCard({ data, blockedBy }: { readonly data: TokenPageData; readonly
           }}
           max={balance === undefined ? undefined : { atomic: balance, label: 'All of it' }}
           problem={overBalance ? 'More than this wallet holds.' : undefined}
-          hint="Once staked, leaving takes the exit wait above."
+          hint="Once staked, leaving takes the exit wait above, and the stake takes its share of any slash until it leaves."
           disabled={paused === true}
         />
       </div>
@@ -261,6 +290,8 @@ function StakeCard({ data, blockedBy }: { readonly data: TokenPageData; readonly
                 abi: brsrAbi,
                 functionName: 'approve',
                 args: [TOKEN_ADDRESSES.Staking, amount],
+              }).catch((caught: unknown) => {
+                throw tokenFailure(caught, { action: 'Allow the staking contract', contract: 'staking' });
               })
             }
             onContinue={data.refresh}
@@ -277,6 +308,8 @@ function StakeCard({ data, blockedBy }: { readonly data: TokenPageData; readonly
                 abi: stakingAbi,
                 functionName: 'stake',
                 args: [amount],
+              }).catch((caught: unknown) => {
+                throw tokenFailure(caught, { action: 'Stake', contract: 'staking' });
               })
             }
             onConfirmed={() => {
@@ -304,46 +337,30 @@ function StakeCard({ data, blockedBy }: { readonly data: TokenPageData; readonly
   );
 }
 
-function ExitCard({
-  data,
-  blockedBy,
-  maturesAt,
-}: {
-  readonly data: TokenPageData;
-  readonly blockedBy: readonly AnyState[];
-  readonly maturesAt: Date | null;
-}) {
+function ExitCard({ data, blockedBy }: { readonly data: TokenPageData; readonly blockedBy: readonly AnyState[] }) {
   const [text, setText] = useState('');
   const [atomic, setAtomic] = useState<bigint | undefined>(undefined);
   const { writeContractAsync } = useWriteContract();
 
   const position = data.token?.position;
   const pool = data.token?.pool;
-  const paused = pool?.paused;
-  const unread = unreadWord(data);
 
-  if (position === undefined) {
+  if (position === undefined || position.exit === undefined) {
     return (
       <Card title="Leaving">
         <p className="text-sm text-[color:var(--color-muted)]">
           {data.token === undefined
             ? 'Reading this position.'
-            : 'The staking contract did not answer this position, so whether anything is staked is unknown.'}
+            : 'The staking contract did not answer whether an exit is open for this wallet, so leaving stays off until the next reading lands.'}
         </p>
       </Card>
     );
   }
 
-  const held = position.stakedValue;
-  const shares = position.shares;
-  const unbonding = position.unbondingShares;
+  if (position.exit !== null) return <PendingExitCard exit={position.exit} pool={pool} data={data} blockedBy={blockedBy} />;
 
-  const requested = atomic ?? 0n;
-  const overHeld = held !== undefined && requested > held;
-  // Priced against this position's own holding, so a request for everything is exactly every share
-  // and cannot round short of it. Pricing against the pool would leave dust behind.
-  const sharesToExit = held === undefined || held === ZERO_BRSR || requested === 0n ? 0n : min((requested * shares) / held, shares);
-  const matured = maturesAt !== null && maturesAt.getTime() <= Date.now();
+  const earning = position.activeStake;
+  const shares = position.shares;
 
   if (shares === 0n) {
     return (
@@ -353,61 +370,12 @@ function ExitCard({
     );
   }
 
-  if (unbonding > 0n) {
-    return (
-      <Card title="Leaving" description="One withdrawal request at a time.">
-        <FieldGrid columns={3}>
-          <Field label="Shares on their way out">
-            <span className="tabular">{unbonding.toString()}</span>
-          </Field>
-          <Field label="Requested">
-            <Instant at={position.unbondingAt} />
-          </Field>
-          <Field label={matured ? 'Ready since' : 'Can complete'}>
-            {maturesAt === null ? unread : matured ? <Instant at={maturesAt} /> : <Countdown to={maturesAt} />}
-          </Field>
-        </FieldGrid>
-
-        <p className="mt-4 max-w-3xl text-sm">
-          These shares no longer earn spread. What they are worth in BRSR is decided when the withdrawal completes.
-        </p>
-
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <TxButton
-            label="Complete the withdrawal"
-            disabled={!matured || paused !== false}
-            blockedBy={blockedBy}
-            send={() => writeContractAsync({ address: TOKEN_ADDRESSES.Staking, abi: stakingAbi, functionName: 'completeUnbond' })}
-            onContinue={data.refresh}
-          />
-          <TxButton
-            label="Cancel and stay in"
-            tone="secondary"
-            blockedBy={blockedBy}
-            send={() => writeContractAsync({ address: TOKEN_ADDRESSES.Staking, abi: stakingAbi, functionName: 'cancelUnbond' })}
-            onContinue={data.refresh}
-          />
-        </div>
-
-        {paused === true && (
-          <p className="mt-3 text-detail text-[color:var(--color-muted)]">
-            Withdrawals are held while the pool is paused. Restarting it is a governance proposal.
-          </p>
-        )}
-        {maturesAt === null && (
-          <p className="mt-3 text-detail text-[color:var(--color-muted)]">
-            The exit wait could not be read, so whether this withdrawal can complete yet is unknown and the control
-            stays off until the next reading lands.
-          </p>
-        )}
-        {paused === undefined && (
-          <p className="mt-3 text-detail text-[color:var(--color-muted)]">
-            Whether the pool is paused could not be read, and a withdrawal is refused while it is.
-          </p>
-        )}
-      </Card>
-    );
-  }
+  const requested = atomic ?? 0n;
+  const overHeld = earning !== undefined && requested > earning;
+  // Priced against this position's own holding, so a request for everything is exactly every share
+  // and cannot round short of it. Pricing against the pool would leave dust behind.
+  const sharesToExit =
+    earning === undefined || shares === undefined || earning === ZERO_BRSR || requested === 0n ? 0n : min((requested * shares) / earning, shares);
 
   return (
     <Card title="Leaving" description="A request, then the wait, then the withdrawal.">
@@ -420,23 +388,31 @@ function ExitCard({
             setText(next);
             setAtomic(value);
           }}
-          max={held === undefined ? undefined : { atomic: held, label: 'Everything' }}
-          problem={overHeld ? 'More than this position holds.' : undefined}
-          hint="This asks for a number of shares. What they pay out in BRSR is decided when the withdrawal completes."
-          disabled={held === undefined}
+          max={earning === undefined ? undefined : { atomic: earning, label: 'Everything' }}
+          problem={overHeld ? 'More than this position has in earning stake.' : undefined}
+          hint="Priced when the request is filed. From then it earns nothing, and completing pays that amount less any slash while it waits."
+          disabled={earning === undefined || shares === undefined}
         />
       </div>
 
-      {sharesToExit > 0n && (
+      {sharesToExit > 0n && shares !== undefined && (
         <p className="mt-3 text-detail text-[color:var(--color-muted)]">
-          That is {sharesToExit.toString()} of your {shares.toString()} shares.
+          That is {sharesToExit.toString()} of your {shares.toString()} earning shares.
         </p>
       )}
 
-      {held === undefined && (
+      {pool?.unbondingPeriod !== undefined && pool.unbondWindow !== undefined && (
         <p className="mt-3 text-detail text-[color:var(--color-muted)]">
-          What this position holds could not be read, and an amount cannot be priced into shares without it. The
-          request stays off until the next reading lands.
+          It can complete after {formatDuration(Number(pool.unbondingPeriod))} and stays open for{' '}
+          {formatDuration(Number(pool.unbondWindow))} after that. A request left past then lapses and earns nothing until it
+          is put back to work.
+        </p>
+      )}
+
+      {(earning === undefined || shares === undefined) && (
+        <p className="mt-3 text-detail text-[color:var(--color-muted)]">
+          What this position holds in earning stake could not be read, and an amount cannot be priced into shares without
+          it. The request stays off until the next reading lands.
         </p>
       )}
 
@@ -451,6 +427,8 @@ function ExitCard({
               abi: stakingAbi,
               functionName: 'requestUnbond',
               args: [sharesToExit],
+            }).catch((caught: unknown) => {
+              throw tokenFailure(caught, { action: 'Request the withdrawal', contract: 'staking' });
             })
           }
           onConfirmed={() => {
@@ -460,6 +438,105 @@ function ExitCard({
           onContinue={data.refresh}
         />
       </div>
+    </Card>
+  );
+}
+
+/**
+ * One exit request, from filing to lapse.
+ *
+ * Four moments decide what can be done with it: filed, ready, held by a pause, lapsed. The contract
+ * dates all of them, so the card shows the dates and switches its controls on the same clock the
+ * countdowns run on.
+ */
+function PendingExitCard({
+  exit,
+  pool,
+  data,
+  blockedBy,
+}: {
+  readonly exit: PendingExit;
+  readonly pool: StakingPool | undefined;
+  readonly data: TokenPageData;
+  readonly blockedBy: readonly AnyState[];
+}) {
+  const { writeContractAsync } = useWriteContract();
+  const stage = exitStage(exit, pool, Date.now());
+  const lapsed = stage === 'lapsed';
+  const matured = stage !== 'waiting';
+  const heldUntil = pool?.exitsHeldUntil;
+  const unread = unreadWord(data);
+
+  return (
+    <Card title="Leaving" description="One exit request at a time.">
+      <FieldGrid columns={4}>
+        <Field label="On its way out" hint="What completing pays now: its value when filed, less any slash since.">
+          <span className="tabular">{formatBrsr(exit.amount)} BRSR</span>
+        </Field>
+        <Field label="Requested">{exit.requestedAt === undefined ? unread : <Instant at={exit.requestedAt} />}</Field>
+        <Field label={matured ? 'Ready since' : 'Can complete'}>
+          {matured ? <Instant at={exit.maturesAt} /> : <Countdown to={exit.maturesAt} />}
+        </Field>
+        <Field label={lapsed ? 'Lapsed' : 'Lapses'} hint="Time a pause spends holding exits is added to this.">
+          {lapsed ? <Instant at={exit.lapsesAt} /> : <Countdown to={exit.lapsesAt} />}
+        </Field>
+      </FieldGrid>
+
+      <p className="mt-4 max-w-3xl text-sm">
+        {lapsed
+          ? 'This request lapsed without being completed. The stake is still yours and still in the pool, earning nothing. Put it back to work, then ask to leave again if you still want to.'
+          : 'This stake no longer earns spread or compounds, and it takes its share of any slash until the withdrawal completes. Complete it once it is ready and before it lapses.'}
+      </p>
+
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        {!lapsed && (
+          <TxButton
+            label="Complete the withdrawal"
+            disabled={stage !== 'ready'}
+            blockedBy={blockedBy}
+            send={() =>
+              writeContractAsync({ address: TOKEN_ADDRESSES.Staking, abi: stakingAbi, functionName: 'completeUnbond' }).catch(
+                (caught: unknown) => {
+                  throw tokenFailure(caught, { action: 'Complete the withdrawal', contract: 'staking' });
+                },
+              )
+            }
+            onContinue={data.refresh}
+          />
+        )}
+        <TxButton
+          label={lapsed ? 'Put it back to work' : 'Cancel and stay in'}
+          tone={lapsed ? 'primary' : 'secondary'}
+          blockedBy={blockedBy}
+          send={() =>
+            writeContractAsync({ address: TOKEN_ADDRESSES.Staking, abi: stakingAbi, functionName: 'cancelUnbond' }).catch(
+              (caught: unknown) => {
+                throw tokenFailure(caught, { action: lapsed ? 'Put it back to work' : 'Cancel the withdrawal', contract: 'staking' });
+              },
+            )
+          }
+          onContinue={data.refresh}
+        />
+      </div>
+
+      <p className="mt-3 max-w-3xl text-detail text-[color:var(--color-muted)]">
+        Going back to work is priced at today&rsquo;s share price. Anything the buyback compounded while this stake was out
+        stays with the stakers who were earning, so it comes back as fewer shares than it left as.
+      </p>
+
+      {stage === 'held' && heldUntil && (
+        <p className="mt-3 text-detail text-[color:var(--color-muted)]">
+          The pool is paused, and the pause keeps exits from completing until <Instant at={heldUntil} />. The same time is
+          added before this request lapses.
+        </p>
+      )}
+      {stage === 'unknown-hold' && (
+        <p className="mt-3 text-detail text-[color:var(--color-muted)]">
+          {pool?.paused === true
+            ? 'The pool is paused, and how long the pause holds exits could not be read, so completing stays off until the next reading lands. Restarting the pool is a governance proposal.'
+            : 'Whether the pool is paused could not be read, and a pause can hold exits from completing, so completing stays off until the next reading lands.'}
+        </p>
+      )}
     </Card>
   );
 }
@@ -485,7 +562,13 @@ function ClaimCard({ data, blockedBy }: { readonly data: TokenPageData; readonly
           label="Claim"
           disabled={owed === undefined || owed === 0n}
           blockedBy={blockedBy}
-          send={() => writeContractAsync({ address: TOKEN_ADDRESSES.Staking, abi: stakingAbi, functionName: 'claimRewards' })}
+          send={() =>
+            writeContractAsync({ address: TOKEN_ADDRESSES.Staking, abi: stakingAbi, functionName: 'claimRewards' }).catch(
+              (caught: unknown) => {
+                throw tokenFailure(caught, { action: 'Claim the spread', contract: 'staking' });
+              },
+            )
+          }
           onConfirmed={data.refresh}
         />
       </div>

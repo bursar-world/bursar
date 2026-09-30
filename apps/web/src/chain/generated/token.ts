@@ -1662,6 +1662,19 @@ export const stakingAbi = [
   },
   {
     "type": "function",
+    "name": "MAX_EXIT_HOLD",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MAX_REBATE_BPS",
     "inputs": [],
     "outputs": [
@@ -1669,6 +1682,19 @@ export const stakingAbi = [
         "name": "",
         "type": "uint16",
         "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MAX_SLASH_WINDOW",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
       }
     ],
     "stateMutability": "view"
@@ -1688,7 +1714,59 @@ export const stakingAbi = [
   },
   {
     "type": "function",
+    "name": "MAX_UNBOND_WINDOW",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MIN_EXIT_HOLD",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MIN_SLASH_WINDOW",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MIN_UNBONDING_PERIOD",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MIN_UNBOND_WINDOW",
     "inputs": [],
     "outputs": [
       {
@@ -1863,6 +1941,19 @@ export const stakingAbi = [
   },
   {
     "type": "function",
+    "name": "exitsHeldUntil",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "isBondable",
     "inputs": [
       {
@@ -1881,6 +1972,19 @@ export const stakingAbi = [
         "name": "",
         "type": "bool",
         "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "maxExitHold",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
       }
     ],
     "stateMutability": "view"
@@ -2007,6 +2111,11 @@ export const stakingAbi = [
           },
           {
             "name": "unbondingAt",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "heldAtRequest",
             "type": "uint64",
             "internalType": "uint64"
           },
@@ -2180,6 +2289,19 @@ export const stakingAbi = [
   },
   {
     "type": "function",
+    "name": "setMaxExitHold",
+    "inputs": [
+      {
+        "name": "hold",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setMinBond",
     "inputs": [
       {
@@ -2193,7 +2315,38 @@ export const stakingAbi = [
   },
   {
     "type": "function",
+    "name": "setSlashLimit",
+    "inputs": [
+      {
+        "name": "capBps",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "window",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setSlashSink",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setSlasher",
     "inputs": [
       {
         "name": "account",
@@ -2244,6 +2397,19 @@ export const stakingAbi = [
   },
   {
     "type": "function",
+    "name": "setUnbondWindow",
+    "inputs": [
+      {
+        "name": "window",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setUnbondingPeriod",
     "inputs": [
       {
@@ -2279,14 +2445,9 @@ export const stakingAbi = [
     "name": "slash",
     "inputs": [
       {
-        "name": "amount",
+        "name": "loss",
         "type": "uint256",
         "internalType": "uint256"
-      },
-      {
-        "name": "reason",
-        "type": "bytes32",
-        "internalType": "bytes32"
       }
     ],
     "outputs": [
@@ -2300,7 +2461,59 @@ export const stakingAbi = [
   },
   {
     "type": "function",
+    "name": "slashAllowance",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "slashCapBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "slashSink",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "slashWindow",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "slasher",
     "inputs": [],
     "outputs": [
       {
@@ -2428,6 +2641,19 @@ export const stakingAbi = [
   },
   {
     "type": "function",
+    "name": "totalUnbondingShares",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "transferAdmin",
     "inputs": [
       {
@@ -2467,6 +2693,48 @@ export const stakingAbi = [
   },
   {
     "type": "function",
+    "name": "unbondOf",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maturesAt",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "lapsesAt",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "unbondWindow",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "unbondingPeriod",
     "inputs": [],
     "outputs": [
@@ -2474,6 +2742,19 @@ export const stakingAbi = [
         "name": "",
         "type": "uint64",
         "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "unbondingStaked",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -2614,6 +2895,19 @@ export const stakingAbi = [
   },
   {
     "type": "event",
+    "name": "MaxExitHoldUpdated",
+    "inputs": [
+      {
+        "name": "hold",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "MinBondUpdated",
     "inputs": [
       {
@@ -2722,6 +3016,25 @@ export const stakingAbi = [
   },
   {
     "type": "event",
+    "name": "SlashLimitUpdated",
+    "inputs": [
+      {
+        "name": "capBps",
+        "type": "uint16",
+        "indexed": false,
+        "internalType": "uint16"
+      },
+      {
+        "name": "window",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "SlashSinkUpdated",
     "inputs": [
       {
@@ -2738,13 +3051,13 @@ export const stakingAbi = [
     "name": "Slashed",
     "inputs": [
       {
-        "name": "reason",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
+        "name": "requested",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       },
       {
-        "name": "amount",
+        "name": "taken",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -2754,6 +3067,19 @@ export const stakingAbi = [
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SlasherUpdated",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
       }
     ],
     "anonymous": false
@@ -2776,6 +3102,12 @@ export const stakingAbi = [
       },
       {
         "name": "shares",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "unbondingShares",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -2876,6 +3208,12 @@ export const stakingAbi = [
         "internalType": "address"
       },
       {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
         "name": "shares",
         "type": "uint256",
         "indexed": false,
@@ -2895,7 +3233,7 @@ export const stakingAbi = [
         "internalType": "address"
       },
       {
-        "name": "shares",
+        "name": "unbondingShares",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -2926,7 +3264,26 @@ export const stakingAbi = [
         "internalType": "uint256"
       },
       {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
         "name": "maturesAt",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "UnbondWindowUpdated",
+    "inputs": [
+      {
+        "name": "window",
         "type": "uint64",
         "indexed": false,
         "internalType": "uint64"
@@ -2977,6 +3334,17 @@ export const stakingAbi = [
   },
   {
     "type": "error",
+    "name": "ExitsHeld",
+    "inputs": [
+      {
+        "name": "until",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "ExpectedPause",
     "inputs": []
   },
@@ -3002,12 +3370,22 @@ export const stakingAbi = [
   },
   {
     "type": "error",
+    "name": "NotSlasher",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NothingStaked",
     "inputs": []
   },
   {
     "type": "error",
     "name": "NothingToClaim",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "PoolCollapsed",
     "inputs": []
   },
   {
@@ -3035,6 +3413,17 @@ export const stakingAbi = [
     "type": "error",
     "name": "UnbondAlreadyRequested",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UnbondLapsed",
+    "inputs": [
+      {
+        "name": "lapsedAt",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ]
   },
   {
     "type": "error",
@@ -3149,6 +3538,32 @@ export const buybackAbi = [
   },
   {
     "type": "function",
+    "name": "MAX_CEILING_AGE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MIN_CEILING_AGE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "acceptAdmin",
     "inputs": [],
     "outputs": [],
@@ -3213,6 +3628,19 @@ export const buybackAbi = [
   },
   {
     "type": "function",
+    "name": "ceilingSetAt",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "currency0",
     "inputs": [],
     "outputs": [
@@ -3239,7 +3667,33 @@ export const buybackAbi = [
   },
   {
     "type": "function",
+    "name": "keeper",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "lastBuybackAt",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "maxCeilingAge",
     "inputs": [],
     "outputs": [
       {
@@ -3392,6 +3846,32 @@ export const buybackAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "setKeeper",
+    "inputs": [
+      {
+        "name": "keeper_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setMaxCeilingAge",
+    "inputs": [
+      {
+        "name": "age",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -3643,6 +4123,32 @@ export const buybackAbi = [
   },
   {
     "type": "event",
+    "name": "KeeperUpdated",
+    "inputs": [
+      {
+        "name": "keeper",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "MaxCeilingAgeUpdated",
+    "inputs": [
+      {
+        "name": "age",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "ParamsUpdated",
     "inputs": [
       {
@@ -3827,6 +4333,11 @@ export const buybackAbi = [
   },
   {
     "type": "error",
+    "name": "NotKeeper",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NotPoolManager",
     "inputs": []
   },
@@ -3848,6 +4359,17 @@ export const buybackAbi = [
         "name": "currency1",
         "type": "address",
         "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "PriceCeilingStale",
+    "inputs": [
+      {
+        "name": "staleSince",
+        "type": "uint64",
+        "internalType": "uint64"
       }
     ]
   },
