@@ -1388,9 +1388,6 @@ contract AgentRegistryTest is Test {
         registry.setSlashBps(5_001);
 
         vm.expectRevert(AgentRegistry.ZeroAddress.selector);
-        registry.setSlasher(address(0));
-
-        vm.expectRevert(AgentRegistry.ZeroAddress.selector);
         registry.setSlashSink(address(0));
 
         registry.setSlashBps(5_000);
@@ -1399,6 +1396,26 @@ contract AgentRegistryTest is Test {
 
         assertEq(registry.slashBps(), 5_000);
         assertEq(registry.slashSink(), stranger);
+    }
+
+    /// The zero address clears the seat, and a cleared slasher rules on nothing.
+    function test_theSlasherCanBeClearedAndThenRulesOnNothing() public {
+        _register(agentA, 300e6);
+
+        vm.prank(admin);
+        vm.expectEmit(true, false, false, false, address(registry));
+        emit AgentRegistry.SlasherUpdated(address(0));
+        registry.setSlasher(address(0));
+        assertEq(registry.slasher(), address(0));
+
+        vm.prank(slasher);
+        vm.expectRevert(AgentRegistry.NotAuthorized.selector);
+        registry.slash(agentA, 1e6, bytes32("late"));
+
+        // The admin still rules, as it always could.
+        vm.prank(admin);
+        registry.slash(agentA, 1e6, bytes32("admin"));
+        assertEq(registry.stakeOf(agentA), 300e6 - 1e6);
     }
 
     /// Raising the floor binds the next registration and any partial exit. It does not
