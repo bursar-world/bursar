@@ -155,7 +155,7 @@ contract RwaTest is Test {
         vm.prank(agent);
         uint256 out = acct.buy(address(spy), 1e6, 0, SPY_E8);
         assertEq(spy.balanceOf(address(acct)), out);
-        assertApproxEqRel(out, Math.mulDiv(1e6, 1e20, SPY_E8), 1e12);
+        assertApproxEqRel(out, _filled(Math.mulDiv(1e6, 1e20, SPY_E8), address(spy)), 1e12);
         assertEq(usdg.balanceOf(address(acct)), 199e6);
         assertEq(acct.totalSpent(), 1e6);
     }
@@ -278,7 +278,7 @@ contract RwaTest is Test {
         assertEq(basis, 50e6);
         assertTrue(fresh);
         assertEq(value, Math.mulDiv(raw, SGOV_E8, 1e20));
-        assertApproxEqAbs(value, 50e6, 2);
+        assertApproxEqAbs(value, _filled(50e6, address(sgov)), 2);
         assertEq(sgov.balanceOf(address(sgovAdapter)), raw);
         assertEq(park.spendingPower(address(acct)), 150e6 + Math.mulDiv(value, 9_950, 10_000));
     }
@@ -350,7 +350,7 @@ contract RwaTest is Test {
         uint256 raw = _park(50e6);
         vm.prank(agent);
         uint256 out = park.unpark(address(acct), address(sgovAdapter), raw, 0);
-        assertApproxEqAbs(out, 50e6, 2);
+        assertApproxEqAbs(out, _filled(_filled(50e6, address(sgov)), address(sgov)), 2);
         assertEq(usdg.balanceOf(address(acct)), 150e6 + out);
         (uint256 r, uint256 basis,,,,) = park.position(address(acct), address(sgovAdapter));
         assertEq(r, 0);
@@ -368,7 +368,7 @@ contract RwaTest is Test {
         assertEq(usdg.balanceOf(address(escrow)), 20e6);
         assertEq(usdg.balanceOf(address(acct)), 0);
         (,, uint256 value,,,) = park.position(address(acct), address(sgovAdapter));
-        assertApproxEqAbs(value, 85e6, 10);
+        assertApproxEqAbs(value, _filled(100e6, address(sgov)) - _cost(15e6, address(sgov)), 10);
     }
 
     function test_spend_staleParkedDefers() public {
@@ -433,6 +433,19 @@ contract RwaTest is Test {
     }
 
     // ---- helpers ----
+
+    /// What the mock pool pays for `atMid` of output at its mid: the LP fee comes off the input
+    /// and the fill haircut off the output.
+    function _filled(uint256 atMid, address asset) internal view returns (uint256) {
+        uint256 fee = reg.get(asset).pool.fee;
+        return atMid * (1e6 - fee) / 1e6 * (10_000 - v4.haircutBps()) / 10_000;
+    }
+
+    /// Value at the mid that it costs to take `out` from the mock pool.
+    function _cost(uint256 out, address asset) internal view returns (uint256) {
+        uint256 fee = reg.get(asset).pool.fee;
+        return Math.mulDiv(out * (10_000 + v4.haircutBps()) / 10_000, 1e6, 1e6 - fee);
+    }
 
     function _park(uint256 amount) internal returns (uint256 raw) {
         vm.startPrank(principal);
