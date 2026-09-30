@@ -1,7 +1,8 @@
-import type { Address, Hex } from 'viem';
+import { createPublicClient, http } from 'viem';
+import type { Address, Hex, PublicClient } from 'viem';
 
 import { rhcClient } from '@/chain/client';
-import { CHAIN_ID } from '@/chain/rhc';
+import { CHAIN, CHAIN_ID, rpcProviders } from '@/chain/rhc';
 import { indexedLogs } from './explorer';
 import type { IndexedLog } from './explorer';
 
@@ -42,6 +43,18 @@ export async function historyLogs(address: Address, signal?: AbortSignal): Promi
   }
 }
 
+let primary: PublicClient | undefined;
+
+/**
+ * The spans go to the primary endpoint alone. The pool would fail a refused span over to the
+ * fallback, which refuses any range over ten thousand blocks, so the answer was always a second
+ * error in the browser's console before the index took over. The index is the fallback here.
+ */
+function primaryEndpoint(): PublicClient {
+  primary ??= createPublicClient({ chain: CHAIN, transport: http(rpcProviders()[0]?.url, { retryCount: 1 }) });
+  return primary;
+}
+
 async function chainLogs(address: Address, floor: bigint): Promise<readonly IndexedLog[]> {
   const client = rhcClient();
   const head = await client.getBlockNumber({ cacheTime: 0 });
@@ -54,7 +67,7 @@ async function chainLogs(address: Address, floor: bigint): Promise<readonly Inde
   const pages = await Promise.all(
     spans.map(
       ([from, to]) =>
-        client.request({
+        primaryEndpoint().request({
           method: 'eth_getLogs',
           params: [{ address, fromBlock: `0x${from.toString(16)}`, toBlock: `0x${to.toString(16)}` }],
         } as never) as Promise<readonly RawLog[]>,

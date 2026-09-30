@@ -23,8 +23,12 @@ import {
   agentKeyFile,
   createGasWei,
   downloadFile,
+  forgetDraw,
   formatEth,
+  keepDraw,
   ownerKeysFrom,
+  planFromDraw,
+  readDraw,
   remainingSteps,
   sendEthFromStealth,
   sendFromStealth,
@@ -99,7 +103,11 @@ export function StealthCreate({
       const context = fundsKeyContext(owner);
       const viewing = await signMessageAsync({ message: viewingKeyMessage(owner) });
       const keys = await ownerKeysFrom(viewing, await signTypedDataAsync(fundsKeyTypedData(context)), context);
-      setPrepared({ keys, plan: planStealthMandate(keys.stealth) });
+      // A draw kept from an earlier visit comes back first: its owner address may already hold gas.
+      const kept = readDraw(owner);
+      const plan = (kept && (await planFromDraw(keys.stealth, kept))) ?? planStealthMandate(keys.stealth);
+      keepDraw(owner, plan);
+      setPrepared({ keys, plan });
     } catch (error) {
       setProblem(
         error instanceof Error && error.name === 'FundsKeySignatureError'
@@ -143,6 +151,7 @@ export function StealthCreate({
           });
           const [event] = parseEventLogs({ abi: committedMandateFactoryAbi, eventName: 'Created', logs: receipt.logs });
           if (!event) throw new Error('The factory did not report the new account.');
+          forgetDraw(owner);
           setCreated({ mandate: event.args.account, hash: receipt.transactionHash, terms: doc, fromBlock: receipt.blockNumber });
         } else {
           const identity = step === 'announce-owner' ? principal : agent;

@@ -7,6 +7,7 @@ import { erc20Abi } from 'viem';
 import type { Address, Hex } from 'viem';
 import { useSignMessage } from 'wagmi';
 import { committedMandateAccountAbi, micro } from '@bursar/core';
+import { escrowAbi } from '@/chain/abi';
 import {
   LockStatus,
   amendArgs,
@@ -30,6 +31,7 @@ import {
   privateContracts,
   readPrivateForm,
   readProvenPayments,
+  returnable,
   termsProblem,
 } from '@/chain/private';
 import type { CommittedRead, PrivateForm } from '@/chain/private';
@@ -248,6 +250,16 @@ function PaymentAction({
     );
   }
   if (payment.status !== LockStatus.Locked) return null;
+  if (returnable(payment, BigInt(Math.floor(Date.now() / 1000)))) {
+    return (
+      <TxButton
+        label="Return the money"
+        tone="secondary"
+        send={() => writeContractAsync({ address: mandate.escrow, abi: escrowAbi, functionName: 'timeout', args: [payment.escrowId] })}
+        onContinue={onDone}
+      />
+    );
+  }
   return (
     <TxButton
       label="Contest"

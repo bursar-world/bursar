@@ -6,7 +6,8 @@ const request = vi.fn(async () => [
   { address: '0x420BeB507F72173E7d78e0f956968f64fb508356', topics: [], data: '0x', blockNumber: '0x20', blockTimestamp: '0x0', transactionHash: '0x02', logIndex: '0x0' },
 ]);
 
-vi.mock('@/chain/client', () => ({ rhcClient: () => ({ getBlockNumber: async () => 69_564_500n, getBlock, request }) }));
+vi.mock('@/chain/client', () => ({ rhcClient: () => ({ getBlockNumber: async () => 69_564_500n, getBlock }) }));
+vi.mock('viem', async (original) => ({ ...(await original<typeof import('viem')>()), createPublicClient: () => ({ request }) }));
 
 const { historyLogs } = await import('@/app/(app)/console/lib/chain-logs');
 

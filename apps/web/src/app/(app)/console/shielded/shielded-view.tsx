@@ -308,8 +308,11 @@ function DepositForm({
         hint="The deposit itself is public: the pool shows this wallet put the amount in. What you take out later is not tied to it."
       />
       <div className="flex flex-wrap gap-3">
+        {/* Keyed apart: the two buttons share a slot, and a confirmed allowance would otherwise leave its
+            "Done" face where the deposit button belongs. */}
         {needsAllowance ? (
           <TxButton
+            key="allow"
             label={`Allow the pool to take ${usdgText(amount)} USDG`}
             tone="secondary"
             send={() => writeContractAsync({ address: contracts.asset, abi: erc20, functionName: 'approve', args: [contracts.Entrypoint, amount] })}
@@ -317,6 +320,7 @@ function DepositForm({
           />
         ) : (
           <TxButton
+            key="deposit"
             label={ready ? `Deposit ${usdgText(amount)} USDG` : 'Deposit'}
             tone="primary"
             disabled={!ready}

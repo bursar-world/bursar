@@ -90,7 +90,7 @@ jobs:
           fi
 
       # Fails when a contract is over the EIP-170 runtime or the EIP-3860 initcode limit.
-      - run: forge build --sizes
+      - run: forge build --sizes --skip test
 
       # High severity, over the code that deploys. A finding that is by design carries an inline
       # forge-lint disable comment saying why.
