@@ -279,7 +279,7 @@ export async function readSystem(scope: ReadScope): Promise<ChainSnapshot> {
   });
   const escrowSlots = liveEscrows().map((escrow) => {
     // Only a v3 escrow has a floor or holds a payout back, and asking an earlier one reverts.
-    const current = (contractSetOfEscrow(escrow) ?? CURRENT_CONTRACT_SET) === 'v3';
+    const v3 = (contractSetOfEscrow(escrow) ?? CURRENT_CONTRACT_SET) === 'v3';
     return {
       address: escrow,
       feeBps: batch.add<number>('escrow.feeBps', escrowRead(escrow, 'feeBps')),
@@ -289,8 +289,8 @@ export async function readSystem(scope: ReadScope): Promise<ChainSnapshot> {
       disputeBondBps: batch.add<number>('escrow.disputeBondBps', escrowRead(escrow, 'disputeBondBps')),
       resolverFeeBps: batch.add<number>('escrow.resolverFeeBps', escrowRead(escrow, 'resolverFeeBps')),
       treasury: batch.add<Address>('escrow.treasury', escrowRead(escrow, 'treasury')),
-      minLock: current ? batch.add<bigint>('escrow.minLock', escrowRead(escrow, 'minLock')) : undefined,
-      owed: current && scope.mandate ? batch.add<bigint>('escrow.owed:mandate', escrowRead(escrow, 'owed', [scope.mandate])) : undefined,
+      minLock: v3 ? batch.add<bigint>('escrow.minLock', escrowRead(escrow, 'minLock')) : undefined,
+      owed: v3 && scope.mandate ? batch.add<bigint>('escrow.owed:mandate', escrowRead(escrow, 'owed', [scope.mandate])) : undefined,
     };
   });
 
