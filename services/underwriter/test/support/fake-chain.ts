@@ -167,6 +167,7 @@ export function fakeChain(overrides: Partial<AccountState> = {}, rosterOverrides
       registry: '0x7777777777777777777777777777777777777777',
       minTtlSeconds: 60n,
       maxTtlSeconds: 7n * 86_400n,
+      minLockMicros: micro(10_000n),
       feeBps: 50,
       disputeBondBps: 500,
     },

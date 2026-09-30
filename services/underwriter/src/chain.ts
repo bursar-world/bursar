@@ -1,4 +1,5 @@
 import {
+  CURRENT_CONTRACT_SET,
   type ContractSet,
   type Micro,
   type RhcPublicClient,
@@ -34,11 +35,11 @@ export type ChainLimits = {
   readonly approvalThresholdMicros: Micro;
   readonly validFrom: bigint;
   readonly validUntil: bigint;
-  /** v2 only: the classes the mandate allows, one bit per class (0 service, 1 hire, 2 rwa). */
+  /** Not on v1: the classes the mandate allows, one bit per class (0 service, 1 hire, 2 rwa). */
   readonly classMask?: number;
-  /** v2 only: the lifetime total, zero for none. */
+  /** Not on v1: the lifetime total, zero for none. */
   readonly totalCapMicros?: Micro;
-  /** v2 only: the settlement lane (0 escrow, 1 treasury, 2 collateral). */
+  /** Not on v1: the settlement lane (0 escrow, 1 treasury, 2 collateral). */
   readonly lane?: number;
 };
 
@@ -54,7 +55,7 @@ export type AccountState = {
   readonly agent: Address;
   readonly settlementAsset: Address;
   readonly escrow: Address;
-  /** Which contract build the account runs, known from its escrow. Absent reads as v2. */
+  /** Which contract build the account runs, known from its escrow. Absent reads as the current one. */
   readonly contractSet?: ContractSet;
   readonly paused: boolean;
   readonly revoked: boolean;
@@ -77,6 +78,11 @@ export type EscrowTerms = {
   readonly registry: Address | null;
   readonly minTtlSeconds: bigint;
   readonly maxTtlSeconds: bigint;
+  /**
+   * The smallest lock the escrow opens. An escrow before v3 refuses only an empty lock, so its
+   * floor is one micro-USDG and it is never asked: it has no getter to answer with.
+   */
+  readonly minLockMicros: Micro;
   readonly feeBps: number;
   readonly disputeBondBps: number;
 };
@@ -129,7 +135,7 @@ export type SpendCall = {
   readonly amountMicros: Micro;
   readonly deadline: bigint;
   readonly merchantProof: readonly Hex32[];
-  /** v2 only: 0 service, 1 hire. Checked against the mandate's class mask. */
+  /** Not on v1: 0 service, 1 hire. Checked against the mandate's class mask. */
   readonly spendClass?: number;
   readonly blockNumber?: bigint;
 };
@@ -360,7 +366,7 @@ export function createMandateChain(client: RhcPublicClient): MandateChain {
       abi: mandateAccountAbi,
       functionName: 'escrow',
     })) as Address;
-    const set = contractSetOfEscrow(escrow) ?? 'v2';
+    const set = contractSetOfEscrow(escrow) ?? CURRENT_CONTRACT_SET;
     sets.set(account.toLowerCase(), set);
     return set;
   };
@@ -371,9 +377,10 @@ export function createMandateChain(client: RhcPublicClient): MandateChain {
 
   const readAccount: MandateChain['readAccount'] = async (account, blockNumber) =>
     read(async () => {
-      // `limits` is the one getter whose shape differs between builds: v2 appends the class mask,
+      // `limits` is the one getter whose shape differs between builds: v2 appended the class mask,
       // the lifetime total and the lane, and a v1 account's eight words do not decode as eleven.
-      // Every other getter read here is the same in both, so the build decides only the ABI.
+      // v3 accounts keep the v2 shape. Every other getter read here is the same in all three, so
+      // the build decides only the ABI.
       const set = await contractSet(account);
       const call = <const T extends string>(functionName: T, args?: readonly unknown[]) =>
         client.readContract({
@@ -521,15 +528,18 @@ export function createMandateChain(client: RhcPublicClient): MandateChain {
         const call = <const T extends string>(functionName: T) =>
           client.readContract({ address: escrow, abi: escrowAbi, functionName, ...at(blockNumber) } as never);
 
-        const [settlementAsset, reputation, registry, minTtl, maxTtl, feeBps, disputeBondBps] = (await Promise.all([
+        const floored = (contractSetOfEscrow(escrow) ?? CURRENT_CONTRACT_SET) === 'v3';
+
+        const [settlementAsset, reputation, registry, minTtl, maxTtl, minLock, feeBps, disputeBondBps] = (await Promise.all([
           call('settlementAsset'),
           call('reputation'),
           call('registry'),
           call('minTtl'),
           call('maxTtl'),
+          floored ? call('minLock') : Promise.resolve(1n),
           call('feeBps'),
           call('disputeBondBps'),
-        ])) as [Address, Address, Address, bigint, bigint, number, number];
+        ])) as [Address, Address, Address, bigint, bigint, bigint, number, number];
 
         return {
           escrow,
@@ -538,6 +548,7 @@ export function createMandateChain(client: RhcPublicClient): MandateChain {
           registry: registry === zeroAddress ? null : registry,
           minTtlSeconds: minTtl,
           maxTtlSeconds: maxTtl,
+          minLockMicros: micro(minLock),
           feeBps,
           disputeBondBps,
         } satisfies EscrowTerms;

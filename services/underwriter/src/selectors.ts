@@ -50,6 +50,7 @@ const ACCOUNT_REASONS: Readonly<Record<string, RefuseReason>> = {
 /** Used to read a revert back from a full `spend` simulation, which previewSpend cannot cover. */
 const ESCROW_REASONS: Readonly<Record<string, RefuseReason>> = {
   BadTtl: RefuseReason.TtlOutOfBounds,
+  BelowMinLock: RefuseReason.BelowMinLock,
   PartyNotAllowed: RefuseReason.MerchantNotParty,
   PayeeCapExceeded: RefuseReason.PayeeCapExceeded,
   ZeroAmount: RefuseReason.ZeroAmount,
@@ -73,7 +74,8 @@ function buildTable(abi: readonly unknown[], reasons: Readonly<Record<string, Re
   return table;
 }
 
-// Both sets, so a v1 mandate's revert decodes as well as a v2 one. v2 only adds errors.
+// The oldest set and the current one, so a v1 mandate's revert decodes as well as a later one.
+// Each set since v1 has only added errors a spend can reach, so nothing in between is missing.
 export const ACCOUNT_SELECTORS: ReadonlyMap<Selector, ChainRefusal> = buildTable(
   [...mandateAccountAbiV1, ...mandateAccountAbi],
   ACCOUNT_REASONS,

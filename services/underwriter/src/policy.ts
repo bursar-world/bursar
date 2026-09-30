@@ -14,7 +14,9 @@ export {
 } from '@bursar/core';
 export type { DocumentWindows, SpendRequest, WindowState } from '@bursar/core';
 
-import type { Decision, MandateDocument, SpendRequest } from '@bursar/core';
+import type { MandateDocument, SpendRequest } from '@bursar/core';
+
+import type { Decision } from './decision.js';
 
 /**
  * Holds the caller's `at` to the chain's own clock.

@@ -60,6 +60,7 @@ export const ENFORCEMENT: Enforcement = {
     'approval threshold',
     'pause and revocation',
     'escrow deadline bounds',
+    'escrow minimum lock',
     'payee reputation cap',
   ],
   service: ['lifetime ceiling', 'action rules', 'hold and settlement bookkeeping'],
@@ -403,6 +404,7 @@ export class Underwriter {
 
     const escrowReason = escrowPreflight({
       amountMicros: request.amountMicros,
+      minLockMicros: terms.minLockMicros,
       balanceMicros: state.balanceMicros,
       standing,
       bounds,

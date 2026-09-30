@@ -9,15 +9,15 @@ import {
 } from 'viem';
 import { describe, expect, it } from 'vitest';
 
-import { RHC_MAINNET, deployment, mandateAccountAbi, mandateAccountAbiV1, viemChain } from '@bursar/core';
+import { RHC_MAINNET, deployment, escrowAbi, mandateAccountAbi, mandateAccountAbiV1, viemChain } from '@bursar/core';
 import type { RhcPublicClient } from '@bursar/core';
 
 import { createMandateChain } from '../src/chain.js';
 import type { Address, Hex32 } from '../src/document.js';
 
 /**
- * A v1 account answers the three-argument `previewSpend` and a v2 account the four-argument one,
- * and each reverts on the other's selector. Which one is sent is decided by the escrow the
+ * A v1 account answers the three-argument `previewSpend` and a later account the four-argument
+ * one, and each reverts on the other's selector. Which one is sent is decided by the escrow the
  * account was created against.
  */
 
@@ -26,6 +26,7 @@ const MERCHANT: Address = '0x00000000000000000000000000000000000000b2';
 const CAPABILITY = `0x${'11'.repeat(32)}` as Hex32;
 
 const ESCROW_SELECTOR = toFunctionSelector('escrow()');
+const UNRECORDED_ESCROW: Address = '0x00000000000000000000000000000000000000e5';
 
 function nodeFor(escrow: Address, calls: string[]): RhcPublicClient {
   return createPublicClient({
@@ -64,6 +65,72 @@ describe('previewSpend by contract set', () => {
 
     await chain.previewSpend(ACCOUNT, MERCHANT, CAPABILITY, 1n as never, undefined, 1);
     expect(calls).toContain(toFunctionSelector('previewSpend(address,bytes32,uint128,uint8)'));
+  });
+
+  // A local or forked deployment runs the current source, whose accounts keep the v2 shape.
+  it('sends the call with the class to an account on an escrow no record names', async () => {
+    const calls: string[] = [];
+    const chain = createMandateChain(nodeFor(UNRECORDED_ESCROW, calls));
+
+    await chain.previewSpend(ACCOUNT, MERCHANT, CAPABILITY, 1n as never, undefined, 1);
+    expect(calls).toContain(toFunctionSelector('previewSpend(address,bytes32,uint128,uint8)'));
+  });
+});
+
+/**
+ * Only a v3 escrow floors the lock size, and an earlier one has no `minLock` to answer: asking it
+ * reverts, which would read as the whole escrow being unreachable.
+ */
+function escrowNode(calls: string[]): RhcPublicClient {
+  const answers: Record<string, unknown> = {
+    settlementAsset: RHC_MAINNET.usdg,
+    reputation: MERCHANT,
+    registry: MERCHANT,
+    minTtl: 60n,
+    maxTtl: 604_800n,
+    minLock: 10_000n,
+    feeBps: 50,
+    disputeBondBps: 500,
+  };
+
+  return createPublicClient({
+    chain: viemChain(RHC_MAINNET),
+    transport: custom(
+      {
+        request: async ({ method, params }: { method: string; params?: unknown }) => {
+          if (method === 'eth_chainId') return `0x${RHC_MAINNET.chainId.toString(16)}`;
+          if (method === 'eth_call') {
+            const { data } = (params as [{ data: Hex }])[0];
+            const { functionName } = decodeFunctionData({ abi: escrowAbi, data });
+            calls.push(functionName);
+            return encodeFunctionResult({ abi: escrowAbi, functionName, result: answers[functionName] } as never);
+          }
+          throw new Error(`this node does not answer ${method}`);
+        },
+      },
+      { retryCount: 0 },
+    ),
+  });
+}
+
+describe('readEscrowTerms by contract set', () => {
+  it('reads the floor from an escrow that has one', async () => {
+    const calls: string[] = [];
+    const terms = await createMandateChain(escrowNode(calls)).readEscrowTerms(UNRECORDED_ESCROW);
+
+    expect(terms.minLockMicros).toBe(10_000n);
+    expect(calls).toContain('minLock');
+  });
+
+  it('never asks an earlier escrow for a floor, and floors it at one micro', async () => {
+    const calls: string[] = [];
+    const terms = await createMandateChain(escrowNode(calls)).readEscrowTerms(
+      deployment('rhc-mainnet-v2').contracts.Escrow,
+    );
+
+    expect(terms.minLockMicros).toBe(1n);
+    expect(calls).not.toContain('minLock');
+    expect(terms).toMatchObject({ minTtlSeconds: 60n, maxTtlSeconds: 604_800n, feeBps: 50 });
   });
 });
 

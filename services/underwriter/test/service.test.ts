@@ -153,7 +153,7 @@ describe('the underwriter process', () => {
       reason: 'over_cumulative_ceiling',
     });
     // An action the mandate never mentions is outside it, which the account has no view on.
-    const outside = await port?.authorize({ ...spend(1_000n, 'file-3'), action: 'wire.transfer' });
+    const outside = await port?.authorize({ ...spend(10_000n, 'file-3'), action: 'wire.transfer' });
     expect(outside?.decision).toEqual({ decision: 'refuse', reason: 'outside_mandate' });
   });
 

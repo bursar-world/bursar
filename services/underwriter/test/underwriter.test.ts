@@ -176,6 +176,18 @@ describe('quote', () => {
     expect(quote.source).toBe('escrow');
   });
 
+  // The account's own preview has no view of the escrow's floor, so this is the only place a spend
+  // under it is stopped before the lock reverts on chain.
+  test('refuses an amount under the escrow floor, which the account allows', async () => {
+    const { underwriter, chain } = build();
+    const quote = await underwriter.quote(request({ amountMicros: toMicro(9_999) }));
+
+    expect(chain.state.terms.minLockMicros).toBe(10_000n);
+    expect(quote.decision).toEqual({ decision: 'refuse', reason: RefuseReason.BelowMinLock });
+    expect(quote.source).toBe('escrow');
+    expect(quote.bucket).toBeNull();
+  });
+
   test('refuses when the account holds less than the spend', async () => {
     const { underwriter, chain } = build();
     chain.state.account = { ...chain.state.account, balanceMicros: toMicro(1) };

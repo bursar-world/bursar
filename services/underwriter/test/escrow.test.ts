@@ -14,6 +14,7 @@ const TERMS: EscrowTerms = {
   registry: '0x7777777777777777777777777777777777777777',
   minTtlSeconds: 60n,
   maxTtlSeconds: 604_800n,
+  minLockMicros: toMicro(10_000),
   feeBps: 50,
   disputeBondBps: 500,
 };
@@ -63,6 +64,7 @@ describe('escrowPreflight', () => {
   const bounds = deadlineBounds(NOW, TERMS);
   const base = {
     amountMicros: toMicro(100_000),
+    minLockMicros: TERMS.minLockMicros,
     balanceMicros: toMicro(1_000_000),
     standing: STANDING,
     bounds,
@@ -71,6 +73,19 @@ describe('escrowPreflight', () => {
 
   test('a clean spend passes', () => {
     expect(escrowPreflight(base)).toBeNull();
+  });
+
+  // The account's own preview does not know the floor, so without this a spend under it clears
+  // every limit and reverts inside the lock after the gas is spent.
+  test('an amount under the escrow floor is refused before anything else', () => {
+    expect(escrowPreflight({ ...base, amountMicros: toMicro(9_999), deadline: NOW + 10n })).toBe(
+      RefuseReason.BelowMinLock,
+    );
+    expect(escrowPreflight({ ...base, amountMicros: toMicro(10_000) })).toBeNull();
+  });
+
+  test('an escrow before v3 floors nothing but an empty lock', () => {
+    expect(escrowPreflight({ ...base, amountMicros: toMicro(1), minLockMicros: toMicro(1) })).toBeNull();
   });
 
   test('a bad deadline is caught here, because previewSpend cannot see it', () => {

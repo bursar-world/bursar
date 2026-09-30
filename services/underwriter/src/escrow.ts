@@ -44,6 +44,8 @@ export function checkDeadline(deadline: bigint, bounds: DeadlineBounds): RefuseR
 
 export type EscrowPreflightInput = {
   readonly amountMicros: Micro;
+  /** The escrow's floor. `previewSpend` does not know it: it lives on the escrow, like the TTL. */
+  readonly minLockMicros: Micro;
   readonly balanceMicros: Micro;
   readonly standing: MerchantStanding;
   readonly bounds: DeadlineBounds;
@@ -70,6 +72,8 @@ export type EscrowPreflightInput = {
  * amount inside `lock` and a short balance reverts the whole thing.
  */
 export function escrowPreflight(input: EscrowPreflightInput): RefuseReason | null {
+  if (input.amountMicros < input.minLockMicros) return RefuseReason.BelowMinLock;
+
   if (input.deadline !== undefined) {
     const ttl = checkDeadline(input.deadline, input.bounds);
     if (ttl !== null) return ttl;
