@@ -438,11 +438,19 @@ contract RecordTest is ScriptHarness {
         string memory v2 = vm.readFile("deployments/rhc-mainnet-v2.json");
         string memory v3 = vm.readFile("deployments/rhc-mainnet-v3.json");
 
+        // The third set answers for the chain. The second set and the token record stay readable for
+        // what they still hold until the last migration step retires them.
         assertEq(vm.parseJsonString(v1, K.STATUS), "superseded");
         assertEq(vm.parseJsonString(v1, K.SUPERSEDED_BY), "rhc-mainnet-v2");
         assertEq(vm.parseJsonString(v2, ".supersedes"), "rhc-mainnet");
+        assertEq(vm.parseJsonString(v2, K.SUPERSEDED_BY), "rhc-mainnet-v3");
+        assertEq(vm.parseJsonString(token, K.SUPERSEDED_BY), "rhc-mainnet-v3");
         assertEq(vm.parseJsonString(v3, ".supersedes"), "rhc-mainnet-v2");
-        assertEq(vm.parseJsonString(v3, K.STATUS), "planned");
+        assertEq(vm.parseJsonString(v3, K.STATUS), "live");
+        for (uint256 i; i < 2; ++i) {
+            bytes32 status = keccak256(bytes(vm.parseJsonString(i == 0 ? v2 : token, K.STATUS)));
+            assertTrue(status == keccak256("superseded") || status == keccak256("retired"), "replaced record");
+        }
 
         // The v3 set keeps the token and its schedule, and the libraries the shielded pool links.
         assertEq(vm.parseJsonAddress(v3, K.BRSR), vm.parseJsonAddress(token, ".contracts.BRSR"));
@@ -456,10 +464,13 @@ contract RecordTest is ScriptHarness {
         assertEq(vm.parseJsonAddress(v3, K.POOL_MANAGER), vm.parseJsonAddress(token, ".contracts.PoolManager"));
         assertEq(vm.parseJsonAddress(v3, K.DEPLOYER), vm.parseJsonAddress(v2, K.DEPLOYER));
 
-        // Nothing is deployed yet, so nothing may be recorded as deployed.
-        assertEq(vm.parseJsonKeys(v3, ".contracts").length, 0);
-        assertFalse(vm.keyExistsJson(v3, K.STAKING));
-        assertFalse(vm.keyExistsJson(v3, K.SEEDER));
+        // Every deploy script has run, so every section names what it deployed.
+        assertEq(vm.parseJsonKeys(v3, ".contracts").length, 6);
+        assertTrue(vm.keyExistsJson(v3, K.STAKING));
+        assertTrue(vm.keyExistsJson(v3, K.SEEDER));
+        assertTrue(vm.keyExistsJson(v3, ".rwa.collateral.CreditPool"));
+        assertTrue(vm.keyExistsJson(v3, ".privacy.shielded.ShieldedPool"));
+        assertTrue(vm.keyExistsJson(v3, ".exampleMandate.address"));
 
         address[] memory resolvers = vm.parseJsonAddressArray(v3, K.RESOLVERS);
         assertEq(resolvers.length, 3);
