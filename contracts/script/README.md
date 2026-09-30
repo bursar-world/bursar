@@ -375,8 +375,9 @@ BURSAR_LOCAL_RPC="$rpc" forge test --match-path test/script/LocalChain.t.sol -vv
 `cache/bursar/local/broadcast` through `FOUNDRY_BROADCAST`, and the endpoints it keeps for
 `--resume` to `cache/bursar/local/cache`. By default those are `out/`, `broadcast/<script>/4663/`
 and `cache/<script>/4663/`, where a real run keeps its own, and anvil answers as 4663 too: a local
-run writing there would replace the log a stopped mainnet step resumes from. The first command in
-a new shell builds from scratch. The record is `cache/bursar/local/local-4663.json`, and
+run writing there would replace the log a stopped mainnet step resumes from. The first command in a
+new shell builds from scratch. `local.env` also clears `ETH_PASSWORD`, because while it is set forge
+expects a keystore and refuses `--unlocked`. The record is `cache/bursar/local/local-4663.json`, and
 `LocalFixtures.s.sol` writes it afresh, so against a new anvil start again from that line.
 
 The same deployment runs in process in `forge test`: `test/script/EndToEnd.t.sol` takes it through

@@ -64,6 +64,9 @@ export FOUNDRY_CACHE_PATH="$dir/cache"
 export FOUNDRY_BROADCAST="$dir/broadcast"
 # Forge's test preprocessing leaves artifacts behind that every later command warns about.
 export FOUNDRY_DYNAMIC_TEST_LINKING=false
+# Every key signs through impersonation. Forge reads ETH_PASSWORD as a keystore's password file and
+# refuses an --unlocked run while it is set, as it is in a shell the key tooling set up.
+unset ETH_PASSWORD
 
 # Every key comes from the records, as the runbook's commands name them.
 deployer="$(jq -r .deployer "$BURSAR_RECORD")"
