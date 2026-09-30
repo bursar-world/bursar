@@ -32,12 +32,16 @@ interface IRetiringAgentRegistry {
 /// registry's minimum stake from its own wallet, and asks the old registries for its old stake
 /// back. Without a registration on the new registry no mandate on the new set can pay it.
 ///
-///   forge script script/MigratePayee.s.sol --rpc-url "$RHC_RPC_URL" --account payee [--broadcast]
-///   forge script script/MigratePayee.s.sol --sig "reclaim()" --rpc-url "$RHC_RPC_URL" --account payee [--broadcast]
+///   forge script script/MigratePayee.s.sol --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/payee" [--broadcast]
+///   forge script script/MigratePayee.s.sol --sig "reclaim()" --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/payee" [--broadcast]
 ///
 /// Leaving an old registry takes two steps a week apart: the payee stops taking new work there,
 /// asks for its stake, and `reclaim` collects it once the registry's withdrawal delay has passed.
 /// Work already paid there settles as before.
+///
+/// A payee whose wallet holds less than the new stake still leaves the old registries, and the
+/// run says how much it is short. Run it again once the wallet holds the stake, from a top-up or
+/// from the old stakes `reclaim` returns, and it registers.
 contract MigratePayee is Migration {
     function run() external {
         _begin();
@@ -48,16 +52,18 @@ contract MigratePayee is Migration {
 
         uint128 stake = registry.minStake();
         bool registered = registry.isRegistered(msg.sender);
+        uint256 held = usdg.balanceOf(msg.sender);
+        bool registers = !registered && held >= stake;
         string memory name = _name(v2, v1);
-        if (!registered) {
-            uint256 held = usdg.balanceOf(msg.sender);
-            require(held >= stake, "the payee holds less USDG than the registry's minimum stake");
+        if (registers) {
             console2.log("registering as", name);
             console2.log("  stake, micro-USD", stake);
+        } else if (!registered) {
+            console2.log("not registering yet: the wallet is short of the minimum stake by, micro-USD", stake - held);
         }
 
         vm.startBroadcast(msg.sender);
-        if (!registered) {
+        if (registers) {
             usdg.approve(address(registry), stake);
             registry.register(name, stake);
         }
@@ -65,7 +71,9 @@ contract MigratePayee is Migration {
         _leave(v1);
         vm.stopBroadcast();
 
-        require(registry.isActive(msg.sender), "the payee is not active on the new registry");
+        if (registered || registers) {
+            require(registry.isActive(msg.sender), "the payee is not active on the new registry");
+        }
     }
 
     /// Collects the old stakes once each registry's withdrawal delay has passed.

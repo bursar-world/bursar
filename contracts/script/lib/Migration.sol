@@ -15,7 +15,9 @@ import {BursarScript} from "./BursarScript.sol";
 /// | `BURSAR_V1_RECORD` | the first contract set, `deployments/rhc-mainnet.json` |
 ///
 /// Every script prints what it is about to do and sends nothing without `--broadcast`. Every step
-/// can be run again: one whose effect is already on chain says so and sends nothing.
+/// can be run again: one whose effect is already on chain says so and sends nothing. The commands
+/// in each script's comment sign with `--keystore "$KEYS/<name>"`, the encrypted keystores
+/// `MIGRATION.md` sets up, and it gives the order they run in.
 abstract contract Migration is BursarScript {
     error NotTheKey(string role, address expected, address caller);
     error NothingToMove(string what);

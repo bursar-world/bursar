@@ -28,9 +28,9 @@ interface IRetiringCreditPool {
 /// `fund(amount)` lends `amount` micro-USD to the new pool. Anyone may fund; only the recorded
 /// lender can take it back out.
 ///
-///   forge script script/MigrateCredit.s.sol --rpc-url "$RHC_RPC_URL" --account rh-deployer [--broadcast]
-///   forge script script/MigrateCredit.s.sol --sig "fund(uint256)" 30000000 --rpc-url "$RHC_RPC_URL" \
-///     --account rh-deployer [--broadcast]
+///   forge script script/MigrateCredit.s.sol --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/rh-deployer" [--broadcast]
+///   forge script script/MigrateCredit.s.sol --sig "fund(uint256)" 25000000 --rpc-url "$RHC_RPC_URL" \
+///     --keystore "$KEYS/rh-deployer" [--broadcast]
 contract MigrateCredit is Migration {
     function run() external {
         _begin();

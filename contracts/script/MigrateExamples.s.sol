@@ -51,8 +51,8 @@ interface IRetiringVault {
 /// `BURSAR_COMMITTED_TERMS`, `BURSAR_COMMITTED_COUNTER` and `BURSAR_COMMITTED_CIPHERTEXT` and skips
 /// it when they are unset. Each example is written to the record.
 ///
-///   forge script script/MigrateExamples.s.sol --sig "drain()"  --rpc-url "$RHC_RPC_URL" --account payer [--broadcast]
-///   forge script script/MigrateExamples.s.sol --sig "create()" --rpc-url "$RHC_RPC_URL" --account payer [--broadcast]
+///   forge script script/MigrateExamples.s.sol --sig "drain()"  --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/payer" [--broadcast]
+///   forge script script/MigrateExamples.s.sol --sig "create()" --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/payer" [--broadcast]
 contract MigrateExamples is Migration {
     bytes32 internal constant PUBLIC_SALT = keccak256("bursar.example-mandate.v3");
     bytes32 internal constant COLLATERAL_SALT = keccak256("bursar.collateral-mandate.v3");

@@ -17,9 +17,9 @@ import {AdminTimelock} from "../../src/AdminTimelock.sol";
 /// too.
 ///
 ///   forge script <script> --sig "status()"  --rpc-url "$RHC_RPC_URL"
-///   forge script <script> --sig "propose()" --rpc-url "$RHC_RPC_URL" --account signer-1 [--broadcast]
-///   forge script <script> --sig "approve()" --rpc-url "$RHC_RPC_URL" --account signer-2 [--broadcast]
-///   forge script <script> --sig "execute()" --rpc-url "$RHC_RPC_URL" --account signer-1 [--broadcast]
+///   forge script <script> --sig "propose()" --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/signer-1" [--broadcast]
+///   forge script <script> --sig "approve()" --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/signer-2" [--broadcast]
+///   forge script <script> --sig "execute()" --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/signer-1" [--broadcast]
 abstract contract Governance is BursarScript {
     struct Call {
         address timelock;
