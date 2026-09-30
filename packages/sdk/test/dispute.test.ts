@@ -172,6 +172,24 @@ describe('a contested payment, from the side that paid', () => {
     expect(record?.next).toContain('settlement history');
   });
 
+  /**
+   * A vote with no result puts the payment back on hold, and the provider can still deliver. A lock
+   * released after that was paid after the dispute, and is not a complaint about a payment made.
+   */
+  it('follows a payment the vote put back on hold to where it ended', async () => {
+    const reopened = { ...VOTE, status: DisputePhase.Failed };
+    const delivered = await (
+      await client({ getLock: { ...LOCK, status: LockStatus.Released, releasedAt: OPENED_AT + 50_000n }, getDispute: reopened })
+    ).of(7n);
+
+    expect(delivered?.recordOnly).toBe(false);
+    expect(delivered?.disputeId).toBe(4n);
+    expect(delivered?.next).toContain('delivered after that and was paid');
+
+    const lapsed = await (await client({ getLock: { ...LOCK, status: LockStatus.TimedOut }, getDispute: reopened })).of(7n);
+    expect(lapsed?.next).toContain('Nothing was delivered by that deadline');
+  });
+
   it('says a failed vote refunds the payer rather than describing it as a ruling', async () => {
     const reader = await client({
       getLock: { ...LOCK, status: LockStatus.Resolved },

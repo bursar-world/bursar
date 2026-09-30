@@ -211,8 +211,10 @@ export class DisputeClient {
 
   async #record(settlementId: bigint, lock: Lock): Promise<DisputeRecord> {
     // A complaint raised after the payee was paid never reaches a resolver: the escrow records it
-    // against the payee's history and closes the lock in the same call.
-    const recordOnly = lock.releasedAt !== 0n;
+    // against the payee's history and closes the lock in the same call. A payment contested while
+    // held, put back on hold by a vote with no result and delivered after that, was paid after the
+    // dispute rather than before it.
+    const recordOnly = lock.releasedAt !== 0n && lock.disputedAt >= lock.releasedAt;
     const registry = getContract({
       address: this.registry,
       abi: oracleRegistryAbi,
@@ -304,19 +306,34 @@ function nextFor(state: {
         'Resolvers are publishing the scores they sealed. Once the reveal window closes anyone can ' +
         'settle the vote, and the escrow moves the money on the result. Read this again for the ruling.'
       );
-    case 'failed':
-      if (state.status === LockStatus.Locked) {
-        return (
-          'The vote produced no usable result, so the escrow put the payment back on hold with a new ' +
-          'deadline and returned the bond. The provider can still deliver, and the payer can reclaim ' +
-          'the funds once that deadline passes.'
-        );
-      }
-      return state.status === LockStatus.Resolved
-        ? 'The vote produced no usable result, so the escrow refunded the payer in full and the ' +
+    case 'failed': {
+      const reopened =
+        'The vote produced no usable result, so the escrow put the payment back on hold with a new ' +
+        'deadline and returned the bond.';
+      switch (state.status) {
+        case LockStatus.Locked:
+          return (
+            `${reopened} The provider can still deliver, and the payer can reclaim the funds once ` +
+            'that deadline passes.'
+          );
+        case LockStatus.Released:
+          return `${reopened} The provider delivered after that and was paid. Nothing further to decide.`;
+        case LockStatus.TimedOut:
+          return `${reopened} Nothing was delivered by that deadline, so the payer was refunded in full.`;
+        case LockStatus.Cancelled:
+          return `${reopened} The provider declined the job after that, so the payer was refunded in full.`;
+        case LockStatus.Resolved:
+          return (
+            'The vote produced no usable result, so the escrow refunded the payer in full and the ' +
             'provider was paid nothing. Nothing further to decide.'
-        : 'The vote produced no usable result. The escrow refunds the payer in full when the dispute ' +
-            'is closed, and anyone can close it.';
+          );
+        default:
+          return (
+            'The vote produced no usable result. The escrow refunds the payer in full when the dispute ' +
+            'is closed, and anyone can close it.'
+          );
+      }
+    }
     default:
       return state.hasResolver
         ? 'The escrow is holding the funds and no vote is open on them. They return to the payer, ' +
