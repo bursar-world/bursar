@@ -15,10 +15,11 @@ import {RwaConfig} from "./lib/RwaConfig.sol";
 
 /// The collateral lane (F11): CreditPool, then CollateralVault, then the one-time bind. Reads
 /// the registry and guard `CollateralConfig` names, which have to be built from this source
-/// (the vault calls `PriceGuard.valuation`), and the v2.1 factory. Admin of both is the v2
+/// (the vault calls `PriceGuard.valuation`), the v2.1 factory, and the Buyback in
+/// `BURSAR_BUYBACK`, whose price ceiling converts a write-off into BRSR. Admin of both is the v2
 /// AdminTimelock from construction; the lender is the deploy key until the operator names another.
 ///
-///   forge script script/DeployCollateral.s.sol --rpc-url $RHC_RPC_URL \
+///   BURSAR_BUYBACK=<buyback> forge script script/DeployCollateral.s.sol --rpc-url $RHC_RPC_URL \
 ///     --keystore $ETH_KEYSTORE --password-file $ETH_PASSWORD [--broadcast]
 contract DeployCollateral is Script {
     struct Deployed {
@@ -43,6 +44,7 @@ contract DeployCollateral is Script {
         d.pool = new CreditPool(
             RwaConfig.USDG,
             C.STAKING,
+            C.buyback(),
             C.TIMELOCK_V2,
             lender,
             C.TOTAL_DEBT_CAP,

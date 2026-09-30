@@ -2,16 +2,20 @@
 pragma solidity ^0.8.24;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {CommonBase} from "forge-std/Base.sol";
 import {StdUtils} from "forge-std/StdUtils.sol";
 import {Test} from "forge-std/Test.sol";
 
 import {CreditPool} from "../../src/rwa/CreditPool.sol";
+import {Buyback} from "../../src/token/Buyback.sol";
+import {Staking} from "../../src/token/Staking.sol";
+import {MockBRSR} from "../mocks/MockBRSR.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
-import {MockStaking} from "./RwaMocks.sol";
 
 /// Stands in for the collateral vault, the only caller the pool lets borrow and write off, and
-/// drives the pool through random lending, repayment, write-offs, sweeps and time.
+/// drives the pool through random lending, repayment, write-offs, sweeps and time, while
+/// governance restates the Buyback's ceiling and names or clears the pool as Staking's slasher.
 ///
 /// Every action swallows its own revert, as in the system-wide handler. The ghost totals record
 /// what crossed the pool's edge: what the lender put in and took out, the spread borrowers paid
@@ -19,7 +23,10 @@ import {MockStaking} from "./RwaMocks.sol";
 contract CreditPoolHandler is CommonBase, StdUtils {
     CreditPool public immutable pool;
     MockERC20 public immutable usdg;
+    Staking public immutable staking;
+    Buyback public immutable buyback;
     address public immutable lender;
+    address public immutable governance;
     address internal constant SINK = address(0xB0B);
 
     address[] public mandates;
@@ -29,11 +36,15 @@ contract CreditPoolHandler is CommonBase, StdUtils {
     uint256 public spreadReceived;
     uint256 public principalLost;
     uint256 public writeOffBreaks;
+    uint256 public slashBreaks;
 
-    constructor(CreditPool pool_, MockERC20 usdg_, address lender_) {
+    constructor(CreditPool pool_, MockERC20 usdg_, address lender_, address governance_) {
         pool = pool_;
         usdg = usdg_;
+        staking = Staking(address(pool_.staking()));
+        buyback = pool_.buyback();
         lender = lender_;
+        governance = governance_;
         mandates.push(address(0xA1));
         mandates.push(address(0xA2));
         mandates.push(address(0xA3));
@@ -82,19 +93,37 @@ contract CreditPoolHandler is CommonBase, StdUtils {
     }
 
     /// A write-off clears the debt and the principal behind it and books nothing for stakers.
+    /// The stake it takes is the loss at the Buyback's ceiling cut to the slash allowance, and
+    /// none unless the pool is the slasher and the ceiling is set and fresh.
     function writeOff(uint256 who) external {
         address m = _mandate(who);
         uint256 principal = pool.principalOf(m);
         uint256 debt = pool.debtOf(m);
         uint256 reserves = pool.reserves();
         uint256 bad = pool.badDebt();
+        uint256 staked = staking.totalStaked();
+        uint256 due = Math.min(_atCeiling(debt), staking.slashAllowance());
         try pool.writeOff(m) returns (uint256 amount) {
             principalLost += principal;
             if (
                 amount != debt || pool.debtOf(m) != 0 || pool.principalOf(m) != 0 || pool.reserves() != reserves
                     || pool.badDebt() != bad + debt
             ) ++writeOffBreaks;
+            if (staked - staking.totalStaked() != due) ++slashBreaks;
         } catch {}
+    }
+
+    /// Anywhere from unset to a dollar a BRSR.
+    function restate(uint256 price) external {
+        Buyback.Params memory p = buyback.params();
+        p.maxPriceMicroUsdPerBrsr = uint128(bound(price, 0, 1e6));
+        vm.prank(governance);
+        buyback.setParams(p);
+    }
+
+    function nameSlasher(bool named) external {
+        vm.prank(governance);
+        staking.setSlasher(named ? address(pool) : address(0));
     }
 
     function sweep() external {
@@ -108,27 +137,71 @@ contract CreditPoolHandler is CommonBase, StdUtils {
     function _mandate(uint256 who) internal view returns (address) {
         return mandates[who % mandates.length];
     }
+
+    function _atCeiling(uint256 loss) internal view returns (uint256) {
+        if (staking.slasher() != address(pool)) return 0;
+        uint256 ceiling = buyback.params().maxPriceMicroUsdPerBrsr;
+        if (ceiling == 0 || block.timestamp > buyback.ceilingSetAt() + buyback.maxCeilingAge()) return 0;
+        return Math.mulDiv(loss, 1e18, ceiling);
+    }
 }
 
 contract CreditPoolInvariantTest is Test {
     uint128 internal constant TOTAL_CAP = 25e6;
     uint128 internal constant MANDATE_CAP = 10e6;
+    uint256 internal constant STAKE = 1_000_000e18;
 
     MockERC20 usdg;
-    MockStaking staking;
+    MockBRSR brsr;
+    Staking staking;
     CreditPool pool;
     CreditPoolHandler handler;
     address lender = makeAddr("lender");
+    address governance = makeAddr("timelock");
+    address staker = makeAddr("staker");
 
     function setUp() public {
         usdg = new MockERC20();
-        staking = new MockStaking(IERC20(address(usdg)));
-        pool = new CreditPool(
-            address(usdg), address(staking), makeAddr("timelock"), lender, TOTAL_CAP, MANDATE_CAP, 200, 1_800
+        brsr = new MockBRSR();
+        address treasury = makeAddr("treasury");
+        staking = new Staking(
+            IERC20(address(brsr)), IERC20(address(usdg)), governance, makeAddr("slashSink"), treasury, 7 days, 1
         );
-        handler = new CreditPoolHandler(pool, usdg, lender);
+        Buyback buyback = new Buyback(
+            address(usdg),
+            address(brsr),
+            makeAddr("poolManager"),
+            3000,
+            60,
+            address(0),
+            address(staking),
+            governance,
+            treasury,
+            Buyback.Params({
+                spendPerCallMicroUsd: 1e6,
+                maxSpendPerWindowMicroUsd: 10e6,
+                minSpendMicroUsd: 0.1e6,
+                maxPriceMicroUsdPerBrsr: 50_000,
+                window: 1 days,
+                minInterval: 1 hours
+            })
+        );
+        pool = new CreditPool(
+            address(usdg), address(staking), address(buyback), governance, lender, TOTAL_CAP, MANDATE_CAP, 200, 1_800
+        );
+        handler = new CreditPoolHandler(pool, usdg, lender, governance);
         pool.bindVault(address(handler));
+        vm.startPrank(governance);
         staking.setCreditManager(address(pool));
+        staking.setSlasher(address(pool));
+        vm.stopPrank();
+
+        brsr.mint(staker, STAKE);
+        vm.startPrank(staker);
+        brsr.approve(address(staking), STAKE);
+        staking.stake(STAKE);
+        vm.stopPrank();
+
         handler.fund(TOTAL_CAP);
         targetContract(address(handler));
     }
@@ -139,7 +212,7 @@ contract CreditPoolInvariantTest is Test {
         assertEq(
             pool.cash() + _lent() + pool.reserves(),
             handler.funded() - handler.withdrawn() - handler.principalLost() + handler.spreadReceived()
-                - staking.distributed(),
+                - usdg.balanceOf(address(staking)),
             "the pool's books drifted from what crossed its edge"
         );
         assertEq(usdg.balanceOf(address(pool)), pool.cash() + pool.reserves(), "reserves ran past the balance");
@@ -147,7 +220,9 @@ contract CreditPoolInvariantTest is Test {
 
     function invariant_stakersOnlyEverGetPaidSpread() public view {
         assertEq(
-            pool.reserves() + staking.distributed(), handler.spreadReceived(), "stakers were owed spread no one paid"
+            pool.reserves() + usdg.balanceOf(address(staking)),
+            handler.spreadReceived(),
+            "stakers were owed spread no one paid"
         );
     }
 
@@ -165,6 +240,12 @@ contract CreditPoolInvariantTest is Test {
     function invariant_writeOffsClearDebtAndLeaveReserves() public view {
         assertEq(handler.writeOffBreaks(), 0, "a write-off left debt or principal, or moved reserves");
         assertGe(pool.badDebt(), handler.principalLost(), "bad debt below the principal written off");
+    }
+
+    /// Every write-off takes the loss at a live ceiling, cut to what the window's allowance had
+    /// left, and nothing while the pool is not the slasher or the ceiling is unset or stale.
+    function invariant_slashIsTheLossAtTheCeilingInsideTheAllowance() public view {
+        assertEq(handler.slashBreaks(), 0, "a write-off slashed off the ceiling or past the allowance");
     }
 
     function _lent() internal view returns (uint256 sum) {

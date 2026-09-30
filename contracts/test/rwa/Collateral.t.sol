@@ -8,15 +8,19 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MandateAccount} from "../../src/MandateAccount.sol";
 import {IMandateAccount} from "../../src/interfaces/IMandateAccount.sol";
 import {IMandateAccountFactory} from "../../src/interfaces/IMandateAccountFactory.sol";
-import {IPoolManager, PoolKey} from "../../src/token/Buyback.sol";
+import {Buyback, IPoolManager, PoolKey} from "../../src/token/Buyback.sol";
+import {Staking} from "../../src/token/Staking.sol";
+import {IStaking} from "../../src/token/interfaces/IStaking.sol";
 import {AssetRegistry} from "../../src/rwa/AssetRegistry.sol";
 import {PriceGuard} from "../../src/rwa/PriceGuard.sol";
 import {CollateralVault} from "../../src/rwa/CollateralVault.sol";
 import {CreditPool} from "../../src/rwa/CreditPool.sol";
 import {V4Swapper} from "../../src/rwa/V4Swapper.sol";
+import {ICreditStaking} from "../../src/rwa/interfaces/ICreditStaking.sol";
 import {IAccessRegistry, IStateView} from "../../src/rwa/interfaces/IRwaExternal.sol";
+import {MockBRSR} from "../mocks/MockBRSR.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
-import {MockAccess, MockAccounts, MockEscrow, MockFeed, MockStaking, MockStock, MockV4} from "./RwaMocks.sol";
+import {MockAccess, MockAccounts, MockEscrow, MockFeed, MockStock, MockV4} from "./RwaMocks.sol";
 
 contract CollateralTest is Test {
     uint256 internal constant SPY_E8 = 771_21266423;
@@ -24,6 +28,9 @@ contract CollateralTest is Test {
     uint256 internal constant WAD = 1e18;
     // A Monday, 14:13 UTC, inside the 24/5 session.
     uint256 internal constant T0 = 1_790_000_000;
+    uint256 internal constant STAKE = 1_000_000e18;
+    /// Five cents a BRSR.
+    uint128 internal constant CEILING = 50_000;
 
     MockERC20 usdg;
     MockStock spy;
@@ -36,7 +43,9 @@ contract CollateralTest is Test {
     MockV4 v4;
     MockEscrow escrow;
     MockAccounts accounts;
-    MockStaking staking;
+    MockBRSR brsr;
+    Staking staking;
+    Buyback buyback;
 
     AssetRegistry reg;
     PriceGuard guard;
@@ -51,6 +60,9 @@ contract CollateralTest is Test {
     address lender = makeAddr("lender");
     address merchant = makeAddr("merchant");
     address keeper = makeAddr("keeper");
+    address staker = makeAddr("staker");
+    address slashSink = makeAddr("slashSink");
+    address treasury = makeAddr("treasury");
     bytes32 constant CAP = keccak256("service:gpu.render:1");
 
     function setUp() public {
@@ -69,7 +81,20 @@ contract CollateralTest is Test {
         v4 = new MockV4();
         escrow = new MockEscrow(IERC20(address(usdg)));
         accounts = new MockAccounts();
-        staking = new MockStaking(IERC20(address(usdg)));
+        brsr = new MockBRSR();
+        staking = new Staking(IERC20(address(brsr)), IERC20(address(usdg)), admin, slashSink, treasury, 7 days, 1e18);
+        buyback = new Buyback(
+            address(usdg),
+            address(brsr),
+            address(v4),
+            3000,
+            60,
+            address(0),
+            address(staking),
+            admin,
+            treasury,
+            _buybackParams(CEILING)
+        );
 
         PoolKey memory spyPool = _key(address(spy), 500, 10);
         PoolKey memory sgovPool = _key(address(sgov), 375, 4);
@@ -90,7 +115,7 @@ contract CollateralTest is Test {
         reg = new AssetRegistry(admin, address(usdg), assets, configs);
         guard = new PriceGuard(reg, IAccessRegistry(address(access)), IStateView(address(v4)));
 
-        pool = new CreditPool(address(usdg), address(staking), admin, lender, 100e6, 10e6, 200, 1_800);
+        pool = new CreditPool(address(usdg), address(staking), address(buyback), admin, lender, 100e6, 10e6, 200, 1_800);
         vault = new CollateralVault(
             reg,
             guard,
@@ -104,6 +129,7 @@ contract CollateralTest is Test {
             _assetTiers()
         );
         pool.bindVault(address(vault));
+        vm.prank(admin);
         staking.setCreditManager(address(pool));
 
         usdg.mint(lender, 1_000e6);
@@ -420,11 +446,12 @@ contract CollateralTest is Test {
         uint256 spread = pool.reserves();
         assertApproxEqAbs(spread, owed - 4e6, 1);
         pool.sweepSpread();
-        assertEq(staking.distributed(), spread);
+        assertEq(usdg.balanceOf(address(staking)), spread);
         assertApproxEqAbs(usdg.balanceOf(address(pool)), 30e6, 2);
     }
 
     function test_sweepRevertsUntilCreditManager() public {
+        vm.prank(admin);
         staking.setCreditManager(address(0));
         _deposit(spy, 0.01e18);
         _spendOnCredit(4e6);
@@ -435,7 +462,7 @@ contract CollateralTest is Test {
         pool.repay(address(acct), 5e6);
         vm.stopPrank();
         assertGt(pool.reserves(), 0);
-        vm.expectRevert("NotCreditManager");
+        vm.expectRevert(IStaking.NotCreditManager.selector);
         pool.sweepSpread();
     }
 
@@ -608,7 +635,7 @@ contract CollateralTest is Test {
         // What was written off is principal alone, and it is all the lender is down.
         assertApproxEqAbs(pool.cash(), 30e6 - pool.badDebt(), 2);
         pool.sweepSpread();
-        assertApproxEqAbs(staking.distributed(), spread, 1);
+        assertApproxEqAbs(usdg.balanceOf(address(staking)), spread, 1);
         assertApproxEqAbs(pool.cash(), 30e6 - pool.badDebt(), 2);
     }
 
@@ -674,6 +701,139 @@ contract CollateralTest is Test {
         vault.deposit(address(prefund), address(spy), 1);
     }
 
+    // ---- first loss ----
+
+    /// The ceiling a write-off converts at has to belong to the Staking it slashes.
+    function test_pool_refusesAnotherStakingsBuyback() public {
+        Staking other =
+            new Staking(IERC20(address(brsr)), IERC20(address(usdg)), admin, slashSink, treasury, 7 days, 1e18);
+        vm.expectRevert(
+            abi.encodeWithSelector(CreditPool.BuybackStakingMismatch.selector, address(staking), address(other))
+        );
+        new CreditPool(address(usdg), address(other), address(buyback), admin, lender, 100e6, 10e6, 200, 1_800);
+    }
+
+    /// The 4 USDG written off comes out of stake at the five-cent ceiling: 80 BRSR, inside the
+    /// tenth of the pool a window allows. The lender is still down the whole 4 USDG.
+    function test_writeOff_slashesStakeAtTheCeiling() public {
+        _stake();
+        _nameSlasher();
+        _strandLine();
+
+        vm.expectEmit(address(pool));
+        emit CreditPool.WrittenOff(address(acct), 4e6, 80e18);
+        vault.liquidate(address(acct), address(spy));
+
+        assertEq(brsr.balanceOf(slashSink), 80e18);
+        assertEq(staking.totalStaked(), STAKE - 80e18);
+        assertEq(pool.badDebt(), 4e6);
+        assertEq(pool.cash(), 26e6);
+    }
+
+    /// The ceiling holds through the last second the Buyback would still trade on it. A second
+    /// later it is not a price: the debt is still written off, and no stake moves.
+    function test_writeOff_skipsSlashOnceTheCeilingIsStale() public {
+        _stake();
+        _nameSlasher();
+        MandateAccount second = _secondLine();
+        _deposit(spy, 0.01e18);
+        _spendOnCredit(4e6);
+        uint256 lastFresh = buyback.ceilingSetAt() + buyback.maxCeilingAge();
+        vm.warp(lastFresh);
+        _movePrice(spy, spyFeed, 1e3);
+
+        vault.liquidate(address(acct), address(spy));
+        uint256 slashed = STAKE - staking.totalStaked();
+        assertGt(slashed, 0);
+
+        vm.warp(lastFresh + 1);
+        uint256 debt = pool.debtOf(address(second));
+        vm.expectEmit(address(pool));
+        emit CreditPool.SlashSkipped(address(second), debt, CreditPool.SlashSkip.CeilingStale);
+        vm.expectEmit(address(pool));
+        emit CreditPool.WrittenOff(address(second), debt, 0);
+        vault.liquidate(address(second), address(spy));
+
+        assertEq(pool.debtOf(address(second)), 0);
+        assertEq(STAKE - staking.totalStaked(), slashed);
+        assertEq(brsr.balanceOf(slashSink), slashed);
+    }
+
+    function test_writeOff_skipsSlashOnUnsetCeiling() public {
+        _stake();
+        _nameSlasher();
+        vm.prank(admin);
+        buyback.setParams(_buybackParams(0));
+        _strandLine();
+
+        vm.expectEmit(address(pool));
+        emit CreditPool.SlashSkipped(address(acct), 4e6, CreditPool.SlashSkip.CeilingUnset);
+        vm.expectEmit(address(pool));
+        emit CreditPool.WrittenOff(address(acct), 4e6, 0);
+        vault.liquidate(address(acct), address(spy));
+
+        assertEq(staking.totalStaked(), STAKE);
+    }
+
+    /// Staking starts with no slasher. Until governance names the pool, a write-off takes no stake.
+    function test_writeOff_skipsSlashUntilNamedSlasher() public {
+        _stake();
+        _strandLine();
+
+        vm.expectEmit(address(pool));
+        emit CreditPool.SlashSkipped(address(acct), 4e6, CreditPool.SlashSkip.NotSlasher);
+        vm.expectEmit(address(pool));
+        emit CreditPool.WrittenOff(address(acct), 4e6, 0);
+        vault.liquidate(address(acct), address(spy));
+
+        assertEq(pool.debtOf(address(acct)), 0);
+        assertEq(staking.totalStaked(), STAKE);
+    }
+
+    /// The first Staking deployment has no slasher role, so asking it reverts. The write-off
+    /// must still clear the line.
+    function test_writeOff_standsWhenStakingHasNoSlasherRole() public {
+        _stake();
+        _nameSlasher();
+        vm.mockCallRevert(address(staking), abi.encodeCall(ICreditStaking.slasher, ()), "");
+        _strandLine();
+
+        vm.expectEmit(address(pool));
+        emit CreditPool.SlashSkipped(address(acct), 4e6, CreditPool.SlashSkip.NotSlasher);
+        vault.liquidate(address(acct), address(spy));
+
+        assertEq(pool.debtOf(address(acct)), 0);
+        assertEq(staking.totalStaked(), STAKE);
+    }
+
+    /// At one micro-USD a BRSR the 4 USDG loss is four million BRSR. Staking gives up the tenth
+    /// of the pool a window allows and no more, and a second write-off in the same block takes
+    /// nothing. The lender carries both losses in full.
+    function test_slash_neverExceedsTheAllowance() public {
+        _stake();
+        _nameSlasher();
+        vm.prank(admin);
+        buyback.setParams(_buybackParams(1));
+        MandateAccount second = _secondLine();
+        _strandLine();
+
+        uint256 allowance = staking.slashAllowance();
+        assertEq(allowance, STAKE / 10);
+        vm.expectEmit(address(pool));
+        emit CreditPool.WrittenOff(address(acct), 4e6, allowance);
+        vault.liquidate(address(acct), address(spy));
+        assertEq(staking.slashAllowance(), 0);
+
+        vm.expectEmit(address(pool));
+        emit CreditPool.WrittenOff(address(second), 4e6, 0);
+        vault.liquidate(address(second), address(spy));
+
+        assertEq(brsr.balanceOf(slashSink), allowance);
+        assertEq(staking.totalStaked(), STAKE - allowance);
+        assertEq(pool.badDebt(), 8e6);
+        assertEq(pool.cash(), 22e6);
+    }
+
     // ---- helpers ----
 
     function _deposit(MockStock token, uint256 raw) internal {
@@ -684,6 +844,38 @@ contract CollateralTest is Test {
     function _spendOnCredit(uint128 amount) internal {
         vm.prank(agent);
         acct.spend(_req(amount), new bytes32[](0));
+    }
+
+    /// Draws 4 USDG against 0.01 SPY, then drops SPY to dust, so the next liquidation writes the
+    /// whole 4 USDG off.
+    function _strandLine() internal {
+        _deposit(spy, 0.01e18);
+        _spendOnCredit(4e6);
+        _movePrice(spy, spyFeed, 1e3);
+    }
+
+    /// Another line drawn like `acct` will be: 4 USDG against 0.01 SPY.
+    function _secondLine() internal returns (MandateAccount second) {
+        second = _mandate(1);
+        vm.startPrank(principal);
+        vault.openLine(address(second));
+        vault.deposit(address(second), address(spy), 0.01e18);
+        vm.stopPrank();
+        vm.prank(agent);
+        second.spend(_req(4e6), new bytes32[](0));
+    }
+
+    function _stake() internal {
+        brsr.mint(staker, STAKE);
+        vm.startPrank(staker);
+        brsr.approve(address(staking), STAKE);
+        staking.stake(STAKE);
+        vm.stopPrank();
+    }
+
+    function _nameSlasher() internal {
+        vm.prank(admin);
+        staking.setSlasher(address(pool));
     }
 
     function _movePrice(MockStock token, MockFeed feed, uint256 priceE8) internal {
@@ -736,6 +928,17 @@ contract CollateralTest is Test {
 
     function _params() internal pure returns (CollateralVault.Params memory) {
         return CollateralVault.Params({minBorrowHealth: 1.25e18, liquidationTarget: 1.05e18, bountyBps: 500});
+    }
+
+    function _buybackParams(uint128 ceiling) internal pure returns (Buyback.Params memory) {
+        return Buyback.Params({
+            spendPerCallMicroUsd: 1e6,
+            maxSpendPerWindowMicroUsd: 10e6,
+            minSpendMicroUsd: 0.1e6,
+            maxPriceMicroUsdPerBrsr: ceiling,
+            window: 1 days,
+            minInterval: 1 hours
+        });
     }
 
     function _tiers() internal pure returns (CollateralVault.Tier[] memory t) {
