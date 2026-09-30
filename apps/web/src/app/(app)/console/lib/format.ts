@@ -1,5 +1,5 @@
 import { micro } from '@bursar/core';
-import type { Micro } from '@bursar/core';
+import type { ContractSet, Micro } from '@bursar/core';
 import { LockStatus, MerchantGate } from '@bursar/sdk';
 
 import { DAY_SECONDS } from '@/chain/limits';
@@ -101,22 +101,34 @@ export function lockLevel(status: LockStatus): StateLevel {
 }
 
 /**
- * Whether a complaint is still open on a payment, on the escrow's own two conditions.
+ * Whether a complaint is still open on a payment, on the escrow's own conditions.
  *
- * A lock it still holds can be contested by either side. A lock it has paid out can be contested
- * by the payer alone, and only until the dispute window closes; after that the escrow answers
- * `TooLate`. Both screens that offer the control read this one function, because a settlement
- * listed as contestable in one place and refused in the other is the same bug twice.
+ * A lock it still holds can be contested by either side, and on the current escrow only until its
+ * deadline: past that the payer is owed the timeout refund, and the escrow answers `TooLate`. A
+ * lock it has paid out can be contested by the payer alone, and only until the dispute window
+ * closes. Both screens that offer the control read this one function, because a settlement listed
+ * as contestable in one place and refused in the other is the same bug twice.
  */
 export function contestable(
-  lock: { readonly status: LockStatus; readonly releasedAt: Date | null; readonly disputedAt?: Date | null } | undefined,
+  lock:
+    | {
+        readonly status: LockStatus;
+        readonly releasedAt: Date | null;
+        readonly disputedAt?: Date | null;
+        readonly deadline?: Date;
+      }
+    | undefined,
   disputeWindow: bigint | undefined,
   now: Date = new Date(),
+  set?: ContractSet,
 ): boolean {
   if (!lock) return false;
-  // A v2 dispute that closed without a ruling puts the lock back to Locked with its dispute time
-  // kept, and the registry refuses a second dispute on the same lock.
-  if (lock.status === LockStatus.Locked) return lock.disputedAt === undefined || lock.disputedAt === null;
+  if (lock.status === LockStatus.Locked) {
+    // A dispute that closed without a ruling puts the lock back to Locked with its dispute time
+    // kept, and the registry refuses a second dispute on the same lock.
+    if (lock.disputedAt !== undefined && lock.disputedAt !== null) return false;
+    return set !== 'v3' || lock.deadline === undefined || now.getTime() <= lock.deadline.getTime();
+  }
   if (lock.status !== LockStatus.Released || lock.releasedAt === null || disputeWindow === undefined) return false;
   return lock.releasedAt.getTime() + Number(disputeWindow) * 1000 > now.getTime();
 }

@@ -39,7 +39,7 @@ type Row = {
  * different facts and this screen keeps them apart.
  */
 export function SettlementsView() {
-  const { address, ledger, system, isOwner } = useMandateScope();
+  const { address, account, ledger, system, isOwner } = useMandateScope();
   const { labelFor } = useCapabilityLabels();
   const feeBps = system.snapshot?.escrow.feeBps;
   const disputeWindow = system.snapshot?.escrow.disputeWindow;
@@ -171,7 +171,7 @@ export function SettlementsView() {
                   cell: (row) => (
                     <>
                       <Outcome row={row} chainTime={ledger.chainTime} />
-                      {isOwner && contestable(row.lock, disputeWindow) && (
+                      {isOwner && contestable(row.lock, disputeWindow, ledger.chainTime, account?.contractSet) && (
                         <Link
                           href={`/console/${address}/exceptions`}
                           className="mt-1 block text-note underline underline-offset-2"

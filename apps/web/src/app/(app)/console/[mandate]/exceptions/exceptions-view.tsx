@@ -43,7 +43,7 @@ export function ExceptionsView() {
   const { address, account, system, ledger, isOwner, writeContext, refresh } = useMandateScope();
   const { labelFor } = useCapabilityLabels();
   const { writeContractAsync } = useWriteContract();
-  // Only a v1 total budget comes back as MonthlyCapExceeded. A v2 total has its own error.
+  // Only a v1 total budget comes back as MonthlyCapExceeded. A native total has its own error.
   const feed = useRefusals(address, {
     totalBudget: account !== undefined && account.contractSet === 'v1' && isTotalBudgetWindow(account.monthly.duration),
   });
@@ -77,7 +77,9 @@ export function ExceptionsView() {
   const held = locks.filter((lock) => lock.status === LockStatus.Locked);
   const clockUnread = chainTime === undefined && held.length > 0;
 
-  const open = locks.filter((lock) => contestable(lock, disputeWindow)).sort((a, b) => Number(b.id - a.id));
+  const open = locks
+    .filter((lock) => contestable(lock, disputeWindow, chainTime, account?.contractSet))
+    .sort((a, b) => Number(b.id - a.id));
 
   // The index says which payments exist and the escrow says what became of each, so both lists
   // below are as read as the weaker of the two and neither is empty until both have answered.
@@ -413,11 +415,11 @@ function refusalLine(error: unknown): string {
  * `Escrow._split` takes the resolver fee off the lock before it applies the refund, so the best
  * outcome a payer can get out of a dispute is the payment less that fee. On v1, `failDispute`
  * charges it on a panel that never reached a quorum as well, where it reaches no resolver at all
- * and ends up in `unallocatedRewards` with nothing that returns it here. On v2 a panel that does
- * not rule takes no fee: the payment goes back into escrow and the bond comes back.
+ * and ends up in `unallocatedRewards` with nothing that returns it here. From v2 on a panel that
+ * does not rule takes no fee: the payment goes back into escrow and the bond comes back.
  */
 function feeWarning(amount: Micro, resolverFeeBps: number | undefined, contractSet: ContractSet): string {
-  if (contractSet === 'v2') {
+  if (contractSet !== 'v1') {
     const fee =
       resolverFeeBps === undefined
         ? 'a resolver fee'
