@@ -19,13 +19,21 @@ The set is a pure function of the pool's events and the registry
 Each post stores the root and the CIDv1 (raw, sha2-256) of the set document's canonical JSON. The
 document is served at `/v1/association-set/<cid>` and can be pinned to IPFS unchanged.
 
+## Posting cadence
+
+The pool takes withdrawal proofs against the newest root only, so every post turns away the proofs
+made against the one before it. The service therefore posts at most once every ten minutes,
+counted from the last root on chain, and the deposits that land inside one window go out together
+in the next post. A wallet whose proof meets a newer root proves again against it; the SDK's
+`relayWithFreshProof` does that for the console.
+
 ## Use
 
 ```sh
 pnpm --filter @bursar/asp build
 bursar-asp post --dry-run    # print the set, send nothing
-bursar-asp post              # post the root if it changed
-bursar-asp run               # serve on PORT (4320) and repost every ASP_INTERVAL_SECONDS (30)
+bursar-asp post              # post the root if it changed and the window is open
+bursar-asp run               # serve on PORT (4320), recompute every ASP_INTERVAL_SECONDS (30), post on the cadence
 bursar-asp verify            # recompute and compare with the posted root
 ```
 

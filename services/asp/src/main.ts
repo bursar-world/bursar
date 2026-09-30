@@ -1,11 +1,15 @@
 /**
  *   bursar-asp post [--dry-run]   compute the association set and post its root if it changed
- *   bursar-asp run                 serve the set over HTTP and repost whenever it changes
+ *   bursar-asp run                 serve the set over HTTP and post it on the posting cadence
  *   bursar-asp verify              recompute the set from chain data and compare with the posted root
+ *
+ * Both `post` and `run` post at most once per POST_CADENCE_SECONDS (ten minutes), counted from the
+ * chain's last post, so the deposits that land inside one window share one root.
  *
  * Environment: RHC_RPC_URL (default the public endpoint); ASP_PRIVATE_KEY, or ASP_KEYSTORE and
  * ASP_PASSWORD_FILE, for the postman key (only `post` and `run` send); PORT (default 4320);
- * ASP_INTERVAL_SECONDS (default 30); ASP_DATA_DIR to keep published sets across restarts.
+ * ASP_INTERVAL_SECONDS (default 30), how often the set is recomputed and served; ASP_DATA_DIR to
+ * keep published sets across restarts.
  */
 import process from 'node:process';
 
@@ -14,7 +18,7 @@ import { ASP_POSTMAN_ROLE, shieldedEntrypointAbi } from '@bursar/sdk';
 import { createPublicClient, createWalletClient, http } from 'viem';
 
 import { SetStore, serve } from './http.js';
-import { latestRoot, syncRoot } from './post.js';
+import { cadencedPoster, lastPostedAt, latestRoot } from './post.js';
 import { computeSet, type Pool } from './set.js';
 import { signerFromEnv } from './signer.js';
 
@@ -48,10 +52,17 @@ async function assertPostman(wallet: ReturnType<typeof postman>) {
   if (!allowed) throw new Error(`${wallet.account.address} does not hold ASP_POSTMAN on ${deployment!.Entrypoint}.`);
 }
 
-async function once(store: SetStore, wallet?: ReturnType<typeof postman>) {
+const now = () => BigInt(Math.floor(Date.now() / 1000));
+
+async function posterFor(wallet?: ReturnType<typeof postman>) {
+  const entrypoint = deployment!.Entrypoint;
+  return cadencedPoster({ client, wallet, chain, entrypoint, lastPostedAt: await lastPostedAt(client, entrypoint), now });
+}
+
+async function once(store: SetStore, poster: Awaited<ReturnType<typeof posterFor>>) {
   const set = await computeSet(client, pool);
   store.put(set);
-  const outcome = await syncRoot({ client, wallet, chain, entrypoint: deployment!.Entrypoint, set });
+  const outcome = await poster.sync(set);
   const summary = `${set.labels.length} admitted, ${set.excluded.length} excluded, through block ${set.throughBlock}`;
   if (outcome.action === 'posted') console.log(`posted root ${outcome.root} (${outcome.cid}) in ${outcome.hash}; ${summary}`);
   else console.log(`root ${outcome.root}: ${outcome.reason}; ${summary}`);
@@ -61,13 +72,14 @@ async function once(store: SetStore, wallet?: ReturnType<typeof postman>) {
 async function post(dryRun: boolean) {
   const wallet = dryRun ? undefined : postman();
   if (wallet) await assertPostman(wallet);
-  const set = await once(new SetStore(null), wallet);
+  const set = await once(new SetStore(null), await posterFor(wallet));
   if (dryRun) console.log(JSON.stringify(set, null, 2));
 }
 
 async function run() {
   const wallet = postman();
   await assertPostman(wallet);
+  const poster = await posterFor(wallet);
   const store = new SetStore(process.env['ASP_DATA_DIR'] ?? null);
   const intervalMs = Number(process.env['ASP_INTERVAL_SECONDS'] ?? 30) * 1000;
   let last = { at: 0, error: null as string | null };
@@ -90,7 +102,7 @@ async function run() {
   console.log(`asp serving on :${port}, pool ${pool.pool}`);
   for (;;) {
     try {
-      await once(store, wallet);
+      await once(store, poster);
       last = { at: Date.now(), error: null };
     } catch (error) {
       last = { at: Date.now(), error: error instanceof Error ? error.message : String(error) };

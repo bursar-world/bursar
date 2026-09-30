@@ -15,7 +15,17 @@ import {
 } from 'viem';
 import { describe, expect, it, vi } from 'vitest';
 
-import { SetStore, computeSet, handle, syncRoot, type Pool, type PublishedSet } from '../src/index.js';
+import {
+  POST_CADENCE_SECONDS,
+  SetStore,
+  cadencedPoster,
+  computeSet,
+  handle,
+  lastPostedAt,
+  syncRoot,
+  type Pool,
+  type PublishedSet,
+} from '../src/index.js';
 
 const POOL: Address = '0x9F9914dd397a9e9462Dd7cB6891Ab835119297C7';
 const ENTRYPOINT: Address = '0xADc02737378a86c0fB8231964C658A7AB81eeaa2';
@@ -122,9 +132,108 @@ describe('syncRoot', () => {
     }
   });
 
+  it('holds a changed root until the posting window opens', async () => {
+    const client = { readContract: vi.fn(async () => 7n), simulateContract: vi.fn(), waitForTransactionReceipt: vi.fn() };
+    const wallet = { account, writeContract: vi.fn() };
+    const outcome = await syncRoot({
+      client: client as never,
+      wallet: wallet as never,
+      chain: {} as never,
+      entrypoint: ENTRYPOINT,
+      set: set('9'),
+      window: { now: 1_000n, notBefore: 1_600n },
+    });
+    expect(outcome).toMatchObject({ action: 'skipped', reason: 'batching deposits until the next post window at 1970-01-01T00:26:40.000Z' });
+    expect(wallet.writeContract).not.toHaveBeenCalled();
+  });
+
   it('reports a dry run without a wallet', async () => {
     const client = { readContract: vi.fn(async () => 7n), simulateContract: vi.fn(), waitForTransactionReceipt: vi.fn() };
     expect(await syncRoot({ client: client as never, chain: {} as never, entrypoint: ENTRYPOINT, set: set('9') })).toMatchObject({ action: 'skipped', reason: 'dry run' });
+  });
+});
+
+describe('the posting cadence', () => {
+  const account = { address: ALICE, type: 'json-rpc' } as const;
+
+  /** An Entrypoint that takes every post, and a clock the test moves. */
+  function entrypoint(lastPost: bigint | null) {
+    let root: bigint | null = null;
+    let clock = 10_000n;
+    const posted: bigint[] = [];
+    const client = {
+      readContract: vi.fn(async ({ functionName }: { functionName: string }) => {
+        if (functionName !== 'latestRoot') throw new Error(functionName);
+        if (root === null) throw noRoots();
+        return root;
+      }),
+      simulateContract: vi.fn(async (req: { args: readonly [bigint, string] }) => ({ request: req })),
+      waitForTransactionReceipt: vi.fn(async () => ({ status: 'success' })),
+    };
+    const wallet = {
+      account,
+      writeContract: vi.fn(async (req: { args: readonly [bigint, string] }) => {
+        root = req.args[0];
+        posted.push(req.args[0]);
+        return `0x${'cc'.repeat(32)}`;
+      }),
+    };
+    const poster = cadencedPoster({
+      client: client as never,
+      wallet: wallet as never,
+      chain: {} as never,
+      entrypoint: ENTRYPOINT,
+      lastPostedAt: lastPost,
+      now: () => clock,
+    });
+    return { poster, posted, tick: (seconds: bigint) => void (clock += seconds) };
+  }
+
+  it('posts two deposits that land in one window as one root', async () => {
+    const { poster, posted, tick } = entrypoint(null);
+    expect((await poster.sync(set('1', ['1']))).action).toBe('posted');
+
+    // Two deposits inside the next ten minutes: nothing posts while the window is shut.
+    tick(30n);
+    expect(await poster.sync(set('2', ['1', '2']))).toMatchObject({ action: 'skipped', reason: expect.stringMatching(/^batching deposits/) });
+    tick(60n);
+    expect((await poster.sync(set('3', ['1', '2', '3']))).action).toBe('skipped');
+    expect(posted).toEqual([1n]);
+
+    // The window opens, and one post carries both.
+    tick(POST_CADENCE_SECONDS - 90n);
+    expect((await poster.sync(set('3', ['1', '2', '3']))).action).toBe('posted');
+    expect((await poster.sync(set('3', ['1', '2', '3']))).action).toBe('skipped');
+    expect(posted).toEqual([1n, 3n]);
+  });
+
+  it('counts the window from the chain’s last post, so a restart does not open it early', async () => {
+    const { poster, posted, tick } = entrypoint(10_000n - 60n);
+    expect((await poster.sync(set('4'))).action).toBe('skipped');
+    tick(POST_CADENCE_SECONDS - 60n);
+    expect((await poster.sync(set('4'))).action).toBe('posted');
+    expect(posted).toEqual([4n]);
+  });
+
+  it('finds the last post time without a length getter', async () => {
+    const times = [100n, 200n, 300n, 400n, 500n];
+    const reverted = () =>
+      new BaseError('reverted', {
+        cause: new ContractFunctionRevertedError({ abi: [], data: '0x4e487b710000000000000000000000000000000000000000000000000000000000000032', functionName: 'associationSets' }),
+      });
+    const client = (list: bigint[]) => ({
+      readContract: vi.fn(async ({ args }: { args: readonly [bigint] }) => {
+        const index = Number(args[0]);
+        if (index >= list.length) throw reverted();
+        return [1n, 'cid', list[index]!] as const;
+      }),
+    });
+    expect(await lastPostedAt(client(times) as never, ENTRYPOINT)).toBe(500n);
+    expect(await lastPostedAt(client(times.slice(0, 1)) as never, ENTRYPOINT)).toBe(100n);
+    expect(await lastPostedAt(client([]) as never, ENTRYPOINT)).toBeNull();
+
+    const down = { readContract: vi.fn(async () => Promise.reject(new Error('socket hang up'))) };
+    await expect(lastPostedAt(down as never, ENTRYPOINT)).rejects.toThrow('socket hang up');
   });
 });
 
