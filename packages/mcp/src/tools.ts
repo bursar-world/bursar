@@ -246,7 +246,8 @@ export const TOOLS: readonly ToolDefinition[] = [
       'Read the spending mandate this server is bound to: the per-call cap, the daily and monthly budgets, ' +
       'how much is left in each and when each resets, the amount at and above which the principal has to sign, ' +
       'the balance the principal has funded, and whether the mandate is active, paused, revoked or outside ' +
-      'its dates. Nothing is spent. Start here when you do not know what you are allowed to buy.',
+      'its dates. It also reports the escrow terms, including the smallest payment the escrow will lock. ' +
+      'Nothing is spent. Start here when you do not know what you are allowed to buy.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
@@ -256,7 +257,8 @@ export const TOOLS: readonly ToolDefinition[] = [
     description:
       'Ask the mandate what it would decide about one spend, before making it. The answer says whether the ' +
       'spend would settle and, when it would not, which limit stopped it: the per-call cap, the daily budget, ' +
-      'the monthly budget or the total budget, the capability, the provider, or the state of the mandate itself. A spend at or ' +
+      'the monthly budget or the total budget, the capability, the provider, the state of the mandate itself, ' +
+      'or the smallest payment the escrow will lock. A spend at or ' +
       'above the approval threshold needs the principal to sign for it, and the quote says so rather than ' +
       'calling it a refusal. Nothing moves and nothing is charged.',
     inputSchema: {
@@ -285,9 +287,10 @@ export const TOOLS: readonly ToolDefinition[] = [
       'Pay a provider for one job. The amount is locked in escrow against this mandate and goes to the ' +
       'provider when the work is delivered before the deadline. If nothing is delivered by then, the funds ' +
       'return to the mandate and the daily and monthly budgets are credited back. The contract enforces the ' +
-      'limits, so a spend outside them does not settle whatever this server is told. A spend at or above the ' +
-      'approval threshold needs an approval the principal signed for this provider, this capability and at ' +
-      'least this amount; without one the payment is refused before it reaches the chain. The money comes ' +
+      'limits, so a spend outside them does not settle whatever this server is told. The escrow locks nothing ' +
+      'under its floor, which mandate_inspect reports, so a smaller payment is refused before it is sent. A spend ' +
+      'at or above the approval threshold needs an approval the principal signed for this provider, this ' +
+      'capability and at least this amount; without one the payment is refused before it reaches the chain. The money comes ' +
       'from what the principal has already funded the mandate with. There is no credit line here. The reply ' +
       'carries a settlement id: follow it with mandate_get_settlement to see whether the work arrived.',
     inputSchema: {
@@ -399,14 +402,15 @@ export const TOOLS: readonly ToolDefinition[] = [
     role: 'mandate',
     writes: true,
     description:
-      'Contest a settlement this mandate paid for. While the funds are still held, this hands the split to ' +
-      'the resolver and posts a bond from the mandate balance. The escrow sizes the bond against the amount ' +
-      'at stake, and it comes back only if the ruling lands on the side of the mandate. Once the provider has ' +
-      'been paid there is nothing left to split: the complaint is recorded against the provider rather than ' +
-      'ruled on, and only while the dispute window that mandate_get_settlement reports is still open. ' +
-      'Contesting a payment is a decision for the principal, so it works only where the signer is authorised ' +
-      'to act for the principal. Read the settlement again afterwards for the ruling and the time it has to ' +
-      'land by.',
+      'Contest a settlement this mandate paid for. While the funds are still held and the delivery deadline ' +
+      'has not passed, this hands the split to the resolvers and posts a bond from the mandate balance. The ' +
+      'escrow sizes the bond against the amount at stake, and it comes back only if the ruling lands on the ' +
+      'side of the mandate or the vote produces no result. Past the deadline the funds go back to the mandate ' +
+      'instead, so there is nothing to contest. Once the provider has been paid there is nothing left to ' +
+      'split: the complaint is recorded against the provider rather than ruled on, and only while the dispute ' +
+      'window that mandate_get_settlement reports is still open. Contesting a payment is a decision for the ' +
+      'principal, so it works only where the signer is authorised to act for the principal. Read the ' +
+      'settlement again afterwards for the ruling and for when the vote closes.',
     inputSchema: settlementIdSchema(),
   },
   {
@@ -493,11 +497,12 @@ export const TOOLS: readonly ToolDefinition[] = [
     description:
       'Read the dispute against one of this mandate’s payments, and the ruling once there is one. While ' +
       'the escrow still holds the funds, bonded resolvers seal scores, publish them and close the vote, and ' +
-      'the reply reports which phase it is in, how many have voted, when each window shuts, and by when the ' +
-      'funds and the bond come back if no ruling lands. Once ruled it reports the median score, the refund ' +
-      'share, exactly what went back to the mandate and what went to the provider, and whether the bond was ' +
-      'returned. A complaint about a payment the provider had already taken is reported as what it is: a ' +
-      'record against that provider, with no resolver and no ruling.',
+      'the reply reports which phase it is in, how many have voted, when each window shuts, and when the ' +
+      'vote closes. From then anyone can settle it: the escrow moves the money on the ruling, or, when too ' +
+      'few resolvers voted, puts the payment back on hold with a new deadline and returns the bond. Once ' +
+      'ruled it reports the median score, the refund share, exactly what went back to the mandate and what ' +
+      'went to the provider, and whether the bond was returned. A complaint about a payment the provider had ' +
+      'already taken is reported as what it is: a record against that provider, with no resolver and no ruling.',
     inputSchema: settlementIdSchema(),
   },
   {
@@ -739,8 +744,9 @@ export const TOOLS: readonly ToolDefinition[] = [
     role: 'resolver',
     writes: true,
     description:
-      'Close a vote that never reached quorum. The escrow refunds the payer in full and the provider is ' +
-      'paid nothing; no resolver fee is paid on a dispute that produced no result. Resolvers that sealed a ' +
+      'Close a vote that never reached quorum, or whose scores had no centre to rule from. The escrow puts ' +
+      'the payment back on hold with a new deadline for the provider and returns the bond to whoever ' +
+      'contested it; no resolver fee is paid on a dispute that produced no result. Resolvers that sealed a ' +
       'score and never published one are slashed for it, but only once the window they could have spoken ' +
       'in has shut. Anyone can send it.',
     inputSchema: disputeIdSchema(),
@@ -792,9 +798,10 @@ export const TOOLS: readonly ToolDefinition[] = [
     writes: false,
     description:
       'Read where this provider stands in the registry: whether it is listed, whether it reads as available ' +
-      'to principals, the collateral posted against the floor it has to keep, the most a single ruling ' +
-      'could take from it, and any withdrawal on its way out with the time it matures. Collateral is in ' +
-      'USDG and is at risk: a ruling against a job can take part of it. Nothing is sent.',
+      'to principals, the collateral posted against the floor it has to keep, the most a single slash could ' +
+      'take from it, and any withdrawal on its way out with the time it matures. Collateral is in USDG and ' +
+      'is at risk: governance can take part of it from a provider that failed its counterparties, on a ' +
+      'timelocked proposal. A dispute ruling never reaches it. Nothing is sent.',
     inputSchema: NO_ARGUMENTS,
   },
   {
@@ -816,8 +823,9 @@ export const TOOLS: readonly ToolDefinition[] = [
     writes: true,
     description:
       'List this provider in the registry with collateral, which is what lets a principal name it and the ' +
-      'escrow hold payments for it. The collateral is at risk from the moment it lands: a ruling against a ' +
-      'job can take part of it, and it cannot be taken back without a delay. The name is a display handle, ' +
+      'escrow hold payments for it. The collateral is at risk from the moment it lands: governance can take ' +
+      'part of it from a provider that failed its counterparties, and it cannot be taken back without a ' +
+      'delay. The name is a display handle, ' +
       'not an identity: it is not unique and nothing in the protocol resolves it. The collateral has to be ' +
       'approved to the registry first.',
     inputSchema: {
@@ -845,7 +853,7 @@ export const TOOLS: readonly ToolDefinition[] = [
     role: 'provider',
     writes: true,
     description:
-      'Add collateral to a listing that already exists, which raises the ceiling a ruling can take and ' +
+      'Add collateral to a listing that already exists, which raises the most a single slash can take and ' +
       'brings a provider back over the floor after a slash. It also cancels a withdrawal that was waiting: ' +
       'asking to leave and adding collateral in the same breath is contradictory, so the registry clears ' +
       'the request. The collateral has to be approved to the registry first.',
@@ -861,7 +869,8 @@ export const TOOLS: readonly ToolDefinition[] = [
     writes: true,
     description:
       'Step one of taking collateral back. It starts a delay during which the collateral stays posted and ' +
-      'stays slashable, which is what stops a stake leaving between a bad job and the ruling on it. An ' +
+      'stays slashable, which is what stops a stake leaving between a bad job and the governance proposal ' +
+      'that answers it. An ' +
       'active provider has to leave the registry floor behind; to take the whole stake, deactivate first. ' +
       'There is one withdrawal at a time.',
     inputSchema: {

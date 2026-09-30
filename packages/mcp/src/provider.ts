@@ -2,10 +2,11 @@
  * The registry, from the side that sells capability through it.
  *
  * A provider puts up collateral in the settlement asset and the registry publishes it. A principal
- * reads that figure before it allows anyone to be paid, and a ruling against a bad job can take
- * part of it, so it is the number a counterparty is trusting. Leaving runs through a delay
- * for the same reason: collateral that could walk out between a bad job and the ruling on it would
- * not be collateral.
+ * reads that figure before it allows anyone to be paid, and governance can take part of it from a
+ * provider that failed its counterparties, on a timelocked proposal, so it is the number a
+ * counterparty is trusting. A dispute ruling never reaches it: a ruling moves the refund and the
+ * provider's history. Leaving runs through a delay for the same reason: collateral that could walk
+ * out between a bad job and the proposal that answers it would not be collateral.
  *
  * Separately, the escrow keeps a settlement history and turns it into a ceiling on the next
  * payment this provider can be held for. Collateral buys a listing; history buys size.
@@ -176,9 +177,9 @@ export function createProviderGateway(options: ProviderGatewayOptions): Provider
         { provider, action: 'register', name, stake: stake.toString() },
         'provider_register',
         'This provider is listed and reading as available, so a principal can allow it and the escrow ' +
-          'will hold payments for it. The collateral is at risk from here: a ruling against a job can ' +
-          'take part of it. provider_reputation reports the ceiling on a single payment, which starts ' +
-          'at the floor of the curve and rises with delivered work.',
+          'will hold payments for it. The collateral is at risk from here: governance can take part of ' +
+          'it from a provider that failed its counterparties. provider_reputation reports the ceiling on ' +
+          'a single payment, which starts at the floor of the curve and rises with delivered work.',
       );
     },
 
@@ -236,7 +237,8 @@ function statusNote(state: {
     return (
       'This address is not listed, so the escrow will not hold a payment for it. provider_register ' +
       `takes a name and at least ${moneyFromUint(state.minStake).usdg} USDG of collateral, approved to ` +
-      'the registry first. The collateral is at risk: a ruling against a job can take part of it.'
+      'the registry first. The collateral is at risk: governance can take part of it from a provider ' +
+      'that failed its counterparties.'
     );
   }
 
@@ -265,7 +267,8 @@ function statusNote(state: {
 
   return (
     `Listed and available, with ${moneyFromUint(state.stake).usdg} USDG of collateral posted and up to ` +
-    `${moneyFromUint(state.maxSlash).usdg} USDG of it at risk in any single ruling.`
+    `${moneyFromUint(state.maxSlash).usdg} USDG of it at risk in any single slash, which governance ` +
+    'makes on a timelocked proposal. A dispute ruling never reaches the collateral.'
   );
 }
 

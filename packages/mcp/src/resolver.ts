@@ -416,8 +416,9 @@ export function createResolverGateway(options: ResolverGatewayOptions): Resolver
 
     fail: (disputeId) =>
       send({ resolver, action: 'fail', disputeId: disputeId.toString() }, 'resolver_fail_dispute',
-        'The vote is closed as unusable and the escrow refunds the payer in full. No resolver fee is ' +
-          'paid on a dispute that produced no result.'),
+        'The vote is closed as unusable. The escrow has put the payment back on hold with a new deadline ' +
+          'for the provider and returned the bond to whoever contested it. No resolver fee is paid on a ' +
+          'dispute that produced no result.'),
 
     claimRewards: () =>
       send({ resolver, action: 'claim-rewards' }, 'resolver_claim_rewards',

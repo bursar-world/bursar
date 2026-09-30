@@ -44,7 +44,8 @@ spend outside them does not settle, whatever an agent is told to do.
 Two rules run through all of them. A spend at or above the approval threshold needs an approval the
 principal signed for that provider, capability and amount; without one it is refused before it
 reaches the chain. And the money is what the principal has already funded the mandate with, so
-there is no credit here.
+there is no credit here. The escrow also locks nothing under its floor, which `mandate_inspect`
+reports, so a smaller payment is refused before it is sent.
 
 ## What an agent spending a private mandate gets
 
@@ -95,7 +96,9 @@ One payment draws on one deposit, so an amount above the largest approved deposi
 the figure that would fit. Without `BURSAR_RELAYER_URL` the payment tool is not offered: a
 withdrawal sent from this server's own wallet would tie the agent to the payment. The association
 set is taken from `BURSAR_ASP_URL` when it matches the root on chain and rebuilt from chain data
-otherwise.
+otherwise. If the association set or the pool's state moves between the proof and the submission,
+the pool refuses the proof and nothing is spent, so the payment is proven once more against the new
+roots. A second refusal is reported as one.
 
 What stays visible: each deposit into the pool (who and how much), and each payment out of it (how
 much and to whom). What the pool hides is which deposit paid for which payment, and that is only as
@@ -111,7 +114,7 @@ spend the balance.
 | `resolver_post_bond`, `resolver_add_bond` | Join the roster, and top the bond back up after a slash or a raised floor. |
 | `resolver_commit_score` | Seal a score. The reply carries the salt that opens it. |
 | `resolver_reveal_score` | Publish the sealed score, with the exact salt it was sealed under. |
-| `resolver_finalize_dispute`, `resolver_fail_dispute` | Close a vote that reached quorum, or one that did not. |
+| `resolver_finalize_dispute`, `resolver_fail_dispute` | Close a vote that reached quorum, or one that did not, which puts the payment back on hold with a new deadline. |
 | `resolver_claim_rewards` | Take the share of the resolver fee this resolver earned, in USDG. |
 | `resolver_request_unbond`, `resolver_complete_unbond`, `resolver_cancel_unbond` | The three steps of leaving. |
 
@@ -125,8 +128,8 @@ different token and a different scale from the USDG every payment is in.
 open the commitment: the registry checks a reveal against a hash covering the dispute id, the
 resolver address, the score and the salt, and nothing on chain or in this server can recompute it.
 A commitment still sealed when the reveal window shuts counts as silence, and part of the bond is
-taken for it. The reveal window is six hours on the live deployment and the reply names both ends
-of it.
+taken for it. The reply names both ends of the reveal window, and `resolver_status` reports how long
+it is.
 
 The commitment is checked against the registry's own hash before the transaction is sent, and read
 back off the chain after it lands. If either check fails, nothing is sealed, or the refusal carries
@@ -136,14 +139,16 @@ the salt and the score so they are not lost with the reply.
 
 | Tool | What it does |
 | --- | --- |
-| `provider_status` | Whether it is listed and available, the collateral posted against the floor, the most one ruling could take, and any withdrawal on its way out. |
+| `provider_status` | Whether it is listed and available, the collateral posted against the floor, the most one slash could take, and any withdrawal on its way out. |
 | `provider_reputation` | Jobs delivered, timed out and contested, and the largest single payment the escrow will hold for it right now. |
 | `provider_register`, `provider_add_stake` | List with collateral, and add more. |
 | `provider_request_withdrawal`, `provider_execute_withdrawal`, `provider_cancel_withdrawal` | The three steps of taking collateral back. |
 | `provider_deactivate`, `provider_reactivate` | Stop and start reading as available, without moving the collateral. |
 
-Collateral is USDG at six decimals. It is at risk from the moment it lands, and it leaves through a
-delay so that a stake cannot walk out between a bad job and the ruling on it.
+Collateral is USDG at six decimals. It is at risk from the moment it lands: governance can take part
+of it from a provider that failed its counterparties, on a timelocked proposal, and it leaves through
+a delay so that a stake cannot walk out between a bad job and that proposal. A dispute ruling never
+reaches it; a ruling moves the refund and the provider's history.
 
 ## Who signs
 
@@ -269,14 +274,15 @@ POST {BURSAR_RELAY_URL}/v1/spends
   "merchantProof":  [],
   "approval":       null,
   "spendClass":     0,
-  "contractSet":    "v2"
+  "contractSet":    "v3"
 }
 → 200 { "escrowId": "42", "txHash": "0x…" }
 ```
 
-`spendClass` is 0 for a service payment and 1 for a hire. A v2 mandate checks it against the classes
-its principal allows. `contractSet` says which account ABI to encode against: a v1 mandate takes the
-spend request without `spendClass`.
+`spendClass` is 0 for a service payment and 1 for a hire. A v2 or v3 mandate checks it against the
+classes its principal allows. `contractSet` names the build the mandate runs, which says which account
+ABI to encode against: a v1 mandate takes the spend request without `spendClass`, and v2 and v3 take
+the same request with it.
 
 ```
 POST {BURSAR_RELAY_URL}/v1/spends/{escrowId}/dispute

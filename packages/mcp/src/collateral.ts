@@ -199,6 +199,7 @@ function gatewayFor(options: CollateralGatewayOptions, lane: CollateralDeploymen
       ]);
     const health = healthRatio(healthE18);
     const isCollateral = current === COLLATERAL_LANE;
+    const uncounted = positions.filter((p) => p.raw > 0n && !p.fresh).map((p) => symbolOf(p.asset));
     return {
       mandate: account,
       lane: isCollateral ? 'collateral' : 'other',
@@ -233,10 +234,7 @@ function gatewayFor(options: CollateralGatewayOptions, lane: CollateralDeploymen
         ? 'This mandate is not in the collateral lane and cannot borrow. It spends what it holds.'
         : !lineOpen
           ? 'The principal has not opened a collateral line for this mandate yet.'
-          : health === null
-            ? `Nothing is owed. A spend the mandate's USDG cannot cover draws up to ${formatHeadroom(headroom)} USDG on credit.`
-            : `Health ${health.toFixed(4)}; it must stay at or above 1.25 to draw, and below 1.0 anyone can ` +
-              'sell part of the collateral to repay. Repay with mandate_collateral_repay.',
+          : uncountedNote(uncounted) + standingNote(health, headroom),
     };
   }
 
@@ -301,6 +299,36 @@ function formatHeadroom(micro: bigint): string {
   return moneyFromUint(micro).usdg;
 }
 
+/** A posted position that counts for nothing right now, named, because the figures above leave it out. */
+function uncountedNote(symbols: readonly string[]): string {
+  if (symbols.length === 0) return '';
+  return (
+    `${symbols.join(' and ')} ${symbols.length === 1 ? 'counts' : 'count'} for nothing right now: the price is ` +
+    "stale, the token, its oracle or Robinhood's access registry is paused, or its trading pool is out of line " +
+    'with its reference price. '
+  );
+}
+
+/**
+ * Draws are measured with every position at its after-hours haircut, whatever the clock says, so the
+ * room to draw can sit below what health suggests during the session. Health is the liquidation
+ * trigger and uses the haircut that applies now.
+ */
+function standingNote(health: number | null, headroom: bigint): string {
+  if (health === null) {
+    return (
+      `Nothing is owed. A spend the mandate's USDG cannot cover draws up to ${formatHeadroom(headroom)} USDG on ` +
+      'credit, measured with every position at its after-hours haircut.'
+    );
+  }
+  return (
+    `Health ${health.toFixed(4)}. A draw has to leave it at or above 1.25 with every position at its ` +
+    `after-hours haircut, which leaves ${formatHeadroom(headroom)} USDG to draw now. Below 1.0 anyone can ` +
+    'sell part of the collateral to repay, once its price is fresh and its trading pool agrees with it; ' +
+    'until then the sale waits. Repay with mandate_collateral_repay.'
+  );
+}
+
 /** Names a vault, pool or guard revert with the sentence this server holds for it. */
 function refused(error: unknown): unknown {
   if (!(error instanceof BaseError)) return error;
@@ -339,8 +367,11 @@ export const COLLATERAL_TOOLS: readonly {
     description:
       "Read this mandate's collateral lane: the stock and treasury tokens posted, what they count for after " +
       'the haircut, the debt, how much more it can draw on credit, and its health (after-haircut collateral ' +
-      'over debt; null when nothing is owed). Also lists the published haircut tiers and whether the US ' +
-      'market session is open, since the after-hours haircut is wider. Nothing is spent.',
+      'over debt; null when nothing is owed). How much more it can draw is measured with every position at ' +
+      'its after-hours haircut, whatever the time. A position counts for nothing while its price is stale, ' +
+      "its token, its oracle or Robinhood's access registry is paused, or its trading pool is out of line " +
+      'with its reference price. Also lists the published haircut tiers and whether the US market session ' +
+      'is open, since the after-hours haircut is wider. Nothing is spent.',
     inputSchema: { type: 'object', properties: {} },
   },
   {

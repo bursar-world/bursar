@@ -1,4 +1,4 @@
-import { agentRegistryAbi, mandateAccountAbi, oracleRegistryAbi } from '@bursar/core';
+import { agentRegistryAbi, escrowAbi, mandateAccountAbi, oracleRegistryAbi } from '@bursar/core';
 import { toFunctionSelector } from 'viem';
 import type { Hex } from 'viem';
 import { describe, expect, it } from 'vitest';
@@ -108,6 +108,58 @@ describe.each([
 
   it('answers nothing for a name that belongs to another contract', () => {
     expect(refusalForName('DailyCapExceeded', scope)).toBeNull();
+  });
+});
+
+/**
+ * A spend opens its lock inside the account's `spend`, and a dispute goes through `disputeSpend`, so
+ * the escrow's own refusals come back on the mandate's path with the escrow's names on them.
+ */
+describe('what the escrow says no for on a spend or a dispute', () => {
+  it('names the lock floor the same way by name and by selector', () => {
+    const byName = refusalForName('BelowMinLock');
+
+    expect(byName?.subject).toBe('amount');
+    expect(byName?.message).toContain('locks no payment under its floor');
+    expect(refusalForSelector(toFunctionSelector('BelowMinLock()'))).toEqual(byName);
+  });
+
+  it('has a sentence for the floor the escrow refuses when it is deployed', () => {
+    expect(refusalForName('BadMinLock')?.message).toContain('Report it to the operator');
+  });
+
+  it('says a held payment cannot be contested past its delivery deadline', () => {
+    expect(refusalForName('TooLate')?.message).toContain('only until its delivery deadline');
+  });
+
+  it('never reaches for the fallback on an escrow error it has a sentence for', () => {
+    for (const name of ['BelowMinLock', 'BadMinLock', 'TooLate', 'PayeeCapExceeded', 'PartyNotAllowed', 'BadTtl']) {
+      const item = escrowAbi.find((entry) => entry.type === 'error' && entry.name === name);
+      expect(item, name).toBeDefined();
+      expect(refusalForSelector(toFunctionSelector(`${name}()`))?.code).toBe(name);
+    }
+  });
+});
+
+describe('what the hardened contracts changed in the sentences', () => {
+  it('says a spent approval id stays spent across a change of principal', () => {
+    expect(refusalForName('ApprovalSpent')?.message).toContain('even across a change of principal');
+  });
+
+  it('refuses a handover to the principal it already has', () => {
+    expect(refusalForName('AlreadyPrincipal')?.message).toContain('named itself as the next principal');
+  });
+
+  it('bars the principal the paying account named, as well as the two parties', () => {
+    expect(refusalForName('PartyCannotVote', 'resolver')?.message).toContain('the principal the paying account named');
+  });
+
+  it('says a vote with no result reopens the payment rather than refunding it', () => {
+    for (const name of ['QuorumNotMet', 'QuorumSuspect']) {
+      const message = refusalForName(name, 'resolver')?.message ?? '';
+      expect(message).toContain('back on hold with a new deadline');
+      expect(message).not.toMatch(/refund/iu);
+    }
   });
 });
 

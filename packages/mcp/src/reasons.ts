@@ -3,6 +3,7 @@ import {
   assetRegistryAbi,
   collateralVaultAbi,
   creditPoolAbi,
+  escrowAbi,
   mandateAccountAbi,
   oracleRegistryAbi,
   priceGuardAbi,
@@ -142,7 +143,9 @@ const REFUSALS: Readonly<Record<MandateErrorName, Omit<Refusal, 'code'>>> = {
   },
   ApprovalSpent: {
     subject: 'approval',
-    message: 'The approval has already been used. Each one pays for one spend.',
+    message:
+      'The approval has already been used or revoked. Each one pays for one spend, and its id stays ' +
+      'spent for the life of the mandate, even across a change of principal. Ask the principal for a new one.',
   },
   BadSignature: {
     subject: 'approval',
@@ -161,6 +164,12 @@ const REFUSALS: Readonly<Record<MandateErrorName, Omit<Refusal, 'code'>>> = {
     message:
       'The current principal offered this mandate to a different address, and only that address can accept ' +
       'it. The principal decides who takes it over.',
+  },
+  AlreadyPrincipal: {
+    subject: 'mandate',
+    message:
+      'The principal named itself as the next principal, which changes nothing. An approval it signed is ' +
+      'withdrawn by revoking it, not by handing the mandate back to itself. Nothing was changed.',
   },
   BadWindow: {
     subject: 'limits',
@@ -318,12 +327,8 @@ const RESOLVER_REFUSALS: Readonly<Record<OracleErrorName, Omit<Refusal, 'code'>>
   PartyCannotVote: {
     subject: 'dispute',
     message:
-      'This resolver is the payer or the payee on the payment under dispute, so it cannot vote on it. ' +
-      'Nothing was committed and nothing is at stake.',
-  },
-  NotPauser: {
-    subject: 'governance',
-    message: 'Only the guardian can pause or unpause the dispute registry.',
+      'This resolver is the payer, the payee, or the principal the paying account named when the dispute ' +
+      'opened, so it cannot vote on it. Nothing was committed and nothing is at stake.',
   },
   EnforcedPause: {
     subject: 'registry',
@@ -336,10 +341,11 @@ const RESOLVER_REFUSALS: Readonly<Record<OracleErrorName, Omit<Refusal, 'code'>>
     message: 'The dispute registry is not paused, so there is nothing to lift.',
   },
   RosterFull: {
-    subject: 'dispute',
+    subject: 'registry',
     message:
-      'Every seat on this dispute is taken. The number of resolvers one vote admits is capped so ' +
-      'that closing it fits in a block. Read the open disputes again for another.',
+      'Every seat on the roster is taken. It holds 64 resolvers so that closing a vote fits in a block, ' +
+      'and every seated resolver may vote on every dispute. A seat frees when a resolver completes its ' +
+      'exit or governance evicts one; post the bond again then.',
   },
   BondTooSmall: {
     subject: 'bond',
@@ -358,9 +364,9 @@ const RESOLVER_REFUSALS: Readonly<Record<OracleErrorName, Omit<Refusal, 'code'>>
   BondLocked: {
     subject: 'bond',
     message:
-      'This bond is backing a vote that has not settled, so it cannot leave yet. The cooldown alone ' +
-      'does not release it. Close those disputes, or wait for someone else to, and complete the ' +
-      'unbonding after.',
+      'This bond is backing a vote that has not settled, so it cannot leave yet and governance cannot ' +
+      'evict it. The cooldown alone does not release it. Close those disputes, or wait for someone ' +
+      'else to, and complete the unbonding after.',
   },
   StakingNotSet: {
     subject: 'registry',
@@ -466,20 +472,21 @@ const RESOLVER_REFUSALS: Readonly<Record<OracleErrorName, Omit<Refusal, 'code'>>
     subject: 'dispute',
     message:
       'Too few resolvers published a score for this vote to be a result. resolver_fail_dispute is the ' +
-      'exit: it refunds the payer in full and leaves the provider unpaid.',
+      'exit: it puts the payment back on hold with a new deadline for the provider and returns the bond ' +
+      'to whoever contested it.',
   },
   QuorumSuspect: {
     subject: 'dispute',
     message:
       'Most of the published scores sit outside the deviation band, so the vote has no centre to rule ' +
-      'from. The dispute fails and the payer is refunded. Nobody is slashed for disagreeing, because ' +
-      'nothing here can tell which side was honest.',
+      'from. resolver_fail_dispute closes it and puts the payment back on hold with a new deadline. ' +
+      'Nobody is slashed for disagreeing, because nothing here can tell which side was honest.',
   },
   NothingToClaim: {
     subject: 'reward',
     message:
-      'No rewards are owed to this address. A share of the resolver fee lands only on the resolvers ' +
-      'that published a score inside the deviation band of a dispute that produced a result.',
+      'There is nothing here to pay out. A share of the resolver fee lands only on the resolvers that ' +
+      'published a score inside the deviation band of a dispute that produced a result.',
   },
   NotEscrow: {
     subject: 'registry',
@@ -512,8 +519,9 @@ const RESOLVER_REFUSALS: Readonly<Record<OracleErrorName, Omit<Refusal, 'code'>>
   BadConfig: {
     subject: 'governance',
     message:
-      'The proposed voting parameters are not usable together, so the ones in force are unchanged. ' +
-      'This is a governance call and a resolver does not make it.',
+      'The proposed voting parameters are not usable together, so the ones in force are unchanged. Each ' +
+      'window has to be at least ten minutes and every seated resolver has to be able to vote. This is ' +
+      'a governance call and a resolver does not make it.',
   },
   ZeroAmount: {
     subject: 'bond',
@@ -604,7 +612,8 @@ const PROVIDER_REFUSALS: Readonly<Record<AgentErrorName, Omit<Refusal, 'code'>>>
     subject: 'withdrawal',
     message:
       'The withdrawal delay has not run out. Collateral stays slashable across it, which is what stops ' +
-      'a stake leaving between a bad job and the ruling on it. provider_status reports the maturity.',
+      'a stake leaving between a bad job and the governance proposal that answers it. provider_status ' +
+      'reports the maturity.',
   },
   IsBlacklisted: {
     subject: 'listing',
@@ -712,8 +721,8 @@ const RWA_REFUSALS: Readonly<Record<string, Omit<Refusal, 'code'>>> = {
   PoolPriceDeviation: {
     subject: 'price',
     message:
-      'The trading pool and the reference price disagree by more than the asset allows. The purchase is ' +
-      'refused until they agree again.',
+      'The trading pool and the reference price disagree by more than the asset allows, or this purchase ' +
+      'would push the pool that far. Nothing was bought. Try a smaller amount, or wait until the two agree again.',
   },
   PriceOutsideBand: {
     subject: 'price',
@@ -744,8 +753,10 @@ const COLLATERAL_REFUSALS: Readonly<Record<string, Omit<Refusal, 'code'>>> = {
   HealthTooLow: {
     subject: 'mandate',
     message:
-      'This would leave the collateral health under the lane minimum of 1.25. Post more collateral, repay ' +
-      'some debt, or spend less. After hours and on stale prices the collateral counts for less.',
+      'This would leave the collateral health under the lane minimum of 1.25. A draw or a withdrawal is ' +
+      'checked with every position at its after-hours haircut, whatever the time, and a position counts ' +
+      'for nothing while its price is stale, its token, its oracle or the access registry is paused, or its ' +
+      'trading pool is out of line with its reference price. Post more collateral, repay some debt, or spend less.',
   },
   NotCollateralLane: {
     subject: 'mandate',
@@ -759,7 +770,8 @@ const COLLATERAL_REFUSALS: Readonly<Record<string, Omit<Refusal, 'code'>>> = {
   },
   NotFactoryAccount: {
     subject: 'mandate',
-    message: 'Only a mandate created by this deployment\'s factory can open a collateral line.',
+    message:
+      "Only a mandate one of this deployment's factories created can open a collateral line or park funds.",
   },
   NotCollateral: {
     subject: 'asset',
@@ -781,6 +793,63 @@ const COLLATERAL_REFUSALS: Readonly<Record<string, Omit<Refusal, 'code'>>> = {
   Healthy: { subject: 'mandate', message: 'This position is at or above 1.0 health, so it cannot be liquidated.' },
   PositionEmpty: { subject: 'asset', message: 'The mandate holds none of this asset as collateral.' },
   NothingToSell: { subject: 'asset', message: 'Nothing needs to be sold to restore this position.' },
+  BuybackStakingMismatch: {
+    subject: 'governance',
+    message:
+      'The credit pool was deployed against a buyback and a staking pool that do not belong together, so it ' +
+      'could not turn a loss into a stake slash. Nothing an agent sends reaches this. Report it to the operator.',
+  },
+};
+
+/**
+ * What the escrow refuses a lock or a dispute for. A spend opens its lock inside the mandate's own
+ * `spend` and a dispute goes through `disputeSpend`, so these reach the pay, hire and dispute tools
+ * with the escrow's name on them rather than the account's.
+ */
+const ESCROW_REFUSALS: Readonly<Record<string, Omit<Refusal, 'code'>>> = {
+  BelowMinLock: {
+    subject: 'amount',
+    message:
+      'The escrow locks no payment under its floor, which mandate_inspect reports as the escrow minLock. ' +
+      'The floor keeps every payment large enough that contesting it costs a bond. Pay at least that much.',
+  },
+  BadMinLock: {
+    subject: 'escrow',
+    message:
+      'The escrow refuses a lock floor too small for a dispute bond to cost anything, and it checks that ' +
+      'once, when it is deployed. Nothing an agent sends reaches this. Report it to the operator.',
+  },
+  TooLate: {
+    subject: 'dispute',
+    message:
+      'Too late for this call. A held payment can be contested only until its delivery deadline, after ' +
+      'which it goes back to the mandate instead, and a delivered one only inside the dispute window ' +
+      'mandate_get_settlement reports.',
+  },
+  PayeeCapExceeded: {
+    subject: 'provider',
+    message:
+      'The escrow will not hold this much for this provider yet. Its ceiling on a single payment rises ' +
+      'with delivered work. Split the job into smaller payments, or pay a provider with more history.',
+  },
+  PartyNotAllowed: {
+    subject: 'provider',
+    message:
+      'This provider is not an active listing in the agent registry, so the escrow will not hold a payment ' +
+      'for it. A provider has to be listed, staked and not barred before it can be paid.',
+  },
+  BadTtl: {
+    subject: 'escrow',
+    message:
+      'The delivery deadline falls outside what the escrow accepts. mandate_inspect reports the range; ask ' +
+      'for at least a minute over its minimum.',
+  },
+  EnforcedPause: {
+    subject: 'escrow',
+    message:
+      'The escrow is paused, so no payment locks and no dispute opens until governance lifts the pause. ' +
+      'Funds already held stay where they are.',
+  },
 };
 
 const TABLES: Readonly<Record<RefusalScope, Readonly<Record<string, Omit<Refusal, 'code'>>>>> = {
@@ -793,6 +862,7 @@ const TABLES: Readonly<Record<RefusalScope, Readonly<Record<string, Omit<Refusal
 const BY_NAME: ReadonlyMap<string, Omit<Refusal, 'code'>> = new Map([
   ...Object.entries(COLLATERAL_REFUSALS),
   ...Object.entries(RWA_REFUSALS),
+  ...Object.entries(ESCROW_REFUSALS),
   ...Object.entries(REFUSALS),
 ]);
 
@@ -815,6 +885,13 @@ const BY_SELECTOR: ReadonlyMap<Hex, Refusal> = new Map([
       const error = item as { name: string; inputs: readonly { type: string }[] };
       const signature = `${error.name}(${error.inputs.map((input) => input.type).join(',')})`;
       return [toFunctionSelector(signature), { code: error.name, ...RWA_REFUSALS[error.name]! }] as const;
+    }),
+  ...escrowAbi
+    .filter((item) => item.type === 'error' && ESCROW_REFUSALS[item.name] !== undefined)
+    .map((item) => {
+      const error = item as { name: string; inputs: readonly { type: string }[] };
+      const signature = `${error.name}(${error.inputs.map((input) => input.type).join(',')})`;
+      return [toFunctionSelector(signature), { code: error.name, ...ESCROW_REFUSALS[error.name]! }] as const;
     }),
   ...mandateAccountAbi
     .filter((item): item is Extract<(typeof mandateAccountAbi)[number], { type: 'error' }> => item.type === 'error')
