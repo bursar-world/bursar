@@ -1,4 +1,12 @@
-import { committedMandateAccountAbi, committedMandateFactoryAbi, escrowAbi, privacyDeployment, settlementAssetAbi } from '@bursar/core';
+import {
+  CURRENT_CONTRACT_SET,
+  committedMandateAccountAbi,
+  committedMandateFactoryAbi,
+  contractSetOfEscrow,
+  escrowAbi,
+  privacyDeployment,
+  settlementAssetAbi,
+} from '@bursar/core';
 import type { PrivacyDeployment } from '@bursar/core';
 import type { CommittedClass, TermsDocument, TermsInput } from '@bursar/sdk';
 import { getAddress, isAddress, parseEventLogs } from 'viem';
@@ -150,6 +158,11 @@ export type CommittedRead = {
   readonly nonce: bigint;
   readonly termsCommitment: bigint;
   readonly balance: bigint;
+  /**
+   * What the escrow holds for this mandate because a settlement could not pay it at the time.
+   * Undefined on an escrow before v3, which never holds a payout back.
+   */
+  readonly owed: bigint | undefined;
 };
 
 /**
@@ -189,9 +202,15 @@ export async function readCommittedMandate(address: Address): Promise<CommittedR
   ]);
   const listed = await client.readContract({ address: factory, abi: committedMandateFactoryAbi, functionName: 'accountsOf', args: [principal] });
   if (!listed.some((entry) => sameAddress(entry, address))) return undefined;
-  const balance = await client.readContract({ address: asset, abi: settlementAssetAbi, functionName: 'balanceOf', args: [address] });
+  const [balance, owed] = await Promise.all([
+    client.readContract({ address: asset, abi: settlementAssetAbi, functionName: 'balanceOf', args: [address] }),
+    // Only a v3 escrow holds a payout back, and asking an earlier one reverts.
+    (contractSetOfEscrow(escrow) ?? CURRENT_CONTRACT_SET) === 'v3'
+      ? client.readContract({ address: escrow, abi: escrowAbi, functionName: 'owed', args: [address] })
+      : Promise.resolve(undefined),
+  ]);
 
-  return { address, factory, principal, agent, escrow, verifier, paused, revoked, version, nonce, termsCommitment, balance };
+  return { address, factory, principal, agent, escrow, verifier, paused, revoked, version, nonce, termsCommitment, balance, owed };
 }
 
 /** True for a failure of the request itself, as opposed to the contract refusing the call. */

@@ -12,6 +12,7 @@ import { CollateralPanel } from './collateral-panel';
 import { ControlPanel } from './control-panel';
 import { FundingPanel } from './funding-panel';
 import { GatesPanel } from './gates-panel';
+import { OwedPanel } from './owed-panel';
 import { ParkPanel } from './park-panel';
 import { ProposedPayment } from './proposed-payment';
 import { SpendPanel } from './spend-panel';
@@ -43,6 +44,7 @@ export function OverviewView() {
       <SpendPanel />
       <ProposedPayment />
       <FundingPanel />
+      <OwedPanel />
       <StockPanel />
       <ParkPanel />
       <CollateralPanel />

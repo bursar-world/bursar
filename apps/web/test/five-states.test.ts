@@ -124,6 +124,8 @@ const ESCROW: EscrowRead = {
   disputeBondBps: 500,
   resolverFeeBps: 50,
   treasury: OWNER,
+  minLock: undefined,
+  owed: undefined,
 };
 
 function snapshot(overrides: Partial<ChainSnapshot> = {}): ChainSnapshot {

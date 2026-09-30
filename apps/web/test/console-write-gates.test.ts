@@ -65,6 +65,8 @@ function snapshot(assetRead: AssetRead): ChainSnapshot {
       disputeBondBps: 500,
       resolverFeeBps: 50,
       treasury: OWNER,
+      minLock: undefined,
+      owed: undefined,
     },
     governance: { timelock: '0x5a32Eab02454f97a39857E85b536F83EE0f844Bf' as Address, period: 172_800n },
   };

@@ -164,11 +164,17 @@ export type EscrowRead = {
   readonly disputeBondBps: number | undefined;
   /**
    * The cut a disputed lock pays the resolver panel. Taken off the lock before any refund is
-   * worked out, and charged even where the panel never reached a quorum, so a payer weighing a
-   * dispute has to be able to read it.
+   * worked out, so a payer weighing a dispute has to be able to read it.
    */
   readonly resolverFeeBps: number | undefined;
   readonly treasury: Address | undefined;
+  /** The smallest lock this escrow opens. Undefined on an escrow before v3, which has no floor. */
+  readonly minLock: Micro | undefined;
+  /**
+   * What this escrow holds for the mandate because a settlement could not pay it at the time.
+   * Undefined without a mandate, or on an escrow before v3, which never holds a payout back.
+   */
+  readonly owed: Micro | undefined;
 };
 
 export type ChainSnapshot = {
@@ -265,17 +271,28 @@ export async function readSystem(scope: ReadScope): Promise<ChainSnapshot> {
 
   // Every live escrow on the chain, because the one that matters is the mandate's own and that is
   // only known once this batch lands. A v1 mandate settles through the v1 escrow.
-  const escrowRead = (escrow: Address, functionName: string) => ({ address: escrow, abi: escrowAbi as never, functionName });
-  const escrowSlots = liveEscrows().map((escrow) => ({
+  const escrowRead = (escrow: Address, functionName: string, args?: readonly unknown[]) => ({
     address: escrow,
-    feeBps: batch.add<number>('escrow.feeBps', escrowRead(escrow, 'feeBps')),
-    minTtl: batch.add<bigint>('escrow.minTtl', escrowRead(escrow, 'minTtl')),
-    maxTtl: batch.add<bigint>('escrow.maxTtl', escrowRead(escrow, 'maxTtl')),
-    disputeWindow: batch.add<bigint>('escrow.disputeWindow', escrowRead(escrow, 'disputeWindow')),
-    disputeBondBps: batch.add<number>('escrow.disputeBondBps', escrowRead(escrow, 'disputeBondBps')),
-    resolverFeeBps: batch.add<number>('escrow.resolverFeeBps', escrowRead(escrow, 'resolverFeeBps')),
-    treasury: batch.add<Address>('escrow.treasury', escrowRead(escrow, 'treasury')),
-  }));
+    abi: escrowAbi as never,
+    functionName,
+    ...(args === undefined ? {} : { args }),
+  });
+  const escrowSlots = liveEscrows().map((escrow) => {
+    // Only a v3 escrow has a floor or holds a payout back, and asking an earlier one reverts.
+    const current = (contractSetOfEscrow(escrow) ?? CURRENT_CONTRACT_SET) === 'v3';
+    return {
+      address: escrow,
+      feeBps: batch.add<number>('escrow.feeBps', escrowRead(escrow, 'feeBps')),
+      minTtl: batch.add<bigint>('escrow.minTtl', escrowRead(escrow, 'minTtl')),
+      maxTtl: batch.add<bigint>('escrow.maxTtl', escrowRead(escrow, 'maxTtl')),
+      disputeWindow: batch.add<bigint>('escrow.disputeWindow', escrowRead(escrow, 'disputeWindow')),
+      disputeBondBps: batch.add<number>('escrow.disputeBondBps', escrowRead(escrow, 'disputeBondBps')),
+      resolverFeeBps: batch.add<number>('escrow.resolverFeeBps', escrowRead(escrow, 'resolverFeeBps')),
+      treasury: batch.add<Address>('escrow.treasury', escrowRead(escrow, 'treasury')),
+      minLock: current ? batch.add<bigint>('escrow.minLock', escrowRead(escrow, 'minLock')) : undefined,
+      owed: current && scope.mandate ? batch.add<bigint>('escrow.owed:mandate', escrowRead(escrow, 'owed', [scope.mandate])) : undefined,
+    };
+  });
 
   const blockedSlots = new Map<string, Slot<boolean>>();
   const watchBlocked = (address: Address | undefined, label: string) => {
@@ -454,6 +471,8 @@ export async function readSystem(scope: ReadScope): Promise<ChainSnapshot> {
       disputeBondBps: results.get(escrowSlot.disputeBondBps),
       resolverFeeBps: results.get(escrowSlot.resolverFeeBps),
       treasury: results.get(escrowSlot.treasury),
+      minLock: asMicro(results.get(escrowSlot.minLock)),
+      owed: asMicro(results.get(escrowSlot.owed)),
     },
     governance: {
       timelock: ADDRESSES.adminTimelock,

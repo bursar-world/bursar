@@ -125,6 +125,8 @@ function snapshot(funding: Partial<FundingRead>): ChainSnapshot {
       disputeBondBps: 500,
       resolverFeeBps: 50,
       treasury: OWNER,
+      minLock: undefined,
+      owed: undefined,
     },
     governance: { timelock: OWNER, period: 172_800n },
   };

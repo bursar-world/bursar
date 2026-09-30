@@ -38,9 +38,10 @@ import { AmountInput } from '@/components/amount-input';
 import { Address as AddressView, TxHash } from '@/components/address';
 import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
+import { ClaimOwedButton } from '@/components/claim-owed';
 import { Card, EmptyState, Field, FieldGrid, Section, Skeleton } from '@/components/layout';
 import { TxButton } from '@/components/tx-button';
-import { usd } from '@/money';
+import { usd, usdExact } from '@/money';
 import { useWalletAccount } from '@/wallet/account';
 import { ConnectButton } from '@/wallet/connect-button';
 import { useWriteContract } from '@/wallet/write';
@@ -122,6 +123,33 @@ export function CommittedMandateView({ mandate, onRefresh }: { readonly mandate:
           </FieldGrid>
         </Card>
       </Section>
+
+      {mandate.owed !== undefined && mandate.owed > 0n && (
+        <Section title="Held for this mandate" description="A payout the escrow could not deliver when a payment settled.">
+          <Card>
+            <div className="space-y-4">
+              <p className="max-w-3xl text-sm">
+                The escrow is holding <span className="tabular font-medium">{usdExact(micro(mandate.owed))}</span> for this
+                mandate. When the payment settled, USDG refused the transfer here, which is what happens while the token
+                issuer has frozen an address, so the escrow kept the amount aside instead of holding up the rest of the
+                settlement. A claim sends it all to this mandate once USDG will move to it again. Anyone can send the
+                claim, and the money only ever goes here.
+              </p>
+              {connected === undefined ? (
+                <p className="text-detail text-[color:var(--color-muted)]">Connect a wallet to claim it. Any wallet can.</p>
+              ) : (
+                <ClaimOwedButton
+                  escrow={mandate.escrow}
+                  party={mandate.address}
+                  label="Claim it for this mandate"
+                  blockedBy={[]}
+                  onClaimed={onRefresh}
+                />
+              )}
+            </div>
+          </Card>
+        </Section>
+      )}
 
       {connected !== undefined && !mandate.revoked && <Fund mandate={mandate} onDone={onRefresh} />}
 
