@@ -21,6 +21,10 @@ import {IAccessRegistry} from "./IAccessRegistry.sol";
 ///      after the proof checks and before anything is returned. A refusal there reverts the whole
 ///      call, so a blocked recipient never burns a nullifier and the note stays spendable.
 ///
+///      The pool-wide cap counts what the pool owes its notes, tracked here on every deposit and
+///      payout, not the token balance: a transfer sent to the pool outside a deposit belongs to no
+///      note, and counting it would let anyone fill the cap and shut deposits out.
+///
 ///      Withdrawals relayed through the upstream Entrypoint are refused outright: the Entrypoint
 ///      pays the final recipient itself, after the pool has pushed to it, so the pool could not
 ///      screen that recipient. Relayed withdrawals go through `ShieldedRelay`, which screens the
@@ -32,11 +36,14 @@ contract ShieldedPool is PrivacyPool, IPrivacyPoolComplex {
     IAccessRegistry public immutable ACCESS_REGISTRY;
     /// @notice The largest single deposit, after the Entrypoint's vetting fee.
     uint256 public immutable MAX_DEPOSIT;
-    /// @notice The most the pool may hold.
+    /// @notice The most the pool may owe its notes at once.
     uint256 public immutable MAX_TOTAL;
 
+    /// @notice What the pool owes its notes: every deposit in, less every payout.
+    uint256 public poolValue;
+
     error DepositAboveCap(uint256 value, uint256 cap);
-    error PoolCapReached(uint256 balanceAfter, uint256 cap);
+    error PoolCapReached(uint256 valueAfter, uint256 cap);
     error DepositorBlocked(address depositor);
     error RecipientBlocked(address recipient);
     error RelayThroughShieldedRelay();
@@ -64,14 +71,18 @@ contract ShieldedPool is PrivacyPool, IPrivacyPoolComplex {
             depositors[uint256(keccak256(abi.encodePacked(SCOPE, nonce))) % Constants.SNARK_SCALAR_FIELD];
         if (ACCESS_REGISTRY.isBlocked(depositor)) revert DepositorBlocked(depositor);
         if (amount > MAX_DEPOSIT) revert DepositAboveCap(amount, MAX_DEPOSIT);
-        uint256 balanceAfter = IERC20(ASSET).balanceOf(address(this)) + amount;
-        if (balanceAfter > MAX_TOTAL) revert PoolCapReached(balanceAfter, MAX_TOTAL);
+        uint256 valueAfter = poolValue + amount;
+        if (valueAfter > MAX_TOTAL) revert PoolCapReached(valueAfter, MAX_TOTAL);
+        poolValue = valueAfter;
+        // `sender` is the Entrypoint, the only caller `deposit` admits, pulling what it approved.
+        // forge-lint: disable-next-line(arbitrary-send-erc20)
         IERC20(ASSET).safeTransferFrom(sender, address(this), amount);
     }
 
     function _push(address recipient, uint256 amount) internal override(PrivacyPool) {
         if (recipient == address(ENTRYPOINT)) revert RelayThroughShieldedRelay();
         if (ACCESS_REGISTRY.isBlocked(recipient)) revert RecipientBlocked(recipient);
+        poolValue -= amount;
         IERC20(ASSET).safeTransfer(recipient, amount);
     }
 }

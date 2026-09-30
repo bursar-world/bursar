@@ -19,8 +19,9 @@ import {IAccessRegistry} from "./IAccessRegistry.sol";
 ///      `IEntrypoint.RelayData` (recipient, fee recipient, fee in basis points). Both are bound into
 ///      the proof's context, so a relayer cannot redirect the funds or raise its fee.
 ///
-///      Both addresses are screened against the access registry before the pool is called. A
-///      refusal reverts before `withdraw` runs, so no nullifier is spent.
+///      Both addresses are screened against the access registry before the pool is called, and
+///      neither may be this contract, the pool or the Entrypoint, where a payout would sit with no
+///      note behind it. A refusal reverts before `withdraw` runs, so no nullifier is spent.
 ///
 ///      Any ETH sent with the call is forwarded to the recipient in the same transaction. That is how
 ///      a fresh stealth address gets its first gas without a transfer from the owner's wallet.
@@ -30,8 +31,11 @@ contract ShieldedRelay is ReentrancyGuard {
 
     IPrivacyPool public immutable POOL;
     IERC20 public immutable ASSET;
+    address public immutable ENTRYPOINT;
     IAccessRegistry public immutable ACCESS_REGISTRY;
-    /// @notice The highest fee a withdrawal may grant its relayer.
+    /// @notice The highest fee a withdrawal may grant its relayer. This is the ceiling that binds:
+    ///         the Entrypoint's `maxRelayFeeBPS` applies only to `Entrypoint.relay`, which the pool
+    ///         refuses.
     uint256 public immutable MAX_FEE_BPS;
 
     event Relayed(address indexed relayer, address indexed recipient, uint256 amount, uint256 fee, uint256 gasDrop);
@@ -39,6 +43,7 @@ contract ShieldedRelay is ReentrancyGuard {
     error ZeroAddress();
     error InvalidProcessooor();
     error InvalidWithdrawalAmount();
+    error InvalidRecipient(address recipient);
     error FeeAboveMax(uint256 feeBps, uint256 maxFeeBps);
     error RecipientBlocked(address recipient);
     error GasDropFailed();
@@ -48,6 +53,7 @@ contract ShieldedRelay is ReentrancyGuard {
         if (maxFeeBps >= 10_000) revert FeeAboveMax(maxFeeBps, 9_999);
         POOL = pool;
         ASSET = IERC20(pool.ASSET());
+        ENTRYPOINT = address(pool.ENTRYPOINT());
         ACCESS_REGISTRY = accessRegistry;
         MAX_FEE_BPS = maxFeeBps;
     }
@@ -64,10 +70,9 @@ contract ShieldedRelay is ReentrancyGuard {
         if (amount == 0) revert InvalidWithdrawalAmount();
 
         IEntrypoint.RelayData memory data = abi.decode(withdrawal.data, (IEntrypoint.RelayData));
-        if (data.recipient == address(0) || data.feeRecipient == address(0)) revert ZeroAddress();
         if (data.relayFeeBPS > MAX_FEE_BPS) revert FeeAboveMax(data.relayFeeBPS, MAX_FEE_BPS);
-        if (ACCESS_REGISTRY.isBlocked(data.recipient)) revert RecipientBlocked(data.recipient);
-        if (ACCESS_REGISTRY.isBlocked(data.feeRecipient)) revert RecipientBlocked(data.feeRecipient);
+        _screen(data.recipient);
+        _screen(data.feeRecipient);
 
         POOL.withdraw(withdrawal, proof);
 
@@ -76,10 +81,18 @@ contract ShieldedRelay is ReentrancyGuard {
         if (fee != 0) ASSET.safeTransfer(data.feeRecipient, fee);
 
         if (msg.value != 0) {
+            // The caller's own ETH, to the recipient the proof binds, as the last step under the guard.
+            // forge-lint: disable-next-line(arbitrary-send-eth, reentrancy-eth)
             (bool ok,) = data.recipient.call{value: msg.value}("");
             if (!ok) revert GasDropFailed();
         }
 
         emit Relayed(msg.sender, data.recipient, amount, fee, msg.value);
+    }
+
+    function _screen(address payee) private view {
+        if (payee == address(0)) revert ZeroAddress();
+        if (payee == address(this) || payee == address(POOL) || payee == ENTRYPOINT) revert InvalidRecipient(payee);
+        if (ACCESS_REGISTRY.isBlocked(payee)) revert RecipientBlocked(payee);
     }
 }

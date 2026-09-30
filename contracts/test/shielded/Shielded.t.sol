@@ -156,6 +156,15 @@ contract ShieldedTest is Test {
         return IPrivacyPool.Withdrawal({processooor: address(relay), data: fixture.readBytes(".relayData")});
     }
 
+    function _relayTo(address recipient, address feeRecipient) internal view returns (IPrivacyPool.Withdrawal memory) {
+        return IPrivacyPool.Withdrawal({
+            processooor: address(relay),
+            data: abi.encode(
+                IEntrypoint.RelayData({recipient: recipient, feeRecipient: feeRecipient, relayFeeBPS: 100})
+            )
+        });
+    }
+
     // ----------------------------------------------------------------------------------------
     // deposits and caps
     // ----------------------------------------------------------------------------------------
@@ -180,9 +189,87 @@ contract ShieldedTest is Test {
             entrypoint.deposit(IERC20(USDG), 100e6, 1_000 + i);
         }
         assertEq(usdg.balanceOf(address(pool)), 1_000e6);
+        assertEq(pool.poolValue(), 1_000e6);
         vm.prank(bob);
         vm.expectRevert(abi.encodeWithSelector(ShieldedPool.PoolCapReached.selector, 1_000e6 + 10_000, 1_000e6));
         entrypoint.deposit(IERC20(USDG), 10_000, 9_999);
+    }
+
+    function test_aDonationDoesNotCountTowardTheCap() public {
+        // A transfer outside a deposit belongs to no note. Counted, it would fill the cap for free.
+        usdg.mint(address(pool), 999e6);
+        vm.prank(alice);
+        entrypoint.deposit(IERC20(USDG), 100e6, 1_000);
+        assertEq(pool.poolValue(), 100e6);
+        assertEq(usdg.balanceOf(address(pool)), 1_099e6);
+
+        for (uint256 i = 1; i < 10; ++i) {
+            vm.prank(alice);
+            entrypoint.deposit(IERC20(USDG), 100e6, 1_000 + i);
+        }
+        assertEq(pool.poolValue(), 1_000e6);
+
+        // The cap still binds, on what the pool owes its notes and nothing else.
+        vm.prank(bob);
+        vm.expectRevert(abi.encodeWithSelector(ShieldedPool.PoolCapReached.selector, 1_000e6 + 10_000, 1_000e6));
+        entrypoint.deposit(IERC20(USDG), 10_000, 9_999);
+    }
+
+    function test_payoutsFreeRoomUnderTheCap() public {
+        _depositBoth();
+        _postRoot(".relayed");
+        relay.relay(_relayWithdrawal(), _withdrawProof(".relayed"));
+        assertEq(pool.poolValue(), 900_000);
+        vm.prank(bob);
+        pool.ragequit(_ragequitProof());
+        assertEq(pool.poolValue(), 600_000);
+        assertEq(usdg.balanceOf(address(pool)), 600_000);
+    }
+
+    function test_theVettingFeeComesOffBeforeTheDepositCap() public {
+        vm.prank(owner);
+        entrypoint.updatePoolConfiguration(IERC20(USDG), 1e6, 10, 500);
+
+        vm.prank(alice);
+        vm.expectRevert(IEntrypoint.MinimumDepositAmount.selector);
+        entrypoint.deposit(IERC20(USDG), 1e6 - 1, 1);
+
+        // 100.1001 USDG less 10 bps is exactly the 100 USDG cap; one unit more is over it.
+        vm.prank(alice);
+        entrypoint.deposit(IERC20(USDG), 100_100_100, 2);
+        assertEq(pool.poolValue(), 100e6);
+        assertEq(usdg.balanceOf(address(entrypoint)), 100_100);
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(ShieldedPool.DepositAboveCap.selector, 100e6 + 1, 100e6));
+        entrypoint.deposit(IERC20(USDG), 100_100_101, 3);
+    }
+
+    /// Any run of deposits, at any vetting fee, leaves the pool inside both caps, and every refusal
+    /// is the one the caps predict.
+    function testFuzz_depositsStayInsideTheCaps(uint256[8] memory values, uint16 feeBps) public {
+        uint256 fee = bound(feeBps, 0, 100);
+        vm.prank(owner);
+        entrypoint.updatePoolConfiguration(IERC20(USDG), 10_000, fee, 500);
+        usdg.mint(alice, 2_000e6);
+
+        uint256 expected;
+        for (uint256 i; i < values.length; ++i) {
+            uint256 value = bound(values[i], 10_000, 250e6);
+            uint256 net = value - (value * fee) / 10_000;
+            vm.prank(alice);
+            if (net > 100e6) {
+                vm.expectRevert(abi.encodeWithSelector(ShieldedPool.DepositAboveCap.selector, net, 100e6));
+            } else if (expected + net > 1_000e6) {
+                vm.expectRevert(abi.encodeWithSelector(ShieldedPool.PoolCapReached.selector, expected + net, 1_000e6));
+            } else {
+                expected += net;
+            }
+            entrypoint.deposit(IERC20(USDG), value, 10_000 + i);
+            assertEq(pool.poolValue(), expected);
+        }
+        assertLe(pool.poolValue(), pool.MAX_TOTAL());
+        assertEq(usdg.balanceOf(address(pool)), expected);
     }
 
     function test_blockedDepositorCannotDeposit() public {
@@ -258,6 +345,21 @@ contract ShieldedTest is Test {
         vm.expectRevert(abi.encodeWithSelector(ShieldedRelay.RecipientBlocked.selector, FEE_RECIPIENT));
         relay.relay(_relayWithdrawal(), p);
         assertFalse(pool.nullifierHashes(p.pubSignals[1]));
+    }
+
+    function test_relayRefusesToPayItselfThePoolOrTheEntrypoint() public {
+        _depositBoth();
+        _postRoot(".relayed");
+        ProofLib.WithdrawProof memory p = _withdrawProof(".relayed");
+        address[3] memory sinks = [address(relay), address(pool), address(entrypoint)];
+        for (uint256 i; i < sinks.length; ++i) {
+            vm.expectRevert(abi.encodeWithSelector(ShieldedRelay.InvalidRecipient.selector, sinks[i]));
+            relay.relay(_relayTo(sinks[i], FEE_RECIPIENT), p);
+            vm.expectRevert(abi.encodeWithSelector(ShieldedRelay.InvalidRecipient.selector, sinks[i]));
+            relay.relay(_relayTo(RECIPIENT, sinks[i]), p);
+        }
+        assertFalse(pool.nullifierHashes(p.pubSignals[1]));
+        assertEq(relay.ENTRYPOINT(), address(entrypoint));
     }
 
     function test_relayRejectsAlteredRecipient() public {
