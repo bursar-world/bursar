@@ -138,18 +138,30 @@ const MAX_UINT64 = (1n << 64n) - 1n;
 const MAX_UINT128 = (1n << 128n) - 1n;
 const MAX_UINT256 = (1n << 256n) - 1n;
 
+const DAY = 86_400n;
+
 /** Contract-side ceilings this build mirrors so a form can refuse before a two-day wait does. */
 export const LIMITS = {
   bps: 10_000n,
   agentRegistrySlashBps: 5_000n,
   stakingRebateBps: 5_000n,
   stakingTiers: 8,
-  stakingMinUnbonding: 604_800n,
-  stakingMaxUnbonding: 7_776_000n,
-  oracleMaxVoters: 64n,
+  stakingMinUnbonding: 7n * DAY,
+  stakingMaxUnbonding: 90n * DAY,
+  stakingMinUnbondWindow: DAY,
+  stakingMaxUnbondWindow: 30n * DAY,
+  stakingMinExitHold: DAY,
+  stakingMaxExitHold: 30n * DAY,
+  stakingMinSlashWindow: DAY,
+  stakingMaxSlashWindow: 90n * DAY,
+  /** The dispute registry seats at most this many resolvers, and every dispute has to seat them all. */
+  oracleRoster: 64n,
+  oracleMinWindow: 600n,
   scoreMax: 100n,
   buybackMaxPriceMicroUsd: 1_000_000_000_000n,
-  buybackMaxWindow: 2_592_000n,
+  buybackMaxWindow: 30n * DAY,
+  buybackMinCeilingAge: DAY,
+  buybackMaxCeilingAge: 30n * DAY,
 } as const;
 
 // The catalogue
@@ -186,13 +198,13 @@ export const ADMIN_ACTIONS: readonly AdminAction[] = [
           label: 'Added per score point',
           kind: 'usdg',
           help: 'A score runs 0 to 100 and is the share of a payee’s jobs that released cleanly.',
-          placeholder: '1.00',
+          placeholder: '2.25',
         },
         {
           name: 'maxCap',
           label: 'Ceiling',
           kind: 'usdg',
-          help: 'The curve stops here whatever the score. It cannot be below the cap at zero.',
+          help: 'The curve stops here whatever the score. It cannot be below the cap at zero, or above what a perfect score reaches.',
           placeholder: '250.00',
         },
       ],
@@ -213,12 +225,24 @@ export const ADMIN_ACTIONS: readonly AdminAction[] = [
     functionName: 'setConfig',
     label: 'Set the dispute rules',
     consequence:
-      'Disputes already open keep the windows they were opened with, so this cannot move a clock resolvers are voting against. Quorum and the deviation band are read when a vote closes.',
+      'Disputes already open keep the windows they were opened with, so this cannot move a clock resolvers are voting against. Quorum and the deviation band are read when a vote closes. Every seated resolver may vote on every dispute.',
     shape: {
       kind: 'fields',
       fields: [
-        { name: 'commitWindow', label: 'Time to commit', kind: 'seconds', help: 'How long resolvers have to post a sealed score.', placeholder: '21600' },
-        { name: 'revealWindow', label: 'Time to reveal', kind: 'seconds', help: 'How long they then have to open it.', placeholder: '21600' },
+        {
+          name: 'commitWindow',
+          label: 'Time to commit',
+          kind: 'seconds',
+          help: 'How long resolvers have to post a sealed score. At least ten minutes.',
+          placeholder: '21600',
+        },
+        {
+          name: 'revealWindow',
+          label: 'Time to reveal',
+          kind: 'seconds',
+          help: 'How long they then have to open it. At least ten minutes.',
+          placeholder: '21600',
+        },
         {
           name: 'unbondingPeriod',
           label: 'Bond exit wait',
@@ -226,8 +250,20 @@ export const ADMIN_ACTIONS: readonly AdminAction[] = [
           help: 'Has to cover both windows, or a bond matures before the dispute it voted in can settle.',
           placeholder: '604800',
         },
-        { name: 'quorum', label: 'Reveals needed', kind: 'count', help: 'Fewer than this and the dispute fails rather than rules.', placeholder: '2' },
-        { name: 'maxVoters', label: 'Resolvers per dispute', kind: 'count', help: 'The most that may commit. At most 64.', placeholder: '5' },
+        {
+          name: 'quorum',
+          label: 'Reveals needed',
+          kind: 'count',
+          help: 'Fewer than this and the dispute fails rather than rules. Between 1 and 64.',
+          placeholder: '2',
+        },
+        {
+          name: 'maxVoters',
+          label: 'Resolvers per dispute',
+          kind: 'count',
+          help: 'At least 64, the size of the roster, so every seated resolver can vote and none is crowded out by whoever commits first.',
+          placeholder: '64',
+        },
         {
           name: 'maxDeviation',
           label: 'Deviation band',
@@ -237,6 +273,18 @@ export const ADMIN_ACTIONS: readonly AdminAction[] = [
         },
         { name: 'slashBps', label: 'Slash on a bad vote', kind: 'bps', help: 'Share of the resolver’s bond taken. Zero is refused.', placeholder: '1000' },
       ],
+    },
+  },
+  {
+    id: 'oracleRegistry.evict',
+    contract: 'oracleRegistry',
+    functionName: 'evict',
+    label: 'Unseat a resolver',
+    consequence:
+      'Takes a resolver off the 64-seat roster and returns what is left of its bond, so a seat slashed to nothing or left idle does not hold the roster for good. The registry refuses while a vote that bond backs is still open.',
+    shape: {
+      kind: 'fields',
+      fields: [{ name: 'resolver', label: 'Resolver', kind: 'address', help: 'The resolver key to unseat. Its bond goes back to that address.' }],
     },
   },
   {
@@ -286,10 +334,13 @@ export const ADMIN_ACTIONS: readonly AdminAction[] = [
     id: 'agentRegistry.setSlasher',
     contract: 'agentRegistry',
     functionName: 'setSlasher',
-    label: 'Name a second address that may rule against provider stake',
+    label: 'Name or clear a second address that may rule against provider stake',
     consequence:
-      'No contract in this deployment can size a ruling, so nothing calls this today. Naming an address that can take stake before one exists gives away the power without the check on it.',
-    shape: { kind: 'fields', fields: [{ name: 'newSlasher', label: 'Address', kind: 'address', help: 'Cannot be the zero address.' }] },
+      'No contract in this deployment can size a ruling, so nothing calls this today. Naming an address that can take stake before one exists gives away the power without the check on it. The zero address clears it.',
+    shape: {
+      kind: 'fields',
+      fields: [{ name: 'newSlasher', label: 'Address', kind: 'address', help: 'The zero address clears the slot and leaves nobody able to call it.' }],
+    },
   },
   {
     id: 'agentRegistry.setSlashSink',
@@ -372,10 +423,37 @@ export const ADMIN_ACTIONS: readonly AdminAction[] = [
     functionName: 'setCreditManager',
     label: 'Name the credit manager on the staking pool',
     consequence:
-      'The one address the staking pool accepts spread from, and the one address allowed to call its slash. The collateralized lane’s credit pool pays spread in and has no call that takes stake. The zero address clears it.',
+      'The one address the staking pool accepts spread from. It cannot take stake; that is the slasher’s. The zero address clears it.',
     shape: {
       kind: 'fields',
       fields: [{ name: 'account', label: 'Credit manager', kind: 'address', help: 'The zero address is legal here and stops spread arriving.' }],
+    },
+  },
+  {
+    id: 'staking.setSlasher',
+    contract: 'staking',
+    functionName: 'setSlasher',
+    label: 'Name the slasher on the staking pool',
+    consequence:
+      'The one address that can take stake to cover a collateralized-lane loss, never more than the slash cap allows. The lane’s credit pool slashes when it writes off a line, converting the loss to BRSR at the buyback’s price ceiling. The zero address leaves nobody able to take stake.',
+    shape: {
+      kind: 'fields',
+      fields: [{ name: 'account', label: 'Slasher', kind: 'address', help: 'Usually the collateralized lane’s credit pool. The zero address clears it.' }],
+    },
+  },
+  {
+    id: 'staking.setSlashLimit',
+    contract: 'staking',
+    functionName: 'setSlashLimit',
+    label: 'Set how much of the staking pool a slash can take',
+    consequence:
+      'The cap is the most one slash takes, as a share of the pool, and the window is how long a used allowance takes to refill. What recent slashes used carries over as it stands, so a change neither hands the slasher a fresh allowance nor takes back what has refilled.',
+    shape: {
+      kind: 'fields',
+      fields: [
+        { name: 'capBps', label: 'Most one slash takes', kind: 'bps', help: '1000 is 10% of the pool. Zero is refused.', placeholder: '1000' },
+        { name: 'window', label: 'Refill window', kind: 'seconds', help: 'Between 1 and 90 days.', placeholder: '604800' },
+      ],
     },
   },
   {
@@ -388,6 +466,30 @@ export const ADMIN_ACTIONS: readonly AdminAction[] = [
     shape: {
       kind: 'fields',
       fields: [{ name: 'period', label: 'Wait', kind: 'seconds', help: 'Between a withdrawal request and the withdrawal.', placeholder: '604800' }],
+    },
+  },
+  {
+    id: 'staking.setUnbondWindow',
+    contract: 'staking',
+    functionName: 'setUnbondWindow',
+    label: 'Set how long a ready staking exit stays open',
+    consequence:
+      'Once the exit wait is over, a request can complete for this long and then lapses until it is put back to work. Applies to requests already pending. Between 1 and 30 days.',
+    shape: {
+      kind: 'fields',
+      fields: [{ name: 'window', label: 'Open for', kind: 'seconds', help: 'Counted from the moment a request is ready.', placeholder: '604800' }],
+    },
+  },
+  {
+    id: 'staking.setMaxExitHold',
+    contract: 'staking',
+    functionName: 'setMaxExitHold',
+    label: 'Set how long a pause may hold staking exits',
+    consequence:
+      'A pause keeps ready exits from completing for at most this long, then lets them through while the pool stays paused. The time held is added to every pending request. Takes effect from the next pause. Between 1 and 30 days.',
+    shape: {
+      kind: 'fields',
+      fields: [{ name: 'hold', label: 'Longest hold', kind: 'seconds', help: 'Counted from the moment the pool is paused.', placeholder: '604800' }],
     },
   },
   {
@@ -411,7 +513,8 @@ export const ADMIN_ACTIONS: readonly AdminAction[] = [
     contract: 'staking',
     functionName: 'unpause',
     label: 'Restart the staking pool',
-    consequence: 'Restarting waits out the full delay. Claiming spread stays open while the pool is paused; deposits and withdrawals do not.',
+    consequence:
+      'Restarting waits out the full delay. While the pool is paused it takes no new stake and holds ready exits for at most its exit hold; exit requests, cancellations and claims stay open.',
     shape: { kind: 'none' },
   },
   {
@@ -429,7 +532,7 @@ export const ADMIN_ACTIONS: readonly AdminAction[] = [
     functionName: 'setParams',
     label: 'Set the buyback limits and price ceiling',
     consequence:
-      'All six move together. The ceiling is the most the buyback will pay for one whole BRSR, and a ceiling of zero refuses every trade, which is where a deployment starts. Set it against a pool that has a price, never before one exists.',
+      'All six move together. The ceiling is the most the buyback will pay for one whole BRSR, and a ceiling of zero refuses every trade. Every change restates the ceiling and restarts its age, so even a proposal that only moves the spend has to carry a ceiling somebody is prepared to sign today. Set it against the pool’s price.',
     shape: {
       kind: 'fields',
       fields: [
@@ -446,6 +549,30 @@ export const ADMIN_ACTIONS: readonly AdminAction[] = [
         { name: 'window', label: 'Window', kind: 'seconds', help: 'The period the spend ceiling is counted over. At most 30 days.', placeholder: '86400' },
         { name: 'minInterval', label: 'Wait between buys', kind: 'seconds', help: 'Longer than the window puts the ceiling out of reach.', placeholder: '3600' },
       ],
+    },
+  },
+  {
+    id: 'buyback.setKeeper',
+    contract: 'buyback',
+    functionName: 'setKeeper',
+    label: 'Name the buyback keeper',
+    consequence:
+      'The only address that can trigger a buy. Keeping it to one named key stops anyone from wrapping a buy inside a transaction of their own. The zero address leaves nobody able to trigger one.',
+    shape: {
+      kind: 'fields',
+      fields: [{ name: 'keeper_', label: 'Keeper', kind: 'address', help: 'A key that sends buys on a schedule. The zero address stops buys without a pause.' }],
+    },
+  },
+  {
+    id: 'buyback.setMaxCeilingAge',
+    contract: 'buyback',
+    functionName: 'setMaxCeilingAge',
+    label: 'Set how long a buyback price ceiling stays usable',
+    consequence:
+      'After this long without a new ceiling every buy is refused until governance sets one again. Counted from the last time the limits were set. Between 1 and 30 days.',
+    shape: {
+      kind: 'fields',
+      fields: [{ name: 'age', label: 'Usable for', kind: 'seconds', help: 'A market moves; a week is the default.', placeholder: '604800' }],
     },
   },
   {
@@ -685,7 +812,12 @@ function validate(action: AdminAction, args: readonly unknown[]): readonly strin
   switch (action.id) {
     case 'reputation.setCurve': {
       const curve = args[0] as Tuple;
+      record(at(curve, 'maxCap') === 0n, 'A ceiling of zero caps every payee at nothing, so every payment would be refused.');
       record(at(curve, 'maxCap') < at(curve, 'baseCap'), 'The ceiling cannot be below the cap at a score of zero. Reputation refuses the curve.');
+      record(
+        at(curve, 'maxCap') > at(curve, 'baseCap') + at(curve, 'capPerScore') * LIMITS.scoreMax,
+        'No score reaches that ceiling: a perfect score of 100 stops at the cap at zero plus 100 steps. Reputation refuses a ceiling it would publish and never pay.',
+      );
       record(
         at(curve, 'baseCap') > MAX_UINT128 || at(curve, 'capPerScore') > MAX_UINT128 || at(curve, 'maxCap') > MAX_UINT128,
         'That is larger than the contract can hold.',
@@ -694,10 +826,19 @@ function validate(action: AdminAction, args: readonly unknown[]): readonly strin
     }
     case 'oracleRegistry.setConfig': {
       const config = args[0] as Tuple;
-      record(at(config, 'commitWindow') === 0n || at(config, 'revealWindow') === 0n, 'Both windows have to be longer than zero.');
-      record(at(config, 'quorum') === 0n || at(config, 'maxVoters') === 0n, 'Quorum and the voter cap both have to be at least one.');
-      record(at(config, 'quorum') > at(config, 'maxVoters'), 'Quorum cannot be above the number of resolvers allowed to vote.');
-      record(at(config, 'maxVoters') > LIMITS.oracleMaxVoters, `The dispute registry allows at most ${LIMITS.oracleMaxVoters} resolvers per dispute.`);
+      record(
+        at(config, 'commitWindow') < LIMITS.oracleMinWindow || at(config, 'revealWindow') < LIMITS.oracleMinWindow,
+        'Each window has to be at least ten minutes. A shorter one is a vote only a party already watching can take part in.',
+      );
+      record(at(config, 'quorum') === 0n, 'Quorum has to be at least one.');
+      record(
+        at(config, 'quorum') > LIMITS.oracleRoster,
+        `Quorum cannot be above the ${LIMITS.oracleRoster}-seat roster. No vote could reach it and every dispute would fail.`,
+      );
+      record(
+        at(config, 'maxVoters') < LIMITS.oracleRoster,
+        `The voter cap has to seat the whole ${LIMITS.oracleRoster}-resolver roster, or whoever commits first shuts the rest out.`,
+      );
       record(at(config, 'maxDeviation') > LIMITS.scoreMax, 'A deviation band wider than 100 points is wider than the whole score.');
       record(
         at(config, 'slashBps') === 0n,
@@ -718,7 +859,6 @@ function validate(action: AdminAction, args: readonly unknown[]): readonly strin
       record(args[0] === 0n, 'A slash of zero is refused.');
       record((args[0] as bigint) > LIMITS.agentRegistrySlashBps, 'The registry refuses anything above 5000, which is half the stake.');
       break;
-    case 'agentRegistry.setSlasher':
     case 'agentRegistry.setSlashSink':
     case 'oracleRegistry.setSlashSink':
     case 'staking.setTreasury':
@@ -752,6 +892,32 @@ function validate(action: AdminAction, args: readonly unknown[]): readonly strin
       break;
     case 'staking.setMinBond':
       record(args[0] === 0n, 'A floor of zero is refused.');
+      break;
+    case 'staking.setUnbondWindow':
+      record(
+        (args[0] as bigint) < LIMITS.stakingMinUnbondWindow || (args[0] as bigint) > LIMITS.stakingMaxUnbondWindow,
+        'The pool takes between one and thirty days.',
+      );
+      break;
+    case 'staking.setMaxExitHold':
+      record(
+        (args[0] as bigint) < LIMITS.stakingMinExitHold || (args[0] as bigint) > LIMITS.stakingMaxExitHold,
+        'The pool takes between one and thirty days.',
+      );
+      break;
+    case 'staking.setSlashLimit':
+      record(args[0] === 0n, 'A cap of zero is refused. Clear the slasher instead to stop slashing.');
+      record((args[0] as bigint) > LIMITS.bps, 'A slash cannot take more than the whole pool.');
+      record(
+        (args[1] as bigint) < LIMITS.stakingMinSlashWindow || (args[1] as bigint) > LIMITS.stakingMaxSlashWindow,
+        'The refill window has to be between one and ninety days.',
+      );
+      break;
+    case 'buyback.setMaxCeilingAge':
+      record(
+        (args[0] as bigint) < LIMITS.buybackMinCeilingAge || (args[0] as bigint) > LIMITS.buybackMaxCeilingAge,
+        'The buyback takes between one and thirty days.',
+      );
       break;
     case 'buyback.setParams': {
       const params = args[0] as Tuple;
@@ -1098,10 +1264,10 @@ function sentenceFor(name: string, contract: GovernedContract | undefined, args:
     case 'setConfig':
       return `Sets the dispute rules to ${seconds(bigintAt(first, 'commitWindow'))} to commit and ${seconds(
         bigintAt(first, 'revealWindow'),
-      )} to reveal, ${bigintAt(first, 'quorum').toString()} reveals needed out of at most ${bigintAt(
+      )} to reveal, ${bigintAt(first, 'quorum').toString()} reveals needed with up to ${bigintAt(
         first,
         'maxVoters',
-      ).toString()} resolvers, a deviation band of ${bigintAt(first, 'maxDeviation').toString()} score points, ${formatBps(
+      ).toString()} resolvers voting, a deviation band of ${bigintAt(first, 'maxDeviation').toString()} score points, ${formatBps(
         bigintAt(first, 'slashBps'),
       )} of the bond slashed outside it, and a bond exit wait of ${seconds(bigintAt(first, 'unbondingPeriod'))}.`;
     case 'setMinStake':
@@ -1109,7 +1275,23 @@ function sentenceFor(name: string, contract: GovernedContract | undefined, args:
     case 'setSlashBps':
       return `Sets the share of a provider's stake a ruling takes to ${formatBps(asBigint(first))}.`;
     case 'setSlasher':
-      return `Names ${plain(first)} as a second address allowed to rule against provider stake.`;
+      return slasherSentence(contract, first);
+    case 'setSlashLimit':
+      return `Lets one slash take at most ${formatBps(asBigint(first))} of the staking pool, with the allowance refilling over ${seconds(args[1])}.`;
+    case 'setUnbondWindow':
+      return `Keeps a ready staking exit open for ${seconds(first)} before it lapses. It applies to requests already pending.`;
+    case 'setMaxExitHold':
+      return `Lets a pause hold ready staking exits for at most ${seconds(first)}, from the next pause on.`;
+    case 'setKeeper':
+      return isZero(first)
+        ? 'Clears the buyback keeper. No buy can run until one is named again.'
+        : `Names ${plain(first)} as the buyback keeper, the only address that can trigger a buy.`;
+    case 'setMaxCeilingAge':
+      return `Keeps a buyback price ceiling usable for ${seconds(first)} after it is set. Past that every buy is refused until the ceiling is set again.`;
+    case 'evict':
+      return `Unseats resolver ${plain(first)} from ${on} and returns what is left of its bond. Refused while a vote that bond backs is open.`;
+    case 'sweepSurplus':
+      return `Sends settlement asset ${on} holds beyond the rewards it owes to its slash sink.`;
     case 'setSlashSink':
       return `Sends everything slashed by ${on} to ${plain(first)} from this point on. Balances already sent are not moved.`;
     case 'setBlacklistRoot':
@@ -1121,8 +1303,8 @@ function sentenceFor(name: string, contract: GovernedContract | undefined, args:
     case 'setCreditManager':
       if (isZero(first)) return 'Clears the credit manager. No spread can be paid in to stakers until one is named again.';
       return isCreditPool(first)
-        ? `Names the collateralized lane’s credit pool, ${plain(first)}, as the staking pool’s credit manager, so the lane’s spread is paid to stakers. The credit pool has no call that takes stake.`
-        : `Names ${plain(first)} as the staking pool’s credit manager: the one address that can pay spread in and call its slash.`;
+        ? `Names the collateralized lane’s credit pool, ${plain(first)}, as the staking pool’s credit manager, so the lane’s spread is paid to stakers.`
+        : `Names ${plain(first)} as the staking pool’s credit manager, the one address that can pay spread in.`;
     case 'setBondFloor':
       return asBigint(args[1]) === 0n
         ? `Returns resolver ${plain(first)} to the bond floor everyone else is held to.`
@@ -1142,6 +1324,19 @@ function sentenceFor(name: string, contract: GovernedContract | undefined, args:
     default:
       return `Calls ${signature} on ${on}.`;
   }
+}
+
+/** One function name on two contracts: the provider registry's second ruling authority, and the staking pool's slasher. */
+function slasherSentence(contract: GovernedContract | undefined, value: unknown): string {
+  if (contract?.key === 'staking') {
+    if (isZero(value)) return 'Clears the staking pool’s slasher. Nothing can take stake until one is named again.';
+    return isCreditPool(value)
+      ? `Names the collateralized lane’s credit pool, ${plain(value)}, as the staking pool’s slasher. A write-off then takes stake, converted to BRSR at the buyback’s price ceiling and held to the slash cap.`
+      : `Names ${plain(value)} as the staking pool’s slasher, the one address that can take stake, held to the slash cap.`;
+  }
+  return isZero(value)
+    ? 'Clears the second address allowed to rule against provider stake.'
+    : `Names ${plain(value)} as a second address allowed to rule against provider stake.`;
 }
 
 function asBigint(value: unknown): bigint {

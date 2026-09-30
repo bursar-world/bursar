@@ -1,4 +1,4 @@
-import { micro } from '@bursar/core';
+import { collateralDeployment, micro } from '@bursar/core';
 import { describe, expect, it } from 'vitest';
 import type { Address, Hex } from 'viem';
 
@@ -118,12 +118,20 @@ describe('the builder refuses what the contract refuses', () => {
     expect(built.problems.join(' ')).toContain('ceiling cannot be below');
   });
 
-  it('accepts the curve this deployment runs on', () => {
-    const built = buildCall(action('reputation.setCurve'), fill(action('reputation.setCurve'), { baseCap: '25', capPerScore: '1', maxCap: '250' }));
+  it('accepts a curve whose ceiling a perfect score reaches', () => {
+    const built = buildCall(action('reputation.setCurve'), fill(action('reputation.setCurve'), { baseCap: '25', capPerScore: '2.25', maxCap: '250' }));
 
     expect(built.ok).toBe(true);
     if (!built.ok) return;
     expect(readCall(ADDRESSES.reputation, built.data).sentence).toContain('25 USDG at a score of zero');
+  });
+
+  it('refuses a ceiling no score reaches, which reputation would publish and never pay', () => {
+    const built = buildCall(action('reputation.setCurve'), fill(action('reputation.setCurve'), { baseCap: '25', capPerScore: '1', maxCap: '250' }));
+
+    expect(built.ok).toBe(false);
+    if (built.ok) return;
+    expect(built.problems.join(' ')).toContain('No score reaches that ceiling');
   });
 
   it('refuses tiers that do not ascend in both columns', () => {
@@ -156,7 +164,7 @@ describe('the builder refuses what the contract refuses', () => {
         revealWindow: '21600',
         unbondingPeriod: '3600',
         quorum: '2',
-        maxVoters: '5',
+        maxVoters: '64',
         maxDeviation: '20',
         slashBps: '1000',
       }),
@@ -167,44 +175,53 @@ describe('the builder refuses what the contract refuses', () => {
     expect(built.problems.join(' ')).toContain('cover both windows');
   });
 
-  it('refuses a quorum larger than the number of resolvers allowed to vote', () => {
-    const built = buildCall(
-      action('oracleRegistry.setConfig'),
-      fill(action('oracleRegistry.setConfig'), {
-        commitWindow: '21600',
-        revealWindow: '21600',
-        unbondingPeriod: '604800',
-        quorum: '9',
-        maxVoters: '5',
-        maxDeviation: '20',
-        slashBps: '1000',
-      }),
-    );
-
-    expect(built.ok).toBe(false);
-    if (built.ok) return;
-    expect(built.problems.join(' ')).toContain('Quorum cannot be above');
-  });
-
-  it('encodes the dispute rules this deployment runs on and reads them back in words', () => {
-    const built = buildCall(
+  const rules = (over: Record<string, string>) =>
+    buildCall(
       action('oracleRegistry.setConfig'),
       fill(action('oracleRegistry.setConfig'), {
         commitWindow: '21600',
         revealWindow: '21600',
         unbondingPeriod: '604800',
         quorum: '2',
-        maxVoters: '5',
+        maxVoters: '64',
         maxDeviation: '20',
         slashBps: '1000',
+        ...over,
       }),
     );
+
+  it('refuses a voter cap that would let the first resolvers to commit shut the rest out', () => {
+    const built = rules({ maxVoters: '5' });
+
+    expect(built.ok).toBe(false);
+    if (built.ok) return;
+    expect(built.problems.join(' ')).toContain('seat the whole 64-resolver roster');
+  });
+
+  it('refuses a quorum above the roster, which no vote could reach', () => {
+    const built = rules({ quorum: '65', maxVoters: '80' });
+
+    expect(built.ok).toBe(false);
+    if (built.ok) return;
+    expect(built.problems.join(' ')).toContain('Quorum cannot be above the 64-seat roster');
+  });
+
+  it('refuses a window under ten minutes', () => {
+    const built = rules({ revealWindow: '300' });
+
+    expect(built.ok).toBe(false);
+    if (built.ok) return;
+    expect(built.problems.join(' ')).toContain('at least ten minutes');
+  });
+
+  it('encodes dispute rules that seat the whole roster and reads them back in words', () => {
+    const built = rules({});
 
     expect(built.ok).toBe(true);
     if (!built.ok) return;
     const sentence = readCall(ADDRESSES.oracleRegistry, built.data).sentence;
     expect(sentence).toContain('6h to commit');
-    expect(sentence).toContain('2 reveals needed out of at most 5');
+    expect(sentence).toContain('2 reveals needed with up to 64 resolvers voting');
     expect(sentence).toContain('10% of the bond slashed');
   });
 
@@ -270,11 +287,16 @@ describe('the builder refuses what the contract refuses', () => {
 
   it('allows the zero address where the contract does, and says what it means', () => {
     const zero = '0x0000000000000000000000000000000000000000';
-    const built = buildCall(action('staking.setCreditManager'), fill(action('staking.setCreditManager'), { account: zero }));
+    const cleared = (id: string, field: string) => {
+      const built = buildCall(action(id), fill(action(id), { [field]: zero }));
+      expect(built.ok, id).toBe(true);
+      return built.ok ? readCall(built.target, built.data).sentence : '';
+    };
 
-    expect(built.ok).toBe(true);
-    if (!built.ok) return;
-    expect(readCall(built.target, built.data).sentence).toContain('Clears the credit manager');
+    expect(cleared('staking.setCreditManager', 'account')).toContain('Clears the credit manager');
+    expect(cleared('staking.setSlasher', 'account')).toContain('Clears the staking pool’s slasher');
+    expect(cleared('buyback.setKeeper', 'keeper_')).toContain('Clears the buyback keeper');
+    expect(cleared('agentRegistry.setSlasher', 'newSlasher')).toContain('Clears the second address');
   });
 
   it('collects every problem at once rather than one per attempt', () => {
@@ -294,6 +316,61 @@ describe('the builder refuses what the contract refuses', () => {
     expect(built.ok).toBe(false);
     if (built.ok) return;
     expect(built.problems.length).toBeGreaterThan(1);
+  });
+});
+
+describe('the staking pool and buyback settings added with the exit pool and the keeper', () => {
+  const PERSON = '0x000000000000000000000000000000000000bEEF';
+
+  it('names a keeper as the only address that can trigger a buy', () => {
+    const built = buildCall(action('buyback.setKeeper'), fill(action('buyback.setKeeper'), { keeper_: PERSON }));
+
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    const reading = readCall(built.target, built.data);
+    expect(reading.targetName).toBe('the buyback');
+    expect(reading.sentence).toContain('the only address that can trigger a buy');
+  });
+
+  it('says a slasher other than the credit pool can take stake, held to the cap', () => {
+    const built = buildCall(action('staking.setSlasher'), fill(action('staking.setSlasher'), { account: PERSON }));
+
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    expect(readCall(built.target, built.data).sentence).toContain('the one address that can take stake, held to the slash cap');
+  });
+
+  it('writes the slash cap and its refill window, and refuses a cap of zero or a window out of range', () => {
+    const built = buildCall(action('staking.setSlashLimit'), fill(action('staking.setSlashLimit'), { capBps: '1000', window: '604800' }));
+    expect(built.ok).toBe(true);
+    if (built.ok) expect(readCall(built.target, built.data).sentence).toContain('at most 10% of the staking pool');
+
+    const zero = buildCall(action('staking.setSlashLimit'), fill(action('staking.setSlashLimit'), { capBps: '0', window: '604800' }));
+    expect(zero.ok).toBe(false);
+    if (!zero.ok) expect(zero.problems.join(' ')).toContain('A cap of zero is refused');
+
+    const short = buildCall(action('staking.setSlashLimit'), fill(action('staking.setSlashLimit'), { capBps: '1000', window: '3600' }));
+    expect(short.ok).toBe(false);
+  });
+
+  it.each([
+    ['staking.setUnbondWindow', 'window'],
+    ['staking.setMaxExitHold', 'hold'],
+    ['buyback.setMaxCeilingAge', 'age'],
+  ])('holds %s between one and thirty days', (id, field) => {
+    expect(buildCall(action(id), fill(action(id), { [field]: '3600' })).ok).toBe(false);
+    expect(buildCall(action(id), fill(action(id), { [field]: '3000000' })).ok).toBe(false);
+    expect(buildCall(action(id), fill(action(id), { [field]: '604800' })).ok).toBe(true);
+  });
+
+  it('reads an eviction as unseating the resolver and returning its bond', () => {
+    const built = buildCall(action('oracleRegistry.evict'), fill(action('oracleRegistry.evict'), { resolver: PERSON }));
+
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    const reading = readCall(built.target, built.data);
+    expect(reading.targetName).toBe('the dispute registry');
+    expect(reading.sentence).toContain('returns what is left of its bond');
   });
 });
 
@@ -340,7 +417,14 @@ describe('the catalogue', () => {
       'agentRegistry.setMinStake',
       'staking.setTiers',
       'staking.setCreditManager',
+      'staking.setSlasher',
+      'staking.setSlashLimit',
+      'staking.setUnbondWindow',
+      'staking.setMaxExitHold',
       'buyback.setParams',
+      'buyback.setKeeper',
+      'buyback.setMaxCeilingAge',
+      'oracleRegistry.evict',
       'agentRegistry.acceptAdmin',
     ]) {
       expect(actionById(id)).toBeDefined();
@@ -365,12 +449,27 @@ describe('the catalogue', () => {
 describe('the proposals on the token governance delay', () => {
   const STAKING_ADDRESS = '0x3f2a0E7822B30aD928488F053348b137866Cf962' as const;
 
-  it('reads proposal 10 as naming the credit pool, and says the pool cannot take stake', () => {
+  it('reads proposal 10 as naming a credit manager on the staking pool', () => {
     const reading = readCall(STAKING_ADDRESS, '0x69dd793b000000000000000000000000c217af334e6eac06b774b5059b16257695937b0a');
     expect(reading.recognised).toBe(true);
     expect(reading.targetName).toBe('the staking pool');
-    expect(reading.sentence).toContain('credit pool');
-    expect(reading.sentence).toContain('no call that takes stake');
+    expect(reading.functionName).toBe('setCreditManager');
+    expect(reading.sentence).toContain('credit manager');
+  });
+
+  // Built from whichever credit pool the address book names, so it holds before and after the
+  // contracts the collateral lane runs on are replaced.
+  it('says naming the lane’s credit pool pays its spread to stakers, and that the role takes no stake', () => {
+    const pool = collateralDeployment(4663)?.CreditPool;
+    if (pool === undefined) return;
+    const built = buildCall(action('staking.setCreditManager'), fill(action('staking.setCreditManager'), { account: pool }));
+
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    const sentence = readCall(built.target, built.data).sentence;
+    expect(sentence).toContain('credit pool');
+    expect(sentence).toContain('spread is paid to stakers');
+    expect(action('staking.setCreditManager').consequence).toContain('It cannot take stake');
   });
 
   it('reads a per-resolver bond floor in BRSR', () => {
