@@ -44,6 +44,9 @@ export const RefuseReason = {
   MerchantNotParty: 'merchant_not_party',
   PayeeCapExceeded: 'payee_cap_exceeded',
   AccountUnderfunded: 'account_underfunded',
+  // Under the escrow's floor on a lock. previewSpend does not know the floor, so a spend under it
+  // clears every limit on the account and then reverts inside the lock.
+  BelowMinLock: 'below_min_lock',
 
   // The settlement asset's own controls, which belong to the token issuer rather than to the
   // principal, the operator or this service. None of them can be cleared from here, and a refusal
