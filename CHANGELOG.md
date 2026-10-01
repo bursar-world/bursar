@@ -14,21 +14,37 @@ records are in `contracts/deployments/`.
 
 ### Contracts
 
-- `Reputation`: a score now weighs how much a payee has settled and with how many payers, as well
-  as how many of its jobs ended well. A job under 1 USDG counts for nothing, each payer counts for
-  at most 62.5 USDG of settled work, and a full score takes 250 USDG of it, so at least four
-  payers. The cap curve is unchanged: 25 USDG with no history, 2.25 USDG more per point, 250 USDG
-  at a score of 100. Governance sets the three weights the way it sets the curve. `payeeStats`,
-  `edges`, `score` and `capOf` read as before, with `creditOf`, `edgeVolume` and `weights` beside
-  them, and the escrow passes each job's amount along with its outcome.
-- `AgentRegistry`: a provider can ask for its stake back while the registry is paused. The
-  seven-day delay is unchanged, and so is what a pause stops: new registrations, top-ups and
-  reactivations.
-- Third contract set, deployed 2026-09-30 and now the live record (`rhc-mainnet-v3.json`). Every
-  contract is new except `BRSR` and `Vesting`. Its `AdminTimelock` has a one-hour delay; a proposer
-  can withdraw its own proposal, and cancelling anyone else's takes vetoes from two signers.
-  Reputation caps start at 25 USDG and rise 2.25 USDG per score point to the 250 USDG ceiling.
-  Dispute commit and reveal windows are one hour each.
+- Fourth contract set, deployed 2026-10-01 and now the live record (`rhc-mainnet-v4.json`). The
+  third set's `AdminTimelock`, `BRSR`, `Vesting`, `Staking`, `Buyback` and `V4LiquiditySeeder`
+  carry over at the same addresses; every other contract is new, including a fresh shielded pool
+  behind its own `Entrypoint`. The third set stays on chain and keeps serving the mandates, locks
+  and disputes opened through it. What changed with the set:
+  - `Reputation`: a score now weighs how much a payee has settled and with how many payers, as
+    well as how many of its jobs ended well. A job of 1 USDG or more counts, each payer counts for
+    at most 62.5 USDG of credit, and a full score takes 250 USDG of credit, so at least four
+    payers. The cap curve is unchanged: 25 USDG with no history, 2.25 USDG more per point, 250 USDG
+    at a score of 100. Governance sets the three weights the way it sets the curve. `payeeStats`,
+    `edges`, `score` and `capOf` read as before, with `creditOf`, `edgeVolume` and `weights` beside
+    them, and the escrow passes each job's amount along with its outcome.
+  - `AgentRegistry`: a provider can ask for its stake back while the registry is paused. The
+    seven-day delay is unchanged, and so is what a pause stops: new registrations, top-ups and
+    reactivations.
+  - The collateral lane lends against a position only once its pool has been observed at least
+    five minutes earlier and agreed with its price feed. A feed that jumps more than 15% since that
+    reading, or goes quiet in session, halts new borrowing; repayments, and withdrawals from a line
+    with no debt, are unaffected. A keeper run every five minutes keeps the readings current. A
+    written-off line's remaining collateral goes to the lender.
+  - The shielded pool takes at most 250 USDG from one address in any seven days, beside the
+    100 USDG per deposit and 1,000 USDG pool caps. An address the access registry has since blocked
+    can still take out what it put in.
+  - A payment made for an x402 call through the escrow lane commits the request when the lock is
+    made: the method, the endpoint and a commitment to the request body are its published input.
+    Ruling policy version 3 applies from the same day.
+- Third contract set, deployed 2026-09-30 (`rhc-mainnet-v3.json`), now superseded. Every contract
+  was new except `BRSR` and `Vesting`. Its `AdminTimelock`, which the fourth set keeps, has a
+  one-hour delay; a proposer can withdraw its own proposal, and cancelling anyone else's takes
+  vetoes from two signers. Reputation caps start at 25 USDG and rise 2.25 USDG per score point to
+  the 250 USDG ceiling. Dispute commit and reveal windows are one hour each.
 - Second contract set, deployed 2026-09-28 (`rhc-mainnet-v2.json`), now superseded. The first set
   with a one-hour delay. Mandates gained spend classes, a lifetime total and a settlement lane. Its
   contracts stay on chain and keep serving the mandates, locks and disputes opened through them.
@@ -60,7 +76,7 @@ records are in `contracts/deployments/`.
 
 - Resolver: votes the three bonded resolver keys on every dispute under the published
   [ruling policy](docs/RULING-POLICY.md), with a backup runner that reveals from the keystores
-  alone. Ruling policy version 2.
+  alone. Ruling policy version 3 from 2026-10-01; version 2 before that.
 - Association-set provider and relayer for the shielded pool, and a solvency service that posts
   the daily root.
 
