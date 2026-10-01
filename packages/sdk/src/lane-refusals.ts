@@ -368,6 +368,12 @@ const ASSETS: Readonly<Record<ErrorName<typeof assetRegistryAbi>, Reading>> = {
 };
 
 const PARK: Readonly<Record<ErrorName<typeof treasuryParkAbi>, Reading>> = {
+  ZeroAddress: {
+    owner: 'deployment',
+    message:
+      'The park was given the zero address where it needs USDG or an admin, or an adapter was given the ' +
+      'zero address for its park. Nothing can be built on it.',
+  },
   BelowBuffer: {
     owner: 'caller',
     message: (figures) =>
@@ -467,6 +473,12 @@ const PARK: Readonly<Record<ErrorName<typeof treasuryParkAbi>, Reading>> = {
 };
 
 const ADAPTER: Readonly<Record<ErrorName<typeof parkAdapterAbi>, Reading>> = {
+  ZeroAddress: {
+    owner: 'deployment',
+    message:
+      'The adapter was given the zero address where it needs its park or its asset. Nothing can be built ' +
+      'on it.',
+  },
   NotPark: {
     owner: 'deployment',
     message:
