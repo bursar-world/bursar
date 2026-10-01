@@ -33,6 +33,9 @@ abstract contract RwaChecks is Verifier {
         _is("PriceGuard.registry", registry, address(g.registry()));
         _is("PriceGuard.accessRegistry", _recordAddress(K.ACCESS_REGISTRY), address(g.accessRegistry()));
         _is("PriceGuard.stateView", _recordAddress(K.STATE_VIEW), address(g.stateView()));
+        _isParamAt("PriceGuard.minObservationAge", guard, abi.encodeCall(g.MIN_OBSERVATION_AGE, ()));
+        _isParamAt("PriceGuard.maxObservationAge", guard, abi.encodeCall(g.MAX_OBSERVATION_AGE, ()));
+        _isParamAt("PriceGuard.maxFeedJumpBps", guard, abi.encodeCall(g.MAX_FEED_JUMP_BPS, ()));
         _is("StockSpendRouter.registry", registry, address(StockSpendRouter(router).registry()));
         _is("StockSpendRouter.guard", guard, address(StockSpendRouter(router).guard()));
 

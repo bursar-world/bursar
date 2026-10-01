@@ -52,6 +52,10 @@ contract DeployRwa is BursarScript {
     address private stateView;
     address private accessRegistry;
 
+    uint256 private minObservationAge;
+    uint256 private maxObservationAge;
+    uint256 private maxFeedJumpBps;
+
     RwaConfig.Term[] private terms;
     address[] private tokens;
     address[] private feeds;
@@ -84,6 +88,10 @@ contract DeployRwa is BursarScript {
         poolManager = _upstream(K.POOL_MANAGER);
         stateView = _upstream(K.STATE_VIEW);
         accessRegistry = _upstream(K.ACCESS_REGISTRY);
+
+        minObservationAge = _envUint("BURSAR_MIN_OBSERVATION_AGE");
+        maxObservationAge = _envUint("BURSAR_MAX_OBSERVATION_AGE");
+        maxFeedJumpBps = _envUint16("BURSAR_MAX_FEED_JUMP_BPS");
 
         RwaConfig.Term[] memory all = RwaConfig.terms();
         uint256 treasuries;
@@ -152,7 +160,14 @@ contract DeployRwa is BursarScript {
         }
 
         d.registry = new AssetRegistry(timelock, asset, list, configs);
-        d.guard = new PriceGuard(d.registry, IAccessRegistry(accessRegistry), IStateView(stateView));
+        d.guard = new PriceGuard(
+            d.registry,
+            IAccessRegistry(accessRegistry),
+            IStateView(stateView),
+            minObservationAge,
+            maxObservationAge,
+            maxFeedJumpBps
+        );
         IPoolManager pm = IPoolManager(poolManager);
         d.router = new StockSpendRouter(d.registry, d.guard, pm);
 
@@ -177,6 +192,9 @@ contract DeployRwa is BursarScript {
         _expect("guard.registry", address(d.registry), address(d.guard.registry()));
         _expect("guard.accessRegistry", accessRegistry, address(d.guard.accessRegistry()));
         _expect("guard.stateView", stateView, address(d.guard.stateView()));
+        _expectUint("guard.minObservationAge", minObservationAge, d.guard.MIN_OBSERVATION_AGE());
+        _expectUint("guard.maxObservationAge", maxObservationAge, d.guard.MAX_OBSERVATION_AGE());
+        _expectUint("guard.maxFeedJumpBps", maxFeedJumpBps, d.guard.MAX_FEED_JUMP_BPS());
         _expect("router.registry", address(d.registry), address(d.router.registry()));
         _expect("router.guard", address(d.guard), address(d.router.guard()));
         _expect("park.admin", timelock, d.park.admin());
@@ -205,6 +223,10 @@ contract DeployRwa is BursarScript {
         }
         _write(K.USDG_ADAPTER, address(d.usdgAdapter));
         _write(K.RWA_FROM_BLOCK, block.number);
+
+        _write(".parameters.PriceGuard.minObservationAge", minObservationAge);
+        _write(".parameters.PriceGuard.maxObservationAge", maxObservationAge);
+        _write(".parameters.PriceGuard.maxFeedJumpBps", maxFeedJumpBps);
     }
 
     function _report(address deployer) private view {
@@ -212,6 +234,7 @@ contract DeployRwa is BursarScript {
         console2.log("deployer", deployer);
         console2.log("AssetRegistry", address(d.registry));
         console2.log("PriceGuard", address(d.guard));
+        console2.log("  observe(asset) every", minObservationAge);
         console2.log("StockSpendRouter", address(d.router));
         console2.log("TreasuryPark", address(d.park));
         console2.log("  mandates from", factory);

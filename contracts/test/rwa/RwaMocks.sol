@@ -30,6 +30,8 @@ contract MockStock is ERC20 {
     bool public oraclePaused;
     bool public tokenPaused;
     uint256 public uiMultiplier = 1e18;
+    /// Refuses every transfer touching the address, the way the issuer's controls can.
+    mapping(address => bool) public blocked;
 
     constructor(string memory symbol) ERC20(symbol, symbol) {}
 
@@ -43,6 +45,15 @@ contract MockStock is ERC20 {
 
     function setTokenPaused(bool p) external {
         tokenPaused = p;
+    }
+
+    function setBlocked(address account, bool b) external {
+        blocked[account] = b;
+    }
+
+    function _update(address from, address to, uint256 value) internal override {
+        require(!blocked[from] && !blocked[to], "blocked");
+        super._update(from, to, value);
     }
 }
 

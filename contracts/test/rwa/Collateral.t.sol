@@ -31,6 +31,9 @@ contract CollateralTest is Test {
     uint256 internal constant STAKE = 1_000_000e18;
     /// Five cents a BRSR.
     uint128 internal constant CEILING = 50_000;
+    uint256 internal constant MIN_AGE = 5 minutes;
+    uint256 internal constant MAX_AGE = 1 hours;
+    uint256 internal constant MAX_JUMP_BPS = 1_500;
 
     MockERC20 usdg;
     MockStock spy;
@@ -66,7 +69,8 @@ contract CollateralTest is Test {
     bytes32 constant CAP = keccak256("service:gpu.render:1");
 
     function setUp() public {
-        vm.warp(T0);
+        // Ten minutes early: the keeper's two observations land before the clock reaches T0.
+        vm.warp(T0 - 10 minutes);
         usdg = new MockERC20();
         spy = new MockStock("SPY");
         sgov = new MockStock("SGOV");
@@ -113,7 +117,9 @@ contract CollateralTest is Test {
         assets[2] = address(aapl);
         configs[2] = _cfg(address(aaplFeed), aaplPool, true, false, 100);
         reg = new AssetRegistry(admin, address(usdg), assets, configs);
-        guard = new PriceGuard(reg, IAccessRegistry(address(access)), IStateView(address(v4)));
+        guard = new PriceGuard(
+            reg, IAccessRegistry(address(access)), IStateView(address(v4)), MIN_AGE, MAX_AGE, MAX_JUMP_BPS
+        );
 
         pool = new CreditPool(address(usdg), address(staking), address(buyback), admin, lender, 100e6, 10e6, 200, 1_800);
         vault = new CollateralVault(
@@ -151,6 +157,14 @@ contract CollateralTest is Test {
         sgov.approve(address(vault), type(uint256).max);
         aapl.approve(address(vault), type(uint256).max);
         vm.stopPrank();
+
+        // The keeper's first two rounds: at T0 every asset has an aged sample ten minutes old and
+        // a pending one five minutes old, both with the pool at its feed.
+        _observeAll();
+        vm.warp(T0 - MIN_AGE);
+        _observeAll();
+        vm.warp(T0);
+        _refreshFeeds();
     }
 
     function test_health_isHaircutValueOverDebt() public {
@@ -581,7 +595,8 @@ contract CollateralTest is Test {
     }
 
     /// One wei of another asset, posted by anyone, cannot hold the write-off open while the
-    /// stranded debt keeps costing the pool: dust counts as nothing left to sell.
+    /// stranded debt keeps costing the pool: dust counts as nothing left to sell. The write-off
+    /// then seizes it with everything else the line holds.
     function test_dustDeposit_cannotBlockWriteOff() public {
         _deposit(spy, 0.01e18);
         _spendOnCredit(4e6);
@@ -593,19 +608,25 @@ contract CollateralTest is Test {
         vm.stopPrank();
 
         _movePrice(spy, spyFeed, SPY_E8 / 4);
+        vm.expectEmit(address(vault));
+        emit CollateralVault.Seized(address(acct), address(sgov), 1);
         vault.liquidate(address(acct), address(spy));
         assertEq(vault.collateralOf(address(acct), address(spy)), 0);
+        assertEq(vault.collateralOf(address(acct), address(sgov)), 0);
+        assertEq(vault.seized(address(sgov)), 1);
         assertEq(pool.debtOf(address(acct)), 0);
         assertGt(pool.badDebt(), 0);
 
-        // With nothing owed the dust is the principal's to take back.
         vm.prank(principal);
+        vm.expectRevert(abi.encodeWithSelector(CollateralVault.PositionEmpty.selector, address(acct), address(sgov)));
         vault.withdraw(address(acct), address(sgov), 1, principal);
-        assertEq(sgov.balanceOf(principal), 10e18 + 1);
+        vault.claimSeized(address(sgov));
+        assertEq(sgov.balanceOf(lender), 1);
     }
 
     /// A line whose collateral a sale could get nothing for is written off by the liquidation
-    /// call itself; trying to sell dust could only revert.
+    /// call itself; trying to sell dust could only revert. What it held is seized, not left to
+    /// the borrower.
     function test_liquidate_writesOffLineHoldingOnlyDust() public {
         _deposit(spy, 0.01e18);
         _spendOnCredit(4e6);
@@ -614,7 +635,140 @@ contract CollateralTest is Test {
         assertEq(vault.liquidate(address(acct), address(spy)), 0);
         assertEq(pool.debtOf(address(acct)), 0);
         assertEq(pool.badDebt(), 4e6);
-        assertEq(vault.collateralOf(address(acct), address(spy)), 0.01e18);
+        assertEq(vault.collateralOf(address(acct), address(spy)), 0);
+        assertEq(vault.seized(address(spy)), 0.01e18);
+        assertEq(spy.balanceOf(address(vault)), 0.01e18);
+    }
+
+    /// Every asset the line still holds goes to the seized pot, whatever its tier: here three
+    /// tiers' worth of dust, since a tiered position worth anything holds the write-off open.
+    function test_writeOff_seizesEveryTieredPosition() public {
+        _deposit(spy, 0.01e18);
+        _deposit(sgov, 0.02e18);
+        _deposit(aapl, 0.01e18);
+        _spendOnCredit(4e6);
+        _movePrice(spy, spyFeed, 1e3);
+        _movePrice(sgov, sgovFeed, 1e3);
+        _movePrice(aapl, aaplFeed, 1e3);
+
+        vm.expectEmit(address(vault));
+        emit CollateralVault.Seized(address(acct), address(sgov), 0.02e18);
+        vm.expectEmit(address(vault));
+        emit CollateralVault.Seized(address(acct), address(spy), 0.01e18);
+        vm.expectEmit(address(vault));
+        emit CollateralVault.Seized(address(acct), address(aapl), 0.01e18);
+        vm.prank(keeper);
+        vault.liquidate(address(acct), address(aapl));
+
+        assertEq(pool.debtOf(address(acct)), 0);
+        assertEq(vault.collateralOf(address(acct), address(spy)), 0);
+        assertEq(vault.collateralOf(address(acct), address(sgov)), 0);
+        assertEq(vault.collateralOf(address(acct), address(aapl)), 0);
+        assertEq(vault.seized(address(spy)), 0.01e18);
+        assertEq(vault.seized(address(sgov)), 0.02e18);
+        assertEq(vault.seized(address(aapl)), 0.01e18);
+        // The tokens have not moved; the pot is paid out separately.
+        assertEq(spy.balanceOf(address(vault)), 0.01e18);
+        assertEq(sgov.balanceOf(address(vault)), 0.02e18);
+        assertEq(aapl.balanceOf(address(vault)), 0.01e18);
+        (uint256 value,, uint256 debt,, uint256 h) = vault.account(address(acct));
+        assertEq(value, 0);
+        assertEq(debt, 0);
+        assertEq(h, type(uint256).max);
+    }
+
+    /// The second half of the attack, with the pool genuinely gone: the untiered pool has
+    /// disagreed with its feed at the aged observation as well as at spot. Then the write-off
+    /// stands, and it takes the collateral with it instead of leaving it to the borrower.
+    function test_writeOff_seizesTheUntieredPositionOnceItsPoolHasDisagreedAtTheAgedObservation() public {
+        _deposit(aapl, 0.04e18);
+        _spendOnCredit(4e6);
+        vm.prank(admin);
+        vault.setAssetTier(address(aapl), 0);
+        _setPool(aapl, 300e8 * 90 / 100);
+        assertEq(uint8(vault.drawHalt(address(aapl))), uint8(PriceGuard.DrawHalt.SpotOffBand));
+        _ageObservations();
+        assertEq(uint8(vault.drawHalt(address(aapl))), uint8(PriceGuard.DrawHalt.ObservationOffBand));
+
+        vm.prank(principal);
+        vm.expectEmit(address(vault));
+        emit CollateralVault.Seized(address(acct), address(aapl), 0.04e18);
+        assertEq(vault.liquidate(address(acct), address(aapl)), 0);
+        assertEq(pool.debtOf(address(acct)), 0);
+        assertApproxEqAbs(pool.badDebt(), 4e6, 10); // plus five minutes of spread
+        assertEq(vault.collateralOf(address(acct), address(aapl)), 0);
+        assertEq(vault.seized(address(aapl)), 0.04e18);
+
+        _setPool(aapl, 300e8);
+        vm.prank(principal);
+        vm.expectRevert(abi.encodeWithSelector(CollateralVault.PositionEmpty.selector, address(acct), address(aapl)));
+        vault.withdraw(address(acct), address(aapl), 0.04e18, principal);
+        assertEq(aapl.balanceOf(principal), 1e18 - 0.04e18);
+    }
+
+    /// Without an aged observation that stands, the pushed pool is the spot reading alone, and
+    /// the write-off waits: the sale is deferred until the pool is back in its band.
+    function test_writeOff_waitsWhenNoAgedObservationJudgesThePushedPool() public {
+        _deposit(aapl, 0.04e18);
+        _spendOnCredit(4e6);
+        vm.prank(admin);
+        vault.setAssetTier(address(aapl), 0);
+        vm.warp(block.timestamp + MAX_AGE + 1);
+        _refreshFeeds();
+        _setPool(aapl, 300e8 * 90 / 100);
+        assertEq(uint8(vault.drawHalt(address(aapl))), uint8(PriceGuard.DrawHalt.ObservationExpired));
+
+        vm.prank(keeper);
+        vm.expectPartialRevert(PriceGuard.PoolPriceDeviation.selector);
+        vault.liquidate(address(acct), address(aapl));
+        assertGe(pool.debtOf(address(acct)), 4e6);
+
+        // Back in its band, the position is sold like any other.
+        _setPool(aapl, 300e8);
+        vm.prank(keeper);
+        assertGt(vault.liquidate(address(acct), address(aapl)), 0);
+        assertGe(vault.health(address(acct)), 1.05e18);
+    }
+
+    /// Anyone may trigger the payout; the lender the pool names at the time is who gets paid,
+    /// and an empty pot is a named refusal.
+    function test_claimSeized_paysThePoolsLender() public {
+        _strandLine();
+        vault.liquidate(address(acct), address(spy));
+        assertEq(vault.seized(address(spy)), 0.01e18);
+
+        address newLender = makeAddr("newLender");
+        vm.prank(admin);
+        pool.setLender(newLender);
+
+        address stranger = makeAddr("stranger");
+        vm.prank(stranger);
+        vm.expectEmit(address(vault));
+        emit CollateralVault.SeizedClaimed(address(spy), newLender, 0.01e18);
+        assertEq(vault.claimSeized(address(spy)), 0.01e18);
+        assertEq(spy.balanceOf(newLender), 0.01e18);
+        assertEq(spy.balanceOf(stranger), 0);
+        assertEq(spy.balanceOf(lender), 0);
+        assertEq(spy.balanceOf(address(vault)), 0);
+        assertEq(vault.seized(address(spy)), 0);
+
+        vm.expectRevert(abi.encodeWithSelector(CollateralVault.NothingSeized.selector, address(spy)));
+        vault.claimSeized(address(spy));
+    }
+
+    /// A token that refuses to move does not hold up the write-off; the pot waits for it.
+    function test_claimSeized_waitsOutATokenThatRefusesToMove() public {
+        _strandLine();
+        spy.setBlocked(address(vault), true);
+        vault.liquidate(address(acct), address(spy));
+        assertEq(pool.debtOf(address(acct)), 0);
+        assertEq(vault.seized(address(spy)), 0.01e18);
+
+        vm.expectRevert("blocked");
+        vault.claimSeized(address(spy));
+        spy.setBlocked(address(vault), false);
+        vault.claimSeized(address(spy));
+        assertEq(spy.balanceOf(lender), 0.01e18);
     }
 
     /// A year of spread on a line that never pays reaches no one. Only spread a borrower pays is
@@ -704,6 +858,230 @@ contract CollateralTest is Test {
         assertEq(vault.liquidate(address(acct), address(spy)), 0);
         assertEq(pool.debtOf(address(acct)), 0);
         assertEq(pool.badDebt(), 4.4e6);
+    }
+
+    /// The audit's combined attack. Governance takes AAPL out of its tier with a line drawn
+    /// against it. The borrower pushes AAPL's pool past its band inside one transaction, so the
+    /// position reads not fresh; a write-off that skipped it would clear the debt, and the
+    /// borrower would take the collateral back. The push alone must not get a write-off: the
+    /// sale is deferred, the debt stands, and the collateral stays behind it.
+    function test_regression_pushedUntieredPoolCannotFreeTheCollateral() public {
+        _deposit(aapl, 0.04e18); // 12 USDG, 6 at the after-hours haircut
+        _spendOnCredit(4e6);
+        vm.prank(admin);
+        vault.setAssetTier(address(aapl), 0);
+        assertLt(vault.health(address(acct)), WAD);
+
+        _setPool(aapl, 300e8 * 90 / 100);
+        vm.prank(principal);
+        vm.expectPartialRevert(PriceGuard.PoolPriceDeviation.selector);
+        vault.liquidate(address(acct), address(aapl));
+
+        _setPool(aapl, 300e8);
+        assertEq(pool.debtOf(address(acct)), 4e6);
+        vm.prank(principal);
+        vm.expectRevert(abi.encodeWithSelector(CollateralVault.HealthTooLow.selector, 0, 1.25e18));
+        vault.withdraw(address(acct), address(aapl), 0.04e18, principal);
+        assertEq(vault.collateralOf(address(acct), address(aapl)), 0.04e18);
+    }
+
+    /// A pool that agrees with the feed at spot is one swap away from wherever the caller put
+    /// it. A draw needs the agreement to have stood at an aged observation first: with the
+    /// keeper's samples older than the maximum age, nothing counts until two rounds have aged a
+    /// new one in.
+    function test_regression_drawNeedsAnAgedObservation() public {
+        _deposit(spy, 0.01e18);
+        vm.warp(block.timestamp + MAX_AGE + 1);
+        _refreshFeeds();
+        assertEq(uint8(vault.drawHalt(address(spy))), uint8(PriceGuard.DrawHalt.ObservationExpired));
+        (uint256 value,,, uint256 headroom,) = vault.account(address(acct));
+        assertGt(value, 0);
+        assertEq(headroom, 0);
+        vm.expectRevert(abi.encodeWithSelector(CollateralVault.HealthTooLow.selector, 0, 1.25e18));
+        _spendOnCredit(1e6);
+
+        // One round promotes a sample that is itself too old; the next promotes a fresh one.
+        _observeAll();
+        assertEq(uint8(vault.drawHalt(address(spy))), uint8(PriceGuard.DrawHalt.ObservationExpired));
+        vm.warp(block.timestamp + MIN_AGE);
+        _refreshFeeds();
+        _observeAll();
+        assertEq(uint8(vault.drawHalt(address(spy))), uint8(PriceGuard.DrawHalt.None));
+        (,,, headroom,) = vault.account(address(acct));
+        assertGt(headroom, 1e6);
+        _spendOnCredit(1e6);
+        assertEq(pool.debtOf(address(acct)), 1e6);
+    }
+
+    /// A round far from the last aged sample is a gap or a mis-scaled answer, whether or not the
+    /// pool has been pushed along to agree with it.
+    function test_regression_feedJumpHaltsDraws() public {
+        _deposit(spy, 0.01e18);
+        _movePrice(spy, spyFeed, SPY_E8 * 120 / 100);
+        vm.expectRevert(abi.encodeWithSelector(CollateralVault.HealthTooLow.selector, 0, 1.25e18));
+        _spendOnCredit(1e6);
+    }
+
+    /// Inside the session a feed that has gone quiet past the tier's session bound halts draws
+    /// on the position, where it used to widen the haircut and lend on.
+    function test_regression_quietFeedInSessionHaltsDraws() public {
+        _deposit(spy, 0.01e18);
+        spyFeed.set(int256(SPY_E8), block.timestamp - 27 hours);
+        assertTrue(vault.inSession(block.timestamp));
+        vm.expectRevert(abi.encodeWithSelector(CollateralVault.HealthTooLow.selector, 0, 1.25e18));
+        _spendOnCredit(1e6);
+    }
+
+    /// `drawHalt` names the first condition a draw would fail, current state before history and
+    /// the pool's spot last, and `account` lends on none of them.
+    function test_drawHalt_namesTheFirstFailedCondition() public {
+        _deposit(spy, 0.01e18);
+        _expectHalt(PriceGuard.DrawHalt.None, true);
+
+        spyFeed.set(0, block.timestamp);
+        _expectHalt(PriceGuard.DrawHalt.NoPrice, false);
+        spyFeed.set(int256(SPY_E8), block.timestamp);
+
+        spy.setTokenPaused(true);
+        _expectHalt(PriceGuard.DrawHalt.Paused, false);
+        spy.setTokenPaused(false);
+
+        spyFeed.set(int256(SPY_E8), block.timestamp - 27 hours);
+        _expectHalt(PriceGuard.DrawHalt.FeedStale, false);
+        spyFeed.set(int256(SPY_E8), block.timestamp);
+
+        _setPool(spy, SPY_E8 * 98 / 100);
+        _expectHalt(PriceGuard.DrawHalt.SpotOffBand, false);
+        // Aged in, the pushed pool is history too, and history is reported before the spot.
+        _ageObservations();
+        _expectHalt(PriceGuard.DrawHalt.ObservationOffBand, false);
+        _setPool(spy, SPY_E8);
+        _expectHalt(PriceGuard.DrawHalt.ObservationOffBand, false);
+        _ageObservations();
+        _expectHalt(PriceGuard.DrawHalt.None, true);
+
+        _movePrice(spy, spyFeed, SPY_E8 * 84 / 100);
+        _expectHalt(PriceGuard.DrawHalt.FeedJump, false);
+
+        vm.warp(block.timestamp + MAX_AGE + 1);
+        _refreshFeeds();
+        _expectHalt(PriceGuard.DrawHalt.ObservationExpired, false);
+
+        MockStock msft = _registerUnobserved();
+        assertEq(uint8(vault.drawHalt(address(msft))), uint8(PriceGuard.DrawHalt.NoObservation));
+    }
+
+    /// A reading lands as pending and the next call promotes it once it is old enough. A
+    /// younger one is refused, so the aged slot never holds a reading from the block using it.
+    function test_observe_promotesOnlyASampleOldEnough() public {
+        MockStock msft = _registerUnobserved();
+        vm.expectEmit(true, false, false, false, address(guard));
+        emit PriceGuard.Observed(address(msft), 0, 0, false);
+        guard.observe(address(msft));
+        (uint48 at,,) = guard.aged(address(msft));
+        assertEq(at, 0);
+        (at,,) = guard.pending(address(msft));
+        assertEq(at, block.timestamp);
+        assertEq(uint8(vault.drawHalt(address(msft))), uint8(PriceGuard.DrawHalt.NoObservation));
+
+        vm.warp(block.timestamp + MIN_AGE - 1);
+        vm.expectRevert(
+            abi.encodeWithSelector(PriceGuard.ObservationTooSoon.selector, address(msft), MIN_AGE - 1, MIN_AGE)
+        );
+        guard.observe(address(msft));
+
+        vm.warp(block.timestamp + 1);
+        vm.expectEmit(address(guard));
+        emit PriceGuard.Observed(address(msft), guard.poolPriceE8(address(msft)), 400e8, true);
+        guard.observe(address(msft));
+        (uint48 agedAt, uint104 poolE8, uint104 feedE8) = guard.aged(address(msft));
+        assertEq(agedAt, block.timestamp - MIN_AGE);
+        assertApproxEqRel(poolE8, 400e8, 1e12);
+        assertEq(feedE8, 400e8);
+        assertEq(uint8(vault.drawHalt(address(msft))), uint8(PriceGuard.DrawHalt.None));
+
+        vm.expectRevert(abi.encodeWithSelector(AssetRegistry.NotRegistered.selector, address(this)));
+        guard.observe(address(this));
+    }
+
+    /// A round far from the aged sample halts draws until samples taken after it have aged: one
+    /// keeper round promotes a sample from before the jump, the next one from after it.
+    function test_feedJump_haltsDrawsUntilSamplesTakenAfterItHaveAged() public {
+        _deposit(spy, 0.01e18);
+        _movePrice(spy, spyFeed, SPY_E8 * 120 / 100);
+        _expectHalt(PriceGuard.DrawHalt.FeedJump, false);
+
+        vm.warp(block.timestamp + MIN_AGE);
+        _refreshFeeds();
+        _observeAll();
+        _expectHalt(PriceGuard.DrawHalt.FeedJump, false);
+
+        vm.warp(block.timestamp + MIN_AGE);
+        _refreshFeeds();
+        _observeAll();
+        _expectHalt(PriceGuard.DrawHalt.None, true);
+        _spendOnCredit(1e6);
+        assertEq(pool.debtOf(address(acct)), 1e6);
+    }
+
+    /// Outside the session a quiet feed is the ordinary state: Friday's close counts at the
+    /// after-hours haircut up to the valuation bound, and draws go on.
+    function test_quietFeed_outsideTheSessionWidensTheHaircutAndLendsOn() public {
+        _deposit(spy, 0.01e18);
+        vm.warp(1_790_416_800); // Saturday 10:00 UTC
+        spyFeed.set(int256(SPY_E8), block.timestamp - 30 hours);
+        _observeAll();
+        vm.warp(block.timestamp + MIN_AGE);
+        _observeAll();
+
+        (uint16 bps, bool afterHours) = vault.haircutOf(address(spy));
+        assertEq(bps, 3_500);
+        assertTrue(afterHours);
+        _expectHalt(PriceGuard.DrawHalt.None, true);
+        _spendOnCredit(1e6);
+        assertEq(pool.debtOf(address(acct)), 1e6);
+    }
+
+    /// The draw rule never reaches a repayment or a withdrawal from a line that owes nothing.
+    function test_repayAndDebtFreeWithdrawal_neverMeetTheDrawRule() public {
+        _deposit(spy, 0.01e18);
+        _spendOnCredit(4e6);
+        vm.warp(block.timestamp + MAX_AGE + 1);
+        spyFeed.set(int256(SPY_E8), block.timestamp - 27 hours);
+        _setPool(spy, SPY_E8 / 2);
+        _expectHalt(PriceGuard.DrawHalt.FeedStale, false);
+
+        vm.prank(principal);
+        vm.expectRevert(abi.encodeWithSelector(CollateralVault.HealthTooLow.selector, 0, 1.25e18));
+        vault.withdraw(address(acct), address(spy), 1, principal);
+
+        uint256 owed = pool.debtOf(address(acct));
+        usdg.mint(principal, owed);
+        vm.startPrank(principal);
+        usdg.approve(address(pool), owed);
+        pool.repay(address(acct), owed);
+        vault.withdraw(address(acct), address(spy), 0.01e18, principal);
+        vm.stopPrank();
+        assertEq(spy.balanceOf(principal), 1e18);
+    }
+
+    function test_guard_refusesObservationBoundsThatCannotWork() public {
+        IAccessRegistry ar = IAccessRegistry(address(access));
+        IStateView sv = IStateView(address(v4));
+        vm.expectRevert(PriceGuard.BadObservationBounds.selector);
+        new PriceGuard(reg, ar, sv, 0, 1 hours, 1_500);
+        vm.expectRevert(PriceGuard.BadObservationBounds.selector);
+        new PriceGuard(reg, ar, sv, 5 minutes, 10 minutes - 1, 1_500);
+        vm.expectRevert(PriceGuard.BadObservationBounds.selector);
+        new PriceGuard(reg, ar, sv, 5 minutes, 1 days + 1, 1_500);
+        vm.expectRevert(PriceGuard.BadObservationBounds.selector);
+        new PriceGuard(reg, ar, sv, 5 minutes, 1 hours, 0);
+        vm.expectRevert(PriceGuard.BadObservationBounds.selector);
+        new PriceGuard(reg, ar, sv, 5 minutes, 1 hours, 10_000);
+        PriceGuard g = new PriceGuard(reg, ar, sv, 5 minutes, 10 minutes, 9_999);
+        assertEq(g.MIN_OBSERVATION_AGE(), 5 minutes);
+        assertEq(g.MAX_OBSERVATION_AGE(), 10 minutes);
+        assertEq(g.MAX_FEED_JUMP_BPS(), 9_999);
     }
 
     function test_tierAndCapSettersRefuseNonAdmins() public {
@@ -857,6 +1235,46 @@ contract CollateralTest is Test {
     function _deposit(MockStock token, uint256 raw) internal {
         vm.prank(principal);
         vault.deposit(address(acct), address(token), raw);
+    }
+
+    function _observeAll() internal {
+        guard.observe(address(spy));
+        guard.observe(address(sgov));
+        guard.observe(address(aapl));
+    }
+
+    function _refreshFeeds() internal {
+        spyFeed.set(spyFeed.answer(), block.timestamp);
+        sgovFeed.set(sgovFeed.answer(), block.timestamp);
+        aaplFeed.set(aaplFeed.answer(), block.timestamp);
+    }
+
+    /// Two keeper rounds five minutes apart, so the pools as they stand now are the aged sample.
+    function _ageObservations() internal {
+        vm.warp(block.timestamp + MIN_AGE);
+        _refreshFeeds();
+        _observeAll();
+        vm.warp(block.timestamp + MIN_AGE);
+        _refreshFeeds();
+        _observeAll();
+    }
+
+    /// A fourth stock in the registry that the vault does not list and nobody has observed.
+    function _registerUnobserved() internal returns (MockStock msft) {
+        msft = new MockStock("MSFT");
+        MockFeed feed = new MockFeed();
+        feed.set(int256(400e8), block.timestamp);
+        PoolKey memory k = _key(address(msft), 500, 10);
+        v4.setPrice(k, _sqrt(400e8, k.currency0 == address(msft)));
+        vm.prank(admin);
+        reg.setAsset(address(msft), _cfg(address(feed), k, true, false, 100));
+    }
+
+    function _expectHalt(PriceGuard.DrawHalt halt, bool counts) internal view {
+        assertEq(uint8(vault.drawHalt(address(spy))), uint8(halt));
+        (,,, uint256 headroom,) = vault.account(address(acct));
+        if (counts) assertGt(headroom, 0);
+        else assertEq(headroom, 0);
     }
 
     function _spendOnCredit(uint128 amount) internal {

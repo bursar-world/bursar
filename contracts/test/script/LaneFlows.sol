@@ -228,9 +228,20 @@ abstract contract LaneFlows is Test {
         assertEq(IERC20(USDG).balanceOf(mandate), before + back);
     }
 
+    /// A draw counts a holding only against an observation of its pool that has aged, so the
+    /// keeper's two calls are made first, five minutes apart.
+    function _observe(address asset) internal {
+        PriceGuard guard = PriceGuard(_at(K.PRICE_GUARD));
+        guard.observe(asset);
+        vm.warp(block.timestamp + guard.MIN_OBSERVATION_AGE());
+        _freshFeeds();
+        guard.observe(asset);
+    }
+
     /// A mandate that holds no USDG spends on credit against posted stock and repays.
     function _laneCollateral() internal {
         _freshFeeds();
+        _observe(_asset("SPY"));
         CollateralVault vault = CollateralVault(_at(K.COLLATERAL_VAULT));
         CreditPool pool = CreditPool(_at(K.CREDIT_POOL));
         address lender = _at(K.LENDER);

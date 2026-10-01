@@ -11,6 +11,7 @@ import {MandateAccountFactory} from "../../../src/MandateAccountFactory.sol";
 import {IMandateAccount} from "../../../src/interfaces/IMandateAccount.sol";
 import {CollateralVault} from "../../../src/rwa/CollateralVault.sol";
 import {CreditPool} from "../../../src/rwa/CreditPool.sol";
+import {PriceGuard} from "../../../src/rwa/PriceGuard.sol";
 import {IAggregatorV3} from "../../../src/rwa/interfaces/IRwaExternal.sol";
 import {ForkWorld} from "./ForkWorld.sol";
 
@@ -66,6 +67,7 @@ contract CollateralForkTest is ForkWorld {
 
     function test_fork_aLineDrawsRepaysAndIsLiquidatedThroughThePinnedPool() public {
         _requireSession("SPY");
+        _observe(spy);
         _aLineDrawsOnCreditAndRepays();
         _aPrefundedMandateCannotBorrow();
         _aLineUnderWaterIsLiquidatedThroughThePinnedPool();
@@ -160,6 +162,18 @@ contract CollateralForkTest is ForkWorld {
         vm.expectRevert(abi.encodeWithSelector(CollateralVault.Healthy.selector, h));
         vault.liquidate(address(acct), spy);
         vm.clearMockedCalls();
+    }
+
+    /// Two readings of the live SPY pool against its feed, five minutes apart, so the aged one a
+    /// draw needs exists. The chain's clock moves with the fork's, so the feed read afterwards is
+    /// five minutes older than it was; well inside its session bound. Saved into the state every
+    /// case restores.
+    function _observe(address asset) private {
+        PriceGuard guard = PriceGuard(_readAddress(path, K.PRICE_GUARD));
+        guard.observe(asset);
+        vm.warp(block.timestamp + guard.MIN_OBSERVATION_AGE());
+        guard.observe(asset);
+        _save();
     }
 
     /// Saturday 00:00 UTC after `ts`; 1970-01-01 was a Thursday.
