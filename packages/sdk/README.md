@@ -610,6 +610,41 @@ ceiling   25.00 USDG per job
 next      Listed and available, with 15.00 USDG of collateral posted and up to 1.50 USDG of it at risk in any single ruling.
 ```
 
+### What a score is made of
+
+The ceiling on a single job follows from the provider's score by a published curve: 25 USDG at a
+score of nothing, 2.25 USDG more for every point, 250 USDG at the top. From v4 the score is paid for
+in delivered work rather than counted in jobs. A job counts only at `weights.minScored` or more. Each
+delivered job adds its amount to the provider's credit, with each payer counting for up to
+`weights.edgeCap`, and the delivered share of counted jobs is scaled by how much of
+`weights.fullCredit` that credit has reached. With the deployed weights, 1, 62.5 and 250 USDG, a full
+score takes at least four payers, and one payer paying 25 USDG and then 47.5 USDG takes a clean
+record to a score of 25 and a ceiling of 81.25 USDG, where that payer's work stops counting.
+
+`reputationOf()` reports `credit` and `weights` beside the score, null on a deployment from before
+v4, and its `next` says which of the two factors is holding the score down. `edgeVolume(payer)` is
+what one payer has released so far, uncapped. `projectReleases()` works a list of releases through
+the contract's own arithmetic, so a provider can see what finalising is worth before it pays for it:
+
+```js
+const desk = await provider(seller.connection);
+const projected = await desk.projectReleases([
+  { payer: buyer.address, amount: usdg('25') },
+  { payer: buyer.address, amount: usdg('47.5') },
+]);
+console.log('score    ', projected.score, 'cap', formatUsdg(projected.cap));
+console.log('credit   ', formatUsdg(projected.credit), 'uncounted', projected.uncounted);
+```
+
+```
+score     25 cap 81.25 USDG
+credit    62.50 USDG uncounted 0
+```
+
+A release under the scored minimum, or from the payee itself, is recorded and counts for nothing;
+`uncounted` is how many of the releases given were like that. The same functions are exported on
+their own as `projectReputation`, `reputationScore`, `capAtScore` and `creditFromRelease`.
+
 ## Borrowing against collateral
 
 A mandate created with `lane: 1` in its limits can borrow. Its principal opens a credit line with
@@ -684,6 +719,37 @@ owes       5.00 USDG at health 6.169701
 refused    This draw would bring the mandate’s debt to 14.00 USDG, over the 10.00 USDG one mandate may owe the pool. Repay some of it, or spend less on credit.
 repaid     5.000001 USDG and owes 0.00 USDG
 ```
+
+### When a position counts for nothing toward a draw
+
+From v4 the vault counts a position toward a draw only while the price guard's draw rule passes it:
+the feed answered recently enough, the guard holds a reading of the asset's pool that is between
+five minutes and an hour old in which the pool agreed with the feed, the feed has not moved more than
+15% since that reading, and the pool agrees with the feed now. A position that fails any of these is
+still valued and still counts toward health; it carries no draw. `headroom` then reads lower than the
+collateral suggests, and a draw that leaned on it is refused with `HealthTooLow`.
+
+`drawStanding()` says, per asset the vault accepts, whether a draw counts it and the first condition
+it fails, each with a sentence that says what clears it. A `HealthTooLow` from `pay`, `buy` or
+`withdraw` is read against the same rule before it is worded, so the error names the position the
+check could not count rather than the general rule. `observationBounds()` reads the guard's three
+bounds. On a lane from before v4 `drawStanding()` is empty and the bounds are undefined.
+
+```js
+for (const standing of await line.drawStanding()) {
+  console.log(standing.symbol, standing.halt, standing.refusal?.message ?? '');
+}
+```
+
+```
+SGOV None
+SPY NoObservation SPY counts for nothing toward a draw yet: the price guard holds no reading of its pool old enough to count. A draw needs the pool to have agreed with the feed at a reading taken at least 5m earlier. observe() records one, and a second call 5m later puts it in force. Anyone may send both.
+```
+
+A write-off also seizes whatever the line still held, for the credit pool's lender, who carried the
+loss. `seized()` lists what is waiting per asset and `claimSeized(asset)` pays it to the lender;
+anyone may send the claim and only the lender is paid. Both are refused on a lane from before v4,
+which left a written-off line holding what could not be sold.
 
 ## Contesting a payment
 
