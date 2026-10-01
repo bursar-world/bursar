@@ -24,17 +24,18 @@ review request to that team.
 
 ## How protocol parameters change
 
-Chain 4663 has three timelocks, one per contract set:
+Chain 4663 has three timelocks. The fourth contract set kept the third's, so a fourth set did not
+add a fourth timelock:
 
-- `AdminTimelock` v3 at `0xD91A6577828424E386900D0bB41596c6eF3BF8DF` administers `Reputation`,
-  `OracleRegistry` and `AgentRegistry` of the current set, together with its `Staking` pool and
-  `Buyback`, and is the current escrow's pauser.
+- `AdminTimelock` at `0xD91A6577828424E386900D0bB41596c6eF3BF8DF`, deployed with the third set and
+  kept by the fourth, administers `Reputation`, `OracleRegistry` and `AgentRegistry` of both sets,
+  together with the `Staking` pool and `Buyback` they share, and is the pauser of both escrows.
 - `AdminTimelock` v2 at `0x135eF562ac57845AeA1Bb650fc0E74D67A4a866B` administers the same three
-  contracts of the previous set and is the v2 escrow's pauser.
+  contracts of the second set and is the v2 escrow's pauser.
 - `AdminTimelock` v1 at `0x5a32Eab02454f97a39857E85b536F83EE0f844Bf` administers the v1 set, the
   earlier `Staking` pool and `Buyback` that the v1 and v2 registries read, and `Vesting`, which
   every set shares. It also holds the community allocation of BRSR. `Vesting` and that allocation
-  pass to the v3 timelock through a proposal on the v1 timelock, with its 48-hour delay.
+  pass to the current timelock through a proposal on the v1 timelock, with its 48-hour delay.
 
 All three have the same signers and the same guardian. What that means in practice:
 
@@ -42,20 +43,22 @@ All three have the same signers and the same guardian. What that means in practi
   signer's approval, so one more signer has to approve before it can run.
 - **A fixed delay.** A proposal becomes executable 48 hours (172,800 seconds) after it is created
   on the v1 timelock. The delay is set when a timelock is deployed, has no setter, and on v1
-  cannot be below 48 hours or above 30 days. The v2 and v3 timelocks are development deployments
-  with a one-hour delay and a one-hour minimum; the current one is replaced by one with a 48-hour
-  delay before the public launch. The delay is the window in which anyone can read a pending
-  change and act on it.
+  cannot be below 48 hours or above 30 days. The v2 timelock and the current one are development
+  deployments with a one-hour delay and a one-hour minimum; the current one is replaced by one
+  with a 48-hour delay before the public launch. The delay is the window in which anyone can read
+  a pending change and act on it.
 - **A grace period.** An approved proposal that is not executed within 14 days of becoming
   executable expires and has to be proposed again.
-- **Cancellation.** On v2 and v3, a proposer can withdraw its own pending proposal. Cancelling anyone
-  else's takes vetoes from two signers, so one key cannot block its own removal or keep a pause in
-  place by cancelling every unpause. On v1, any single signer can cancel a pending proposal.
+- **Cancellation.** On the v2 timelock and the current one, a proposer can withdraw its own pending
+  proposal. Cancelling anyone else's takes vetoes from two signers, so one key cannot block its own
+  removal or keep a pause in place by cancelling every unpause. On v1, any single signer can cancel
+  a pending proposal.
 - **The guardian.** A separate guardian key can pause contracts in the same block, with no
-  approvals and no delay: on v3 the escrow, `OracleRegistry`, `AgentRegistry`, `Staking` and
-  `Buyback`; on v2 the escrow, `OracleRegistry` and `AgentRegistry`; on v1 `AgentRegistry`,
-  `Staking` and `Buyback`. It can do nothing else. Unpausing, replacing the guardian and replacing
-  a signer are ordinary proposals with the full delay.
+  approvals and no delay: on the current timelock the v4 and v3 escrows, the `OracleRegistry` and
+  `AgentRegistry` of each, and the `Staking` and `Buyback` they share; on v2 the escrow,
+  `OracleRegistry` and `AgentRegistry`; on v1 `AgentRegistry`, `Staking` and `Buyback`. It can do
+  nothing else. Unpausing, replacing the guardian and replacing a signer are ordinary proposals
+  with the full delay.
 
 Proposals, approvals and executions are public events on chain. The console's governance page at
 [app.bursar.world/governance](https://app.bursar.world/governance) lists them and lets a signer
@@ -75,9 +78,9 @@ What the timelock can change:
 What it cannot change:
 
 - `Escrow` has no admin. Its fees, time-to-live bounds and dispute windows are fixed at
-  deployment, and a change to any of them is a new deployment. The v3 escrow names the v3 timelock
-  as its pauser, and the v2 escrow the v2 timelock. A pause stops new locks and new disputes;
-  payments already held can still be released, refunded and ruled on.
+  deployment, and a change to any of them is a new deployment. The v4 and v3 escrows name the
+  current timelock as their pauser, and the v2 escrow the v2 timelock. A pause stops new locks and
+  new disputes; payments already held can still be released, refunded and ruled on.
 - `MandateAccountFactory` has no admin, and each `MandateAccount` is controlled by its own
   principal. Governance cannot move a principal's funds or change a mandate's limits.
 - `BRSR` has a fixed supply, no minter and no owner.
@@ -95,7 +98,7 @@ whole system. Any such change is announced in [CHANGELOG.md](CHANGELOG.md) and o
 ## Privileged roles
 
 Every key or contract that can do something an ordinary user cannot, for the current set on chain
-4663. Holders are given as the key in `contracts/deployments/rhc-mainnet-v3.json` that names them,
+4663. Holders are given as the key in `contracts/deployments/rhc-mainnet-v4.json` that names them,
 with the address that record holds today, so the tables can be refreshed from the record. Each
 power was taken from the contract source under `contracts/src` and from the vendored
 `Entrypoint.sol`; what each contract must always hold is in [docs/INVARIANTS.md](docs/INVARIANTS.md),
@@ -106,7 +109,7 @@ and the steps for using or rotating a key are in [docs/RUNBOOK.md](docs/RUNBOOK.
 | Role | Holder today | Can | Cannot | Delay |
 |---|---|---|---|---|
 | Timelock signers (three keys, two approvals) | `roles.timelockSigners`: `0xb51c63568324848DfC88A09f91F06fA86771aB69`, `0x3C7facc7C72c3aCeB2EF93703813652aC9039266`, `0x1f3eE000728EF363B9F867f88BBF618F2A17c42d` | Propose any call from `AdminTimelock` at `contracts.AdminTimelock`, approve, execute once the delay has passed, withdraw their own proposal, veto another's (two vetoes cancel it). Through the timelock: every setter in the next table, and `updateSigner` and `setGuardian` on the timelock itself. | Act alone: one key's proposal needs a second key before it can run, and nothing runs inside the delay. Bypass the delay, pause without a proposal, or reach a contract the timelock does not administer. | One hour on the current timelock, 48 hours on the first set's, plus a 14-day grace period in which an approved proposal can still run. |
-| Guardian | `roles.guardian`: `0x7cfF32B8B4DB47E2Cde5907c8F5c93EC6a095E2A` | Call `guardianPause` on the timelock, which calls `pause()` on each target in the same block. Reaches `Escrow` (the timelock is its pauser), `OracleRegistry`, `AgentRegistry`, `Staking` and `Buyback` of the current set. | Unpause, propose, approve, hold a signer seat, or send any calldata other than `pause()`. The worst a lost guardian key can do is an outage that lasts until an unpause proposal lands. | None. |
+| Guardian | `roles.guardian`: `0x7cfF32B8B4DB47E2Cde5907c8F5c93EC6a095E2A` | Call `guardianPause` on the timelock, which calls `pause()` on each target in the same block. Reaches `Escrow` (the timelock is its pauser), `OracleRegistry`, `AgentRegistry`, `Staking` and `Buyback` of the current set, and the `Escrow`, `OracleRegistry` and `AgentRegistry` of the third set, which answer to the same timelock. | Unpause, propose, approve, hold a signer seat, or send any calldata other than `pause()`. The worst a lost guardian key can do is an outage that lasts until an unpause proposal lands. | None. |
 
 ### The timelock as administrator
 
@@ -118,7 +121,7 @@ one-hour delay. On Bursar's own contracts the admin role moves in two steps (`tr
 
 | Contract (record key) | Setters under the timelock | Cannot |
 |---|---|---|
-| `Reputation` (`contracts.Reputation`) | `setCurve` (base cap, cap per score point, maximum cap), `transferAdmin`. | Edit a payee's history; only the escrow writes it. |
+| `Reputation` (`contracts.Reputation`) | `setCurve` (base cap, cap per score point, maximum cap), `setWeights` (the smallest payment that counts, the most one payer counts for, the settled volume a full score takes), `transferAdmin`. | Edit a payee's history; only the escrow writes it. |
 | `OracleRegistry` (`contracts.OracleRegistry`) | `setConfig` (commit and reveal windows, unbonding period, quorum, voter limit, deviation band, slash rate), `setSlashSink`, `slash` (a governance ruling against one resolver's bond), `evict` (unseat a resolver whose bond backs no open vote and return what is left), `pause`, `unpause`, `transferAdmin`. | Touch a live dispute's windows, change the bond token or the escrow it answers, or take resolver rewards. |
 | `AgentRegistry` (`contracts.AgentRegistry`) | `setMinStake` (at most 10,000 USDG), `setSlashBps` (at most 50%), `setSlasher`, `setSlashSink`, `setBlacklistRoot`, `clearBlacklist`, `slash` (clamped to `slashBps` of the stake per call), `sweep` (settlement asset only above `totalStaked`, any other token in full), `pause`, `unpause`, `transferAdmin`. | Take more than the slash ceiling from a stake in one call, or reach staked collateral through `sweep`. Matured withdrawals execute while paused. |
 | `Staking` (`token.Staking`) | `setTiers` (fee rebate table, at most 50% off), `setUnbondingPeriod`, `setUnbondWindow`, `setMaxExitHold`, `setSlashLimit`, `setMinBond`, `setBondFloor` (per resolver), `setBondingDenied`, `setCreditManager`, `setSlasher`, `setSlashSink`, `setTreasury`, `pause` (also holds matured exits for `maxExitHold`, seven days), `unpause`, `transferAdmin`. | Take stake itself: only the slasher can, within the slash allowance. Reach rewards already earned. |
@@ -180,8 +183,8 @@ reach another party's funds.
 answers only to its principal. `BRSR` has no minter, owner or pauser. `PriceGuard`,
 `StockSpendRouter`, the park adapters, `DisclosureRegistry`, `WithinMandateVerifier`,
 `ShieldedPool` and `ShieldedRelay` hold their configuration in immutables and have no setter. The
-first and second sets are administered by their own timelocks, which have the same signers and
-guardian as the current one.
+third set answers to the current timelock. The first and second sets are administered by their own
+timelocks, which have the same signers and guardian as the current one.
 
 ## Becoming a maintainer
 
