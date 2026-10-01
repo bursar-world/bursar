@@ -21,6 +21,7 @@ import type {
   PaymentPayload,
   PaymentRequirements,
   PaymentScheme,
+  RedeemedLock,
   SchemeOptions,
   SettleResult,
   SupportedResponse,
@@ -221,7 +222,25 @@ export class Facilitator {
     );
     if (!verdict.isValid) return verdict;
 
-    return this.checkBinding(request, verdict.payer) ?? verdict;
+    const unbound = this.checkBinding(request, verdict.payer, verdict.lock);
+    if (unbound) return unbound;
+
+    // A token reports an authorisation spent, so a payment that already settled fails the scheme's
+    // own checks. A lock stays open on chain until the merchant releases it, and until then only
+    // this service's record says it has been paid for once already.
+    if (verdict.lock && (await this.redeemed(request, verdict.payer, verdict.lock))) {
+      return { isValid: false, invalidReason: FACILITATOR_REASON.replay, payer: verdict.payer };
+    }
+    return verdict;
+  }
+
+  private async redeemed(request: VerifyRequest, payer: `0x${string}`, lock: RedeemedLock): Promise<boolean> {
+    const record = await this.ledger.paymentRecord({
+      network: canonicalNetwork(request.paymentRequirements.network),
+      payerWallet: payer,
+      nonce: lock.nonce,
+    });
+    return record?.settlement?.status === 'settled';
   }
 
   async settle(request: SettleRequest): Promise<FacilitatorSettleResponse> {
@@ -241,7 +260,7 @@ export class Facilitator {
     });
 
     const options = this.schemeOptions(request);
-    const nonce = authorizationNonce(request.paymentPayload);
+    const signed = authorizationNonce(request.paymentPayload);
     const verdict = await this.scheme.verify(
       request.paymentPayload,
       request.paymentRequirements,
@@ -253,18 +272,23 @@ export class Facilitator {
       // settlement it already paid for. Any other refusal is not a landed payment.
       const prior =
         verdict.invalidReason === REASON.state
-          ? await this.priorSettlement(request, network, verdict.payer, nonce)
+          ? await this.priorSettlement(request, network, verdict.payer, signed)
           : null;
       return prior ?? refuse(verdict.invalidReason, verdict.payer ?? '');
     }
 
-    const binding = this.checkBinding(request, verdict.payer);
+    const binding = this.checkBinding(request, verdict.payer, verdict.lock);
     if (binding) return refuse(binding.invalidReason, verdict.payer);
 
     const amount = requiredAmount(request.paymentRequirements);
     if (amount === null) return refuse(FACILITATOR_REASON.requirements, verdict.payer);
     const amountMicro = toMicro(amount);
 
+    // What the settlement is recorded under. On the exact rails it is the nonce the payer signed
+    // and the token burns. On the mandate lane it is derived from the lock the scheme read on
+    // chain, never taken from the payload: a nonce the payer wrote is a nonce the payer can vary,
+    // and one lock presented under a fresh nonce each time would be one lock settled many times.
+    const nonce = verdict.lock?.nonce ?? signed;
     if (nonce === null) return refuse(FACILITATOR_REASON.payload, verdict.payer);
 
     // Every settle here spends a broadcast, so a payment that would not clear the floor the
@@ -292,7 +316,7 @@ export class Facilitator {
       amountMicro,
     });
     if (!claimed) {
-      const prior = await this.priorSettlement(request, network, verdict.payer, nonce);
+      const prior = await this.priorSettlement(request, network, verdict.payer, nonce, verdict.lock);
       return prior ?? refuse(FACILITATOR_REASON.replay, verdict.payer);
     }
 
@@ -382,12 +406,28 @@ export class Facilitator {
     const fee = settlement.broadcast ? this.fee(amountMicro, await rebate) : NO_FEE;
     try {
       const recorded = claim
-        ? await this.closeReservation(claim, request, settlement, verdict.payer, amountMicro, fee)
-        : await this.recordDirect(request, settlement, verdict.payer, amountMicro, fee, nonce, network);
+        ? await this.closeReservation(claim, request, settlement, verdict.payer, amountMicro, fee, verdict.lock)
+        : await this.recordDirect(request, settlement, verdict.payer, amountMicro, fee, nonce, network, verdict.lock);
 
       this.log(`settle ok payer=${verdict.payer} tx=${settlement.transaction} settlement=${recorded.id}`);
       return { ...withoutDetail(settlement), ...receipt(recorded) };
     } catch (error) {
+      if (!settlement.broadcast) {
+        // Nothing left this process for a lock, so there is no landed transfer to answer for and
+        // nothing for reconciliation to find. The claim goes back and the settle is refused: as a
+        // replay when the ledger already holds the lock on another settlement, otherwise as
+        // unrecorded, to be sent again. Reporting success here would have the merchant serve a
+        // lock this service kept no record of, and serve it again once the claim lapsed.
+        await this.release(network, verdict.payer, nonce);
+        const reason = isReplay(error)
+          ? FACILITATOR_REASON.replay
+          : isMismatch(error)
+            ? FACILITATOR_REASON.amount
+            : FACILITATOR_REASON.unrecorded;
+        this.log(`settle refused payer=${verdict.payer} reason=${reason} detail=${describe(error)}`);
+        return refuse(reason, verdict.payer);
+      }
+
       // The transfer is on chain and the gas is spent. Failing the call here would tell the payer
       // nothing happened while their money has moved. The hash goes onto the replay guard, the one
       // row this payment already owns, and the caller is told what landed.
@@ -417,9 +457,10 @@ export class Facilitator {
     network: string,
     payer: `0x${string}` | undefined,
     nonce: string | null,
+    lock?: RedeemedLock,
   ): Promise<FacilitatorSettleResponse | null> {
     if (!payer || nonce === null) return null;
-    if (this.checkBinding(request, payer)) return null;
+    if (this.checkBinding(request, payer, lock)) return null;
 
     const record = await this.ledger.paymentRecord({ network, payerWallet: payer, nonce });
     if (!record || (request.reservationId ?? null) !== record.reservationId) return null;
@@ -429,7 +470,9 @@ export class Facilitator {
       return {
         success: true,
         settled: true,
-        broadcast: true,
+        // A lock was never broadcast by this service; the transaction reported is the one that
+        // opened it.
+        broadcast: lock === undefined,
         payer,
         transaction: settled.txHash,
         network,
@@ -507,6 +550,7 @@ export class Facilitator {
     payer: `0x${string}`,
     amountMicro: Micro,
     fee: SettlementFee,
+    lock: RedeemedLock | undefined,
   ): Promise<Settlement> {
     const closed = await this.ledger.settleReservation({
       reservationId: request.reservationId ?? '',
@@ -516,6 +560,7 @@ export class Facilitator {
       payment: this.paymentTerms(request, payer, amountMicro),
       txHash: settlement.transaction,
       treasury: this.treasury,
+      lock,
     });
     return closed.settlement;
   }
@@ -528,6 +573,7 @@ export class Facilitator {
     fee: SettlementFee,
     nonce: string,
     network: string,
+    lock: RedeemedLock | undefined,
   ): Promise<Settlement> {
     return this.ledger.recordDirectSettlement({
       network,
@@ -539,6 +585,7 @@ export class Facilitator {
       txHash: settlement.transaction,
       nonce,
       treasury: this.treasury,
+      lock,
     });
   }
 
@@ -559,6 +606,7 @@ export class Facilitator {
   private checkBinding(
     request: VerifyRequest,
     payer: `0x${string}`,
+    lock: RedeemedLock | undefined,
   ): { readonly isValid: false; readonly invalidReason: string; readonly payer: `0x${string}` } | null {
     if (!this.requireBinding) return null;
 
@@ -569,6 +617,9 @@ export class Facilitator {
     };
 
     if (!request.requestHash) return unbound;
+    // A lock binds through the commitment it carries on chain, and the scheme held that to the
+    // request digest with the lock in hand. What is left to check here is a nonce the payer signed.
+    if (lock !== undefined) return null;
     const nonce = authorizationNonce(request.paymentPayload);
     if (nonce === null) return { ...unbound, invalidReason: FACILITATOR_REASON.payload };
 
@@ -643,11 +694,16 @@ function sameWallet(left: string, right: string): boolean {
 
 /** The ledger's refusal of a payment that does not pay the hold it names. */
 function isMismatch(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    (error as { code?: unknown }).code === FACILITATOR_REASON.amount
-  );
+  return ledgerCode(error) === FACILITATOR_REASON.amount;
+}
+
+/** The ledger's refusal of a lock that another settlement already redeemed. */
+function isReplay(error: unknown): boolean {
+  return ledgerCode(error) === FACILITATOR_REASON.replay;
+}
+
+function ledgerCode(error: unknown): unknown {
+  return typeof error === 'object' && error !== null ? (error as { code?: unknown }).code : undefined;
 }
 
 /** Reads a `/verify` or `/settle` body, rejecting anything that is not shaped like one. */

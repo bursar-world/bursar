@@ -4,18 +4,24 @@ import {
   createRhcClient,
   deploymentsForChain,
   escrowAbi,
+  escrowSettlementNonce,
   mandateAccountAbi,
   mandateAccountFactoryAbi,
+  nonceBindsRequest,
+  readRequestURI,
+  requestCommit,
 } from '@bursar/core';
 import type { RhcChain, RpcProvider } from '@bursar/core';
 import { parseEventLogs } from 'viem';
 import type { Address, Hex } from 'viem';
 
-import { requiredAmount } from './contract.js';
+import { FACILITATOR_REASON, authorizationNonce, requiredAmount } from './contract.js';
 import type {
   PaymentPayload,
   PaymentRequirements,
   PaymentScheme,
+  RequestBinding,
+  SchemeOptions,
   SettleResult,
   SupportedResponse,
   VerifyResult,
@@ -32,12 +38,16 @@ import type {
  *
  * Verifying is reading the lock: open, paid by a mandate account from this deployment's factory,
  * payable to the merchant the offer names, for the amount it names, under its capability, and
- * committed to the request it is redeemed against. The commitment is the request-bound nonce, so
- * a lock opened for one request cannot be redeemed against another.
+ * opened for the request it is redeemed against. The lock publishes the call it pays for as its
+ * input, and the request-bound nonce in that document has to be the one the body that arrived and
+ * the payer's salt derive.
  *
  * Settling broadcasts nothing. The money already left the mandate when the lock landed; the
  * merchant takes it by releasing the lock once it has served the call, with its own key, the way
- * every escrow payment is collected.
+ * every escrow payment is collected. Because nothing on chain marks the lock as settled here, the
+ * settlement's identity is derived from the lock itself and never read off the payload: a nonce the
+ * payer wrote is a nonce the payer can vary, and one lock presented under a fresh nonce each time
+ * would be one lock paid for many times.
  */
 
 export const ESCROW_SCHEME = 'escrow';
@@ -57,6 +67,8 @@ export const ESCROW_REASON = {
   commit: 'escrow_commit_mismatch',
   deadline: 'escrow_deadline_too_close',
   transaction: 'escrow_transaction_mismatch',
+  /** The payload names a nonce, and it is not the one derived from the lock. */
+  nonce: 'escrow_nonce_mismatch',
   unreadable: 'escrow_state_unreadable',
 } as const;
 
@@ -74,6 +86,7 @@ export type EscrowLock = {
   readonly payee: Address;
   readonly capabilityId: Hex;
   readonly inputCommit: Hex;
+  readonly inputURI: string;
   readonly amount: bigint;
   readonly deadline: bigint;
   readonly status: number;
@@ -137,6 +150,21 @@ export function lockReference(payload: PaymentPayload): LockReference | null {
 
 const same = (left: string, right: string) => left.toLowerCase() === right.toLowerCase();
 
+/**
+ * Whether the lock was opened for the request in front of the facilitator.
+ *
+ * A lock that publishes its input carries a request document: it has to hash to the lock's
+ * commitment, and the request-bound nonce in it has to be the one this body and the payer's salt
+ * derive. A lock from a client that published nothing committed to that nonce directly. Either
+ * way it is the nonce the exact rails hold an authorisation to, so one check serves both.
+ */
+function opensFor(lock: EscrowLock, binding: RequestBinding): boolean {
+  if (lock.inputURI === '') return nonceBindsRequest(lock.inputCommit, binding);
+
+  const document = readRequestURI(lock.inputURI);
+  return document !== null && same(requestCommit(document), lock.inputCommit) && nonceBindsRequest(document.requestNonce, binding);
+}
+
 export function createEscrowLockScheme(options: EscrowLockSchemeOptions): PaymentScheme {
   const network = `eip155:${options.chainId}`;
   const minRemaining = BigInt(options.minRemainingSeconds ?? 60);
@@ -151,7 +179,11 @@ export function createEscrowLockScheme(options: EscrowLockSchemeOptions): Paymen
   const refuse = (invalidReason: string, payer?: Address): VerifyResult =>
     payer === undefined ? { isValid: false, invalidReason } : { isValid: false, invalidReason, payer };
 
-  async function verify(payload: PaymentPayload, requirements: PaymentRequirements): Promise<VerifyResult> {
+  async function verify(
+    payload: PaymentPayload,
+    requirements: PaymentRequirements,
+    { binding = null }: SchemeOptions = {},
+  ): Promise<VerifyResult> {
     if (requirements.scheme !== ESCROW_SCHEME) return refuse(ESCROW_REASON.scheme);
     if (canonicalNetwork(String(requirements.network ?? '')) !== network) return refuse(ESCROW_REASON.network);
 
@@ -167,8 +199,9 @@ export function createEscrowLockScheme(options: EscrowLockSchemeOptions): Paymen
     const payTo = String(requirements.payTo ?? '');
     if (amount === null || amount <= 0n || !ADDRESS.test(payTo)) return refuse(ESCROW_REASON.payload, payer);
 
+    let lock: EscrowLock;
     try {
-      const lock = await options.chain.lock(reference.escrow, reference.id);
+      lock = await options.chain.lock(reference.escrow, reference.id);
       if (lock.status !== LOCKED) return refuse(ESCROW_REASON.notLocked, payer);
       if (!same(lock.payer, reference.mandate)) return refuse(ESCROW_REASON.payer, payer);
       if (!same(lock.payee, payTo)) return refuse(ESCROW_REASON.payee, payer);
@@ -181,6 +214,8 @@ export function createEscrowLockScheme(options: EscrowLockSchemeOptions): Paymen
       }
 
       if (lock.deadline <= (await options.chain.now()) + minRemaining) return refuse(ESCROW_REASON.deadline, payer);
+
+      if (binding !== null && !opensFor(lock, binding)) return refuse(FACILITATOR_REASON.unbound, payer);
 
       // Only a mandate account's `spend` locks from a mandate account, and `spend` is what debits
       // the windows. So the payer has to be one this deployment's factory made, locking into the
@@ -196,7 +231,25 @@ export function createEscrowLockScheme(options: EscrowLockSchemeOptions): Paymen
       return refuse(ESCROW_REASON.unreadable, payer);
     }
 
-    return { isValid: true, payer, method: ESCROW_SCHEME, amount };
+    // The name the settlement is recorded under comes from the lock as the chain holds it. A payload
+    // that names a nonce as well has to name this one: any other is an attempt to settle the same
+    // lock under a second identity.
+    const nonce = escrowSettlementNonce({
+      chainId: options.chainId,
+      escrow: deployment.escrow,
+      lockId: reference.id,
+      inputCommit: lock.inputCommit,
+    });
+    const signed = authorizationNonce(payload);
+    if (signed !== null && signed !== nonce.toLowerCase()) return refuse(ESCROW_REASON.nonce, payer);
+
+    return {
+      isValid: true,
+      payer,
+      method: ESCROW_SCHEME,
+      amount,
+      lock: { chainId: options.chainId, escrow: deployment.escrow, id: reference.id, inputCommit: lock.inputCommit, nonce },
+    };
   }
 
   return {
@@ -204,8 +257,8 @@ export function createEscrowLockScheme(options: EscrowLockSchemeOptions): Paymen
       return { kinds: [{ x402Version: 2, scheme: ESCROW_SCHEME, network }] };
     },
     verify,
-    async settle(payload, requirements): Promise<SettleResult> {
-      const verdict = await verify(payload, requirements);
+    async settle(payload, requirements, schemeOptions): Promise<SettleResult> {
+      const verdict = await verify(payload, requirements, schemeOptions);
       const reference = lockReference(payload);
       if (!verdict.isValid || !reference) {
         return {
@@ -245,6 +298,7 @@ export function createEscrowChain(input: {
         payee: lock.payee,
         capabilityId: lock.capabilityId,
         inputCommit: lock.inputCommit,
+        inputURI: lock.inputURI,
         amount: lock.amount,
         deadline: lock.deadline,
         status: lock.status,

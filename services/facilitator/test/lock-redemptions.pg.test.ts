@@ -1,9 +1,16 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { toMicro } from '@bursar/core';
+import { capabilityId, deriveNonce, escrowSettlementNonce, requestCommit, requestDocument, requestURI, toMicro } from '@bursar/core';
 import type { Address, Hex } from 'viem';
 
 import { LaneLedger } from '../src/lanes/ledger.js';
 import { TrustStore } from '../src/trust/store.js';
+import { hashRequest } from '../src/x402/binding.js';
+import { SettlementBudget } from '../src/x402/budget.js';
+import { FACILITATOR_REASON } from '../src/x402/contract.js';
+import type { PaymentPayload, PaymentRequirements } from '../src/x402/contract.js';
+import { ESCROW_REASON, createEscrowLockScheme } from '../src/x402/escrow-lock.js';
+import type { EscrowChain } from '../src/x402/escrow-lock.js';
+import { Facilitator } from '../src/x402/facilitator.js';
 import type { Scratch } from './support/postgres.js';
 import { TEST_DATABASE_URL, scratchDatabase } from './support/postgres.js';
 
@@ -125,5 +132,108 @@ describe.skipIf(!TEST_DATABASE_URL)('lock redemptions against Postgres', () => {
     await ledger.recordDirectSettlement({ ...terms, nonce: other });
     expect(await count('bursar_settlements')).toBe(2);
     expect(await count('bursar_lock_redemptions')).toBe(0);
+  });
+
+  describe('through the facilitator', () => {
+    const FACTORY: Address = '0xe9f8cc653fF40E346e0591f353Be58DF0533cfD0';
+    const PRINCIPAL: Address = '0x877c349EFb5926082C413833E8055F0991185c61';
+    const SALT: Hex = `0x${'5a'.repeat(32)}`;
+    const NOW = 1_800_000_000n;
+
+    const requestHash = hashRequest('{"prompt":"hello"}');
+    const document = requestDocument({ method: 'POST', url: 'https://api.provider.dev/render', binding: { requestHash, salt: SALT } });
+    const commit = requestCommit(document);
+    const derived = escrowSettlementNonce({ chainId: 4663, escrow: ESCROW, lockId: 7n, inputCommit: commit });
+
+    const requirements: PaymentRequirements = {
+      scheme: 'escrow',
+      network: NETWORK,
+      amount: '10000',
+      asset: USDG,
+      payTo: PAYEE,
+      maxTimeoutSeconds: 120,
+      extra: { capability: 'service:demo.x402:1' },
+    };
+
+    const payload = (authorization?: { nonce: Hex }): PaymentPayload => ({
+      x402Version: 2,
+      accepted: requirements,
+      payload: {
+        lock: { escrow: ESCROW, id: '7', mandate: MANDATE, transaction: TX, inputCommit: commit },
+        ...(authorization === undefined ? {} : { authorization }),
+        binding: { requestHash, salt: SALT },
+      },
+    });
+
+    const chain: EscrowChain = {
+      lock: async () => ({
+        payer: MANDATE,
+        payee: PAYEE,
+        capabilityId: capabilityId('service:demo.x402:1'),
+        inputCommit: commit,
+        inputURI: requestURI(document),
+        amount: 10_000n,
+        deadline: NOW + 300n,
+        status: 1,
+      }),
+      mandate: async () => ({ escrow: ESCROW, principal: PRINCIPAL }),
+      accountsOf: async () => [MANDATE],
+      lockedIn: async () => [7n],
+      now: async () => NOW,
+    };
+
+    const facilitator = () =>
+      new Facilitator({
+        scheme: createEscrowLockScheme({ chainId: 4663, chain, deployments: [{ escrow: ESCROW, factory: FACTORY, asset: USDG }] }),
+        budget: new SettlementBudget({ dailySettlements: 50, perPayerPerHour: 50 }),
+        ledger,
+        treasury: TREASURY,
+        feeBps: 100,
+        feeFloorMicro: toMicro(1_900),
+      });
+
+    it('settles a lock once and answers every retry with that settlement', async () => {
+      const service = facilitator();
+      const request = { paymentPayload: payload(), paymentRequirements: requirements, requestHash };
+      await expect(service.verify(request)).resolves.toMatchObject({ isValid: true, payer: MANDATE });
+
+      const first = await service.settle(request);
+      expect(first).toMatchObject({ success: true, broadcast: false, transaction: TX, feeMicro: '0' });
+
+      // A nonce of the payer's own names no lock this facilitator knows.
+      await expect(
+        service.settle({ ...request, paymentPayload: payload({ nonce: deriveNonce({ requestHash, salt: `0x${'11'.repeat(32)}` }) }) }),
+      ).resolves.toMatchObject({ success: false, errorReason: ESCROW_REASON.nonce });
+
+      // The honest retry is answered with the settlement already recorded, and nothing is added.
+      const retry = await service.settle(request);
+      expect(retry).toMatchObject({ success: true, broadcast: false, settlementId: first.settlementId });
+      expect(await count('bursar_settlements')).toBe(1);
+      expect(await count('bursar_lock_redemptions')).toBe(1);
+
+      const { rows } = await scratch.db.query<{ settle_nonce: string }>('SELECT settle_nonce FROM bursar_settlements');
+      expect(rows[0]?.settle_nonce).toBe(derived.toLowerCase());
+
+      // The lock is still open on chain. This service's own record is what tells a provider that
+      // verifies before it serves that the lock has bought its one call.
+      await expect(service.verify(request)).resolves.toMatchObject({ isValid: false, invalidReason: FACILITATOR_REASON.replay });
+    });
+
+    it('records one settlement when settles for one lock arrive together', async () => {
+      const service = facilitator();
+      const request = { paymentPayload: payload(), paymentRequirements: requirements, requestHash };
+
+      const results = await Promise.all(Array.from({ length: 8 }, () => service.settle(request)));
+
+      // One of them recorded it. The rest lost the claim and were refused, or arrived after the
+      // record and were answered with it; none wrote a second settlement.
+      expect(await count('bursar_settlements')).toBe(1);
+      expect(await count('bursar_lock_redemptions')).toBe(1);
+      const ids = new Set(results.flatMap((result) => (result.settlementId === undefined ? [] : [result.settlementId])));
+      expect(ids.size).toBe(1);
+      for (const result of results) {
+        if (!result.success) expect(result.errorReason).toBe(FACILITATOR_REASON.replay);
+      }
+    });
   });
 });

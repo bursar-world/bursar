@@ -15,9 +15,13 @@ Two x402 schemes are accepted.
   the daily and monthly windows and locks the price in escrow for the provider. The payment names
   that lock. Verification reads it: open, paid by an account this deployment's factory created,
   payable to `payTo`, for the price, under the offer's `extra.capability` when one is named, with
-  time left before its deadline, and committed to the request-bound nonce. Settlement broadcasts
-  nothing and charges no relay fee; the provider collects by calling `release` on the escrow once
-  it has served the call.
+  time left before its deadline, and opened for the request being redeemed. The lock publishes the
+  call it pays for as its input, and the facilitator holds that document to `requestHash` and the
+  salt in the payment. Settlement broadcasts nothing and charges no relay fee, and records the lock
+  once, under a name derived from the lock itself. A second settle of the same lock adds nothing,
+  whatever nonce it arrives under, and once a lock is settled `/verify` refuses it as
+  `payment_already_used`, the way a token refuses a spent authorisation. The provider collects by
+  calling `release` on the escrow once it has served the call.
 - **`exact`**, the wallet lane. The agent's wallet signed an EIP-3009 USDG authorisation, and
   settlement broadcasts it. The relayer pays the gas, so it is metered against a budget that
   refuses once spent. Per-call only; windows client-enforced: nothing on chain counts these
@@ -546,7 +550,19 @@ to try it.
 
 On the `escrow` scheme `payload.lock` replaces the authorisation: `{ escrow, id, mandate,
 transaction, inputCommit }`, where `id` is a decimal string, `transaction` opened the lock, and
-`inputCommit` is the same derived nonce, which the lock carries on chain.
+`inputCommit` is the lock's input commitment as the chain holds it. The lock's input is a request
+document (`requestDocument` in `@bursar/core`): the method, the endpoint and the request-bound
+nonce, as canonical JSON, published inline in the lock's `inputURI`. The nonce is the one the
+`exact` scheme signs, `deriveNonce` over `requestHash` and the `salt` in `payload.binding`. The
+facilitator reads the document off the chain, checks that it hashes to the commitment and that its
+nonce is the one this request and salt derive, and records the settlement under
+`escrowSettlementNonce(chainId, escrow, lockId, inputCommit)`: a name derived from the lock, so one
+lock has one settlement however the payload around it is written. A payload that names an
+`authorization.nonce` as well has to name that one, or it is refused with `escrow_nonce_mismatch`.
+A lock opened by an earlier client, which published no input and committed to the request-bound
+nonce directly, is still accepted on that commitment. A valid lock verifies as
+`{ "isValid": true, "payer": "0x…", "method": "escrow", "amount": "10000", "lock": { "chainId": 4663, "escrow": "0x…", "id": "7", "inputCommit": "0x…", "nonce": "0x…" } }`,
+where `lock.nonce` is that derived name.
 
 ```json
 {

@@ -43,6 +43,26 @@ export type VerifySuccess = {
   readonly payer: `0x${string}`;
   readonly method?: string;
   readonly amount?: bigint;
+  /**
+   * The escrow lock this payment redeems, where the scheme read one on chain. Absent on the `exact`
+   * rails, where the payer's signed authorisation is the payment.
+   */
+  readonly lock?: RedeemedLock;
+};
+
+/**
+ * A lock the mandate lane verified, as the facilitator records it.
+ *
+ * `inputCommit` is what the payer bound to the request. `nonce` is the identity the redemption is
+ * recorded under, derived from the lock by the scheme that read it, and the only name the
+ * facilitator accepts for the payment.
+ */
+export type RedeemedLock = {
+  readonly chainId: number;
+  readonly escrow: `0x${string}`;
+  readonly id: bigint;
+  readonly inputCommit: `0x${string}`;
+  readonly nonce: `0x${string}`;
 };
 
 export type VerifyFailure = {
@@ -191,17 +211,15 @@ export function requiredAmount(requirements: PaymentRequirements): bigint | null
 }
 
 /**
- * The request-bound nonce a payload carries, lowercased, or null when it carries none.
+ * The EIP-3009 nonce a payload carries, lowercased, or null when it carries none.
  *
- * On the `exact` rails it is the EIP-3009 authorisation nonce. On the mandate lane it is the
- * escrow lock's input commitment, which the client derives the same way and the scheme checks
- * against the lock on chain.
+ * On the `exact` rails this is what the payer signed, what the token burns, and so what the
+ * settlement is recorded under. The mandate lane records nothing under a value read off the
+ * payload: its identity is derived from the lock the scheme reads on chain, and a payload on that
+ * lane that names a nonce at all has to name that one.
  */
 export function authorizationNonce(payload: PaymentPayload): string | null {
-  const lock = payload.payload?.['lock'];
-  const authorization =
-    payload.payload?.authorization ??
-    (lock && typeof lock === 'object' ? { nonce: (lock as { inputCommit?: unknown }).inputCommit } : undefined);
+  const authorization = payload.payload?.authorization;
   if (!authorization || typeof authorization !== 'object') return null;
   const nonce = (authorization as { nonce?: unknown }).nonce;
   if (typeof nonce !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(nonce)) return null;
