@@ -2,7 +2,7 @@
 // Writes the source-verification inputs for a deployment record: one standard-JSON input per
 // contract the record names, and its manifest entry, from the logs the deploy scripts left.
 //
-//   node script/verification-inputs.mjs [--record deployments/rhc-mainnet-v3.json] [--prefix v3]
+//   node script/verification-inputs.mjs [--record deployments/rhc-mainnet-v4.json] [--prefix v4]
 //                                       [--broadcast broadcast] [--dir verification] [--check]
 //
 // A contract's creation is found by address in broadcast/<script>/4663/*.json, whether a script
@@ -10,8 +10,9 @@
 // the same solc, and has to reproduce the transaction's creation code byte for byte: what follows
 // that code in the transaction is the constructor arguments. Libraries a run linked with
 // --libraries are part of every contract's metadata from that run, so they go into each of those
-// inputs and manifest entries. Addresses the record names that no log created (the roles, the
-// assets, the contracts carried over from earlier sets) are left out. --check writes nothing.
+// inputs and manifest entries. Addresses the record names that no log created (the roles and the
+// assets) are left out, and a contract carried over from an earlier set keeps the entry that set
+// wrote for it, so a run writes only what its own record deployed. --check writes nothing.
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -29,8 +30,8 @@ const flag = (name, fallback) => {
   const i = args.indexOf(name);
   return i === -1 ? fallback : args[i + 1];
 };
-const recordPath = resolve(ROOT, flag('--record', 'deployments/rhc-mainnet-v3.json'));
-const prefix = flag('--prefix', 'v3');
+const recordPath = resolve(ROOT, flag('--record', 'deployments/rhc-mainnet-v4.json'));
+const prefix = flag('--prefix', 'v4');
 const broadcastDir = resolve(ROOT, flag('--broadcast', 'broadcast'));
 const dir = resolve(ROOT, flag('--dir', 'verification'));
 const check = args.includes('--check');
@@ -39,17 +40,25 @@ const record = JSON.parse(readFileSync(recordPath, 'utf8'));
 const strip = (hex) => (hex.startsWith('0x') ? hex.slice(2) : hex).toLowerCase();
 
 // Every address in the sections that name deployed contracts, under the first path it appears at.
-const named = new Map();
-function collect(value, path) {
+const SECTIONS = ['contracts', 'token', 'rwa', 'privacy', 'exampleMandate', 'exampleCollateralMandate', 'exampleCommittedMandate'];
+function collect(value, path, into) {
   if (typeof value === 'string') {
-    if (/^0x[0-9a-fA-F]{40}$/.test(value) && !named.has(value.toLowerCase())) named.set(value.toLowerCase(), { address: value, path });
+    if (/^0x[0-9a-fA-F]{40}$/.test(value) && !into.has(value.toLowerCase())) into.set(value.toLowerCase(), { address: value, path });
     return;
   }
-  if (value && typeof value === 'object') for (const [k, v] of Object.entries(value)) collect(v, [...path, k]);
+  if (value && typeof value === 'object') for (const [k, v] of Object.entries(value)) collect(v, [...path, k], into);
 }
-for (const section of ['contracts', 'token', 'rwa', 'privacy', 'exampleMandate', 'exampleCollateralMandate', 'exampleCommittedMandate']) {
-  if (record[section] !== undefined) collect(record[section], [section]);
+function contractsOf(deployment) {
+  const into = new Map();
+  for (const section of SECTIONS) if (deployment[section] !== undefined) collect(deployment[section], [section], into);
+  return into;
 }
+const named = contractsOf(record);
+
+// What the record carries over from the one it supersedes, read from that record beside it. An
+// earlier set deployed those contracts, and they are that set's to describe.
+const previousPath = record.supersedes ? join(dirname(recordPath), `${record.supersedes}.json`) : null;
+const carried = previousPath && existsSync(previousPath) ? contractsOf(JSON.parse(readFileSync(previousPath, 'utf8'))) : new Map();
 
 // Creations from the logs, the latest log of each script first, and never from a dry run.
 const creations = new Map();
@@ -176,11 +185,15 @@ const fail = (name, address, why) => {
 };
 
 for (const [key, { address, path }] of named) {
-  const creation = creations.get(key);
-  if (!creation) continue;
   const name = nameFor(path);
   // A contract carried over from an earlier set keeps the entry that set wrote for it.
   const earlier = Object.entries(manifest).find(([other, entry]) => !other.startsWith(`${prefix}-`) && entry.address.toLowerCase() === key);
+  if (carried.has(key)) {
+    if (earlier) console.log(`carried ${earlier[0]} ${address}`);
+    continue;
+  }
+  const creation = creations.get(key);
+  if (!creation) continue;
   if (earlier) {
     console.log(`kept ${earlier[0]} ${address}`);
     continue;
