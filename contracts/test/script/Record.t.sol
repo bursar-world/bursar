@@ -448,17 +448,18 @@ contract RecordTest is ScriptHarness {
         string memory v3 = vm.readFile("deployments/rhc-mainnet-v3.json");
         string memory v4 = vm.readFile("deployments/rhc-mainnet-v4.json");
 
-        // The third set answers for the chain. The second set and the token record stay readable for
-        // what they still hold until the last migration step retires them.
+        // The fourth set answers for the chain. The records it and the third set replaced stay
+        // readable for what they still hold until the last migration step retires each.
         assertEq(vm.parseJsonString(v1, K.STATUS), "superseded");
         assertEq(vm.parseJsonString(v1, K.SUPERSEDED_BY), "rhc-mainnet-v2");
         assertEq(vm.parseJsonString(v2, ".supersedes"), "rhc-mainnet");
         assertEq(vm.parseJsonString(v2, K.SUPERSEDED_BY), "rhc-mainnet-v3");
         assertEq(vm.parseJsonString(token, K.SUPERSEDED_BY), "rhc-mainnet-v3");
         assertEq(vm.parseJsonString(v3, ".supersedes"), "rhc-mainnet-v2");
-        assertEq(vm.parseJsonString(v3, K.STATUS), "live");
-        for (uint256 i; i < 2; ++i) {
-            bytes32 status = keccak256(bytes(vm.parseJsonString(i == 0 ? v2 : token, K.STATUS)));
+        assertEq(vm.parseJsonString(v3, K.SUPERSEDED_BY), "rhc-mainnet-v4");
+        for (uint256 i; i < 3; ++i) {
+            string memory replaced = i == 0 ? v2 : i == 1 ? token : v3;
+            bytes32 status = keccak256(bytes(vm.parseJsonString(replaced, K.STATUS)));
             assertTrue(status == keccak256("superseded") || status == keccak256("retired"), "replaced record");
         }
 
@@ -489,12 +490,12 @@ contract RecordTest is ScriptHarness {
         assertEq(resolvers[2], 0x7062A480732EC7B0F00a3D0c968356e1671dd356);
         assertEq(vm.parseJsonAddressArray(v3, K.SIGNERS).length, 3);
 
-        // The fourth set is planned on top of the third: same governance, token set, roles and
-        // outside contracts, nothing of its own deployed yet.
-        assertEq(vm.parseJsonString(v4, K.STATUS), "planned");
+        // The fourth set is live on top of the third: same governance, token set, roles and outside
+        // contracts, everything else deployed by its own scripts.
+        assertEq(vm.parseJsonString(v4, K.STATUS), "live");
         assertEq(vm.parseJsonString(v4, K.SUPERSEDES), "rhc-mainnet-v3");
         assertEq(vm.parseJsonAddress(v4, K.DEPLOYER), vm.parseJsonAddress(v3, K.DEPLOYER));
-        assertEq(vm.parseJsonKeys(v4, ".contracts").length, 1);
+        assertEq(vm.parseJsonKeys(v4, ".contracts").length, 6);
         assertEq(vm.parseJsonAddress(v4, K.ADMIN_TIMELOCK), vm.parseJsonAddress(v3, K.ADMIN_TIMELOCK));
         string[6] memory carried = [K.BRSR, K.VESTING, K.STAKING, K.BUYBACK, K.SEEDER, K.KEEPER];
         for (uint256 i; i < carried.length; ++i) {
@@ -507,9 +508,12 @@ contract RecordTest is ScriptHarness {
         assertLt(vm.parseJsonUint(v3, K.TOKEN_FROM_BLOCK), vm.parseJsonUint(v4, K.TOKEN_FROM_BLOCK));
         assertEq(vm.parseJson(v4, ".external"), vm.parseJson(v3, ".external"));
         assertEq(vm.parseJson(v4, ".roles"), vm.parseJson(v3, ".roles"));
-        assertFalse(vm.keyExistsJson(v4, K.ESCROW));
-        assertFalse(vm.keyExistsJson(v4, K.CREDIT_POOL));
-        assertFalse(vm.keyExistsJson(v4, K.SHIELDED_POOL));
-        assertFalse(vm.keyExistsJson(v4, ".exampleMandate"));
+        assertTrue(vm.keyExistsJson(v4, K.ESCROW));
+        assertTrue(vm.keyExistsJson(v4, K.CREDIT_POOL));
+        assertTrue(vm.keyExistsJson(v4, K.SHIELDED_POOL));
+        assertTrue(vm.keyExistsJson(v4, ".exampleMandate.address"));
+        assertTrue(vm.keyExistsJson(v4, ".privacy.shielded.maxPerDepositor"));
+        assertTrue(vm.keyExistsJson(v4, ".parameters.Reputation.minScored"));
+        assertTrue(vm.keyExistsJson(v4, ".parameters.PriceGuard.minObservationAge"));
     }
 }
