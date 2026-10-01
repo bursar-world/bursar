@@ -211,6 +211,40 @@ export const ADMIN_ACTIONS: readonly AdminAction[] = [
     },
   },
   {
+    id: 'reputation.setWeights',
+    contract: 'reputation',
+    functionName: 'setWeights',
+    label: 'Set how a reputation point is earned',
+    consequence:
+      'A score is the share of counted jobs a payee delivered, scaled by the credit that work has earned. These three decide what counts: the smallest job that moves the record, the most one payer adds to the credit, and the credit a full score takes. The cap per payer binds the next release and recounts nothing already earned; the other two are read live and reprice every payee at once.',
+    shape: {
+      kind: 'fields',
+      fields: [
+        {
+          name: 'minScored',
+          label: 'Smallest job that counts',
+          kind: 'usdg',
+          help: 'A job under this moves no counter, delivered or not. Zero is refused, and anything above the cap at a score of zero is a job no new payee can be paid for.',
+          placeholder: '1.00',
+        },
+        {
+          name: 'edgeCap',
+          label: 'Most one payer adds to the credit',
+          kind: 'usdg',
+          help: 'Delivered work from one payer counts up to here. Zero is refused, because no score could then leave zero.',
+          placeholder: '62.50',
+        },
+        {
+          name: 'fullCredit',
+          label: 'Credit a full score takes',
+          kind: 'usdg',
+          help: 'At least the cap per payer, or the top is out of reach. Divided by the cap per payer, this is the fewest payers a full score takes.',
+          placeholder: '250.00',
+        },
+      ],
+    },
+  },
+  {
     id: 'reputation.acceptAdmin',
     contract: 'reputation',
     functionName: 'acceptAdmin',
@@ -824,6 +858,20 @@ function validate(action: AdminAction, args: readonly unknown[]): readonly strin
       );
       break;
     }
+    case 'reputation.setWeights': {
+      const weights = args[0] as Tuple;
+      record(at(weights, 'minScored') === 0n, 'A smallest job of zero scores a lock at the escrow’s floor, and a point that costs a cent is a point anyone can buy. Reputation refuses it.');
+      record(at(weights, 'edgeCap') === 0n, 'A cap per payer of zero credits nothing, so no score could leave zero. Reputation refuses it.');
+      record(
+        at(weights, 'fullCredit') < at(weights, 'edgeCap'),
+        'The credit a full score takes cannot be under the cap per payer, or one payer would clear the top with room to spare. Reputation refuses it.',
+      );
+      record(
+        at(weights, 'minScored') > MAX_UINT128 || at(weights, 'edgeCap') > MAX_UINT128 || at(weights, 'fullCredit') > MAX_UINT128,
+        'That is larger than the contract can hold.',
+      );
+      break;
+    }
     case 'oracleRegistry.setConfig': {
       const config = args[0] as Tuple;
       record(
@@ -1261,6 +1309,8 @@ function sentenceFor(name: string, contract: GovernedContract | undefined, args:
       return `Sets the payee spending cap to ${formatUsdg(micro(bigintAt(first, 'baseCap')))} at a score of zero, rising ${formatUsdg(
         micro(bigintAt(first, 'capPerScore')),
       )} for each of the hundred score points, and stopping at ${formatUsdg(micro(bigintAt(first, 'maxCap')))}.`;
+    case 'setWeights':
+      return weightsSentence(first);
     case 'setConfig':
       return `Sets the dispute rules to ${seconds(bigintAt(first, 'commitWindow'))} to commit and ${seconds(
         bigintAt(first, 'revealWindow'),
@@ -1361,6 +1411,18 @@ function tiersSentence(value: unknown): string {
     .join(', ');
 
   return `Replaces the fee rebate table with ${value.length} ${value.length === 1 ? 'rung' : 'rungs'}: ${rungs} off the facilitator fee on payouts the staker receives through it.`;
+}
+
+function weightsSentence(value: unknown): string {
+  const minScored = bigintAt(value, 'minScored');
+  const edgeCap = bigintAt(value, 'edgeCap');
+  const fullCredit = bigintAt(value, 'fullCredit');
+  const payers = edgeCap === 0n ? 0n : (fullCredit + edgeCap - 1n) / edgeCap;
+  return (
+    `Counts a job toward a payee’s reputation only at ${formatUsdg(micro(minScored))} or more, credits each payer’s delivered ` +
+    `work up to ${formatUsdg(micro(edgeCap))}, and takes ${formatUsdg(micro(fullCredit))} of credit for a full score` +
+    (payers > 1n ? `, which is at least ${payers.toString()} payers.` : '.')
+  );
 }
 
 function paramsSentence(value: unknown): string {

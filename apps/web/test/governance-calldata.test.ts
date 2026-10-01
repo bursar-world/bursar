@@ -138,6 +138,45 @@ describe('the builder refuses what the contract refuses', () => {
     expect(built.problems.join(' ')).toContain('No score reaches that ceiling');
   });
 
+  /**
+   * The three rules are the contract's own: `BadWeights` on a zero minimum, a zero cap per payer,
+   * or a full credit under the cap per payer. Refused here before two days are spent finding out.
+   */
+  it('refuses weights the reputation contract refuses, and names which rule', () => {
+    const weights = (values: Record<string, string>) => buildCall(action('reputation.setWeights'), fill(action('reputation.setWeights'), values));
+
+    const zeroFloor = weights({ minScored: '0', edgeCap: '62.50', fullCredit: '250' });
+    expect(zeroFloor.ok).toBe(false);
+    if (!zeroFloor.ok) expect(zeroFloor.problems.join(' ')).toContain('smallest job of zero');
+
+    const zeroCap = weights({ minScored: '1', edgeCap: '0', fullCredit: '250' });
+    expect(zeroCap.ok).toBe(false);
+    if (!zeroCap.ok) expect(zeroCap.problems.join(' ')).toContain('cap per payer of zero');
+
+    const lowTop = weights({ minScored: '1', edgeCap: '62.50', fullCredit: '50' });
+    expect(lowTop.ok).toBe(false);
+    if (!lowTop.ok) expect(lowTop.problems.join(' ')).toContain('cannot be under the cap per payer');
+  });
+
+  it('encodes the deployed weights and reads them back as how a point is earned', () => {
+    const built = buildCall(action('reputation.setWeights'), fill(action('reputation.setWeights'), { minScored: '1', edgeCap: '62.50', fullCredit: '250' }));
+
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    const reading = readCall(ADDRESSES.reputation, built.data);
+    expect(reading.functionName).toBe('setWeights');
+    expect(reading.signature).toBe('setWeights((uint128,uint128,uint128))');
+    expect(reading.sentence).toBe(
+      'Counts a job toward a payee’s reputation only at 1 USDG or more, credits each payer’s delivered work up to 62.5 USDG, and takes ' +
+        '250 USDG of credit for a full score, which is at least 4 payers.',
+    );
+    expect(reading.rows.map((row) => [row.label, row.value])).toEqual([
+      ['Smallest job that counts', '1 USDG'],
+      ['Most one payer adds to the credit', '62.5 USDG'],
+      ['Credit a full score takes', '250 USDG'],
+    ]);
+  });
+
   it('refuses tiers that do not ascend in both columns', () => {
     const built = buildCall(action('staking.setTiers'), {
       values: {},
@@ -417,6 +456,7 @@ describe('the catalogue', () => {
   it('covers every setter the build plan names', () => {
     for (const id of [
       'reputation.setCurve',
+      'reputation.setWeights',
       'oracleRegistry.setConfig',
       'agentRegistry.setMinStake',
       'staking.setTiers',

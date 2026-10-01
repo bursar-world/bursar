@@ -94,6 +94,10 @@ function desk(over: Partial<ProviderDesk> = {}): ProviderDesk {
       baseCap: micro(25_000_000n),
       capPerScore: micro(1_000_000n),
       maxCap: micro(250_000_000n),
+      credit: null,
+      minScored: null,
+      edgeCap: null,
+      fullCredit: null,
     },
     standing: {
       name: 'acme_transcribe',
@@ -219,6 +223,71 @@ describe('the record panel a payer reads before naming a counterparty', () => {
     const markup = renderToStaticMarkup(<ReputationPanel desk={unread} owned={false} />);
 
     expect(markup).toContain('the curve could not be read');
+  });
+
+  it('shows no credit on contracts that count jobs and weigh nothing', () => {
+    const markup = renderToStaticMarkup(<ReputationPanel desk={desk()} owned={false} />);
+
+    expect(markup).not.toContain('Credit toward a full score');
+    expect(markup).not.toContain('scaled by');
+  });
+});
+
+/**
+ * From v4 a clean record scores by the credit its delivered work has earned, so a payee with every
+ * job delivered and one payer sees 25 and has to be told why, in the two factors that make it.
+ */
+describe('the credit behind a score', () => {
+  const weighed = {
+    released: 2n,
+    timedOut: 0n,
+    disputed: 0n,
+    score: 25,
+    cap: micro(81_250_000n),
+    baseCap: micro(25_000_000n),
+    capPerScore: micro(2_250_000n),
+    maxCap: micro(250_000_000n),
+    credit: micro(62_500_000n),
+    minScored: micro(1_000_000n),
+    edgeCap: micro(62_500_000n),
+    fullCredit: micro(250_000_000n),
+  };
+
+  it('shows the credit earned against the full credit, and says why the score is where it is', () => {
+    const markup = renderToStaticMarkup(<ReputationPanel desk={desk({ record: weighed })} owned={true} />);
+
+    expect(markup).toContain('Credit toward a full score');
+    expect(markup).toContain('$62.50');
+    expect(markup).toContain('of $250.00');
+    expect(markup).toContain('2 of 2 settled jobs were delivered, and that work has earned $62.50 of the $250.00 a full score takes.');
+    expect(markup).toContain('The score is the first share scaled by the second: 25 of 100.');
+    expect(markup).toContain('A payer counts for up to $62.50, so more work from a payer already there adds nothing');
+    expect(markup).toContain('A job under $1.00 counts for nothing either way.');
+    expect(markup).toContain('scaled by the credit that work has earned');
+  });
+
+  it('counts credit past the top as the top, and says the score now moves with delivered work alone', () => {
+    const markup = renderToStaticMarkup(<ReputationPanel desk={desk({ record: { ...weighed, credit: micro(900_000_000n), score: 100 } })} owned={true} />);
+
+    expect(markup).toContain('$250.00 of the $250.00');
+    expect(markup).toContain('The credit is full, so your score now moves with the delivered share alone.');
+    expect(markup).not.toContain('adds nothing');
+  });
+
+  it('tells a new payee what the first job earns and how many payers a full score takes', () => {
+    const fresh = { ...weighed, released: 0n, score: 0, cap: micro(25_000_000n), credit: micro(0n) };
+    const markup = renderToStaticMarkup(<ReputationPanel desk={desk({ record: fresh })} owned={false} />);
+
+    expect(markup).toContain('Nothing has settled for this address yet.');
+    expect(markup).toContain('a full score takes $250.00 from at least 4 payers');
+  });
+
+  it('says the credit was not read rather than showing none', () => {
+    const markup = renderToStaticMarkup(<ReputationPanel desk={desk({ record: { ...weighed, credit: undefined } })} owned={false} />);
+
+    expect(markup).toContain('Not read');
+    expect(markup).toContain('The credit behind this score could not be read.');
+    expect(markup).not.toContain('$0.00 of');
   });
 });
 

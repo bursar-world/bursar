@@ -128,9 +128,15 @@ function RegistryTerms() {
           <p className="max-w-prose text-detail text-[color:var(--color-muted)]">
             {lines.curveLine ??
               'The reputation curve could not be read, so what a score is worth is unknown on this reading.'}{' '}
-            Score is delivered jobs as a share of every job that reached an outcome. A job that ran past its deadline or
-            was contested counts as settled and not as delivered.
+            Score is delivered jobs as a share of every job that reached an outcome
+            {lines.creditLine === null ? '' : ', scaled by the credit that work has earned'}. A job that ran past its
+            deadline or was contested counts as settled and not as delivered.
           </p>
+          {lines.creditLine !== null && (
+            <p className="max-w-prose text-detail text-[color:var(--color-muted)]">
+              {lines.creditLine ?? 'How a point is earned could not be read on this reading.'}
+            </p>
+          )}
           <p className="max-w-prose text-detail text-[color:var(--color-muted)]">
             The stake does not raise the ceiling on a single job; only the score does. Deeper collateral is what a
             principal reads before allowlisting an address, and it is what a ruling is taken from.

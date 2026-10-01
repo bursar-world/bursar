@@ -251,8 +251,37 @@ export type RegistryTermLines = {
   readonly withdrawalDelay: string | undefined;
   readonly baseCap: string | undefined;
   readonly curveLine: string | undefined;
+  /**
+   * How a point is earned. Undefined while unread, and null on contracts that count jobs and weigh
+   * nothing, where the released share is the whole score.
+   */
+  readonly creditLine: string | null | undefined;
   readonly pausedLine: string | undefined;
 };
+
+/**
+ * What a point costs, in one sentence: the job that counts, how much one payer can contribute, and
+ * what a full score takes, which fixes the fewest payers it can take.
+ */
+export function creditLine(weights: {
+  readonly minScored: Micro | null | undefined;
+  readonly edgeCap: Micro | null | undefined;
+  readonly fullCredit: Micro | null | undefined;
+}): string | null | undefined {
+  if (weights.minScored === null || weights.edgeCap === null || weights.fullCredit === null) return null;
+  if (weights.minScored === undefined || weights.edgeCap === undefined || weights.fullCredit === undefined) return undefined;
+
+  const payers = weights.edgeCap === 0n ? undefined : ceilDiv(weights.fullCredit, weights.edgeCap);
+  return (
+    `A score is earned with delivered work, not counted in jobs alone. A job of ${usd(weights.minScored)} or more counts, ` +
+    `each payer for up to ${usd(weights.edgeCap)} of credit, and a full score takes ${usd(weights.fullCredit)} of credit` +
+    (payers === undefined || payers <= 1n ? '.' : `, so at least ${payers} payers.`)
+  );
+}
+
+function ceilDiv(a: bigint, b: bigint): bigint {
+  return (a + b - 1n) / b;
+}
 
 export function registryTermLines(terms: RegistryTerms | undefined): RegistryTermLines {
   if (terms === undefined) {
@@ -262,6 +291,7 @@ export function registryTermLines(terms: RegistryTerms | undefined): RegistryTer
       withdrawalDelay: undefined,
       baseCap: undefined,
       curveLine: undefined,
+      creditLine: undefined,
       pausedLine: undefined,
     };
   }
@@ -277,6 +307,7 @@ export function registryTermLines(terms: RegistryTerms | undefined): RegistryTer
     withdrawalDelay: terms.withdrawalDelay === undefined ? undefined : formatDuration(Number(terms.withdrawalDelay)),
     baseCap: terms.baseCap === undefined ? undefined : usd(terms.baseCap),
     curveLine,
+    creditLine: creditLine(terms),
     pausedLine:
       terms.paused === undefined
         ? undefined

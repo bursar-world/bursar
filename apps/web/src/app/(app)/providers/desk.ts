@@ -1,6 +1,6 @@
 import { CURRENT_CONTRACT_SET, contractSetAtLeast, micro, mulBps } from '@bursar/core';
 import type { Micro } from '@bursar/core';
-import { LockStatus } from '@bursar/sdk';
+import { LockStatus, projectReputation } from '@bursar/sdk';
 import type { Address, Hex } from 'viem';
 
 import {
@@ -9,6 +9,7 @@ import {
   addBlockNumber,
   addChainTime,
   agentRegistryAbi,
+  currentDeployment,
   readableDeployments,
   rhcClient,
   escrowAbi,
@@ -145,13 +146,27 @@ export type ProviderRecord = {
   readonly released: bigint | undefined;
   readonly timedOut: bigint | undefined;
   readonly disputed: bigint | undefined;
-  /** Delivered jobs as a share of settled jobs, 0 to 100. */
+  /**
+   * 0 to 100. Delivered jobs as a share of settled jobs, scaled from v4 by the credit earned toward
+   * `fullCredit`.
+   */
   readonly score: number | undefined;
   /** The largest single job a payer may lock against this address. */
   readonly cap: Micro | undefined;
   readonly baseCap: Micro | undefined;
   readonly capPerScore: Micro | undefined;
   readonly maxCap: Micro | undefined;
+  /**
+   * What delivered work has earned toward a full score: its volume, each payer counted up to
+   * `edgeCap`. Null on a set from before v4, which weighs nothing; undefined while unread.
+   */
+  readonly credit: Micro | null | undefined;
+  /** The smallest job that counts. Null where `credit` is. */
+  readonly minScored: Micro | null | undefined;
+  /** The most one payer's delivered work counts toward the credit. Null where `credit` is. */
+  readonly edgeCap: Micro | null | undefined;
+  /** The credit a full score takes. Null where `credit` is. */
+  readonly fullCredit: Micro | null | undefined;
 };
 
 /**
@@ -274,6 +289,7 @@ type RawLock = {
 };
 
 type RawCurve = { baseCap: bigint; capPerScore: bigint; maxCap: bigint };
+type RawWeights = { minScored: bigint; edgeCap: bigint; fullCredit: bigint };
 type RawAgent = { name: string; stake: bigint; registeredAt: bigint; active: boolean };
 type RawDispute = {
   escrowId: bigint;
@@ -302,13 +318,23 @@ export type RegistryTerms = {
   readonly baseCap: Micro | undefined;
   readonly capPerScore: Micro | undefined;
   readonly maxCap: Micro | undefined;
+  /** How a point is earned. Null on a set from before v4, which counts jobs and weighs nothing. */
+  readonly minScored: Micro | null | undefined;
+  readonly edgeCap: Micro | null | undefined;
+  readonly fullCredit: Micro | null | undefined;
   readonly paused: boolean | undefined;
   readonly listed: bigint | undefined;
 };
 
+/** From v4 reputation weighs released work; the set before it has no `weights` and asking reverts. */
+function weighs(): boolean {
+  return contractSetAtLeast(currentDeployment().contractSet, 'v4');
+}
+
 export async function readRegistryTerms(signal?: AbortSignal): Promise<RegistryTerms> {
   const client = rhcClient();
   const batch = new ReadBatch();
+  const weighed = weighs();
   const registryCall = (functionName: string) => ({
     address: ADDRESSES.agentRegistry,
     abi: agentRegistryAbi as never,
@@ -327,10 +353,14 @@ export async function readRegistryTerms(signal?: AbortSignal): Promise<RegistryT
       abi: reputationAbi as never,
       functionName: 'curve',
     }),
+    weights: weighed
+      ? batch.add<RawWeights>('reputation.weights', { address: ADDRESSES.reputation, abi: reputationAbi as never, functionName: 'weights' })
+      : undefined,
   };
 
   const results = await runBatch(client, batch, signal);
   const curve = results.get(slots.curve);
+  const weights = results.get(slots.weights);
 
   return {
     minStake: asMicro(results.get(slots.minStake)),
@@ -340,6 +370,9 @@ export async function readRegistryTerms(signal?: AbortSignal): Promise<RegistryT
     baseCap: asMicro(curve?.baseCap),
     capPerScore: asMicro(curve?.capPerScore),
     maxCap: asMicro(curve?.maxCap),
+    minScored: weighed ? asMicro(weights?.minScored) : null,
+    edgeCap: weighed ? asMicro(weights?.edgeCap) : null,
+    fullCredit: weighed ? asMicro(weights?.fullCredit) : null,
     paused: results.get(slots.paused),
     listed: results.get(slots.listed),
   };
@@ -384,6 +417,7 @@ export async function readProviderDesk(payee: Address, signal?: AbortSignal): Pr
   });
 
   const floored = contractSetAtLeast(current.contractSet, 'v3');
+  const weighed = contractSetAtLeast(current.contractSet, 'v4');
 
   const slots = {
     blockNumber: addBlockNumber(head),
@@ -419,6 +453,9 @@ export async function readProviderDesk(payee: Address, signal?: AbortSignal): Pr
     cap: head.add<bigint>('reputation.capOf', reputationCall('capOf', [payee])),
     stats: head.add<readonly [bigint, bigint, bigint]>('reputation.payeeStats', reputationCall('payeeStats', [payee])),
     curve: head.add<RawCurve>('reputation.curve', reputationCall('curve')),
+    // A reputation contract before v4 has neither, and asking it reverts.
+    weights: weighed ? head.add<RawWeights>('reputation.weights', reputationCall('weights')) : undefined,
+    credit: weighed ? head.add<bigint>('reputation.creditOf', reputationCall('creditOf', [payee])) : undefined,
     balance: head.add<bigint>('usdg.balanceOf', { address: ADDRESSES.usdg, abi: settlementAssetAbi as never, functionName: 'balanceOf', args: [payee] }),
     blocked: head.add<boolean>('usdg.isFrozen', { address: ADDRESSES.usdg, abi: settlementComplianceAbi as never, functionName: 'isFrozen', args: [payee] }),
     paused: head.add<boolean>('usdg.paused', { address: ADDRESSES.usdg, abi: settlementComplianceAbi as never, functionName: 'paused' }),
@@ -481,6 +518,7 @@ export async function readProviderDesk(payee: Address, signal?: AbortSignal): Pr
   const recordable = unrecorded.filter((lock) => lock.stage === 'paid-unrecorded');
 
   const stats = headResults.get(slots.stats);
+  const weights = headResults.get(slots.weights);
   const record: ProviderRecord = {
     released: stats?.[0],
     timedOut: stats?.[1],
@@ -490,7 +528,16 @@ export async function readProviderDesk(payee: Address, signal?: AbortSignal): Pr
     baseCap: asMicro(curve?.baseCap),
     capPerScore: asMicro(curve?.capPerScore),
     maxCap: asMicro(curve?.maxCap),
+    credit: weighed ? asMicro(headResults.get(slots.credit)) : null,
+    minScored: weighed ? asMicro(weights?.minScored) : null,
+    edgeCap: weighed ? asMicro(weights?.edgeCap) : null,
+    fullCredit: weighed ? asMicro(weights?.fullCredit) : null,
   };
+
+  // What each recordable payer has already released to this payee, which is where its next
+  // release's credit starts from. One more request, and only when there is something to record.
+  const edges = await readEdges(payee, recordable, weighed, signal);
+  if (edges !== undefined) requests += 1;
 
   const agent = headResults.get(slots.agent);
   const complete = headResults.get(slots.nextId) !== undefined;
@@ -542,7 +589,7 @@ export async function readProviderDesk(payee: Address, signal?: AbortSignal): Pr
     contested,
     unrecorded,
     recordable,
-    projectedCap: projectCap(record, BigInt(recordable.length)),
+    projectedCap: projectCap(payee, record, recordable, edges),
     scanned,
     earlier: read.slice(1).map((entry) => ({ deployment: entry.tag, complete: entry.complete, scanned: entry.scanned })),
   };
@@ -808,21 +855,71 @@ function stageOf(raw: RawLock, recordableAt: Date | null, now: Date, dispute: Di
   }
 }
 
+/** What one payer has released to the payee so far, on the current contracts. */
+export type PayerEdge = { readonly payer: Address; readonly volume: Micro };
+
+async function readEdges(
+  payee: Address,
+  recordable: readonly ProviderLock[],
+  weighed: boolean,
+  signal?: AbortSignal,
+): Promise<readonly PayerEdge[] | undefined> {
+  if (!weighed || recordable.length === 0) return undefined;
+  const payers = [...new Map(recordable.map((lock) => [lock.payer.toLowerCase(), lock.payer])).values()];
+  const batch = new ReadBatch();
+  const slots = payers.map((payer) => ({
+    payer,
+    slot: batch.add<bigint>(`reputation.edgeVolume:${payer}`, {
+      address: ADDRESSES.reputation,
+      abi: reputationAbi as never,
+      functionName: 'edgeVolume',
+      args: [payer, payee],
+    }),
+  }));
+  const results = await runBatch(rhcClient(), batch, signal);
+  const edges = slots.map((entry) => ({ payer: entry.payer, volume: asMicro(results.get(entry.slot)) }));
+  // One unread edge and the projection would be a figure the chain never answers.
+  if (edges.some((edge) => edge.volume === undefined)) return undefined;
+  return edges as readonly PayerEdge[];
+}
+
 /**
- * `capOf = min(baseCap + capPerScore * score, maxCap)` with `score = released * 100 / settled`,
- * copied from `Reputation` so the screen can answer what recording finished work is worth before
- * anyone pays for a transaction to find out.
+ * Where the ceiling lands once `releases` are recorded, worked the way `Reputation` works it, so
+ * the screen can answer what recording finished work is worth before anyone pays for a transaction
+ * to find out. From v4 a release adds its principal to its payer's edge and the credit grows by
+ * whatever the edge cap leaves room for, so `edges` has to carry every payer in `releases`; a
+ * release under the scored minimum, or from the payee itself, is recorded and moves nothing.
  */
-export function projectCap(record: ProviderRecord, additionalReleases: bigint): Micro | undefined {
+export function projectCap(
+  payee: Address,
+  record: ProviderRecord,
+  releases: readonly Pick<ProviderLock, 'payer' | 'amount'>[],
+  edges: readonly PayerEdge[] | undefined,
+): Micro | undefined {
   if (record.baseCap === undefined || record.capPerScore === undefined || record.maxCap === undefined) return undefined;
   if (record.released === undefined || record.timedOut === undefined || record.disputed === undefined) return undefined;
 
-  const released = record.released + additionalReleases;
-  const settled = released + record.timedOut + record.disputed;
-  const score = settled === 0n ? 0n : (released * 100n) / settled;
-  const cap = record.baseCap + record.capPerScore * score;
+  const weighed = record.credit !== null;
+  if (weighed) {
+    if (record.credit === undefined || record.minScored == null || record.edgeCap == null || record.fullCredit == null) return undefined;
+    if (releases.length > 0 && edges === undefined) return undefined;
+  }
 
-  return micro(cap > record.maxCap ? record.maxCap : cap);
+  return projectReputation({
+    payee,
+    counters: { released: record.released, timedOut: record.timedOut, disputed: record.disputed },
+    curve: { baseCap: record.baseCap, capPerScore: record.capPerScore, maxCap: record.maxCap },
+    ...(weighed && record.credit != null && record.minScored != null && record.edgeCap != null && record.fullCredit != null
+      ? {
+          weighing: {
+            weights: { minScored: record.minScored, edgeCap: record.edgeCap, fullCredit: record.fullCredit },
+            credit: record.credit,
+            edges: edges ?? [],
+          },
+        }
+      : {}),
+    releases: releases.map((lock) => ({ payer: lock.payer, amount: lock.amount })),
+  }).cap;
 }
 
 /**

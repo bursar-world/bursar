@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { ProviderRecord, RegistryTerms, WithdrawalRequest } from '@/app/(app)/providers/desk';
 import {
   capAtScore,
+  creditLine,
   deactivateGate,
   nameProblem,
   reactivateGate,
@@ -271,6 +272,10 @@ describe('what a score is worth', () => {
     baseCap: micro(25_000_000n),
     capPerScore: micro(1_000_000n),
     maxCap: micro(250_000_000n),
+    credit: null,
+    minScored: null,
+    edgeCap: null,
+    fullCredit: null,
   } satisfies ProviderRecord;
 
   it('matches capOf at the ends of the scale', () => {
@@ -288,6 +293,32 @@ describe('what a score is worth', () => {
   });
 });
 
+/**
+ * From v4 a point is paid for in delivered volume from more than one payer. The line a reader sees
+ * before connecting has to say what counts, how much one payer can add and how many payers a full
+ * score takes, and it has to keep an unread weighing apart from contracts that have none.
+ */
+describe('how a point is earned', () => {
+  const weights = { minScored: micro(1_000_000n), edgeCap: micro(62_500_000n), fullCredit: micro(250_000_000n) };
+
+  it('names the job that counts, the cap per payer and the fewest payers a full score takes', () => {
+    expect(creditLine(weights)).toBe(
+      'A score is earned with delivered work, not counted in jobs alone. A job of $1.00 or more counts, each payer for up to ' +
+        '$62.50 of credit, and a full score takes $250.00 of credit, so at least 4 payers.',
+    );
+  });
+
+  it('rounds the payers up when the cap does not divide the full credit', () => {
+    expect(creditLine({ ...weights, edgeCap: micro(100_000_000n) })).toContain('so at least 3 payers.');
+    expect(creditLine({ ...weights, edgeCap: micro(250_000_000n) })).toMatch(/of credit\.$/);
+  });
+
+  it('is null on contracts that weigh nothing, and undefined while unread', () => {
+    expect(creditLine({ minScored: null, edgeCap: null, fullCredit: null })).toBeNull();
+    expect(creditLine({ minScored: undefined, edgeCap: micro(1n), fullCredit: micro(2n) })).toBeUndefined();
+  });
+});
+
 describe('the registry terms a reader sees before connecting anything', () => {
   const terms: RegistryTerms = {
     minStake: MIN_STAKE,
@@ -297,12 +328,16 @@ describe('the registry terms a reader sees before connecting anything', () => {
     baseCap: micro(25_000_000n),
     capPerScore: micro(1_000_000n),
     maxCap: micro(250_000_000n),
+    minScored: null,
+    edgeCap: null,
+    fullCredit: null,
     paused: false,
     listed: 0n,
   };
 
   it('quotes the chain and not a constant in the copy', () => {
     const lines = registryTermLines(terms);
+    expect(lines.creditLine).toBeNull();
     expect(lines.minStake).toBe('$5.00');
     expect(lines.slashBps).toBe('10%');
     expect(lines.withdrawalDelay).toBe('7d');
