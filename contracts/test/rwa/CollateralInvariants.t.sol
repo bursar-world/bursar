@@ -193,6 +193,11 @@ contract CollateralHandler is CommonBase, StdUtils {
         _setPool(which, price);
     }
 
+    /// A feed replaced by a proxy that reverts on every read, or repaired.
+    function breakFeed(uint256 which, bool repair) external {
+        _feed(which).setBroken(!repair);
+    }
+
     /// Half the time the pool is brought back to within its band of the feed; the rest it is
     /// pushed up to 20% away from it.
     function movePool(uint256 which, uint256 bps, uint256 shape) external {
@@ -467,7 +472,7 @@ contract CollateralInvariantTest is Test {
     }
 
     function _target() private {
-        bytes4[] memory selectors = new bytes4[](17);
+        bytes4[] memory selectors = new bytes4[](18);
         selectors[0] = CollateralHandler.deposit.selector;
         selectors[1] = CollateralHandler.deposit.selector;
         selectors[2] = CollateralHandler.withdraw.selector;
@@ -485,6 +490,7 @@ contract CollateralInvariantTest is Test {
         selectors[14] = CollateralHandler.claim.selector;
         selectors[15] = CollateralHandler.warp.selector;
         selectors[16] = CollateralHandler.crash.selector;
+        selectors[17] = CollateralHandler.breakFeed.selector;
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
         targetContract(address(handler));
     }

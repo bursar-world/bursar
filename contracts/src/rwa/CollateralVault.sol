@@ -13,7 +13,6 @@ import {AssetRegistry} from "./AssetRegistry.sol";
 import {CreditPool} from "./CreditPool.sol";
 import {PriceGuard} from "./PriceGuard.sol";
 import {V4Swapper} from "./V4Swapper.sol";
-import {IAggregatorV3} from "./interfaces/IRwaExternal.sol";
 import {ITreasuryPark} from "./interfaces/ITreasuryPark.sol";
 
 /// The collateral lane. A mandate in lane 1 posts registered stock or treasury tokens here and
@@ -365,15 +364,13 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         return _tierOf[asset];
     }
 
-    /// The haircut that applies to `asset` right now and whether it is the after-hours one.
+    /// The haircut that applies to `asset` right now and whether it is the after-hours one. A
+    /// feed that cannot be read has no time, which is the after-hours one.
     function haircutOf(address asset) public view returns (uint16 bps, bool afterHours) {
         uint8 t = _tierOf[asset];
         if (t == 0) revert NotCollateral(asset);
-        AssetRegistry.Asset memory a = registry.get(asset);
-        // Only the answer's age picks the haircut.
-        // slither-disable-next-line unused-return
-        (,,, uint256 updatedAt,) = IAggregatorV3(a.feed).latestRoundData();
-        (bps,, afterHours) = _haircuts(_tiers[t - 1], a.collateralHaircutBps, updatedAt);
+        (, uint256 updatedAt,,) = guard.valuation(asset);
+        (bps,, afterHours) = _haircuts(_tiers[t - 1], registry.get(asset).collateralHaircutBps, updatedAt);
     }
 
     /// Whether a draw would count a position in `asset` right now and, when it would not, the

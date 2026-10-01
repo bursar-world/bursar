@@ -11,6 +11,8 @@ contract MockFeed {
     uint8 public decimals = 8;
     int256 public answer;
     uint256 public updatedAt;
+    /// A feed replaced by a proxy that reverts on every read.
+    bool public broken;
 
     function set(int256 answer_, uint256 updatedAt_) external {
         answer = answer_;
@@ -21,17 +23,25 @@ contract MockFeed {
         decimals = d;
     }
 
+    function setBroken(bool b) external {
+        broken = b;
+    }
+
     function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80) {
+        require(!broken, "feed down");
         return (1, answer, updatedAt, updatedAt, 1);
     }
 }
 
 contract MockStock is ERC20 {
-    bool public oraclePaused;
-    bool public tokenPaused;
     uint256 public uiMultiplier = 1e18;
     /// Refuses every transfer touching the address, the way the issuer's controls can.
     mapping(address => bool) public blocked;
+    /// A token whose pause views revert, the way an upgraded one might.
+    bool public viewsBroken;
+
+    bool private _oraclePaused;
+    bool private _tokenPaused;
 
     constructor(string memory symbol) ERC20(symbol, symbol) {}
 
@@ -40,11 +50,25 @@ contract MockStock is ERC20 {
     }
 
     function setOraclePaused(bool p) external {
-        oraclePaused = p;
+        _oraclePaused = p;
     }
 
     function setTokenPaused(bool p) external {
-        tokenPaused = p;
+        _tokenPaused = p;
+    }
+
+    function setViewsBroken(bool b) external {
+        viewsBroken = b;
+    }
+
+    function oraclePaused() external view returns (bool) {
+        require(!viewsBroken, "token down");
+        return _oraclePaused;
+    }
+
+    function tokenPaused() external view returns (bool) {
+        require(!viewsBroken, "token down");
+        return _tokenPaused;
     }
 
     function setBlocked(address account, bool b) external {

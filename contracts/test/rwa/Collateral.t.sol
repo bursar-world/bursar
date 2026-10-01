@@ -1065,6 +1065,125 @@ contract CollateralTest is Test {
         assertEq(spy.balanceOf(principal), 1e18);
     }
 
+    /// A feed replaced by something that reverts, or by nothing at all, costs its own position
+    /// and no one else's. The line still reads, the other asset still liquidates, a line that
+    /// owes nothing still takes everything back, and the keeper's round still lands. The broken
+    /// asset itself cannot be sold, with a named reason.
+    function test_brokenFeed_countsZeroAndLeavesTheRestOfTheLaneAlive() public {
+        _deposit(spy, 0.01e18);
+        _deposit(aapl, 0.02e18);
+        _spendOnCredit(5e6);
+        spyFeed.setBroken(true);
+
+        CollateralVault.PositionView memory p = vault.positions(address(acct))[1];
+        assertEq(p.asset, address(spy));
+        assertEq(p.priceE8, 0);
+        assertFalse(p.fresh);
+        assertEq(uint8(vault.drawHalt(address(spy))), uint8(PriceGuard.DrawHalt.Unreadable));
+        (uint16 bps, bool afterHours) = vault.haircutOf(address(spy));
+        assertEq(bps, 3_500);
+        assertTrue(afterHours);
+        (uint256 value,,,, uint256 h) = vault.account(address(acct));
+        assertEq(value, 6e6);
+        assertLt(h, WAD);
+
+        vm.prank(keeper);
+        vm.expectRevert(abi.encodeWithSelector(PriceGuard.BadPrice.selector, address(spy)));
+        vault.liquidate(address(acct), address(spy));
+        vm.prank(keeper);
+        assertGt(vault.liquidate(address(acct), address(aapl)), 0);
+        uint256 restored = vault.health(address(acct));
+        assertGt(restored, WAD);
+        assertApproxEqRel(restored, 1.05e18, 0.01e18);
+
+        vm.warp(block.timestamp + MIN_AGE);
+        guard.observe(address(spy));
+        (,, uint104 feedE8) = guard.pending(address(spy));
+        assertEq(feedE8, 0);
+
+        uint256 owed = pool.debtOf(address(acct));
+        usdg.mint(principal, owed);
+        vm.startPrank(principal);
+        usdg.approve(address(pool), owed);
+        pool.repay(address(acct), owed);
+        vault.withdraw(address(acct), address(spy), 0.01e18, principal);
+        vm.stopPrank();
+        assertEq(spy.balanceOf(principal), 1e18);
+
+        // A feed address with no code behind it reads the same way.
+        vm.etch(address(spyFeed), "");
+        assertEq(uint8(vault.drawHalt(address(spy))), uint8(PriceGuard.DrawHalt.Unreadable));
+        (value,,,, h) = vault.account(address(acct));
+        assertGt(value, 0);
+        assertEq(h, type(uint256).max);
+    }
+
+    /// A token whose pause views revert is read as paused, and nothing else stops.
+    function test_brokenTokenView_countsZeroAndLeavesTheRestOfTheLaneAlive() public {
+        _deposit(spy, 0.01e18);
+        _deposit(aapl, 0.02e18);
+        _spendOnCredit(5e6);
+        spy.setViewsBroken(true);
+
+        CollateralVault.PositionView memory p = vault.positions(address(acct))[1];
+        assertEq(p.priceE8, SPY_E8);
+        assertFalse(p.fresh);
+        assertEq(p.value, 0);
+        assertEq(uint8(vault.drawHalt(address(spy))), uint8(PriceGuard.DrawHalt.Unreadable));
+        (uint256 value,,, uint256 headroom, uint256 h) = vault.account(address(acct));
+        assertEq(value, 6e6);
+        assertEq(headroom, 0);
+        assertLt(h, WAD);
+
+        vm.prank(keeper);
+        vm.expectRevert(abi.encodeWithSelector(PriceGuard.OraclePaused.selector, address(spy)));
+        vault.liquidate(address(acct), address(spy));
+        vm.prank(keeper);
+        assertGt(vault.liquidate(address(acct), address(aapl)), 0);
+
+        uint256 owed = pool.debtOf(address(acct));
+        usdg.mint(principal, owed);
+        vm.startPrank(principal);
+        usdg.approve(address(pool), owed);
+        pool.repay(address(acct), owed);
+        vault.withdraw(address(acct), address(spy), 0.01e18, principal);
+        vm.stopPrank();
+        assertEq(spy.balanceOf(principal), 1e18);
+    }
+
+    /// A sale never runs on a read that failed: the trade path names what it could not read,
+    /// and the pool it could not read is a pool with no price.
+    function test_tradePrice_namesTheReadItCouldNotMake() public {
+        spyFeed.setBroken(true);
+        vm.expectRevert(abi.encodeWithSelector(PriceGuard.BadPrice.selector, address(spy)));
+        guard.exitPrice(address(spy), address(vault));
+        spyFeed.setBroken(false);
+
+        spy.setViewsBroken(true);
+        vm.expectRevert(abi.encodeWithSelector(PriceGuard.OraclePaused.selector, address(spy)));
+        guard.tradePrice(address(spy), address(vault));
+        spy.setViewsBroken(false);
+
+        vm.mockCallRevert(address(v4), abi.encodeCall(IStateView.getSlot0, (reg.poolId(address(spy)))), "down");
+        vm.expectRevert(abi.encodeWithSelector(PriceGuard.PoolPriceDeviation.selector, address(spy), 0, SPY_E8));
+        guard.tradePrice(address(spy), address(vault));
+        assertEq(guard.poolPriceE8(address(spy)), 0);
+        assertEq(uint8(vault.drawHalt(address(spy))), uint8(PriceGuard.DrawHalt.Unreadable));
+        vm.clearMockedCalls();
+
+        vm.mockCallRevert(address(access), abi.encodeCall(IAccessRegistry.paused, ()), "down");
+        vm.expectRevert(PriceGuard.AccessPaused.selector);
+        guard.tradePrice(address(spy), address(vault));
+        assertEq(uint8(vault.drawHalt(address(spy))), uint8(PriceGuard.DrawHalt.Unreadable));
+        vm.clearMockedCalls();
+
+        vm.mockCallRevert(address(access), abi.encodeCall(IAccessRegistry.isBlocked, (address(vault))), "down");
+        vm.expectRevert(abi.encodeWithSelector(PriceGuard.Blocked.selector, address(vault)));
+        guard.tradePrice(address(spy), address(vault));
+        vm.clearMockedCalls();
+        assertEq(guard.tradePrice(address(spy), address(vault)), SPY_E8);
+    }
+
     function test_guard_refusesObservationBoundsThatCannotWork() public {
         IAccessRegistry ar = IAccessRegistry(address(access));
         IStateView sv = IStateView(address(v4));

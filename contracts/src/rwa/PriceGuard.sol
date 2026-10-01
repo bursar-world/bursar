@@ -20,6 +20,14 @@ import {IAccessRegistry, IAggregatorV3, IRobinhoodStock, IStateView} from "./int
 /// answer is spent before anyone notices, so a holding whose pool disagrees with its feed is not
 /// fresh either. Valuation never reverts; it reports `fresh`.
 ///
+/// Nor does it revert for an outside contract that does. The feeds, the tokens' pause flags, the
+/// access registry and the pool's StateView are all read with the failure in hand: one that
+/// reverts, holds no code or answers short reads as no price, a raised flag, or a pool with no
+/// price. The collateral vault values every asset a line could hold on every withdrawal and
+/// liquidation, so a feed swapped for a reverting proxy would otherwise freeze every line until
+/// governance repointed it. A trade is different: it names the read it could not make and stops,
+/// because a sale must not run on a price nobody could check.
+///
 /// A draw against a holding asks more than a trade or a valuation, because the pool's spot is one
 /// swap away from wherever a borrower wants it inside a transaction. The pool has to have agreed
 /// with the feed at an aged observation as well: a reading `observe` took at least
@@ -37,9 +45,10 @@ contract PriceGuard {
         uint104 feedE8;
     }
 
-    /// The first condition a draw against a holding fails, `None` when it fails none. Current
-    /// state is checked before history, and the pool's spot last, so a caller that sees the spot
-    /// disagree knows the aged observation stood.
+    /// The first condition a draw against a holding fails, `None` when it fails none. An asset
+    /// whose feed, token, access registry or pool could not be read is `Unreadable` before
+    /// anything else. Then current state is checked before history, and the pool's spot last, so
+    /// a caller that sees the spot disagree knows the aged observation stood.
     enum DrawHalt {
         None,
         NoPrice,
@@ -49,7 +58,8 @@ contract PriceGuard {
         ObservationExpired,
         ObservationOffBand,
         FeedJump,
-        SpotOffBand
+        SpotOffBand,
+        Unreadable
     }
 
     AssetRegistry public immutable registry;
@@ -111,7 +121,8 @@ contract PriceGuard {
     /// Records the pool's mid and the feed's answer for `asset`. Anyone may call it. The reading
     /// lands as `pending`; once it is `MIN_OBSERVATION_AGE` old the next call promotes it to
     /// `aged` and takes its place. A younger pending sample stays, so the aged slot can never
-    /// hold a reading taken in the block that uses it.
+    /// hold a reading taken in the block that uses it. A feed or pool that cannot be read is
+    /// recorded as no price, which agrees with nothing.
     function observe(address asset) external {
         AssetRegistry.Asset memory a = registry.get(asset);
         Sample storage p = pending[asset];
@@ -121,11 +132,8 @@ contract PriceGuard {
             if (age < MIN_OBSERVATION_AGE) revert ObservationTooSoon(asset, age, MIN_OBSERVATION_AGE);
             aged[asset] = p;
         }
-        // The round ids and the start time are left unread: the age comes from `updatedAt`.
-        // slither-disable-next-line unused-return
-        (, int256 answer,, uint256 updatedAt,) = IAggregatorV3(a.feed).latestRoundData();
-        uint256 feedE8 = answer > 0 && updatedAt <= block.timestamp ? uint256(answer) : 0;
-        uint256 poolE8 = _poolPrice(asset, a);
+        (uint256 feedE8,,) = _answer(a.feed);
+        (uint256 poolE8,) = _poolPrice(asset, a);
         // forge-lint: disable-next-line(unsafe-typecast)
         pending[asset] = Sample({at: uint48(block.timestamp), poolE8: _clip(poolE8), feedE8: _clip(feedE8)});
         emit Observed(asset, poolE8, feedE8, promoted);
@@ -155,21 +163,21 @@ contract PriceGuard {
         AssetRegistry.Asset memory a = registry.get(asset);
         bool unpaused;
         bool inBand;
-        (priceE8, updatedAt, unpaused, inBand) = _valuation(asset, a);
+        (priceE8, updatedAt, unpaused, inBand,) = _valuation(asset, a);
         fresh = priceE8 != 0 && block.timestamp - updatedAt <= a.valuationStaleness && unpaused && inBand;
     }
 
     /// What `valuationPrice` rests on, for a caller that holds the answer to its own age bound:
-    /// the feed answer (zero when it is not positive or is dated after the block), when it was
-    /// written, whether the token, its oracle and the access registry are all unpaused, and
-    /// whether the pinned pool's mid sits inside the asset's band of the answer. A holding that
-    /// cannot move cannot be sold to cover what was drawn against it.
+    /// the feed answer (zero when it is not positive, is dated after the block, or could not be
+    /// read), when it was written, whether the token, its oracle and the access registry are all
+    /// unpaused, and whether the pinned pool's mid sits inside the asset's band of the answer. A
+    /// holding that cannot move cannot be sold to cover what was drawn against it.
     function valuation(address asset)
         external
         view
         returns (uint256 priceE8, uint256 updatedAt, bool unpaused, bool inBand)
     {
-        return _valuation(asset, registry.get(asset));
+        (priceE8, updatedAt, unpaused, inBand,) = _valuation(asset, registry.get(asset));
     }
 
     /// `valuation` with the draw rule on top. `maxFeedAge` is the oldest answer the caller lets
@@ -181,8 +189,9 @@ contract PriceGuard {
         returns (uint256 priceE8, uint256 updatedAt, bool unpaused, bool inBand, DrawHalt halt)
     {
         AssetRegistry.Asset memory a = registry.get(asset);
-        (priceE8, updatedAt, unpaused, inBand) = _valuation(asset, a);
-        halt = _drawHalt(asset, a.bandBps, priceE8, updatedAt, unpaused, inBand, maxFeedAge);
+        bool readable;
+        (priceE8, updatedAt, unpaused, inBand, readable) = _valuation(asset, a);
+        halt = _drawHalt(asset, a.bandBps, priceE8, updatedAt, unpaused, inBand, readable, maxFeedAge);
     }
 
     /// USDG value of `raw` at the valuation price, zero when the price is not fresh.
@@ -193,9 +202,10 @@ contract PriceGuard {
         return (Math.mulDiv(raw, priceE8, 10 ** (uint256(a.decimals) + 2)), true);
     }
 
-    /// Mid of the asset's pinned pool, as USD per whole token with eight decimals.
-    function poolPriceE8(address asset) public view returns (uint256) {
-        return _poolPrice(asset, registry.get(asset));
+    /// Mid of the asset's pinned pool, as USD per whole token with eight decimals. Zero for a
+    /// pool nobody seeded, and for a StateView that could not be read.
+    function poolPriceE8(address asset) public view returns (uint256 priceE8) {
+        (priceE8,) = _poolPrice(asset, registry.get(asset));
     }
 
     /// `sqrtPriceX96` is token1 per token0 in raw units. USDG has six decimals.
@@ -207,42 +217,45 @@ contract PriceGuard {
         return Math.mulDiv(Math.mulDiv(Q96, Q96, s), scale, s);
     }
 
+    /// A read that failed is named as the condition it would have refused on: an unreadable
+    /// flag as the pause it may hide, an unreadable feed as no price, an unreadable pool as a
+    /// pool with none.
     function _tradePrice(address asset, AssetRegistry.Asset memory a, address account)
         private
         view
         returns (uint256 priceE8)
     {
-        if (IRobinhoodStock(asset).oraclePaused()) revert OraclePaused(asset);
-        if (IRobinhoodStock(asset).tokenPaused()) revert TokenPaused(asset);
-        if (accessRegistry.paused()) revert AccessPaused();
-        if (accessRegistry.isBlocked(account)) revert Blocked(account);
+        (bool oraclePaused, bool tokenPaused, bool accessPaused,) = _flags(asset);
+        if (oraclePaused) revert OraclePaused(asset);
+        if (tokenPaused) revert TokenPaused(asset);
+        if (accessPaused) revert AccessPaused();
+        (bool blocked,) = _flag(address(accessRegistry), abi.encodeCall(IAccessRegistry.isBlocked, (account)));
+        if (blocked) revert Blocked(account);
 
-        // The round ids and the start time are left unread: the age comes from `updatedAt`.
-        // slither-disable-next-line unused-return
-        (, int256 answer,, uint256 updatedAt,) = IAggregatorV3(a.feed).latestRoundData();
-        if (answer <= 0 || updatedAt > block.timestamp) revert BadPrice(asset);
+        uint256 updatedAt;
+        (priceE8, updatedAt,) = _answer(a.feed);
+        if (priceE8 == 0) revert BadPrice(asset);
         uint256 age = block.timestamp - updatedAt;
         if (age > a.tradeStaleness) revert StalePrice(asset, age, a.tradeStaleness);
-        priceE8 = uint256(answer);
 
-        uint256 pool = _poolPrice(asset, a);
+        (uint256 pool,) = _poolPrice(asset, a);
         if (!_agrees(pool, priceE8, a.bandBps)) revert PoolPriceDeviation(asset, pool, priceE8);
     }
 
+    /// `readable` is false when any of the reads behind the answer failed; the answer itself is
+    /// then the conservative one, which the collateral vault counts as nothing.
     function _valuation(address asset, AssetRegistry.Asset memory a)
         private
         view
-        returns (uint256 priceE8, uint256 updatedAt, bool unpaused, bool inBand)
+        returns (uint256 priceE8, uint256 updatedAt, bool unpaused, bool inBand, bool readable)
     {
-        int256 answer;
-        // The round ids and the start time are left unread: the age comes from `updatedAt`.
-        // slither-disable-next-line unused-return
-        (, answer,, updatedAt,) = IAggregatorV3(a.feed).latestRoundData();
-        if (answer <= 0 || updatedAt > block.timestamp) return (0, updatedAt, false, false);
-        priceE8 = uint256(answer);
-        unpaused =
-            !IRobinhoodStock(asset).oraclePaused() && !IRobinhoodStock(asset).tokenPaused() && !accessRegistry.paused();
-        inBand = _agrees(_poolPrice(asset, a), priceE8, a.bandBps);
+        (priceE8, updatedAt, readable) = _answer(a.feed);
+        if (priceE8 == 0) return (0, updatedAt, false, false, readable);
+        (bool oraclePaused, bool tokenPaused, bool accessPaused, bool flagsReadable) = _flags(asset);
+        unpaused = !oraclePaused && !tokenPaused && !accessPaused;
+        (uint256 pool, bool poolReadable) = _poolPrice(asset, a);
+        inBand = _agrees(pool, priceE8, a.bandBps);
+        readable = flagsReadable && poolReadable;
     }
 
     /// The aged sample is promoted only once it is `MIN_OBSERVATION_AGE` old, so its lower age
@@ -255,8 +268,10 @@ contract PriceGuard {
         uint256 updatedAt,
         bool unpaused,
         bool inBand,
+        bool readable,
         uint256 maxFeedAge
     ) private view returns (DrawHalt) {
+        if (!readable) return DrawHalt.Unreadable;
         if (priceE8 == 0) return DrawHalt.NoPrice;
         if (!unpaused) return DrawHalt.Paused;
         if (block.timestamp - updatedAt > maxFeedAge) return DrawHalt.FeedStale;
@@ -269,11 +284,53 @@ contract PriceGuard {
         return DrawHalt.None;
     }
 
-    function _poolPrice(address asset, AssetRegistry.Asset memory a) private view returns (uint256) {
-        // Only the price is read from the slot.
-        // slither-disable-next-line unused-return
-        (uint160 sqrtPriceX96,,,) = stateView.getSlot0(keccak256(abi.encode(a.pool)));
-        return midE8(sqrtPriceX96, a.pool.currency0 == asset, a.decimals);
+    /// The feed's answer and the time it was written: zero when the feed could not be read,
+    /// answered nothing positive, or dated the round after the block. The words are taken as
+    /// they come rather than through the narrow types, so an answer the feed mangled is still an
+    /// answer this contract can refuse on its own terms.
+    function _answer(address feed) private view returns (uint256 priceE8, uint256 updatedAt, bool readable) {
+        (bool ok, bytes memory data) = feed.staticcall(abi.encodeCall(IAggregatorV3.latestRoundData, ()));
+        if (!ok || data.length < 160) return (0, 0, false);
+        (, int256 answer,, uint256 at,) = abi.decode(data, (uint256, int256, uint256, uint256, uint256));
+        if (answer <= 0 || at > block.timestamp) return (0, at, true);
+        return (uint256(answer), at, true);
+    }
+
+    /// The token's two pause flags and the access registry's. A flag that cannot be read reads
+    /// as raised: a token that cannot say whether it is paused is not one to sell or lend on.
+    function _flags(address asset)
+        private
+        view
+        returns (bool oraclePaused, bool tokenPaused, bool accessPaused, bool readable)
+    {
+        bool oracleReadable;
+        bool tokenReadable;
+        bool accessReadable;
+        (oraclePaused, oracleReadable) = _flag(asset, abi.encodeCall(IRobinhoodStock.oraclePaused, ()));
+        (tokenPaused, tokenReadable) = _flag(asset, abi.encodeCall(IRobinhoodStock.tokenPaused, ()));
+        (accessPaused, accessReadable) = _flag(address(accessRegistry), abi.encodeCall(IAccessRegistry.paused, ()));
+        readable = oracleReadable && tokenReadable && accessReadable;
+    }
+
+    function _flag(address target, bytes memory call) private view returns (bool raised, bool readable) {
+        (bool ok, bytes memory data) = target.staticcall(call);
+        if (!ok || data.length < 32) return (true, false);
+        return (abi.decode(data, (uint256)) != 0, true);
+    }
+
+    /// The pool's mid, zero for a pool nobody seeded or a StateView that could not be read.
+    function _poolPrice(address asset, AssetRegistry.Asset memory a)
+        private
+        view
+        returns (uint256 priceE8, bool readable)
+    {
+        bytes32 id = keccak256(abi.encode(a.pool));
+        (bool ok, bytes memory data) = address(stateView).staticcall(abi.encodeCall(IStateView.getSlot0, (id)));
+        if (!ok || data.length < 32) return (0, false);
+        uint256 sqrtPriceX96 = abi.decode(data, (uint256));
+        if (sqrtPriceX96 > type(uint160).max) return (0, false);
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return (midE8(uint160(sqrtPriceX96), a.pool.currency0 == asset, a.decimals), true);
     }
 
     /// A pool with no price never agrees; that is how a pool nobody seeded reads.
