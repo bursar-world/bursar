@@ -6,22 +6,65 @@ privately first.
 
 ## Audit status
 
-No external audit has been performed on any Bursar contract or service. The caps on mainnet are
-deliberately low to bound what a defect can cost: a payee with no settlement history can be paid
-at most 25 USDG per job, rising with its record to at most 125 USDG per job under the current
-curve. The cap applies to each payment, not to a payee's total. Treat every deployment as
-unaudited code.
+An independent review of the contracts and services was completed on 2026-10-01, and its findings
+are being closed. The caps on mainnet are deliberately low to bound what a defect can cost: a payee
+with no settlement history can be paid at most 25 USDG per job, rising with its record to the
+250 USDG ceiling under the current curve. The cap applies to each payment, not to a payee's total.
+Size any mandate you fund accordingly.
+
+## Trust assumptions and current limits
+
+What the current deployment on chain 4663 relies on, what bounds each item, and what changes it.
+The roles behind each are listed in [GOVERNANCE.md](GOVERNANCE.md#privileged-roles); what the
+contracts must always hold is in [docs/INVARIANTS.md](docs/INVARIANTS.md); how the team watches and
+responds is in [docs/RUNBOOK.md](docs/RUNBOOK.md).
+
+- **Governance keys.** The current set is a development deployment. Its timelock has a one-hour
+  delay, and its three signers and guardian are plain keys held by the team, with two approvals
+  needed for any change. The first set's timelock, which still administers `Vesting` and the
+  community allocation of BRSR, has a 48-hour delay. Before the public launch a timelock with a
+  48-hour delay and a multisig with hardware keys replace the development set, through proposals
+  visible on chain.
+- **Resolvers.** Disputes are ruled by three resolver keys run by the team, with a quorum of two
+  and a bond of 30,000 BRSR each. Rulings follow the published
+  [ruling policy](docs/RULING-POLICY.md), and a vote that misses quorum reopens the lock rather
+  than moving money. Bonding is open to resolvers governance names a floor for.
+- **The committed-mandate verifier.** The proving key behind `WithinMandateVerifier` has a phase 2
+  setup with one contribution, made by the team. A compromised key could forge a proof, so every
+  committed mandate carries a lifetime ceiling of 25 USDG fixed by its factory, and exposure per
+  account stops there. Outside contributions to the setup come before that ceiling is raised.
+- **The association-set postman.** The root the shielded pool accepts withdrawals against is
+  posted by one key run by the team. The set is a pure function of the pool's deposits and the
+  Robinhood Chain access registry, so anyone can recompute it (`bursar-asp verify`). The postman
+  cannot move funds, and a depositor can always leave through ragequit, which needs no root.
+- **The shielded pool's caps.** Deposits are capped at 100 USDG each and the pool at 1,000 USDG,
+  both immutable in the pool; a per-depositor limit is being added. Unlinkability grows with
+  independent deposits, and a payout from a pool with few depositors can be attributed by
+  elimination.
+- **Prices.** Each stock and treasury token is priced by one feed, cross-checked against the
+  asset's pinned Uniswap v4 pool within a band (0.5% for SGOV, 1% for stocks). A feed older than
+  26 hours refuses trades, and a position whose price is stale or whose pool disagrees with its
+  feed counts as zero collateral. Nothing in the protocol trades or lends on a price it cannot
+  check.
+- **Reputation caps.** `Reputation` publishes a per-job cap from a payee's settlement history, from
+  25 USDG with no history to 250 USDG at a perfect score, and the escrow refuses a lock above it.
+  It bounds what one job can carry; it is not a judgement of the payee beyond its record.
+- **Lane caps.** The collateral lane lends at most 10 USDG per mandate and 100 USDG in total, with
+  the loss on a written-off line carried by the pool's lender. Stock purchases are capped at
+  25 USDG per trade and treasury parking at 100 USDG per mandate and 1,000 USDG in total.
 
 ## Supported versions
 
 | Version | Supported |
 |---|---|
 | `main` branch | Yes |
-| 0.1.0, the contracts deployed on chain 4663 (listed below) | Yes |
+| The contracts deployed on chain 4663 (listed below) | Yes |
 | Anything older, including forks and redeployments not listed below | No |
 
-Deployed contracts cannot be patched in place. A fix to one of them is a new deployment, moved to
-through the on-chain governance process in [GOVERNANCE.md](GOVERNANCE.md).
+Bursar's own contracts cannot be patched in place. A fix to one of them is a new deployment, moved
+to through the on-chain governance process in [GOVERNANCE.md](GOVERNANCE.md). The vendored
+Privacy Pools `Entrypoint` is the one upgradeable contract, and its upgrade is a timelock proposal
+like any other change.
 
 ## Reporting a vulnerability
 
@@ -94,10 +137,13 @@ In scope:
   | `Staking`, previous | `0x3f2a0E7822B30aD928488F053348b137866Cf962` |
   | `Buyback`, previous | `0xE979a30564a6F15DCCdB5488d5ac0D74a1bda6F0` |
 
-  and every `MandateAccount` created by any of the three factories.
+  the stock, treasury, collateral, committed-mandate, solvency and shielded contracts the current
+  record names under `rwa` and `privacy`, and every `MandateAccount` created by any of the three
+  factories.
 - The contract source, deploy scripts and packages in this repository (`contracts/`,
-  `packages/*`).
-- The services in this repository: the facilitator, the underwriter and the sidecar.
+  `packages/*`), including the vendored Privacy Pools code under `contracts/vendor/`.
+- The services in this repository: the facilitator, the underwriter, the sidecar, the resolver,
+  the association-set provider, the relayer and the solvency service.
 - The console at https://app.bursar.world and its source in `apps/web/`.
 
 Out of scope:
