@@ -40,8 +40,9 @@ and responds is in [docs/RUNBOOK.md](docs/RUNBOOK.md).
   posted by one key run by the team. The set is a pure function of the pool's deposits and the
   Robinhood Chain access registry, so anyone can recompute it (`bursar-asp verify`). The postman
   cannot move funds, and a depositor can always leave through ragequit, which needs no root.
-- **The shielded pool's caps.** Deposits are capped at 100 USDG each and the pool at 1,000 USDG,
-  both immutable in the pool; a per-depositor limit is being added. Unlinkability grows with
+- **The shielded pool's caps.** Deposits are capped at 100 USDG each, one address at 250 USDG in
+  any seven days, and the pool at 1,000 USDG, all immutable in the pool. A depositor the access
+  registry has since blocked can still take out what it put in. Unlinkability grows with
   independent deposits, and a payout from a pool with few depositors can be attributed by
   elimination.
 - **Prices.** Each stock and treasury token is priced by one feed, cross-checked against the
@@ -51,7 +52,9 @@ and responds is in [docs/RUNBOOK.md](docs/RUNBOOK.md).
   check.
 - **Reputation caps.** `Reputation` publishes a per-job cap from a payee's settlement history, from
   25 USDG with no history to 250 USDG at a perfect score, and the escrow refuses a lock above it.
-  It bounds what one job can carry; it is not a judgement of the payee beyond its record.
+  The score is earned with settled work: a job of 1 USDG or more counts, each payer for at most
+  62.5 USDG of credit, and a full score takes 250 USDG of credit, so at least four payers. The cap
+  bounds what one job can carry; it is not a judgement of the payee beyond its record.
 - **Lane caps.** The collateral lane lends at most 10 USDG per mandate and 100 USDG in total, with
   the loss on a written-off line carried by the pool's lender. Stock purchases are capped at
   25 USDG per trade and treasury parking at 100 USDG per mandate and 1,000 USDG in total.
@@ -80,10 +83,10 @@ Use either channel:
   on this repository.
 
 If funds are at risk right now, start the email subject with `URGENT`. The timelock guardian can
-pause, in the same block, the v3 escrow, `OracleRegistry`, `AgentRegistry`, `Staking` and
-`Buyback`; the v2 escrow, `OracleRegistry` and `AgentRegistry`; and the v1 `AgentRegistry`,
-`Staking` and `Buyback`. Principals can revoke an agent on their own mandate accounts at once. An
-early report is what gives them the time.
+pause, in the same block, the v4 and v3 escrows, the `OracleRegistry` and `AgentRegistry` of each,
+and the `Staking` and `Buyback` they share; the v2 escrow, `OracleRegistry` and `AgentRegistry`;
+and the v1 `AgentRegistry`, `Staking` and `Buyback`. Principals can revoke an agent on their own
+mandate accounts at once. An early report is what gives them the time.
 
 Please include:
 
@@ -113,23 +116,26 @@ There is no bug bounty programme yet. We will say so here when there is one.
 
 In scope:
 
-- The contracts deployed on Robinhood Chain mainnet, chain id 4663. The current set (v3) is a
-  development deployment; the previous set (v2) still holds open locks and disputes.
+- The contracts deployed on Robinhood Chain mainnet, chain id 4663. The current set (v4) is a
+  development deployment; the previous set (v3) still holds open locks and disputes. The two share
+  one timelock.
 
-  | Contract | v3 (current) | v2 (previous) |
+  | Contract | v4 (current) | v3 (previous) |
   |---|---|---|
-  | `AdminTimelock` | `0xD91A6577828424E386900D0bB41596c6eF3BF8DF` | `0x135eF562ac57845AeA1Bb650fc0E74D67A4a866B` |
-  | `MandateAccountFactory` | `0x946FFE695eCc8Ceb201Cf3Dd07dBd302e289Fd07` | `0xe9f8cc653fF40E346e0591f353Be58DF0533cfD0` |
-  | `Escrow` | `0x68D4aD683b5519C785Dde9F0ee0eE09dB2D40919` | `0x4315F8be7C9661345710910577Ec31cb867f3c20` |
-  | `Reputation` | `0xF2510fB02BaE866fD307CE5f48BBe1B1C2E17238` | `0x48BF5F8Cea580148B2A5Ee3A9c487BF1dCafd9c3` |
-  | `OracleRegistry` | `0x20E75139996fFf7B3158DF28Bf133b326DCD2BdF` | `0xE38349668f0C470C814487E95C14e7652F713B17` |
-  | `AgentRegistry` | `0xCa7b01237a43a515FbFBB5BA3e0Fed7e953139c9` | `0x552E95102aE6B9232dD6A744B8f6bd348b379D26` |
+  | `AdminTimelock` | `0xD91A6577828424E386900D0bB41596c6eF3BF8DF` | `0xD91A6577828424E386900D0bB41596c6eF3BF8DF` |
+  | `MandateAccountFactory` | `0xC42dBCbd34E64e2D81B48866F673ddB7B42ba562` | `0x946FFE695eCc8Ceb201Cf3Dd07dBd302e289Fd07` |
+  | `Escrow` | `0x11e73B5632837355e250fC236cFC2Be03aD0845A` | `0x68D4aD683b5519C785Dde9F0ee0eE09dB2D40919` |
+  | `Reputation` | `0x4FEa7af88C60988E80b065F6e2af071C7fB3F5E8` | `0xF2510fB02BaE866fD307CE5f48BBe1B1C2E17238` |
+  | `OracleRegistry` | `0xbb628E362EceE9Ce16f2e48DD79f5ed4558596e3` | `0x20E75139996fFf7B3158DF28Bf133b326DCD2BdF` |
+  | `AgentRegistry` | `0x6501ABAb6aF58549De0Dd42040240665591c6C2a` | `0xCa7b01237a43a515FbFBB5BA3e0Fed7e953139c9` |
 
-  The first set (v1) stays on chain and in scope; its addresses are listed in the
-  [README](README.md#first-set-v1).
+  The second set (v2) and the first set (v1) stay on chain and in scope; their addresses are in
+  [`rhc-mainnet-v2.json`](contracts/deployments/rhc-mainnet-v2.json) and
+  [`rhc-mainnet.json`](contracts/deployments/rhc-mainnet.json).
 
-  The token contracts, of which `BRSR` and `Vesting` are shared by every set. `Staking` and
-  `Buyback` are the current set's; the earlier pool and buyback are listed as previous:
+  The token contracts, of which `BRSR` and `Vesting` are shared by every set. `Staking`, `Buyback`
+  and the liquidity seeder were deployed with the third set and carry over to the fourth; the
+  earlier pool and buyback are listed as previous:
 
   | Contract | Address |
   |---|---|
@@ -137,12 +143,13 @@ In scope:
   | `Vesting` | `0x5aD3d29C80C1617F3B195d74D593Bc9839681b2F` |
   | `Staking` | `0x31CbD06003089B00897F0d7e3c283C66a1768d9A` |
   | `Buyback` | `0x51a88fb749738CB31ddb1F35A426ab2189F45eab` |
+  | `V4LiquiditySeeder` | `0x2cD0c0f114A4E7A20EF7967355E0986D0F82e125` |
   | `Staking`, previous | `0x3f2a0E7822B30aD928488F053348b137866Cf962` |
   | `Buyback`, previous | `0xE979a30564a6F15DCCdB5488d5ac0D74a1bda6F0` |
 
   the stock, treasury, collateral, committed-mandate, solvency and shielded contracts the current
-  record names under `rwa` and `privacy`, and every `MandateAccount` created by any of the three
-  factories.
+  and previous records name under `rwa` and `privacy`, and every `MandateAccount` created by any
+  of the four factories.
 - The contract source, deploy scripts and packages in this repository (`contracts/`,
   `packages/*`), including the vendored Privacy Pools code under `contracts/vendor/`.
 - The services in this repository: the facilitator, the underwriter, the sidecar, the resolver,
