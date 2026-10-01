@@ -3827,6 +3827,28 @@ export const reputationAbi = [
             "internalType": "uint128"
           }
         ]
+      },
+      {
+        "name": "weights_",
+        "type": "tuple",
+        "internalType": "struct IReputation.Weights",
+        "components": [
+          {
+            "name": "minScored",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "edgeCap",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "fullCredit",
+            "type": "uint128",
+            "internalType": "uint128"
+          }
+        ]
       }
     ],
     "stateMutability": "nonpayable"
@@ -3854,6 +3876,25 @@ export const reputationAbi = [
   {
     "type": "function",
     "name": "capOf",
+    "inputs": [
+      {
+        "name": "payee",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint128",
+        "internalType": "uint128"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "creditOf",
     "inputs": [
       {
         "name": "payee",
@@ -3909,6 +3950,30 @@ export const reputationAbi = [
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "edgeVolume",
+    "inputs": [
+      {
+        "name": "payer",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "payee",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint128",
+        "internalType": "uint128"
       }
     ],
     "stateMutability": "view"
@@ -3973,6 +4038,11 @@ export const reputationAbi = [
         "name": "payee",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint128",
+        "internalType": "uint128"
       }
     ],
     "outputs": [],
@@ -3991,6 +4061,11 @@ export const reputationAbi = [
         "name": "payee",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint128",
+        "internalType": "uint128"
       }
     ],
     "outputs": [],
@@ -4009,6 +4084,11 @@ export const reputationAbi = [
         "name": "payee",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint128",
+        "internalType": "uint128"
       }
     ],
     "outputs": [],
@@ -4133,6 +4213,36 @@ export const reputationAbi = [
   },
   {
     "type": "function",
+    "name": "setWeights",
+    "inputs": [
+      {
+        "name": "weights_",
+        "type": "tuple",
+        "internalType": "struct IReputation.Weights",
+        "components": [
+          {
+            "name": "minScored",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "edgeCap",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "fullCredit",
+            "type": "uint128",
+            "internalType": "uint128"
+          }
+        ]
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "transferAdmin",
     "inputs": [
       {
@@ -4143,6 +4253,36 @@ export const reputationAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "weights",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct IReputation.Weights",
+        "components": [
+          {
+            "name": "minScored",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "edgeCap",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "fullCredit",
+            "type": "uint128",
+            "internalType": "uint128"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "event",
@@ -4260,6 +4400,37 @@ export const reputationAbi = [
   },
   {
     "type": "event",
+    "name": "ReleaseCredited",
+    "inputs": [
+      {
+        "name": "payer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "payee",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      },
+      {
+        "name": "credit",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "TimeoutCounted",
     "inputs": [
       {
@@ -4278,6 +4449,31 @@ export const reputationAbi = [
     "anonymous": false
   },
   {
+    "type": "event",
+    "name": "WeightsUpdated",
+    "inputs": [
+      {
+        "name": "minScored",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      },
+      {
+        "name": "edgeCap",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      },
+      {
+        "name": "fullCredit",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "error",
     "name": "AlreadySet",
     "inputs": []
@@ -4285,6 +4481,11 @@ export const reputationAbi = [
   {
     "type": "error",
     "name": "BadCurve",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BadWeights",
     "inputs": []
   },
   {
@@ -8730,9 +8931,63 @@ export const priceGuardAbi = [
         "name": "stateView_",
         "type": "address",
         "internalType": "contract IStateView"
+      },
+      {
+        "name": "minObservationAge",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maxObservationAge",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maxFeedJumpBps",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "MAX_FEED_JUMP_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MAX_OBSERVATION_AGE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MIN_OBSERVATION_AGE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -8743,6 +8998,35 @@ export const priceGuardAbi = [
         "name": "",
         "type": "address",
         "internalType": "contract IAccessRegistry"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "aged",
+    "inputs": [
+      {
+        "name": "asset",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "at",
+        "type": "uint48",
+        "internalType": "uint48"
+      },
+      {
+        "name": "poolE8",
+        "type": "uint104",
+        "internalType": "uint104"
+      },
+      {
+        "name": "feedE8",
+        "type": "uint104",
+        "internalType": "uint104"
       }
     ],
     "stateMutability": "view"
@@ -8772,6 +9056,50 @@ export const priceGuardAbi = [
         "name": "priceE8",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "drawValuation",
+    "inputs": [
+      {
+        "name": "asset",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "maxFeedAge",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "priceE8",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "updatedAt",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "unpaused",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "inBand",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "halt",
+        "type": "uint8",
+        "internalType": "enum PriceGuard.DrawHalt"
       }
     ],
     "stateMutability": "view"
@@ -8828,6 +9156,48 @@ export const priceGuardAbi = [
       }
     ],
     "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "observe",
+    "inputs": [
+      {
+        "name": "asset",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "pending",
+    "inputs": [
+      {
+        "name": "asset",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "at",
+        "type": "uint48",
+        "internalType": "uint48"
+      },
+      {
+        "name": "poolE8",
+        "type": "uint104",
+        "internalType": "uint104"
+      },
+      {
+        "name": "feedE8",
+        "type": "uint104",
+        "internalType": "uint104"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -8991,8 +9361,44 @@ export const priceGuardAbi = [
     "stateMutability": "view"
   },
   {
+    "type": "event",
+    "name": "Observed",
+    "inputs": [
+      {
+        "name": "asset",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "poolE8",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "feedE8",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "promoted",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "error",
     "name": "AccessPaused",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BadObservationBounds",
     "inputs": []
   },
   {
@@ -9025,6 +9431,27 @@ export const priceGuardAbi = [
         "name": "asset",
         "type": "address",
         "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ObservationTooSoon",
+    "inputs": [
+      {
+        "name": "asset",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "age",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "bound",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ]
   },
@@ -10824,6 +11251,25 @@ export const collateralVaultAbi = [
   },
   {
     "type": "function",
+    "name": "claimSeized",
+    "inputs": [
+      {
+        "name": "asset",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "raw",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "collateralAssets",
     "inputs": [],
     "outputs": [
@@ -10881,6 +11327,25 @@ export const collateralVaultAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "drawHalt",
+    "inputs": [
+      {
+        "name": "asset",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "halt",
+        "type": "uint8",
+        "internalType": "enum PriceGuard.DrawHalt"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -11182,6 +11647,25 @@ export const collateralVaultAbi = [
         "name": "",
         "type": "address",
         "internalType": "contract AssetRegistry"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "seized",
+    "inputs": [
+      {
+        "name": "asset",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -11644,6 +12128,56 @@ export const collateralVaultAbi = [
   },
   {
     "type": "event",
+    "name": "Seized",
+    "inputs": [
+      {
+        "name": "mandate",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "asset",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "raw",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SeizedClaimed",
+    "inputs": [
+      {
+        "name": "asset",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "lender",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "raw",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "TierSet",
     "inputs": [
       {
@@ -11825,6 +12359,17 @@ export const collateralVaultAbi = [
     "type": "error",
     "name": "NotUnlocking",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NothingSeized",
+    "inputs": [
+      {
+        "name": "asset",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   },
   {
     "type": "error",

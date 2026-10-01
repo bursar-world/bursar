@@ -234,6 +234,14 @@ const GUARD: Readonly<Record<ErrorName<typeof priceGuardAbi>, Reading>> = {
       'Robinhood’s access registry is paused, so no stock token trades or moves until it resumes. ' +
       'Nothing was sent, and no mandate setting changes this.',
   },
+  BadObservationBounds: {
+    owner: 'deployment',
+    message:
+      'The price guard’s observation bounds do not hold together: the minimum age has to be above zero, ' +
+      'the maximum at least twice the minimum and at most a day, and the feed jump limit above zero and ' +
+      'under 100%. The guard checks them once, when it is deployed, so nothing a caller sends reaches this. ' +
+      'Report it to the operator.',
+  },
   BadPrice: {
     owner: 'token',
     message: (figures, context) =>
@@ -247,6 +255,18 @@ const GUARD: Readonly<Record<ErrorName<typeof priceGuardAbi>, Reading>> = {
       'or hold the lane’s tokens. Only Robinhood lifts a block; no mandate setting changes it.',
   },
   NotEligible: NOT_ELIGIBLE,
+  ObservationTooSoon: {
+    owner: 'clock',
+    message: (figures, context) =>
+      figured(
+        [ageAt(figures, 1), ageAt(figures, 2)],
+        ([age, bound]) =>
+          `The reading of the ${tokenAt(figures, 0, context, 'asset’s')} pool waiting at the price guard is ` +
+          `${age} old, and the next one can replace it once it is ${bound} old.`,
+        `The reading of the ${tokenAt(figures, 0, context, 'asset’s')} pool waiting at the price guard is too ` +
+          'young for the next one to replace it.',
+      ) + ' Nothing was recorded and the reading in force is unchanged. Observe again after the wait.',
+  },
   OraclePaused: {
     owner: 'token',
     message: (figures, context) =>
@@ -522,6 +542,13 @@ const VAULT: Readonly<Record<ErrorName<typeof collateralVaultAbi>, Reading>> = {
     message:
       'Only the mandate’s principal can open its credit line or take collateral back out. Send this from ' +
       'the principal’s key.',
+  },
+  NothingSeized: {
+    owner: 'caller',
+    message: (figures, context) =>
+      `The vault holds no seized ${tokenAt(figures, 0, context, 'collateral in this asset')}, so there is ` +
+      'nothing to pay the pool’s lender. Collateral is seized when a line’s debt is written off, and a ' +
+      'claim pays out all of it at once. seized() reads what is waiting.',
   },
   NothingToSell: {
     owner: 'caller',
