@@ -12,6 +12,7 @@ import {AgentRegistry} from "../src/AgentRegistry.sol";
 import {Escrow} from "../src/Escrow.sol";
 import {IEscrow} from "../src/interfaces/IEscrow.sol";
 import {IOracleRegistry} from "../src/interfaces/IOracleRegistry.sol";
+import {CollateralVault} from "../src/rwa/CollateralVault.sol";
 import {CreditPool} from "../src/rwa/CreditPool.sol";
 import {Staking} from "../src/token/Staking.sol";
 
@@ -38,8 +39,8 @@ interface IPreviousShieldedPool is IShieldedPoolReads {
 ///
 /// - a payment on the previous escrow still locked, disputed, or inside its dispute window, and
 ///   any USDG left in the escrow at all;
-/// - cash or debt in the previous credit pool, and any balance in the previous vault, booked to a
-///   line or not;
+/// - cash or debt in the previous credit pool, and any balance in the previous vault: seized by a
+///   write-off and not yet claimed by the lender, booked to a line, or neither;
 /// - notes in the previous shielded pool;
 /// - a stake still on the previous agent registry, a bond or an unclaimed reward still on the
 ///   previous resolver registry.
@@ -180,16 +181,28 @@ contract RetireRecords is Migration {
             console2.log("the previous credit pool still holds cash or debt");
         }
 
-        // Every balance the vault holds, booked to a line or left by a sale that stopped short or
-        // a transfer sent by hand: each is still somebody's.
-        address vault = _previous(K.COLLATERAL_VAULT);
+        // Every balance the vault holds. What a write-off seized is the lender's, paid out by
+        // `claimSeized`; the rest is booked to a line, or was left by a sale that stopped short or
+        // a transfer sent by hand. Each is still somebody's.
+        CollateralVault vault = CollateralVault(_previous(K.COLLATERAL_VAULT));
         for (uint256 i; i < symbols.length; ++i) {
             address asset = _previousOptional(string.concat(K.RWA_ASSETS, ".", symbols[i], ".address"));
-            if (asset == address(0) || IERC20(asset).balanceOf(vault) == 0) continue;
+            if (asset == address(0)) continue;
+            uint256 seized = vault.seized(asset);
+            if (seized != 0) {
+                ++open;
+                console2.log(
+                    string.concat(
+                        "the previous collateral vault holds seized ", symbols[i], " the lender has not claimed"
+                    ),
+                    seized
+                );
+            }
+            if (IERC20(asset).balanceOf(address(vault)) <= seized) continue;
             ++open;
             console2.log(string.concat("the previous collateral vault still holds ", symbols[i]));
         }
-        if (IERC20(_settlementAsset()).balanceOf(vault) != 0) {
+        if (IERC20(_settlementAsset()).balanceOf(address(vault)) != 0) {
             ++open;
             console2.log("the previous collateral vault still holds USDG");
         }

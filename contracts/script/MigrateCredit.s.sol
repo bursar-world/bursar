@@ -7,6 +7,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Migration} from "./lib/Migration.sol";
 import {RecordKeys as K} from "./lib/RecordKeys.sol";
 
+import {CollateralVault} from "../src/rwa/CollateralVault.sol";
 import {CreditPool} from "../src/rwa/CreditPool.sol";
 
 /// Moves the collateral lane's lending cash from the previous credit pool to the new one, from the
@@ -19,10 +20,17 @@ import {CreditPool} from "../src/rwa/CreditPool.sol";
 /// `fund(amount)` lends `amount` micro-USD to the new pool. Anyone may fund; only the recorded
 /// lender can take it back out.
 ///
+/// `claimSeized` takes what write-offs seized in the previous vault to the lender, who carried
+/// those losses. The vault pays the lender whoever calls, so any key may run it.
+///
 ///   forge script script/MigrateCredit.s.sol --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/rh-deployer" [--broadcast]
 ///   forge script script/MigrateCredit.s.sol --sig "fund(uint256)" 25000000 --rpc-url "$RHC_RPC_URL" \
 ///     --keystore "$KEYS/rh-deployer" [--broadcast]
+///   forge script script/MigrateCredit.s.sol --sig "claimSeized()" --rpc-url "$RHC_RPC_URL" \
+///     --keystore "$KEYS/rh-deployer" [--broadcast]
 contract MigrateCredit is Migration {
+    string[4] internal symbols = ["SGOV", "SPY", "NVDA", "AAPL"];
+
     function run() external {
         _begin();
         CreditPool previous = CreditPool(_previous(K.CREDIT_POOL));
@@ -68,5 +76,24 @@ contract MigrateCredit is Migration {
         console2.log("new credit pool               ", address(pool));
         console2.log("lendable cash now, micro-USD  ", pool.cash());
         console2.log("lender, who alone can take it back", pool.lender());
+    }
+
+    function claimSeized() external {
+        _begin();
+        CollateralVault vault = CollateralVault(_previous(K.COLLATERAL_VAULT));
+        address lender = vault.pool().lender();
+        uint256 claims;
+        vm.startBroadcast(msg.sender);
+        for (uint256 i; i < symbols.length; ++i) {
+            address asset = _previousOptional(string.concat(K.RWA_ASSETS, ".", symbols[i], ".address"));
+            if (asset == address(0) || vault.seized(asset) == 0) continue;
+            uint256 before = IERC20(asset).balanceOf(lender);
+            uint256 raw = vault.claimSeized(asset);
+            require(IERC20(asset).balanceOf(lender) >= before + raw, "the lender did not receive what was seized");
+            console2.log(string.concat("seized ", symbols[i], " paid to the lender, raw"), raw);
+            ++claims;
+        }
+        vm.stopBroadcast();
+        if (claims == 0) _note("The previous vault holds nothing seized.");
     }
 }

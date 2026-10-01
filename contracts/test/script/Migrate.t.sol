@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {StdStorage, stdStorage} from "forge-std/StdStorage.sol";
 
 import {Deploy} from "../../script/Deploy.s.sol";
 import {DeployStaking} from "../../script/DeployStaking.s.sol";
@@ -54,6 +55,8 @@ contract VerifyProbe is Verify {
 /// it, carrying the timelock and the token set over, and every step of `MIGRATION.md` runs against
 /// the two records in the runbook's order. It ends with one flow per lane against the new set.
 contract MigrateTest is World, LaneFlows {
+    using stdStorage for StdStorage;
+
     address internal constant EXAMPLE_PAYER = address(0xE2E00011);
     address internal constant OLD_PAYER = address(0xE2E00012);
     uint256 internal constant FLOOR = 30_000e18;
@@ -602,6 +605,24 @@ contract MigrateTest is World, LaneFlows {
         );
     }
 
+    /// Stock a write-off seized sits in the previous vault until the lender claims it, and holds
+    /// the record open until then. The seizure is written into the vault's ledger here, the way a
+    /// write-off would leave it.
+    function _claimWhatAWriteOffSeized() private {
+        CollateralVault vault = CollateralVault(_readAddress(previousPath, K.COLLATERAL_VAULT));
+        address spy = _stock("SPY");
+        MockStock(spy).mint(address(vault), 1e17);
+        stdstore.target(address(vault)).sig(vault.seized.selector).with_key(spy).checked_write(uint256(1e17));
+        _expectRefused(
+            DEPLOYER, address(new RetireRecords()), "run()", abi.encodeWithSelector(RetireRecords.StillOpen.selector, 1)
+        );
+
+        uint256 before = IERC20(spy).balanceOf(DEPLOYER);
+        _step(DEPLOYER, address(new MigrateCredit()), "claimSeized()");
+        assertEq(IERC20(spy).balanceOf(DEPLOYER), before + 1e17, "the lender was not paid what was seized");
+        assertEq(vault.seized(spy), 0);
+    }
+
     /// 5. Seven days later the old bonds and stake come back, and the previous record retires. The
     /// buyback's ceiling has aged out by then, as the runbook warns, and governance restates it
     /// before the last strict check.
@@ -624,6 +645,7 @@ contract MigrateTest is World, LaneFlows {
         assertEq(usdg.balanceOf(payee), payeeBefore + 5e6);
         _step(DEPLOYER, address(new RetireRecords()), "settle()");
         _step(EXAMPLE_PAYER, address(new MigrateExamples()), "drain()");
+        _claimWhatAWriteOffSeized();
 
         _run(DEPLOYER, address(new RetireRecords()));
         string memory previous = vm.readFile(previousPath);
