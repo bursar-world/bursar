@@ -119,6 +119,13 @@ export type ShieldedDeployment = {
   readonly maxDeposit: string;
   readonly maxTotal: string;
   readonly minimumDeposit: string;
+  /**
+   * The most one depositor may put in during one window, in atomic USDG, and the window's length in
+   * seconds. Recorded together by a pool that holds each depositor to a window; a pool from before
+   * v4 has neither.
+   */
+  readonly maxPerDepositor?: string;
+  readonly depositorWindow?: number;
   readonly maxRelayFeeBps: number;
   readonly aspPostman: Address;
   readonly relayer: Address;
@@ -346,6 +353,12 @@ function parseShielded(json: unknown, parent: string): ShieldedDeployment {
   if (typeof bps !== 'number' || !Number.isInteger(bps) || bps < 0 || bps >= 10_000) {
     throw new DeploymentError(label, 'maxRelayFeeBps is not a basis-point figure.');
   }
+  // One without the other is a pool whose limit a reader could state and not explain.
+  const windowed = r['maxPerDepositor'] !== undefined || r['depositorWindow'] !== undefined;
+  const window = r['depositorWindow'];
+  if (windowed && (typeof window !== 'number' || !Number.isInteger(window) || window <= 0)) {
+    throw new DeploymentError(label, 'depositorWindow is not a positive number of seconds.');
+  }
   return Object.freeze({
     Entrypoint: address(r, label, 'Entrypoint'),
     ShieldedPool: address(r, label, 'ShieldedPool'),
@@ -358,6 +371,7 @@ function parseShielded(json: unknown, parent: string): ShieldedDeployment {
     maxDeposit: decimal('maxDeposit'),
     maxTotal: decimal('maxTotal'),
     minimumDeposit: decimal('minimumDeposit'),
+    ...(windowed ? { maxPerDepositor: decimal('maxPerDepositor'), depositorWindow: window as number } : {}),
     maxRelayFeeBps: bps,
     aspPostman: address(r, label, 'aspPostman'),
     relayer: address(r, label, 'relayer'),

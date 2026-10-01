@@ -126,14 +126,17 @@ export {
 
 export {
   COLLATERAL_LANE,
+  DRAW_HALTS,
   NO_DEBT_HEALTH,
   RWA_CLASS_BIT,
   collateralDeployment,
+  drawHaltOf,
   healthRatio,
   rwaDeployment,
   rawToUsdgMicros,
   usdgMicrosToRaw,
 } from './rwa.js';
+export type { DrawHalt } from './rwa.js';
 export { privacyDeployment } from './privacy.js';
 
 export {

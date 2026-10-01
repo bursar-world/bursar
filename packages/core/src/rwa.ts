@@ -32,6 +32,30 @@ export const COLLATERAL_LANE = 1;
 /** What `CollateralVault.health` returns for a position with no debt. */
 export const NO_DEBT_HEALTH = (1n << 256n) - 1n;
 
+/**
+ * `PriceGuard.DrawHalt`, in the order the enum declares: the first condition a draw against a
+ * holding fails, and `None` when it fails none. Current state is checked before history and the
+ * pool's spot last.
+ */
+export const DRAW_HALTS = [
+  'None',
+  'NoPrice',
+  'Paused',
+  'FeedStale',
+  'NoObservation',
+  'ObservationExpired',
+  'ObservationOffBand',
+  'FeedJump',
+  'SpotOffBand',
+] as const;
+
+export type DrawHalt = (typeof DRAW_HALTS)[number];
+
+/** The name behind the number a vault or a guard answers. Undefined for one this build does not know. */
+export function drawHaltOf(value: number): DrawHalt | undefined {
+  return DRAW_HALTS[value];
+}
+
 /** The collateral lane that answers for a chain, if one is deployed. */
 export function collateralDeployment(chainId: number): CollateralDeployment | undefined {
   return rwaDeployment(chainId)?.collateral;

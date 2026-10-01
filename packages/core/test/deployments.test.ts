@@ -357,6 +357,41 @@ async function withAddressBook(
  * nobody is watching. Named explicitly it still resolves, because the account of what ran has to
  * survive.
  */
+/**
+ * From v4 the shielded pool holds each depositor to a window, and the deploy records the cap and
+ * the window's length beside the pool's other limits. Both or neither: the console states the cap
+ * and explains it with the window.
+ */
+describe('a shielded pool’s depositor window', () => {
+  const live = RAW_DEPLOYMENTS['rhc-mainnet-v3'] as { privacy: { shielded: Record<string, unknown> } };
+  const shieldedWith = (extra: Record<string, unknown>): Record<string, unknown> =>
+    exampleRecord({ privacy: { ...live.privacy, shielded: { ...live.privacy.shielded, ...extra } } });
+
+  it('is absent from a record written before the pool had one', () => {
+    const shielded = parseDeployment(shieldedWith({})).privacy?.shielded;
+
+    expect(shielded?.maxDeposit).toBe('100000000');
+    expect(shielded?.maxPerDepositor).toBeUndefined();
+    expect(shielded?.depositorWindow).toBeUndefined();
+  });
+
+  it('is read as the cap in atomic USDG and the window in seconds', () => {
+    const shielded = parseDeployment(shieldedWith({ maxPerDepositor: '250000000', depositorWindow: 604_800 })).privacy
+      ?.shielded;
+
+    expect(shielded?.maxPerDepositor).toBe('250000000');
+    expect(shielded?.depositorWindow).toBe(604_800);
+  });
+
+  it('is refused when the record carries one half of it', () => {
+    expect(() => parseDeployment(shieldedWith({ maxPerDepositor: '250000000' }))).toThrow(/depositorWindow/);
+    expect(() => parseDeployment(shieldedWith({ depositorWindow: 604_800 }))).toThrow(/maxPerDepositor/);
+    expect(() => parseDeployment(shieldedWith({ maxPerDepositor: '250000000', depositorWindow: 0 }))).toThrow(
+      /depositorWindow/,
+    );
+  });
+});
+
 describe('retired deployments', () => {
   afterEach(() => {
     vi.doUnmock('../src/generated/deployments.js');
