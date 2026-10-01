@@ -66,6 +66,18 @@ export {
 export type { PaymentBinding } from './binding.js';
 
 export {
+  ESCROW_SETTLEMENT_TAG,
+  REQUEST_DOCUMENT_MEDIA_TYPE,
+  escrowSettlementNonce,
+  isRequestDocumentURI,
+  readRequestURI,
+  requestCommit,
+  requestDocument,
+  requestURI,
+} from './escrow.js';
+export type { EscrowLockIdentity, RequestDocument } from './escrow.js';
+
+export {
   assertAssetConsistent,
   assetDomain,
   computeDomainSeparator,

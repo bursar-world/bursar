@@ -244,6 +244,18 @@ export {
 export type { PaymentBinding } from './binding.js';
 
 export {
+  ESCROW_SETTLEMENT_TAG,
+  REQUEST_DOCUMENT_MEDIA_TYPE,
+  escrowSettlementNonce,
+  isRequestDocumentURI,
+  readRequestURI,
+  requestCommit,
+  requestDocument,
+  requestURI,
+} from './x402-escrow.js';
+export type { EscrowLockIdentity, RequestDocument } from './x402-escrow.js';
+
+export {
   DocumentError,
   RequestError,
   RefuseReason,
