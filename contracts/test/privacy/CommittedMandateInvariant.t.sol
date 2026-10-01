@@ -370,6 +370,7 @@ contract CommittedMandateHandler is CommonBase, StdUtils {
     /// The principal opens another account, or a stranger tries to open one in the principal's
     /// name and has to be refused.
     function create(uint256 salt, bool asStranger) external {
+        salt = bound(salt, 0, type(uint128).max);
         address caller = asStranger ? _stranger(salt) : principal;
         if (!asStranger && accounts.length >= MAX_ACCOUNTS) return;
 
