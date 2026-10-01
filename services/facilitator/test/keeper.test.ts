@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { BaseError, createPublicClient, custom, encodeErrorResult } from 'viem';
 import type { Address, Hex, PublicClient } from 'viem';
 
-import { createKeeperChain, revertName, runKeeper } from '../src/collateral/keeper.js';
-import type { KeeperChain, Position, Spread } from '../src/collateral/keeper.js';
+import { createKeeperChain, observeDecision, revertName, runKeeper } from '../src/collateral/keeper.js';
+import type { KeeperChain, Observation, ObservationRule, Position, Spread } from '../src/collateral/keeper.js';
 import { createOnchainCollateralReader, fromAccountTuple } from '../src/lanes/onchain-collateral.js';
 
 const HEALTHY: Address = '0x1000000000000000000000000000000000000001';
@@ -13,10 +13,26 @@ const SPY: Address = '0x117cc2133c37B721F49dE2A7a74833232B3B4C0C';
 const AAPL: Address = '0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9';
 const NO_DEBT = (1n << 256n) - 1n;
 const TX: Hex = '0xabc0000000000000000000000000000000000000000000000000000000000abc';
+const NOW = 1_800_000_000n;
+const RULE: ObservationRule = { minAge: 300n, maxAge: 3_600n };
+const NONE = { at: 0n, poolE8: 0n, feedE8: 0n };
+/** A pool and a feed in line, read now and recorded in a waiting reading old enough to promote. */
+const SETTLED: Observation = {
+  aged: { at: NOW - 900n, poolE8: 77_000_000_000n, feedE8: 77_100_000_000n },
+  pending: { at: NOW - 400n, poolE8: 77_000_000_000n, feedE8: 77_100_000_000n },
+  poolE8: 77_000_000_000n,
+  feedE8: 77_100_000_000n,
+  halt: 'None',
+};
 
 class FakeChain implements KeeperChain {
   sent: string[] = [];
   liquidateRevert: Error | null = null;
+  observeRevert: Error | null = null;
+  /** Null is a guard from before v4, which takes no readings. */
+  rule: ObservationRule | null = null;
+  observations: Record<string, Observation> = { [SPY]: SETTLED, [AAPL]: SETTLED };
+  lineList: Address[] = [HEALTHY, SICK];
   /** What the vault would sell. Zero is the write-off of a line with nothing left to sell. */
   sold = 5n;
   spreadState: Spread = { reservesMicro: 0n, poolIsCreditManager: false };
@@ -26,7 +42,7 @@ class FakeChain implements KeeperChain {
   ];
 
   async lines() {
-    return [HEALTHY, SICK];
+    return this.lineList;
   }
   async account(mandate: Address) {
     return mandate === SICK
@@ -53,6 +69,25 @@ class FakeChain implements KeeperChain {
   async simulateSweep() {}
   async sweep() {
     this.sent.push('sweep');
+    return TX;
+  }
+  async now() {
+    return NOW;
+  }
+  async assets() {
+    return Object.keys(this.observations) as Address[];
+  }
+  async observationRule() {
+    return this.rule;
+  }
+  async observation(asset: Address) {
+    return this.observations[asset] as Observation;
+  }
+  async simulateObserve() {
+    if (this.observeRevert) throw this.observeRevert;
+  }
+  async observe(asset: Address) {
+    this.sent.push(`observe ${asset}`);
     return TX;
   }
 }
@@ -154,6 +189,180 @@ describe('collateral keeper', () => {
   });
 });
 
+/**
+ * From v4 a draw counts a position only against a reading of its pool the guard took earlier, so
+ * the keeper keeps the readings current. Every decision below is the one a pass makes from the
+ * guard's two samples, the clock, and what the vault says a draw fails on.
+ */
+describe('deciding whether to observe an asset', () => {
+  it('takes a first reading when the guard holds none', () => {
+    expect(observeDecision({ ...SETTLED, aged: NONE, pending: NONE }, RULE, NOW)).toEqual({ action: 'observe', reason: 'first-reading' });
+  });
+
+  it('waits while the waiting reading is younger than the guard’s minimum, whatever else is true', () => {
+    const young = { ...SETTLED, aged: NONE, pending: { ...SETTLED.pending, at: NOW - 100n }, halt: 'NoObservation' as const };
+
+    expect(observeDecision(young, RULE, NOW)).toEqual({ action: 'wait', until: NOW + 200n });
+  });
+
+  it('promotes once the waiting reading is old enough and none is in force', () => {
+    expect(observeDecision({ ...SETTLED, aged: NONE, halt: 'NoObservation' }, RULE, NOW)).toEqual({ action: 'observe', reason: 'promote' });
+  });
+
+  it('promotes before the reading in force runs out, with two waits of margin', () => {
+    const expiring = { ...SETTLED, aged: { ...SETTLED.aged, at: NOW - 3_001n } };
+    const fresh = { ...SETTLED, aged: { ...SETTLED.aged, at: NOW - 3_000n } };
+
+    expect(observeDecision(expiring, RULE, NOW)).toEqual({ action: 'observe', reason: 'promote' });
+    expect(observeDecision(fresh, RULE, NOW)).toEqual({ action: 'skip' });
+  });
+
+  it.each(['ObservationOffBand', 'FeedJump', 'ObservationExpired'] as const)('observes when a draw is halted on %s, which the next reading may clear', (halt) => {
+    expect(observeDecision({ ...SETTLED, halt }, RULE, NOW)).toEqual({ action: 'observe', reason: 'halted' });
+  });
+
+  it.each(['NoPrice', 'Paused', 'FeedStale', 'SpotOffBand'] as const)('leaves a draw halted on %s to the market, and skips an unchanged reading', (halt) => {
+    expect(observeDecision({ ...SETTLED, halt }, RULE, NOW)).toEqual({ action: 'skip' });
+  });
+
+  it('observes when the pool or the feed has moved since the waiting reading', () => {
+    expect(observeDecision({ ...SETTLED, poolE8: 77_500_000_000n }, RULE, NOW)).toEqual({ action: 'observe', reason: 'moved' });
+    expect(observeDecision({ ...SETTLED, feedE8: 0n }, RULE, NOW)).toEqual({ action: 'observe', reason: 'moved' });
+  });
+
+  it('compares a mid past the field as the guard would record it, clipped', () => {
+    const edge = (1n << 104n) - 1n;
+    const pinned = { ...SETTLED, pending: { ...SETTLED.pending, poolE8: edge }, poolE8: edge + 5n };
+
+    expect(observeDecision(pinned, RULE, NOW)).toEqual({ action: 'skip' });
+  });
+});
+
+describe('keeping the guard’s readings', () => {
+  /** A v4 guard over one healthy line, so every action in the report is a reading. */
+  function v4(chain = new FakeChain()): FakeChain {
+    chain.rule = RULE;
+    chain.lineList = [HEALTHY];
+    return chain;
+  }
+
+  it('reports no readings and nothing to keep on a lane from before v4', async () => {
+    const chain = new FakeChain();
+    chain.lineList = [HEALTHY];
+
+    const report = await run(chain, true);
+
+    expect(report.observations).toBeNull();
+    expect(report.health.observed).toBe(true);
+    expect(report.health.summary).toContain('takes no readings');
+    expect(report.actions.some((a) => a.kind === 'observe')).toBe(false);
+  });
+
+  it('dry run names the reading it would take and sends nothing', async () => {
+    const chain = v4();
+    chain.observations = { [SPY]: { ...SETTLED, aged: NONE, pending: NONE, halt: 'NoObservation' } };
+
+    const report = await run(chain);
+
+    expect(report.actions).toEqual([{ kind: 'observe', asset: SPY, outcome: 'would-send', reason: 'first-reading' }]);
+    expect(chain.sent).toEqual([]);
+  });
+
+  it('sends the readings that would change what a draw sees, and skips the rest', async () => {
+    const chain = v4();
+    chain.observations = {
+      [SPY]: { ...SETTLED, poolE8: 78_000_000_000n },
+      [AAPL]: SETTLED,
+    };
+
+    const report = await run(chain, true);
+
+    expect(report.actions).toEqual([
+      { kind: 'observe', asset: SPY, outcome: 'sent', reason: 'moved', tx: TX },
+      { kind: 'observe', asset: AAPL, outcome: 'skipped', reason: 'unchanged', detail: expect.stringContaining('sit where the waiting reading left them') },
+    ]);
+    expect(chain.sent).toEqual([`observe ${SPY}`]);
+  });
+
+  it('reports a reading too young to replace, and says when it can', async () => {
+    const chain = v4();
+    chain.observations = { [SPY]: { ...SETTLED, pending: { ...SETTLED.pending, at: NOW - 120n } } };
+
+    const report = await run(chain, true);
+
+    expect(report.actions[0]).toMatchObject({ kind: 'observe', asset: SPY, outcome: 'waiting', reason: 'too-soon' });
+    expect((report.actions[0] as { detail: string }).detail).toContain(new Date(Number(NOW + 180n) * 1000).toISOString());
+    expect(chain.sent).toEqual([]);
+  });
+
+  it('tolerates the guard refusing a reading as too soon, which another sender explains', async () => {
+    const chain = v4();
+    chain.observations = { [SPY]: { ...SETTLED, poolE8: 78_000_000_000n } };
+    chain.observeRevert = new BaseError('execution reverted: ObservationTooSoon(address,uint256,uint256)');
+
+    const report = await run(chain, true);
+
+    expect(report.actions[0]).toMatchObject({ kind: 'observe', outcome: 'waiting', reason: 'too-soon' });
+    expect(chain.sent).toEqual([]);
+  });
+
+  it('reports any other refusal of a reading as a failure, and goes on to the next asset', async () => {
+    const chain = v4();
+    chain.observations = { [SPY]: { ...SETTLED, poolE8: 78_000_000_000n }, [AAPL]: { ...SETTLED, feedE8: 0n } };
+    chain.observeRevert = new BaseError('execution reverted: NotRegistered(address)');
+
+    const report = await run(chain, true);
+
+    expect(report.actions.map((a) => a.outcome)).toEqual(['failed', 'failed']);
+    expect(chain.sent).toEqual([]);
+  });
+
+  it('snapshots each asset’s standing and the age of both readings', async () => {
+    const chain = v4();
+    chain.observations = { [SPY]: SETTLED, [AAPL]: { ...SETTLED, aged: NONE, pending: NONE, halt: 'NoObservation' } };
+
+    const report = await run(chain);
+
+    expect(report.observations).toEqual([
+      { asset: SPY, halt: 'None', agedAgeSeconds: 900, pendingAgeSeconds: 400 },
+      { asset: AAPL, halt: 'NoObservation', agedAgeSeconds: null, pendingAgeSeconds: null },
+    ]);
+  });
+
+  it('fails health for want of a reading in force, and not for a halt that is the market’s', async () => {
+    const chain = v4();
+    chain.observations = { [SPY]: { ...SETTLED, halt: 'SpotOffBand' }, [AAPL]: SETTLED };
+    let report = await run(chain, true);
+    expect(report.health).toEqual({
+      observed: true,
+      halted: [{ asset: SPY, halt: 'SpotOffBand' }],
+      summary: 'Readings are in force for every asset; draws against 1 of 2 are halted on the feed, the issuer or the pool.',
+    });
+
+    chain.observations = { [SPY]: { ...SETTLED, aged: NONE, halt: 'NoObservation' }, [AAPL]: SETTLED };
+    report = await run(chain, true);
+    expect(report.health.observed).toBe(false);
+    expect(report.health.summary).toBe(
+      "Draws against 1 of 2 assets are halted for want of a reading in force; 1 reading sent this pass, in force after the guard's minimum age.",
+    );
+
+    chain.observations = { [SPY]: SETTLED, [AAPL]: SETTLED };
+    report = await run(chain, true);
+    expect(report.health).toEqual({ observed: true, halted: [], summary: 'Readings are in force for every asset and draws count all 2.' });
+  });
+
+  it('takes the readings before it looks at the lines', async () => {
+    const chain = v4();
+    chain.lineList = [SICK];
+    chain.observations = { [SPY]: { ...SETTLED, aged: NONE, halt: 'NoObservation' } };
+
+    const report = await run(chain, true);
+
+    expect(report.actions.map((a) => a.kind)).toEqual(['observe', 'liquidate']);
+    expect(chain.sent).toEqual([`observe ${SPY}`, `liquidate ${SICK} ${SPY}`]);
+  });
+});
+
 describe('on-chain collateral reader', () => {
   it('reads the recorded vault and maps its account tuple', async () => {
     const calls: unknown[] = [];
@@ -207,5 +416,51 @@ describe('reading a liquidation the guard refuses', () => {
 
     const error = await chain.simulateLiquidate(SICK, SPY).catch((failure: unknown) => failure);
     expect(revertName(error)).toBe('PoolPriceDeviation');
+  });
+
+  it.skipIf(lane === undefined)('names a reading the guard refuses as too soon, which is a wait', async () => {
+    const data = encodeErrorResult({ abi: priceGuardAbi, errorName: 'ObservationTooSoon', args: [SPY, 120n, 300n] });
+    const node = createPublicClient({
+      chain: viemChain(RHC_MAINNET),
+      transport: custom(
+        {
+          request: async ({ method, params }: { method: string; params?: unknown[] }) => {
+            if (method === 'eth_chainId') return `0x${RHC_MAINNET.chainId.toString(16)}`;
+            // The vault answers its guard; the guard refuses the reading.
+            const to = String((params?.[0] as { to?: string } | undefined)?.to ?? '').toLowerCase();
+            if (method === 'eth_call' && to === lane!.CollateralVault.toLowerCase()) return `0x${'0'.repeat(24)}${'99'.repeat(20)}`;
+            if (method === 'eth_call') throw { code: 3, message: 'execution reverted', data };
+            throw new Error(`this node does not answer ${method}`);
+          },
+        },
+        { retryCount: 0 },
+      ),
+    }) as PublicClient;
+    const chain = createKeeperChain({ publicClient: node, lane: lane! });
+
+    const error = await chain.simulateObserve(SPY).catch((failure: unknown) => failure);
+    expect(revertName(error)).toBe('ObservationTooSoon');
+  });
+
+  /** A v3 guard has no observation bounds, and an unknown selector on it answers nothing. */
+  it.skipIf(lane === undefined)('reads a guard that takes no readings as having no rule', async () => {
+    const node = createPublicClient({
+      chain: viemChain(RHC_MAINNET),
+      transport: custom(
+        {
+          request: async ({ method, params }: { method: string; params?: unknown[] }) => {
+            if (method === 'eth_chainId') return `0x${RHC_MAINNET.chainId.toString(16)}`;
+            const to = String((params?.[0] as { to?: string } | undefined)?.to ?? '').toLowerCase();
+            if (method === 'eth_call' && to === lane!.CollateralVault.toLowerCase()) return `0x${'0'.repeat(24)}${'99'.repeat(20)}`;
+            if (method === 'eth_call') return '0x';
+            throw new Error(`this node does not answer ${method}`);
+          },
+        },
+        { retryCount: 0 },
+      ),
+    }) as PublicClient;
+    const chain = createKeeperChain({ publicClient: node, lane: lane! });
+
+    expect(await chain.observationRule()).toBeNull();
   });
 });

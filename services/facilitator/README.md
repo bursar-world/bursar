@@ -620,6 +620,47 @@ cannot broadcast can still verify payments, take decisions and answer every ledg
 
 The underwriter answers the same two paths with the same two shapes.
 
+## The collateral keeper
+
+The lane's vault sells collateral from a line whose health has fallen under 1.0, writes off a line
+with nothing left to sell, and counts a position toward a draw only while the price guard holds a
+recent reading of the asset's pool. None of that happens on its own. The keeper is one pass over
+all of it, shipped in this package and run from a scheduler, with each pass standing alone:
+
+```
+pnpm --filter @bursar/facilitator keeper
+```
+
+A pass reads every line the vault has opened, liquidates the largest fresh position of any line
+under 1.0, sweeps the credit spread to the staking pool once governance has named the pool as its
+credit manager, and keeps the guard's readings current. It prints one JSON report on stdout: each
+line's health, every action it took or would take, each asset's standing under the draw rule, and a
+`health` block whose `observed` is false while a draw is halted for want of a reading in force.
+
+| Variable | Meaning |
+|---|---|
+| `RHC_RPC_URL` | The endpoint. The chain's public one when unset. |
+| `BURSAR_KEEPER_EXECUTE` | `1` sends. Anything else is a dry run that reports what it would send. |
+| `BURSAR_KEEPER_KEY` | The key that pays gas and takes the liquidation bounty. Needed to send, and its own key: never the relayer's. |
+| `BURSAR_KEEPER_SWEEP_MIN_MICRO` | The smallest spread worth a sweep, in micro-USDG. 100000 (0.10 USDG) when unset. |
+
+The readings are what sets the schedule. A draw counts a position only against a reading the guard
+took at least `MIN_OBSERVATION_AGE` earlier and at most `MAX_OBSERVATION_AGE` earlier, 300 s and
+3600 s as deployed, and `observe(asset)` records a new reading while promoting the one that has
+aged into force. Run the pass every five minutes, the guard's minimum, and it keeps every reading as
+fresh as the guard allows; run it less often than every 27 minutes and the reading in force runs out
+between passes and every draw halts. A pass observes an asset only where a reading would change what
+a draw sees: the guard has no reading yet, none is in force or the one in force is about to run out,
+a draw is halted on a reading the next one may clear, or the pool or the feed has moved since the
+waiting reading was taken. Over a weekend, with every feed and pool where the last pass left them,
+that is two readings an hour per asset instead of twelve. A reading the guard refuses as too young
+is reported as waiting, not as a failure. On a lane whose guard takes no readings the report says so
+and the pass does the rest of its work.
+
+The keeper is not part of the facilitator process and nothing in this repository schedules it. On
+the hosted deployment it runs as a Render cron job on this package's `keeper` script with the four
+variables above, `BURSAR_KEEPER_EXECUTE=1`, and a schedule of `*/5 * * * *`.
+
 ## Tests
 
 ```
