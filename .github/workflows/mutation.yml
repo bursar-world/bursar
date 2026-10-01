@@ -1,0 +1,69 @@
+name: Mutation testing
+
+on:
+  workflow_dispatch:
+    inputs:
+      mutators:
+        description: Mutator classes to run, comma-separated (RR,CR for the severe classes only); empty runs every class
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  escrow:
+    name: Mutate the escrow
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # contracts/.foundry-version pins the release; the contracts README installs from it too.
+      - name: Read the pinned Foundry release
+        id: foundry
+        run: echo "version=$(cat .foundry-version)" >> "$GITHUB_OUTPUT"
+
+      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
+        with:
+          version: ${{ steps.foundry.outputs.version }}
+
+      # contracts/lib is not committed. The same pinned commits CI builds from; the contracts
+      # README gives the same command.
+      - name: Install Solidity dependencies
+        run: |
+          forge install --no-git --shallow \
+            foundry-rs/forge-std@1eea5bae12ae557d589f9f0f0edae2faa47cb262 \
+            OpenZeppelin/openzeppelin-contracts@69c8def5f222ff96f2b5beff05dfba996368aa79 \
+            OpenZeppelin/openzeppelin-contracts-upgradeable@723f8cab09cdae1aca9ec9cc1cfa040c2d4b06c1
+
+      # The runner's own Python and pipx, so no action beyond the two above is needed. The release
+      # is the one test/mutation/escrow.sh was written against.
+      - name: Install slither-mutate
+        run: pipx install slither-analyzer==0.11.6
+
+      # Every mutant costs one incremental compile and one run of the escrow tests. The severe
+      # classes alone take over an hour; the whole set takes several.
+      - name: Mutate src/Escrow.sol
+        run: test/mutation/escrow.sh
+        env:
+          MUTATORS: ${{ inputs.mutators }}
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: escrow-mutation
+          path: |
+            contracts/cache/mutation-escrow.log
+            contracts/cache/mutation-escrow-survivors.diff
+          if-no-files-found: ignore
+          retention-days: 30
