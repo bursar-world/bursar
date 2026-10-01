@@ -179,14 +179,14 @@ function inputReason(input: Exclude<InputCheck, { kind: 'verified' }>): string {
 
 /** Why the job could not be checked against its input. Published, so the gap is on the record. */
 function unreadInput(input: Exclude<InputCheck, { kind: 'verified' }>): string {
-  const rest = 'so the job could not be checked against it. The ruling rests on the delivery evidence alone.';
+  const rests = 'The ruling rests on the delivery evidence alone.';
   switch (input.kind) {
     case 'missing':
-      return `The lock names no input, ${rest}`;
+      return `The lock names no input, so the job could not be checked against one. ${rests}`;
     case 'unfetchable':
-      return `The input could not be fetched (${input.detail}), ${rest}`;
+      return `The input could not be fetched (${input.detail}), so the job could not be checked against it. ${rests}`;
     case 'mismatch':
-      return `The published input does not hash to the lock's commitment (${input.detail}), ${rest}`;
+      return `The published input does not hash to the lock's commitment (${input.detail}), so the job could not be checked against it. ${rests}`;
   }
 }
 
