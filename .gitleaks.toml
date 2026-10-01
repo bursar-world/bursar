@@ -1,0 +1,73 @@
+# Extends the default rules. Every allowlist below names a value that is public by construction and
+# says why. A finding that is a real credential is fixed by rotating it, never by adding it here.
+#
+# The three allowlists scoped to a path carry targetRules so they attach to the one rule that
+# produces the finding and are judged per finding, path and field together. A global allowlist with
+# a path would exempt the whole file before any rule ran.
+title = "bursar"
+
+[extend]
+useDefault = true
+
+# The ten accounts anvil and hardhat derive from their shared default mnemonic. anvil prints the
+# keys on every start and both tools document them; a test that signs with one gives nothing away.
+[[allowlists]]
+description = "anvil and hardhat default development keys"
+regexes = [
+  '''(?i)ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80''',
+  '''(?i)59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d''',
+  '''(?i)5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a''',
+  '''(?i)7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6''',
+  '''(?i)47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a''',
+  '''(?i)8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba''',
+  '''(?i)92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e''',
+  '''(?i)4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356''',
+  '''(?i)dbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97''',
+  '''(?i)2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6''',
+]
+
+# A 20-byte EVM address names a contract or an account anyone can look up on the chain. It is never
+# the thing that controls one.
+[[allowlists]]
+description = "EVM addresses"
+regexes = ['''^0x[0-9a-fA-F]{40}$''']
+
+# packages/sdk/test/stealth.test.ts checks scheme-1 derivation against vectors the reference
+# implementation (@scopelift/stealth-address-sdk 1.0.0-beta.2) produced from the spending and
+# viewing keys published in its own test suite. The ephemeral keys are one-off values from that
+# run, and each stealth key follows from the published keys and the ephemeral public key printed
+# beside it. Only those four fields are exempt; another key in the same file is still a finding.
+[[allowlists]]
+description = "reference stealth-address vectors"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^packages/sdk/test/stealth\.test\.ts$''']
+regexTarget = "match"
+regexes = ['''(spendingPrivateKey|viewingPrivateKey|ephemeralPrivateKey|stealthKey): '0x[0-9a-f]{64}'''']
+
+# circuits/build/setup.json and circuits/privacy-pools/manifest.json record the sha256 of each
+# proving and verification artifact committed beside them, keyed by file name, so a reader can
+# check the bytes they load. The digest of a committed file is as public as the file.
+[[allowlists]]
+description = "digests of committed circuit artifacts"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^circuits/build/setup\.json$''', '''^circuits/privacy-pools/manifest\.json$''']
+regexTarget = "match"
+regexes = ['''[\w.-]+\.(ptau|r1cs|wasm|zkey|vkey|json|sol)": "[0-9a-f]{64}''']
+
+# The deployment records under contracts/deployments, the verification inputs under
+# contracts/verification and the TypeScript @bursar/core generates from the records hold transaction
+# hashes and artifact digests next to the addresses. Each one is there so it can be checked against
+# the chain. Only a field named as a hash or digest is exempt.
+[[allowlists]]
+description = "transaction hashes and digests in deployment records"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = [
+  '''^contracts/deployments/[\w.-]+\.json$''',
+  '''^contracts/verification/[\w.-]+\.json$''',
+  '''^packages/core/src/generated/deployments\.ts$''',
+]
+regexTarget = "match"
+regexes = ['''\w+(Tx|Hash|Sha256)": "(0x)?[0-9a-fA-F]{64}''']
