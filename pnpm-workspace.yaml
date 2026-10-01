@@ -18,6 +18,12 @@ allowBuilds:
 onlyBuiltDependencies:
   - esbuild
 
+# A compromised release is usually noticed and pulled from the registry within hours. A new version
+# is not installed until it has been public for three days, which outlasts that window for every
+# dependency, transitive ones included. Dependabot's cooldown in .github/dependabot.yml is the same
+# three days, so an update it proposes is one this setting will accept.
+minimumReleaseAge: 4320
+
 # Security fixes for packages that arrive through something else, where whatever pulls them in pins
 # a vulnerable release. Each version key matches only the vulnerable range, so an entry does
 # nothing once its parent moves past it, and can then be deleted.

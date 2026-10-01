@@ -7,6 +7,10 @@ updates:
     open-pull-requests-limit: 10
     commit-message:
       prefix: deps
+    # The same three days as minimumReleaseAge in pnpm-workspace.yaml, so a release pnpm would
+    # refuse is not proposed either.
+    cooldown:
+      default-days: 3
     groups:
       minor-and-patch:
         update-types:
@@ -47,6 +51,10 @@ updates:
       interval: weekly
     commit-message:
       prefix: ci
+    # An action release has the same exposure as a package release: three days before a new tag or
+    # commit is proposed.
+    cooldown:
+      default-days: 3
     groups:
       actions:
         patterns:
