@@ -32,6 +32,8 @@ contract LocalChainTest is ScriptHarness, LaneFlows {
     function test_theRehearsedDeploymentVerifiesAndRunsEveryLane() public {
         string memory path = vm.envOr("BURSAR_RECORD", string("cache/bursar/local/local-4663.json"));
         _set("BURSAR_RECORD", path);
+        // The record the rehearsed one replaced, when the rehearsal moved one into the other.
+        _set("BURSAR_PREVIOUS_RECORD", vm.envOr("BURSAR_PREVIOUS_RECORD", string("")));
         _set("BURSAR_LOCAL", "1");
         _unset("BURSAR_VERIFY_STRICT");
 

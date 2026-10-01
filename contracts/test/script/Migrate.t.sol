@@ -33,6 +33,7 @@ import {Staking} from "../../src/token/Staking.sol";
 import {V4LiquiditySeeder} from "../../src/token/V4LiquiditySeeder.sol";
 import {MockUsdg} from "../mocks/MockUsdg.sol";
 import {MockStock} from "../rwa/RwaMocks.sol";
+import {LaneFlows} from "./LaneFlows.sol";
 import {World} from "./World.sol";
 
 contract VerifyStakingProbe is VerifyStaking {
@@ -51,10 +52,9 @@ contract VerifyProbe is Verify {
 /// used the way the live one is: wired, funded, a payee registered, the resolvers bonded, the three
 /// examples created, a payment settled and one left to expire. Then a record is planned on top of
 /// it, carrying the timelock and the token set over, and every step of `MIGRATION.md` runs against
-/// the two records in the runbook's order.
-contract MigrateTest is World {
-    address internal constant USDG = 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168;
-    address internal constant PAYER = address(0xE2E00011);
+/// the two records in the runbook's order. It ends with one flow per lane against the new set.
+contract MigrateTest is World, LaneFlows {
+    address internal constant EXAMPLE_PAYER = address(0xE2E00011);
     address internal constant OLD_PAYER = address(0xE2E00012);
     uint256 internal constant FLOOR = 30_000e18;
 
@@ -118,14 +118,14 @@ contract MigrateTest is World {
             _as(resolvers[i], _pinned(address(new MigrateResolvers())), abi.encodeWithSignature("bond()"));
         }
 
-        MockUsdg(USDG).mint(PAYER, 1e6);
-        MockStock(_readAddress(path, string.concat(K.RWA_ASSETS, ".SPY.address"))).mint(PAYER, 1e18);
+        MockUsdg(USDG).mint(EXAMPLE_PAYER, 1e6);
+        MockStock(_readAddress(path, string.concat(K.RWA_ASSETS, ".SPY.address"))).mint(EXAMPLE_PAYER, 1e18);
         _committedTerms(true);
-        _as(PAYER, _pinned(address(new MigrateExamples())), abi.encodeWithSignature("create()"));
+        _as(EXAMPLE_PAYER, _pinned(address(new MigrateExamples())), abi.encodeWithSignature("create()"));
         _committedTerms(false);
         assertEq(
             CollateralVault(_readAddress(path, K.COLLATERAL_VAULT))
-                .collateralOf(_readAddress(path, ".exampleCollateralMandate.address"), _asset("SPY")),
+                .collateralOf(_readAddress(path, ".exampleCollateralMandate.address"), _stock("SPY")),
             1e18,
             "the collateral example holds no SPY"
         );
@@ -240,7 +240,7 @@ contract MigrateTest is World {
         _set("BURSAR_COMMITTED_CIPHERTEXT", on ? "0x01" : "");
     }
 
-    function _asset(string memory symbol) private view returns (address) {
+    function _stock(string memory symbol) private view returns (address) {
         return _readAddress(path, string.concat(K.RWA_ASSETS, ".", symbol, ".address"));
     }
 
@@ -431,6 +431,7 @@ contract MigrateTest is World {
         _moveWhatNeedsNoGovernance();
         _landTheWiringAndGoLive();
         _reclaimAndRetire();
+        _lanes(path);
     }
 
     /// 1. The new set, on top of the carried one. The apps cannot move yet: no examples, and the
@@ -441,6 +442,8 @@ contract MigrateTest is World {
         _rwa();
         _collateral();
         _privacy();
+        // The lanes' shielded proofs were made for a pool at the address this nonce gives it.
+        vm.setNonce(DEPLOYER, SHIELDED_NONCE);
         _as(DEPLOYER, _deployShieldedScript(), abi.encodeWithSignature("run()"));
         pool = _readAddress(path, K.CREDIT_POOL);
         previousPool = _readAddress(previousPath, K.CREDIT_POOL);
@@ -483,11 +486,11 @@ contract MigrateTest is World {
         assertEq(previousEscrow.feesAccrued(), 0);
         assertEq(usdg.balanceOf(address(previousEscrow)), 0, "the previous escrow still holds USDG");
 
-        uint256 payerBefore = usdg.balanceOf(PAYER);
-        _step(PAYER, address(new MigrateExamples()), "drain()");
-        assertEq(usdg.balanceOf(PAYER), payerBefore + 200_000 + 50_000, "the examples' USDG did not come back");
-        assertEq(IERC20(_asset("SPY")).balanceOf(PAYER), 1e18, "the collateral example's SPY did not come back");
-        assertEq(IERC20(_asset("SPY")).balanceOf(_readAddress(previousPath, K.COLLATERAL_VAULT)), 0);
+        uint256 payerBefore = usdg.balanceOf(EXAMPLE_PAYER);
+        _step(EXAMPLE_PAYER, address(new MigrateExamples()), "drain()");
+        assertEq(usdg.balanceOf(EXAMPLE_PAYER), payerBefore + 200_000 + 50_000, "the examples' USDG did not come back");
+        assertEq(IERC20(_stock("SPY")).balanceOf(EXAMPLE_PAYER), 1e18, "the collateral example's SPY did not come back");
+        assertEq(IERC20(_stock("SPY")).balanceOf(_readAddress(previousPath, K.COLLATERAL_VAULT)), 0);
 
         uint256 lenderBefore = usdg.balanceOf(DEPLOYER);
         _run(DEPLOYER, address(new MigrateCredit()));
@@ -500,14 +503,14 @@ contract MigrateTest is World {
         _seatThePayeeAndTheResolvers();
 
         _committedTerms(true);
-        _step(PAYER, address(new MigrateExamples()), "create()");
+        _step(EXAMPLE_PAYER, address(new MigrateExamples()), "create()");
         _committedTerms(false);
         string memory json = vm.readFile(path);
         assertEq(vm.parseJsonBytes32(json, ".exampleMandate.salt"), keccak256("bursar.example-mandate.local-4663-next"));
         assertTrue(vm.parseJsonAddress(json, ".exampleCommittedMandate.address").code.length != 0);
         assertEq(
             CollateralVault(_readAddress(path, K.COLLATERAL_VAULT))
-                .collateralOf(vm.parseJsonAddress(json, ".exampleCollateralMandate.address"), _asset("SPY")),
+                .collateralOf(vm.parseJsonAddress(json, ".exampleCollateralMandate.address"), _stock("SPY")),
             1e18,
             "the SPY was not posted to the new vault"
         );
@@ -589,7 +592,7 @@ contract MigrateTest is World {
         _step(payee, address(new MigratePayee()), "reclaim()");
         assertEq(usdg.balanceOf(payee), payeeBefore + 5e6);
         _step(DEPLOYER, address(new RetireRecords()), "settle()");
-        _step(PAYER, address(new MigrateExamples()), "drain()");
+        _step(EXAMPLE_PAYER, address(new MigrateExamples()), "drain()");
 
         _run(DEPLOYER, address(new RetireRecords()));
         string memory previous = vm.readFile(previousPath);
