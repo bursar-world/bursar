@@ -17,16 +17,16 @@ importers:
   .:
     devDependencies:
       '@types/node':
-        specifier: ^22.15.0
+        specifier: 22.20.2
         version: 22.20.2
       tsx:
-        specifier: ^4.20.0
+        specifier: 4.23.13
         version: 4.23.13
       typescript:
-        specifier: ^5.9.0
+        specifier: 5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^4.1.11
+        specifier: 4.1.11
         version: 4.1.11(@types/node@22.20.2)(vite@7.3.6(@types/node@22.20.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.13))
 
   apps/web:
@@ -38,50 +38,50 @@ importers:
         specifier: workspace:*
         version: link:../../packages/sdk
       '@tanstack/react-query':
-        specifier: ^5.102.0
+        specifier: 5.102.8
         version: 5.102.8(react@19.3.0)
       buffer:
-        specifier: ^6.0.3
+        specifier: 6.0.3
         version: 6.0.3
       next:
         specifier: 15.5.25
         version: 15.5.25(@types/node@22.20.2)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       react:
-        specifier: ^19.3.0
+        specifier: 19.3.0
         version: 19.3.0
       react-dom:
-        specifier: ^19.3.0
+        specifier: 19.3.0
         version: 19.3.0(react@19.3.0)
       viem:
-        specifier: ^2.56.0
+        specifier: 2.56.3
         version: 2.56.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@3.25.76)
       wagmi:
-        specifier: ^2.19.5
+        specifier: 2.19.5
         version: 2.19.5(@tanstack/query-core@5.102.8)(@tanstack/react-query@5.102.8(react@19.3.0))(@types/react@19.3.0)(bufferutil@4.1.0)(debug@4.4.3)(react@19.3.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(viem@2.56.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@3.25.76))(zod@3.25.76)
     devDependencies:
       '@tailwindcss/postcss':
-        specifier: ^4.3.3
+        specifier: 4.3.3
         version: 4.3.3
       '@types/node':
-        specifier: ^22.15.0
+        specifier: 22.20.2
         version: 22.20.2
       '@types/react':
-        specifier: ^19.3.0
+        specifier: 19.3.0
         version: 19.3.0
       '@types/react-dom':
-        specifier: ^19.3.0
+        specifier: 19.3.0
         version: 19.3.0(@types/react@19.3.0)
       fake-indexeddb:
-        specifier: ^6.2.5
+        specifier: 6.2.5
         version: 6.2.5
       tailwindcss:
-        specifier: ^4.3.3
+        specifier: 4.3.3
         version: 4.3.3
       tsx:
-        specifier: ^4.20.0
+        specifier: 4.23.13
         version: 4.23.13
       typescript:
-        specifier: ^5.9.0
+        specifier: 5.9.3
         version: 5.9.3
 
   circuits:
@@ -97,26 +97,26 @@ importers:
         specifier: 0.7.6
         version: 0.7.6
       vitest:
-        specifier: ^4.1.11
+        specifier: 4.1.11
         version: 4.1.11(@types/node@22.20.2)(vite@7.3.6(@types/node@22.20.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.13))
 
   packages/core:
     dependencies:
       viem:
-        specifier: ^2.56.0
+        specifier: 2.56.3
         version: 2.56.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.6.1)
     devDependencies:
       '@types/node':
-        specifier: ^22.15.0
+        specifier: 22.20.2
         version: 22.20.2
       tsx:
-        specifier: ^4.20.0
+        specifier: 4.23.13
         version: 4.23.13
       typescript:
-        specifier: ^5.9.0
+        specifier: 5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^4.1.11
+        specifier: 4.1.11
         version: 4.1.11(@types/node@22.20.2)(vite@7.3.6(@types/node@22.20.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.13))
 
   packages/mcp:
@@ -131,23 +131,23 @@ importers:
         specifier: workspace:*
         version: link:../sdk
       '@modelcontextprotocol/sdk':
-        specifier: ^1.30.0
+        specifier: 1.30.0
         version: 1.30.0(zod@4.6.1)
       viem:
-        specifier: ^2.56.0
+        specifier: 2.56.3
         version: 2.56.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.6.1)
     devDependencies:
       '@types/node':
-        specifier: ^22.15.0
+        specifier: 22.20.2
         version: 22.20.2
       tsx:
-        specifier: ^4.20.0
+        specifier: 4.23.13
         version: 4.23.13
       typescript:
-        specifier: ^5.9.0
+        specifier: 5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^4.1.11
+        specifier: 4.1.11
         version: 4.1.11(@types/node@22.20.2)(vite@7.3.6(@types/node@22.20.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.13))
 
   packages/sdk:
@@ -174,20 +174,20 @@ importers:
         specifier: 0.7.6
         version: 0.7.6
       viem:
-        specifier: ^2.56.0
+        specifier: 2.56.3
         version: 2.56.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.6.1)
     devDependencies:
       '@types/node':
-        specifier: ^22.15.0
+        specifier: 22.20.2
         version: 22.20.2
       tsx:
-        specifier: ^4.20.0
+        specifier: 4.23.13
         version: 4.23.13
       typescript:
-        specifier: ^5.9.0
+        specifier: 5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^4.1.11
+        specifier: 4.1.11
         version: 4.1.11(@types/node@22.20.2)(vite@7.3.6(@types/node@22.20.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.13))
 
   packages/x402:
@@ -196,17 +196,17 @@ importers:
         specifier: workspace:*
         version: link:../core
       viem:
-        specifier: ^2.56.0
+        specifier: 2.56.3
         version: 2.56.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.6.1)
     devDependencies:
       '@types/node':
-        specifier: ^22.15.0
+        specifier: 22.20.2
         version: 22.20.2
       typescript:
-        specifier: ^5.9.0
+        specifier: 5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^4.1.11
+        specifier: 4.1.11
         version: 4.1.11(@types/node@22.20.2)(vite@7.3.6(@types/node@22.20.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.13))
 
   services/asp:
@@ -218,20 +218,20 @@ importers:
         specifier: workspace:*
         version: link:../../packages/sdk
       viem:
-        specifier: ^2.56.0
+        specifier: 2.56.3
         version: 2.56.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.6.1)
     devDependencies:
       '@types/node':
-        specifier: ^22.15.0
+        specifier: 22.20.2
         version: 22.20.2
       tsx:
-        specifier: ^4.20.0
+        specifier: 4.23.13
         version: 4.23.13
       typescript:
-        specifier: ^5.9.0
+        specifier: 5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^4.1.11
+        specifier: 4.1.11
         version: 4.1.11(@types/node@22.20.2)(vite@7.3.6(@types/node@22.20.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.13))
 
   services/facilitator:
@@ -246,29 +246,29 @@ importers:
         specifier: workspace:*
         version: link:../../packages/x402
       pg:
-        specifier: ^8.16.0
+        specifier: 8.23.0
         version: 8.23.0
       viem:
-        specifier: ^2.56.0
+        specifier: 2.56.3
         version: 2.56.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.6.1)
     devDependencies:
       '@bursar/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
       '@types/node':
-        specifier: ^22.15.0
+        specifier: 22.20.2
         version: 22.20.2
       '@types/pg':
-        specifier: ^8.15.0
+        specifier: 8.23.1
         version: 8.23.1
       tsx:
-        specifier: ^4.20.0
+        specifier: 4.23.13
         version: 4.23.13
       typescript:
-        specifier: ^5.9.0
+        specifier: 5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^4.1.11
+        specifier: 4.1.11
         version: 4.1.11(@types/node@22.20.2)(vite@7.3.6(@types/node@22.20.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.13))
 
   services/relayer:
@@ -280,20 +280,20 @@ importers:
         specifier: workspace:*
         version: link:../../packages/sdk
       viem:
-        specifier: ^2.56.0
+        specifier: 2.56.3
         version: 2.56.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.6.1)
     devDependencies:
       '@types/node':
-        specifier: ^22.15.0
+        specifier: 22.20.2
         version: 22.20.2
       tsx:
-        specifier: ^4.20.0
+        specifier: 4.23.13
         version: 4.23.13
       typescript:
-        specifier: ^5.9.0
+        specifier: 5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^4.1.11
+        specifier: 4.1.11
         version: 4.1.11(@types/node@22.20.2)(vite@7.3.6(@types/node@22.20.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.13))
 
   services/resolver:
@@ -305,26 +305,26 @@ importers:
         specifier: workspace:*
         version: link:../../packages/sdk
       pg:
-        specifier: ^8.16.0
+        specifier: 8.23.0
         version: 8.23.0
       viem:
-        specifier: ^2.56.0
+        specifier: 2.56.3
         version: 2.56.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.6.1)
     devDependencies:
       '@types/node':
-        specifier: ^22.15.0
+        specifier: 22.20.2
         version: 22.20.2
       '@types/pg':
-        specifier: ^8.15.0
+        specifier: 8.23.1
         version: 8.23.1
       tsx:
-        specifier: ^4.20.0
+        specifier: 4.23.13
         version: 4.23.13
       typescript:
-        specifier: ^5.9.0
+        specifier: 5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^4.1.11
+        specifier: 4.1.11
         version: 4.1.11(@types/node@22.20.2)(vite@7.3.6(@types/node@22.20.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.13))
 
   services/sidecar:
@@ -336,20 +336,20 @@ importers:
         specifier: workspace:*
         version: link:../../packages/sdk
       viem:
-        specifier: ^2.56.0
+        specifier: 2.56.3
         version: 2.56.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.6.1)
     devDependencies:
       '@types/node':
-        specifier: ^22.15.0
+        specifier: 22.20.2
         version: 22.20.2
       tsx:
-        specifier: ^4.20.0
+        specifier: 4.23.13
         version: 4.23.13
       typescript:
-        specifier: ^5.9.0
+        specifier: 5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^4.1.11
+        specifier: 4.1.11
         version: 4.1.11(@types/node@22.20.2)(vite@7.3.6(@types/node@22.20.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.13))
 
   services/solvency:
@@ -358,20 +358,20 @@ importers:
         specifier: workspace:*
         version: link:../../packages/core
       viem:
-        specifier: ^2.56.0
+        specifier: 2.56.3
         version: 2.56.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.6.1)
     devDependencies:
       '@types/node':
-        specifier: ^22.15.0
+        specifier: 22.20.2
         version: 22.20.2
       tsx:
-        specifier: ^4.20.0
+        specifier: 4.23.13
         version: 4.23.13
       typescript:
-        specifier: ^5.9.0
+        specifier: 5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^4.1.11
+        specifier: 4.1.11
         version: 4.1.11(@types/node@22.20.2)(vite@7.3.6(@types/node@22.20.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.13))
 
   services/underwriter:
@@ -380,26 +380,26 @@ importers:
         specifier: workspace:*
         version: link:../../packages/core
       pg:
-        specifier: ^8.16.0
+        specifier: 8.23.0
         version: 8.23.0
       viem:
-        specifier: ^2.56.0
+        specifier: 2.56.3
         version: 2.56.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.6.1)
     devDependencies:
       '@types/node':
-        specifier: ^22.15.0
+        specifier: 22.20.2
         version: 22.20.2
       '@types/pg':
-        specifier: ^8.15.0
+        specifier: 8.23.1
         version: 8.23.1
       tsx:
-        specifier: ^4.20.0
+        specifier: 4.23.13
         version: 4.23.13
       typescript:
-        specifier: ^5.9.0
+        specifier: 5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^4.1.11
+        specifier: 4.1.11
         version: 4.1.11(@types/node@22.20.2)(vite@7.3.6(@types/node@22.20.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.13))
 
 packages:

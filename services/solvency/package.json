@@ -40,13 +40,13 @@
   },
   "dependencies": {
     "@bursar/core": "workspace:*",
-    "viem": "^2.56.0"
+    "viem": "2.56.3"
   },
   "devDependencies": {
-    "@types/node": "^22.15.0",
-    "tsx": "^4.20.0",
-    "typescript": "^5.9.0",
-    "vitest": "^4.1.11"
+    "@types/node": "22.20.2",
+    "tsx": "4.23.13",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
   },
   "engines": {
     "node": ">=22"
