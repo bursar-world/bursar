@@ -163,11 +163,15 @@ prints the random seed it ran with; `--fuzz-seed <seed>` replays the same sequen
 - Spending power counts the mandate's USDG, its idle vault balance and the USDG reserve, and
   counts SGOV after the haircut only while the feed is fresh, nothing is paused and the pool
   agrees with the feed. Otherwise SGOV counts for nothing.
+- A move inside every rule is never refused: setting a buffer, returning idle USDG and unparking
+  what a position holds all land, from the reserve at any time and from SGOV while its market
+  is open.
 - The admin seat moves only to the address the sitting admin named, and only when that address
   accepts.
 - Whatever governance switches off, every position comes back out: at the end of every sequence
-  each position is sold back to its mandate and each vault emptied, with nothing left on an
-  adapter.
+  each position is sold back to its mandate and each vault emptied. Nothing is left on the
+  reserve, and no SGOV position keeps more than a remainder worth under a tenth of a cent, which
+  sells with the next amount parked on top of it.
 
 ## Buyback
 
@@ -223,10 +227,24 @@ prints the random seed it ran with; `--fuzz-seed <seed>` replays the same sequen
 
 ## Collateral vault
 
-This section is reserved. The collateral vault's invariants are being written alongside changes
-to the contract and will be listed here when they land.
+- Tokens are conserved for every asset: the vault's balance is the collateral behind its credit
+  lines plus what it has seized.
+- The vault's view of a line's debt is the credit pool's, and a line's health reads as unlimited
+  exactly when it owes nothing.
+- A write-off leaves the line with no collateral and no debt.
+- No draw lands without a valid price observation that has aged long enough to be trusted.
+- A line that owes nothing can always withdraw all of its collateral.
+- Seized tokens only ever sit in the vault's seized balance or go to the pool's lender.
 
 ## Shielded pool
 
-This section is reserved. The shielded pool's invariants are being written alongside changes to
-the contract and will be listed here when they land.
+A note is a private claim on a deposit in the pool.
+
+- What the pool owes its notes is deposits less payouts, and never exceeds the pool's cap.
+- The pool's token balance always covers what it owes, and a token sent to it outside a deposit
+  never counts toward any note.
+- No depositor exceeds the per-depositor limit within a window.
+- An address the access registry blocks is never paid more than it deposited, less what it was
+  already paid.
+- A payout that is refused never spends a note.
+- Every live note can be withdrawn in full by its depositor without anyone's approval.
