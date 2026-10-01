@@ -233,8 +233,8 @@ export function createFacilitatorService(options: ServiceOptions): FacilitatorSe
       network: config.network,
       gasFloat,
       rpc: rhc.pool.status(),
-      trustOutbox: counts.status === 'fulfilled' ? counts.value : { error: reason(counts.reason) },
-      migrations: migrations.status === 'fulfilled' ? migrations.value : { error: reason(migrations.reason) },
+      trustOutbox: counts.status === 'fulfilled' ? counts.value : { error: unread('the trust outbox', counts.reason, log, 'database') },
+      migrations: migrations.status === 'fulfilled' ? migrations.value : { error: unread('the applied migrations', migrations.reason, log, 'database') },
     };
   };
 
@@ -249,7 +249,7 @@ export function createFacilitatorService(options: ServiceOptions): FacilitatorSe
    */
   const ready = async (): Promise<Readiness> => {
     const [database, underwriter, chain] = await Promise.all([
-      databaseCheck(db, config),
+      databaseCheck(db, config, log),
       options.underwriterReady?.() ?? Promise.resolve(unprobedUnderwriter(config, options.underwriterFor)),
       chainCheck(rhc, config, log),
     ]);
@@ -381,7 +381,7 @@ function reason(error: unknown): string {
  * SQL naming columns by hand, so a missing one is a 500 on the first request that touches it, and
  * that request is somebody's payment.
  */
-async function databaseCheck(db: Database, config: FacilitatorConfig): Promise<Check> {
+async function databaseCheck(db: Database, config: FacilitatorConfig, log: (line: string) => void): Promise<Check> {
   const where = describeDatabase(config.databaseUrl);
   try {
     const plan = await migrationPlan(db);
@@ -400,7 +400,7 @@ async function databaseCheck(db: Database, config: FacilitatorConfig): Promise<C
           }),
     };
   } catch (error) {
-    return { ready: false, database: where, detail: reason(error) };
+    return { ready: false, database: where, detail: unread('the migration journal', error, log, 'database') };
   }
 }
 
@@ -445,13 +445,16 @@ async function chainCheck(rhc: RhcClient, config: FacilitatorConfig, log: (line:
 /**
  * What a failed read says, and where the reason it failed goes.
  *
- * The transport library's own message carries its version, a documentation link and the shape of
- * the call it was making. That is for whoever is debugging this service, so it goes to the log. An
- * operator reading a probe gets the condition and where to look.
+ * The transport library's message carries its version, a documentation link and the shape of the
+ * call it was making; the database driver's names the host it could not reach. Both are for
+ * whoever is debugging this service, so they go to the log. An operator reading a probe gets the
+ * condition and where to look.
  */
-function unread(what: string, error: unknown, log: (line: string) => void): string {
+function unread(what: string, error: unknown, log: (line: string) => void, source: 'chain' | 'database' = 'chain'): string {
   log(`could not read ${what}: ${reason(error)}`);
-  return `could not read ${what} from the chain. Each provider's state is in rpc, and the endpoints are RHC_RPC_PRIMARY and RHC_RPC_FALLBACK.`;
+  return source === 'chain'
+    ? `could not read ${what} from the chain. Each provider's state is in rpc, and the endpoints are RHC_RPC_PRIMARY and RHC_RPC_FALLBACK.`
+    : `could not read ${what} from the database. The connection is DATABASE_URL, and the driver's reason is in this service's log.`;
 }
 
 /**

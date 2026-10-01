@@ -64,14 +64,23 @@ async function schemaOf(db: RecordingDatabase, applied: 'current' | 'behind'): P
     .answer(/FROM bursar_migrations/, applied === 'current' ? names : names.slice(0, -1));
 }
 
+/** A database whose every statement fails the way a wrong password does: with the driver's own words. */
+class RefusingDatabase extends RecordingDatabase {
+  override async query(): Promise<never> {
+    throw Object.assign(new Error('password authentication failed for user "mandate" at 10.0.0.9:5432'), { code: '28P01' });
+  }
+}
+
 async function probe(options: {
   schema?: 'current' | 'behind';
   chain?: boolean;
+  database?: 'answers' | 'refuses';
   underwriter?: Check;
   /** The reserve to judge the float against, in ETH. The node answers 0.01 ETH. */
   minimumEth?: string;
-}): Promise<{ status: number; body: Record<string, unknown> }> {
-  const db = await schemaOf(new RecordingDatabase(), options.schema ?? 'current');
+}): Promise<{ status: number; body: Record<string, unknown>; logged: string[] }> {
+  const db = options.database === 'refuses' ? new RefusingDatabase() : await schemaOf(new RecordingDatabase(), options.schema ?? 'current');
+  const logged: string[] = [];
   const service = createFacilitatorService({
     config: config(options.minimumEth ? { FACILITATOR_GAS_FLOAT_MINIMUM_ETH: options.minimumEth } : {}),
     scheme: new ScriptedScheme(),
@@ -79,6 +88,7 @@ async function probe(options: {
     rhc: rhcNode(options.chain ?? true),
     underwriterFor: async () => null,
     underwriterReady: async () => options.underwriter ?? { ready: true, mode: 'remote' },
+    log: (line) => logged.push(line),
   });
 
   const request: ApiRequest = {
@@ -91,7 +101,7 @@ async function probe(options: {
   };
   const response = await service.router(request);
   await service.stop();
-  return { status: response.status, body: response.body as Record<string, unknown> };
+  return { status: response.status, body: response.body as Record<string, unknown>, logged };
 }
 
 describe('readiness', () => {
@@ -121,6 +131,18 @@ describe('readiness', () => {
     expect(database.ready).toBe(false);
     expect(database.pending).toHaveLength(1);
     expect(database.detail).toContain('bursar-facilitator-migrate');
+  });
+
+  it('is not ready while the database refuses it, and keeps the driver\'s words for the log', async () => {
+    const { status, body, logged } = await probe({ database: 'refuses' });
+
+    expect(status).toBe(503);
+    const database = body['database'] as { ready: boolean; detail: string };
+    expect(database.ready).toBe(false);
+    expect(database.detail).toContain('DATABASE_URL');
+    expect(database.detail).not.toContain('10.0.0.9');
+    expect(database.detail).not.toContain('password');
+    expect(logged.some((line) => line.includes('10.0.0.9:5432'))).toBe(true);
   });
 
   it('is not ready while the chain cannot be read, and says so in its own words', async () => {
