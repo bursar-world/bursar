@@ -33,7 +33,7 @@
       "const": 6
     },
     "supersedes": {
-      "description": "The record this one replaced on its chain.",
+      "description": "The record this one replaced on its chain. The contracts this one carries over from it keep their addresses here, and the migration scripts read that record through BURSAR_PREVIOUS_RECORD.",
       "type": "string"
     },
     "supersededBy": {
@@ -49,7 +49,7 @@
       "$ref": "#/$defs/address"
     },
     "fromBlock": {
-      "description": "The first block of the deployment, for readers that scan events.",
+      "description": "The first block of the deployment, for readers that scan events. A section carried over from an earlier record keeps the block its contracts were deployed at.",
       "$ref": "#/$defs/block"
     },
     "note": { "type": "string" },
@@ -257,7 +257,11 @@
     "address": { "type": "string", "pattern": "^0x[0-9a-fA-F]{40}$" },
     "bytes32": { "type": "string", "pattern": "^0x[0-9a-fA-F]{64}$" },
     "decimal": { "type": "string", "pattern": "^[0-9]+$" },
-    "block": { "type": "integer", "minimum": 0 },
+    "block": {
+      "description": "The chain's own block height, which on Robinhood Chain is the block ArbSys reports. Records up to the third set hold the Ethereum block number the chain answers as block.number instead, tens of millions lower, so a reader that scans from one of those scans from before the deployment.",
+      "type": "integer",
+      "minimum": 0
+    },
     "bps": { "type": "integer", "minimum": 0, "maximum": 10000 },
     "asset": {
       "type": "object",

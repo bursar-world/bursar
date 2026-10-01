@@ -71,7 +71,7 @@
     "V4LiquiditySeeder": "0x2cD0c0f114A4E7A20EF7967355E0986D0F82e125",
     "keeper": "0xD8D90e4c8f3419B1b8305dF2905eb31d3fBBf599",
     "poolId": "0x95bdade638ae86f8f1e424a2561796dd3aea34d75f594bd03cdb8d9e615ec765",
-    "fromBlock": 26089853
+    "fromBlock": 76462774
   },
   "verifiedOnChain": {}
 }

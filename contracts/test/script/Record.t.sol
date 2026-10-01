@@ -488,11 +488,15 @@ contract RecordTest is ScriptHarness {
         assertEq(vm.parseJsonAddress(v4, K.DEPLOYER), vm.parseJsonAddress(v3, K.DEPLOYER));
         assertEq(vm.parseJsonKeys(v4, ".contracts").length, 1);
         assertEq(vm.parseJsonAddress(v4, K.ADMIN_TIMELOCK), vm.parseJsonAddress(v3, K.ADMIN_TIMELOCK));
-        string[7] memory carried = [K.BRSR, K.VESTING, K.STAKING, K.BUYBACK, K.SEEDER, K.KEEPER, K.TOKEN_FROM_BLOCK];
+        string[6] memory carried = [K.BRSR, K.VESTING, K.STAKING, K.BUYBACK, K.SEEDER, K.KEEPER];
         for (uint256 i; i < carried.length; ++i) {
             assertEq(vm.parseJson(v4, carried[i]), vm.parseJson(v3, carried[i]), carried[i]);
         }
         assertEq(vm.parseJsonBytes32(v4, ".token.poolId"), vm.parseJsonBytes32(v3, ".token.poolId"));
+        // The same deployment block, restated at the chain's own height: the third record holds
+        // the Ethereum block the chain answers as `block.number`, tens of millions lower.
+        assertEq(vm.parseJsonUint(v4, K.TOKEN_FROM_BLOCK), 76_462_774);
+        assertLt(vm.parseJsonUint(v3, K.TOKEN_FROM_BLOCK), vm.parseJsonUint(v4, K.TOKEN_FROM_BLOCK));
         assertEq(vm.parseJson(v4, ".external"), vm.parseJson(v3, ".external"));
         assertEq(vm.parseJson(v4, ".roles"), vm.parseJson(v3, ".roles"));
         assertFalse(vm.keyExistsJson(v4, K.ESCROW));
