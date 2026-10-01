@@ -12,7 +12,6 @@ import {AgentRegistry} from "../src/AgentRegistry.sol";
 import {Escrow} from "../src/Escrow.sol";
 import {IEscrow} from "../src/interfaces/IEscrow.sol";
 import {IOracleRegistry} from "../src/interfaces/IOracleRegistry.sol";
-import {CollateralVault} from "../src/rwa/CollateralVault.sol";
 import {CreditPool} from "../src/rwa/CreditPool.sol";
 import {Staking} from "../src/token/Staking.sol";
 
@@ -184,11 +183,11 @@ contract RetireRecords is Migration {
         // Every balance the vault holds. What a write-off seized is the lender's, paid out by
         // `claimSeized`; the rest is booked to a line, or was left by a sale that stopped short or
         // a transfer sent by hand. Each is still somebody's.
-        CollateralVault vault = CollateralVault(_previous(K.COLLATERAL_VAULT));
+        address vault = _previous(K.COLLATERAL_VAULT);
         for (uint256 i; i < symbols.length; ++i) {
             address asset = _previousOptional(string.concat(K.RWA_ASSETS, ".", symbols[i], ".address"));
             if (asset == address(0)) continue;
-            uint256 seized = vault.seized(asset);
+            uint256 seized = _seized(vault, asset);
             if (seized != 0) {
                 ++open;
                 console2.log(
@@ -198,11 +197,11 @@ contract RetireRecords is Migration {
                     seized
                 );
             }
-            if (IERC20(asset).balanceOf(address(vault)) <= seized) continue;
+            if (IERC20(asset).balanceOf(vault) <= seized) continue;
             ++open;
             console2.log(string.concat("the previous collateral vault still holds ", symbols[i]));
         }
-        if (IERC20(_settlementAsset()).balanceOf(address(vault)) != 0) {
+        if (IERC20(_settlementAsset()).balanceOf(vault) != 0) {
             ++open;
             console2.log("the previous collateral vault still holds USDG");
         }

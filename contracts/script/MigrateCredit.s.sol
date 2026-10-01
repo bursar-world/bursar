@@ -21,7 +21,8 @@ import {CreditPool} from "../src/rwa/CreditPool.sol";
 /// lender can take it back out.
 ///
 /// `claimSeized` takes what write-offs seized in the previous vault to the lender, who carried
-/// those losses. The vault pays the lender whoever calls, so any key may run it.
+/// those losses. The vault pays the lender whoever calls, so any key may run it. A vault built
+/// before write-offs seized anything has nothing to claim.
 ///
 ///   forge script script/MigrateCredit.s.sol --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/rh-deployer" [--broadcast]
 ///   forge script script/MigrateCredit.s.sol --sig "fund(uint256)" 25000000 --rpc-url "$RHC_RPC_URL" \
@@ -86,7 +87,7 @@ contract MigrateCredit is Migration {
         vm.startBroadcast(msg.sender);
         for (uint256 i; i < symbols.length; ++i) {
             address asset = _previousOptional(string.concat(K.RWA_ASSETS, ".", symbols[i], ".address"));
-            if (asset == address(0) || vault.seized(asset) == 0) continue;
+            if (asset == address(0) || _seized(address(vault), asset) == 0) continue;
             uint256 before = IERC20(asset).balanceOf(lender);
             uint256 raw = vault.claimSeized(asset);
             require(IERC20(asset).balanceOf(lender) >= before + raw, "the lender did not receive what was seized");

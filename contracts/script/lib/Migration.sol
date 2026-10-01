@@ -38,6 +38,13 @@ abstract contract Migration is BursarScript {
         return _previousAddress(key);
     }
 
+    /// What write-offs seized of `asset` in the previous vault and the lender has not claimed. A
+    /// vault built before write-offs seized anything answers no such read, and seized nothing.
+    function _seized(address vault, address asset) internal view returns (uint256) {
+        (bool ok, bytes memory answer) = vault.staticcall(abi.encodeWithSignature("seized(address)", asset));
+        return ok && answer.length == 32 ? abi.decode(answer, (uint256)) : 0;
+    }
+
     function _requireKey(string memory role, address expected) internal view {
         if (msg.sender != expected) revert NotTheKey(role, expected, msg.sender);
     }
