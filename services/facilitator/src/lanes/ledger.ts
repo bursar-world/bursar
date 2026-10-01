@@ -55,6 +55,7 @@ import type {
   LaneMode,
   LaneStatement,
   LaneTransaction,
+  LockRedemption,
   Pool,
   PoolReserve,
   Repayment,
@@ -233,6 +234,8 @@ export type SettleReservationInput = ConsumeReservationInput & {
   readonly claim: string;
   readonly txHash: string;
   readonly treasury: string;
+  /** The escrow lock the payment redeems, on the mandate lane. Recorded with the settlement. */
+  readonly lock?: LockRedemption;
 };
 
 /** What the replay guard knows about one authorisation. */
@@ -274,6 +277,11 @@ export type DirectSettlementInput = {
   readonly nonce: string;
   /** Where the fee is owed. Recorded on the same transaction as the settlement it comes out of. */
   readonly treasury: string;
+  /**
+   * The escrow lock the payment redeems, on the mandate lane. Written in the same transaction as
+   * the settlement, under a key that admits each lock once.
+   */
+  readonly lock?: LockRedemption;
 };
 
 export type FundingInput = {
@@ -1014,6 +1022,7 @@ export class LaneLedger {
           : [consumed.settlement];
       const settlement = settled ?? consumed.settlement;
 
+      if (input.lock) await redeemLock(client, settlement.id, input.lock);
       await client.query(
         `UPDATE bursar_payment_guard SET settlement_id = $2::uuid, tx_hash = $3 WHERE id = $1::uuid`,
         [input.claim, settlement.id, input.txHash],
@@ -1277,6 +1286,8 @@ export class LaneLedger {
       }
 
       const settlement = toSettlement(row);
+      if (input.lock) await redeemLock(client, settlement.id, input.lock);
+
       // Keyed on all three columns the claim was made under. A nonce is unique to a payer, not to a
       // network: two payers can hold one, because a payload carrying no binding object derives its
       // nonce from the request digest and an all-zero salt. Stamping on (network, nonce) alone puts
@@ -2114,6 +2125,39 @@ export class LaneLedger {
   }
 }
 
+
+/**
+ * Records the lock a mandate-lane settlement redeemed, in the caller's transaction.
+ *
+ * The table's primary key is the lock as the chain identifies it, so one lock is worth one
+ * settlement whatever the payload around it said: a second redemption meets the row the first wrote
+ * and fails, and the rollback takes its settlement row with it. A retried settle meets its own row
+ * and passes. The escrow is lowercased because the key has to see one spelling of one address.
+ */
+async function redeemLock(client: Queryable, settlementId: string, lock: LockRedemption): Promise<void> {
+  const escrow = lock.escrow.toLowerCase();
+  const inserted = await client.query(
+    `INSERT INTO bursar_lock_redemptions (chain_id, escrow, lock_id, settlement_id)
+     VALUES ($1, $2, $3, $4::uuid)
+     ON CONFLICT (chain_id, escrow, lock_id) DO NOTHING`,
+    [lock.chainId, escrow, lock.id.toString(), settlementId],
+  );
+  if (inserted.rowCount > 0) return;
+
+  const existing = await one<{ settlement_id: string }>(
+    client,
+    `SELECT settlement_id::text AS settlement_id FROM bursar_lock_redemptions
+     WHERE chain_id = $1 AND escrow = $2 AND lock_id = $3`,
+    [lock.chainId, escrow, lock.id.toString()],
+  );
+  if (existing?.settlement_id === settlementId) return;
+
+  throw new LedgerError(
+    'payment_already_used',
+    `lock ${lock.id} on ${escrow} is already redeemed by settlement ${existing?.settlement_id ?? 'unknown'}`,
+    { chainId: lock.chainId, escrow, lockId: lock.id.toString(), settlementId: existing?.settlement_id ?? null },
+  );
+}
 
 /** Carries the expired hold out of the transaction that could not use it. Never thrown to a caller. */
 class ReservationExpired extends Error {

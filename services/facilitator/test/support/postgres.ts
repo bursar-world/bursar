@@ -34,6 +34,7 @@ const TABLES = [
   'bursar_collateral_events',
   'bursar_collateral_positions',
   'bursar_payment_guard',
+  'bursar_lock_redemptions',
   'bursar_fee_ledger',
   'bursar_reservations',
   'bursar_authorizations',

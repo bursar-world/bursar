@@ -10,7 +10,7 @@ import type {
   PaymentTerms,
   SettleReservationInput,
 } from '../../src/lanes/ledger.js';
-import type { Reservation, Settlement } from '../../src/lanes/types.js';
+import type { LockRedemption, Reservation, Settlement } from '../../src/lanes/types.js';
 import type { SettlementLedger } from '../../src/x402/facilitator.js';
 import type {
   PaymentPayload,
@@ -193,6 +193,8 @@ export class FakeLedger implements SettlementLedger {
   readonly records = new Map<string, PaymentRecord>();
   /** Holds already claimed, and by which guard row, the way the real conditional UPDATE sees them. */
   readonly holdClaims = new Map<string, string>();
+  /** Locks already on a settlement, the way the real primary key sees them. */
+  readonly redeemed = new Set<string>();
   private readonly claimed = new Set<string>();
 
   constructor(private readonly settlement: Settlement = settlementFixture()) {}
@@ -276,6 +278,7 @@ export class FakeLedger implements SettlementLedger {
     if (input.feeMicro >= hold.amountMicro) {
       throw new LedgerError('fee_exceeds_amount', 'the facilitator fee cannot take the whole payment');
     }
+    this.redeem(input.lock);
 
     return {
       reservation: { ...hold, status: 'consumed', settlementId: this.settlement.id },
@@ -300,6 +303,7 @@ export class FakeLedger implements SettlementLedger {
     if (input.feeMicro >= input.amountMicro) {
       throw new LedgerError('fee_exceeds_amount', 'the facilitator fee cannot take the whole payment');
     }
+    this.redeem(input.lock);
     return {
       ...this.settlement,
       txHash: input.txHash,
@@ -312,6 +316,16 @@ export class FakeLedger implements SettlementLedger {
 
   kinds(): string[] {
     return this.calls.map((call) => call.kind);
+  }
+
+  /** The real ledger refuses a second settlement of one lock with this code, and rolls back. */
+  private redeem(lock: LockRedemption | undefined): void {
+    if (!lock) return;
+    const key = `${lock.chainId}:${lock.escrow.toLowerCase()}:${lock.id}`;
+    if (this.redeemed.has(key)) {
+      throw new LedgerError('payment_already_used', `lock ${lock.id} is already redeemed`);
+    }
+    this.redeemed.add(key);
   }
 }
 

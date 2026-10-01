@@ -180,6 +180,13 @@ export type Repayment = {
   readonly createdAt: Date;
 };
 
+/** The escrow lock a mandate-lane settlement redeemed. One lock is recorded at most once. */
+export type LockRedemption = {
+  readonly chainId: number;
+  readonly escrow: `0x${string}`;
+  readonly id: bigint;
+};
+
 export type Settlement = {
   readonly id: string;
   readonly network: string;
