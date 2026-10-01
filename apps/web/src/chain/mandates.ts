@@ -164,6 +164,13 @@ export function newMandateFactory(): Address {
  * chain with id 4663. Its hash is taken with the escrow and the settlement asset zeroed as well, and
  * an account of it is genuine only when every slot of each names the escrow and the asset of a v3
  * record for this chain. Until that record exists no v3 account is recognised.
+ *
+ * The v4 build is the same account compiled beside the audited escrow interface. Its code differs
+ * from v3's in one place, the metadata hash in its last bytes, which follows the source of every
+ * file the account imports: MandateAccount.sol, IMandateAccount.sol, IEscrow.sol, IAgentRegistry.sol,
+ * IStockRouter.sol and ITreasuryPark.sol. It was fingerprinted the way v3 was, ahead of its escrow,
+ * and is pinned to a v4 record the same way. A change to any of those six files before the v4
+ * deploy moves the hash, and it has to be taken again from an account that build deploys.
  */
 type MandateFingerprint = {
   readonly set: ContractSet;
@@ -212,6 +219,18 @@ const MANDATE_CODE: readonly MandateFingerprint[] = [
       settlementAsset: [2_526, 6_683, 8_722, 9_399, 11_874, 14_350],
     },
     maskedHash: '0x849b6ca52ca2d4ed385616cd7c37841ba9683ffbafcb4ecfa0f02f9c769d4fe2',
+    draws: true,
+  },
+  {
+    set: 'v4',
+    length: 20_138,
+    selfAddress: { offset: 10_817, length: 20 },
+    domainSeparator: { offset: 10_889, length: 32 },
+    pinned: {
+      escrow: [2_629, 3_275, 5_618, 9_353, 11_817, 11_932],
+      settlementAsset: [2_526, 6_683, 8_722, 9_399, 11_874, 14_350],
+    },
+    maskedHash: '0xeb414540012986f743a491bc16494b834c91f959e0a13372d705ecb221fbb5b2',
     draws: true,
   },
 ];

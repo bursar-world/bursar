@@ -10,7 +10,7 @@ import { isMandateCode, mandateBuild, mandateCodeSet } from '@/chain/mandates';
 /**
  * Runtime code of mandates the factories deployed on chain 4663, read with `eth_getCode`. The v3
  * one was deployed by a v3 factory on a local chain with id 4663, against an escrow at 0x3333…3333,
- * because no v3 escrow existed yet.
+ * because no v3 escrow existed yet, and the v4 one by a v4 factory the same way.
  */
 const fixture = (name: string) => readFileSync(new URL(`./fixtures/${name}.hex`, import.meta.url), 'utf8').trim() as Hex;
 const FIRST: Address = '0xB4Bd99d8604fDB876fA1B38a3f8bA024D20ccD0b';
@@ -124,8 +124,56 @@ describe('a v3 account', () => {
   });
 });
 
+const V4_ACCOUNT: Address = '0x68E05D3B6FCcb94A2aDdc1E3942C8efc622bd5Df';
+
+/** The same record one set on: any name no earlier set claims runs the current build. */
+function v4Record(overrides: { escrow?: string } = {}): Deployment {
+  return parseDeployment({ ...v3Record(overrides), network: 'rhc-mainnet-v4', supersedes: 'rhc-mainnet-v3' });
+}
+
+/**
+ * v3 and v4 accounts are the same contract, and their code differs only in the metadata hash. That
+ * is still two builds: each is genuine against the escrow of its own set and no other.
+ */
+describe('a v4 account', () => {
+  it('is recognised once a v4 record names the escrow and the asset its code holds', () => {
+    expect(mandateCodeSet(V4_ACCOUNT, fixture('mandate-v4'), [v4Record()])).toBe('v4');
+    expect(mandateCodeSet(V4_ACCOUNT, fixture('mandate-v4'), [v4Record(), v3Record({ escrow: fill('9') })])).toBe('v4');
+  });
+
+  it('is not recognised while no v4 record names its escrow', () => {
+    expect(mandateCodeSet(V4_ACCOUNT, fixture('mandate-v4'), [])).toBeUndefined();
+    expect(mandateCodeSet(V4_ACCOUNT, fixture('mandate-v4'), [v4Record({ escrow: fill('9') })])).toBeUndefined();
+  });
+
+  it('is refused when only a v3 record names that escrow, and a v3 account when only a v4 record does', () => {
+    expect(mandateCodeSet(V4_ACCOUNT, fixture('mandate-v4'), [v3Record()])).toBeUndefined();
+    expect(mandateCodeSet(V3_ACCOUNT, fixture('mandate-v3'), [v4Record()])).toBeUndefined();
+  });
+
+  it('is refused at an address it does not name', () => {
+    expect(mandateCodeSet(V3_ACCOUNT, fixture('mandate-v4'), [v4Record()])).toBeUndefined();
+  });
+
+  it('differs from a v3 account in the metadata hash and nowhere else that both builds share', () => {
+    const [v3, v4] = [fixture('mandate-v3'), fixture('mandate-v4')];
+    const differing: number[] = [];
+    for (let at = 2; at < v3.length; at += 2) if (v3.slice(at, at + 2) !== v4.slice(at, at + 2)) differing.push((at - 2) / 2);
+
+    // The two accounts sit at different addresses, so the address and the domain separator built
+    // from it differ too. Everything else that differs is the 32-byte hash before the last 11 bytes.
+    const outsideAccountFields = differing.filter(
+      (offset) => !(offset >= 10_817 && offset < 10_837) && !(offset >= 10_889 && offset < 10_921),
+    );
+    expect(v4.length).toBe(v3.length);
+    expect(outsideAccountFields.every((offset) => offset >= 20_095 && offset < 20_127)).toBe(true);
+    expect(outsideAccountFields.length).toBeGreaterThan(0);
+  });
+});
+
 describe('which builds draw from their park inside a payment', () => {
-  it('is the v2.1 build and v3, and neither v1 nor the first v2 build', () => {
+  it('is the v2.1 build and every build since, and neither v1 nor the first v2 build', () => {
+    expect(mandateBuild(V4_ACCOUNT, fixture('mandate-v4'), [v4Record()])?.draws).toBe(true);
     expect(mandateBuild(V3_ACCOUNT, fixture('mandate-v3'), [v3Record()])?.draws).toBe(true);
     expect(mandateBuild(COLLATERAL, fixture('mandate-4686'))?.draws).toBe(true);
     expect(mandateBuild(V2_EXAMPLE, fixture('mandate-420b'))?.draws).toBe(false);
