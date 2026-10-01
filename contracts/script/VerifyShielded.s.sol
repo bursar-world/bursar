@@ -23,6 +23,8 @@ interface IShieldedPoolReads {
     function RAGEQUIT_VERIFIER() external view returns (address);
     function MAX_DEPOSIT() external view returns (uint256);
     function MAX_TOTAL() external view returns (uint256);
+    function MAX_PER_DEPOSITOR() external view returns (uint128);
+    function DEPOSITOR_WINDOW() external view returns (uint64);
     function SCOPE() external view returns (uint256);
     function dead() external view returns (bool);
 }
@@ -93,6 +95,8 @@ abstract contract ShieldedChecks is Verifier {
         _is("ShieldedPool.RAGEQUIT_VERIFIER", _contract(K.COMMITMENT_VERIFIER), p.RAGEQUIT_VERIFIER());
         _isUint("ShieldedPool.MAX_DEPOSIT", _recordUint(K.SHIELDED_MAX_DEPOSIT), p.MAX_DEPOSIT());
         _isUint("ShieldedPool.MAX_TOTAL", _recordUint(K.SHIELDED_MAX_TOTAL), p.MAX_TOTAL());
+        _isUint("ShieldedPool.MAX_PER_DEPOSITOR", _recordUint(K.SHIELDED_MAX_PER_DEPOSITOR), p.MAX_PER_DEPOSITOR());
+        _isUint("ShieldedPool.DEPOSITOR_WINDOW", _recordUint(K.SHIELDED_DEPOSITOR_WINDOW), p.DEPOSITOR_WINDOW());
         _isUint("ShieldedPool.SCOPE", _recordUint(K.SHIELDED_SCOPE), p.SCOPE());
         _isTrue("ShieldedPool is wound down", !p.dead());
     }

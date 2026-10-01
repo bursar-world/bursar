@@ -52,7 +52,13 @@ contract ShieldedTest is Test {
     address internal postman = address(0x9057);
     address internal alice = address(0xA11CE);
     address internal bob = address(0xB0B);
+    address internal carol = address(0xCA201);
+    address internal dave = address(0xDA4E);
+    address internal erin = address(0xE817);
     address internal relayer = address(0x7E1A);
+    /// Five funded depositors. Four at their cap fill the pool exactly, and the fifth is refused.
+    address[5] internal actors;
+    uint256 internal precommitmentSeed = 1_000;
 
     MockERC20 internal usdg;
     MockAccessRegistry internal registry;
@@ -78,8 +84,9 @@ contract ShieldedTest is Test {
             payable(address(new ERC1967Proxy(impl, abi.encodeCall(Entrypoint.initialize, (owner, postman)))))
         );
         vm.prank(POOL_DEPLOYER);
-        pool =
-            new ShieldedPool(address(entrypoint), withdrawalVerifier, ragequitVerifier, USDG, registry, 100e6, 1_000e6);
+        pool = new ShieldedPool(
+            address(entrypoint), withdrawalVerifier, ragequitVerifier, USDG, registry, 100e6, 1_000e6, 250e6, 7 days
+        );
         vm.prank(RELAY_DEPLOYER);
         relay = new ShieldedRelay(pool, registry, 500);
 
@@ -91,12 +98,12 @@ contract ShieldedTest is Test {
         vm.prank(owner);
         entrypoint.registerPool(IERC20(USDG), pool, 10_000, 0, 500);
 
-        usdg.mint(alice, 2_000e6);
-        usdg.mint(bob, 2_000e6);
-        vm.prank(alice);
-        usdg.approve(address(entrypoint), type(uint256).max);
-        vm.prank(bob);
-        usdg.approve(address(entrypoint), type(uint256).max);
+        actors = [alice, bob, carol, dave, erin];
+        for (uint256 i; i < actors.length; ++i) {
+            usdg.mint(actors[i], 2_000e6);
+            vm.prank(actors[i]);
+            usdg.approve(address(entrypoint), type(uint256).max);
+        }
         vm.deal(relayer, 1 ether);
     }
 
@@ -111,6 +118,23 @@ contract ShieldedTest is Test {
             IERC20(USDG), fixture.readUint(".deposit2.value"), fixture.readUint(".deposit2.precommitment")
         );
         assertEq(c2, fixture.readUint(".deposit2.commitment"));
+    }
+
+    /// Deposits 100, 100 and 50 USDG from `who`: exactly its cap for one window.
+    function _fillDepositor(address who) internal {
+        uint256[3] memory parts = [uint256(100e6), 100e6, 50e6];
+        for (uint256 i; i < parts.length; ++i) {
+            vm.prank(who);
+            entrypoint.deposit(IERC20(USDG), parts[i], ++precommitmentSeed);
+        }
+    }
+
+    /// Fills the pool to its cap: four depositors, each at its own.
+    function _fill() internal {
+        for (uint256 i; i < 4; ++i) {
+            _fillDepositor(actors[i]);
+        }
+        assertEq(pool.poolValue(), 1_000e6);
     }
 
     /// The ASP root for {label1, label2}: a two-leaf lean tree is Poseidon(label1, label2), which
@@ -189,33 +213,108 @@ contract ShieldedTest is Test {
     }
 
     function test_depositPastPoolCapReverts() public {
-        for (uint256 i; i < 10; ++i) {
-            vm.prank(alice);
-            entrypoint.deposit(IERC20(USDG), 100e6, 1_000 + i);
-        }
+        _fill();
         assertEq(usdg.balanceOf(address(pool)), 1_000e6);
-        assertEq(pool.poolValue(), 1_000e6);
-        vm.prank(bob);
+        vm.prank(erin);
         vm.expectRevert(abi.encodeWithSelector(ShieldedPool.PoolCapReached.selector, 1_000e6 + 10_000, 1_000e6));
         entrypoint.deposit(IERC20(USDG), 10_000, 9_999);
+    }
+
+    /// The pool-wide cap is room every depositor shares. One address stops at its own limit,
+    /// however many deposits it sends, and the next depositor still gets in.
+    function test_oneDepositorCannotFillThePool() public {
+        for (uint256 i; i < 10; ++i) {
+            vm.prank(alice);
+            try entrypoint.deposit(IERC20(USDG), 100e6, 1_000 + i) {} catch {}
+        }
+
+        vm.prank(bob);
+        entrypoint.deposit(IERC20(USDG), 100e6, 9_999);
+        assertEq(pool.poolValue(), 300e6, "one depositor went past its own limit");
+    }
+
+    function test_theDepositorCapIsReadBeforeAnyDeposit() public view {
+        assertEq(pool.depositRoom(alice), 250e6);
+        assertEq(pool.windowResetsAt(alice), 0);
+    }
+
+    /// 100, 100 and 50 is exactly the depositor cap. The smallest deposit the Entrypoint takes is
+    /// then one too many, and the room and the reset time say so.
+    function test_depositsUpToTheDepositorCapThenOneMoreIsRefused() public {
+        uint256 opened = block.timestamp;
+        vm.prank(alice);
+        entrypoint.deposit(IERC20(USDG), 100e6, 1);
+        assertEq(pool.depositRoom(alice), 150e6);
+        assertEq(pool.windowResetsAt(alice), opened + 7 days);
+
+        vm.warp(opened + 3 days);
+        vm.prank(alice);
+        entrypoint.deposit(IERC20(USDG), 100e6, 2);
+        vm.prank(alice);
+        entrypoint.deposit(IERC20(USDG), 50e6, 3);
+        assertEq(pool.depositRoom(alice), 0);
+        assertEq(pool.windowResetsAt(alice), opened + 7 days, "a later deposit moved the window");
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(ShieldedPool.DepositorCapReached.selector, alice, 250e6 + 10_000, 250e6));
+        entrypoint.deposit(IERC20(USDG), 10_000, 4);
+        assertEq(pool.depositedBy(alice), 250e6);
+        assertEq(pool.poolValue(), 250e6);
+    }
+
+    /// The window runs seven days from the deposit that opened it. One second short it still
+    /// binds; at the mark the full cap is back, and the deposit that uses it opens the next window.
+    function test_theDepositorWindowResets() public {
+        uint256 opened = block.timestamp;
+        _fillDepositor(alice);
+
+        vm.warp(opened + 7 days - 1);
+        assertEq(pool.depositRoom(alice), 0);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(ShieldedPool.DepositorCapReached.selector, alice, 250e6 + 100e6, 250e6));
+        entrypoint.deposit(IERC20(USDG), 100e6, 10);
+
+        vm.warp(opened + 7 days);
+        assertEq(pool.depositRoom(alice), 250e6);
+        assertEq(pool.windowResetsAt(alice), 0);
+        vm.prank(alice);
+        entrypoint.deposit(IERC20(USDG), 100e6, 11);
+        assertEq(pool.depositRoom(alice), 150e6);
+        assertEq(pool.windowResetsAt(alice), opened + 14 days);
+        assertEq(pool.depositedBy(alice), 350e6);
+        assertEq(pool.poolValue(), 350e6);
+    }
+
+    /// A window that has run out stays closed until a deposit opens the next one. The clock starts
+    /// at that deposit, not where the old window ended.
+    function test_theNextWindowOpensAtTheNextDeposit() public {
+        uint256 opened = block.timestamp;
+        _fillDepositor(alice);
+        vm.warp(opened + 20 days);
+        vm.prank(alice);
+        entrypoint.deposit(IERC20(USDG), 100e6, 11);
+        assertEq(pool.windowResetsAt(alice), opened + 27 days);
+        assertEq(pool.depositRoom(alice), 150e6);
+    }
+
+    /// The cap counts what went in. Taking a note back out buys no room for another.
+    function test_payoutsDoNotRefundDepositorRoom() public {
+        _depositBoth();
+        assertEq(pool.depositRoom(bob), 250e6 - 300_000);
+        vm.prank(bob);
+        pool.ragequit(_ragequitProof());
+        assertEq(pool.depositRoom(bob), 250e6 - 300_000);
+        assertEq(pool.poolValue(), 1_000_000);
     }
 
     function test_aDonationDoesNotCountTowardTheCap() public {
         // A transfer outside a deposit belongs to no note. Counted, it would fill the cap for free.
         usdg.mint(address(pool), 999e6);
-        vm.prank(alice);
-        entrypoint.deposit(IERC20(USDG), 100e6, 1_000);
-        assertEq(pool.poolValue(), 100e6);
-        assertEq(usdg.balanceOf(address(pool)), 1_099e6);
-
-        for (uint256 i = 1; i < 10; ++i) {
-            vm.prank(alice);
-            entrypoint.deposit(IERC20(USDG), 100e6, 1_000 + i);
-        }
-        assertEq(pool.poolValue(), 1_000e6);
+        _fill();
+        assertEq(usdg.balanceOf(address(pool)), 1_999e6);
 
         // The cap still binds, on what the pool owes its notes and nothing else.
-        vm.prank(bob);
+        vm.prank(erin);
         vm.expectRevert(abi.encodeWithSelector(ShieldedPool.PoolCapReached.selector, 1_000e6 + 10_000, 1_000e6));
         entrypoint.deposit(IERC20(USDG), 10_000, 9_999);
     }
@@ -239,10 +338,12 @@ contract ShieldedTest is Test {
         vm.expectRevert(IEntrypoint.MinimumDepositAmount.selector);
         entrypoint.deposit(IERC20(USDG), 1e6 - 1, 1);
 
-        // 100.1001 USDG less 10 bps is exactly the 100 USDG cap; one unit more is over it.
+        // 100.1001 USDG less 10 bps is exactly the 100 USDG cap; one unit more is over it. The
+        // depositor's window counts the same net figure.
         vm.prank(alice);
         entrypoint.deposit(IERC20(USDG), 100_100_100, 2);
         assertEq(pool.poolValue(), 100e6);
+        assertEq(pool.depositRoom(alice), 150e6);
         assertEq(usdg.balanceOf(address(entrypoint)), 100_100);
 
         vm.prank(alice);
@@ -250,28 +351,40 @@ contract ShieldedTest is Test {
         entrypoint.deposit(IERC20(USDG), 100_100_101, 3);
     }
 
-    /// Any run of deposits, at any vetting fee, leaves the pool inside both caps, and every refusal
-    /// is the one the caps predict.
-    function testFuzz_depositsStayInsideTheCaps(uint256[8] memory values, uint16 feeBps) public {
+    /// Any run of deposits from any mix of depositors, at any vetting fee, leaves the pool inside
+    /// all three caps, and every refusal is the one the caps predict, in the order the pool checks
+    /// them: the deposit, then the depositor's window, then the pool.
+    function testFuzz_depositsStayInsideTheCaps(uint256[12] memory values, uint8[12] memory whos, uint16 feeBps)
+        public
+    {
         uint256 fee = bound(feeBps, 0, 100);
         vm.prank(owner);
         entrypoint.updatePoolConfiguration(IERC20(USDG), 10_000, fee, 500);
-        usdg.mint(alice, 2_000e6);
 
         uint256 expected;
+        uint256[5] memory inWindow;
         for (uint256 i; i < values.length; ++i) {
+            uint256 who = whos[i] % actors.length;
             uint256 value = bound(values[i], 10_000, 250e6);
             uint256 net = value - (value * fee) / 10_000;
-            vm.prank(alice);
+            vm.prank(actors[who]);
             if (net > 100e6) {
                 vm.expectRevert(abi.encodeWithSelector(ShieldedPool.DepositAboveCap.selector, net, 100e6));
+            } else if (inWindow[who] + net > 250e6) {
+                vm.expectRevert(
+                    abi.encodeWithSelector(
+                        ShieldedPool.DepositorCapReached.selector, actors[who], inWindow[who] + net, 250e6
+                    )
+                );
             } else if (expected + net > 1_000e6) {
                 vm.expectRevert(abi.encodeWithSelector(ShieldedPool.PoolCapReached.selector, expected + net, 1_000e6));
             } else {
+                inWindow[who] += net;
                 expected += net;
             }
             entrypoint.deposit(IERC20(USDG), value, 10_000 + i);
             assertEq(pool.poolValue(), expected);
+            assertEq(pool.depositRoom(actors[who]), 250e6 - inWindow[who]);
         }
         assertLe(pool.poolValue(), pool.MAX_TOTAL());
         assertEq(usdg.balanceOf(address(pool)), expected);
@@ -292,7 +405,18 @@ contract ShieldedTest is Test {
 
     function test_capsAreConstructorChecked() public {
         vm.expectRevert(IPrivacyPool.InvalidDepositValue.selector);
-        new ShieldedPool(address(entrypoint), address(1), address(1), USDG, registry, 10, 9);
+        new ShieldedPool(address(entrypoint), address(1), address(1), USDG, registry, 10, 9, 10, 1);
+
+        // The depositor cap sits between the deposit cap and the pool cap, both ends included.
+        vm.expectRevert(IPrivacyPool.InvalidDepositValue.selector);
+        new ShieldedPool(address(entrypoint), address(1), address(1), USDG, registry, 10, 100, 9, 1);
+        vm.expectRevert(IPrivacyPool.InvalidDepositValue.selector);
+        new ShieldedPool(address(entrypoint), address(1), address(1), USDG, registry, 10, 100, 101, 1);
+        new ShieldedPool(address(entrypoint), address(1), address(1), USDG, registry, 10, 100, 10, 1);
+        new ShieldedPool(address(entrypoint), address(1), address(1), USDG, registry, 10, 100, 100, 1);
+
+        vm.expectRevert(ShieldedPool.BadWindow.selector);
+        new ShieldedPool(address(entrypoint), address(1), address(1), USDG, registry, 10, 100, 100, 0);
     }
 
     function test_relayPaysRecipientFeeAndGas() public {

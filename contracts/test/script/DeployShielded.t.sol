@@ -45,6 +45,7 @@ contract DeployShieldedTest is World {
     function test_deployShielded_handsTheEntrypointToGovernanceOnTheLaunchTerms() public {
         _theDeployKeyLeavesWithNoPower();
         _thePoolIsRegisteredOnTheLaunchTermsAndRecorded();
+        _theDepositorFiguresComeFromTheParameterFile();
         _aSecondRunIsRefused();
         _thePostmanIsNamedAndHoldsNoOtherRole();
         _itWaitsForThePrivacySection();
@@ -99,6 +100,8 @@ contract DeployShieldedTest is World {
         assertEq(pool.ACCESS_REGISTRY(), _readAddress(path, K.ACCESS_REGISTRY));
         assertEq(pool.MAX_DEPOSIT(), 100e6);
         assertEq(pool.MAX_TOTAL(), 1_000e6);
+        assertEq(pool.MAX_PER_DEPOSITOR(), 250e6);
+        assertEq(pool.DEPOSITOR_WINDOW(), 7 days);
 
         IShieldedRelayReads relay = IShieldedRelayReads(out.relay);
         assertEq(relay.POOL(), out.pool);
@@ -115,7 +118,28 @@ contract DeployShieldedTest is World {
         // A field element does not survive a JSON number, so the scope is a decimal string.
         assertEq(vm.parseJsonString(json, K.SHIELDED_SCOPE), vm.toString(pool.SCOPE()));
         assertEq(vm.parseJsonString(json, K.SHIELDED_MAX_DEPOSIT), "100000000");
+        assertEq(vm.parseJsonString(json, K.SHIELDED_MAX_PER_DEPOSITOR), "250000000");
+        assertEq(_readUint(path, K.SHIELDED_DEPOSITOR_WINDOW), 604_800);
         assertEq(_readUint(path, K.SHIELDED_VETTING_FEE), 10);
+    }
+
+    /// The depositor cap and its window come from the parameter file like every other figure, and
+    /// a run without them stops before it sends anything.
+    function _theDepositorFiguresComeFromTheParameterFile() private {
+        _restore();
+        string memory cap = vm.envString(_key("BURSAR_SHIELDED_MAX_PER_DEPOSITOR"));
+        _unset("BURSAR_SHIELDED_MAX_PER_DEPOSITOR");
+        _expectRefused(
+            abi.encodeWithSelector(BursarScript.MissingEnv.selector, _key("BURSAR_SHIELDED_MAX_PER_DEPOSITOR"))
+        );
+        _set("BURSAR_SHIELDED_MAX_PER_DEPOSITOR", cap);
+
+        string memory window = vm.envString(_key("BURSAR_SHIELDED_DEPOSITOR_WINDOW"));
+        _unset("BURSAR_SHIELDED_DEPOSITOR_WINDOW");
+        _expectRefused(
+            abi.encodeWithSelector(BursarScript.MissingEnv.selector, _key("BURSAR_SHIELDED_DEPOSITOR_WINDOW"))
+        );
+        _set("BURSAR_SHIELDED_DEPOSITOR_WINDOW", window);
     }
 
     function _aSecondRunIsRefused() private {

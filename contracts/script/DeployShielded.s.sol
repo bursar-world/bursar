@@ -19,7 +19,8 @@ import {RecordKeys as K} from "./lib/RecordKeys.sol";
 
 /// Shielded settlement: the Privacy Pools v1.3.0 verifiers and Entrypoint, a USDG `ShieldedPool`
 /// with the launch caps, and the `ShieldedRelay` that screens recipients against the access
-/// registry.
+/// registry. The per-deposit and pool-wide caps are fixed below; what one depositor may put in
+/// per window comes from `BURSAR_SHIELDED_MAX_PER_DEPOSITOR` and `BURSAR_SHIELDED_DEPOSITOR_WINDOW`.
 ///
 /// The deploy key holds the Entrypoint's owner role only for as long as it takes to register the
 /// pool. The same run grants the role to the timelock and renounces it, and checks both, so the key
@@ -66,6 +67,8 @@ contract DeployShielded is BursarScript {
     address private relayer;
     address private poseidonT3;
     address private poseidonT4;
+    uint128 private maxPerDepositor;
+    uint64 private depositorWindow;
 
     Deployment private d;
 
@@ -81,6 +84,8 @@ contract DeployShielded is BursarScript {
         relayer = _role(K.SHIELDED_RELAYER, "BURSAR_SHIELDED_RELAYER");
         poseidonT3 = _upstream(K.EXTERNAL_POSEIDON_T3);
         poseidonT4 = _upstream(K.EXTERNAL_POSEIDON_T4);
+        maxPerDepositor = _envUint128("BURSAR_SHIELDED_MAX_PER_DEPOSITOR");
+        depositorWindow = _envUint64("BURSAR_SHIELDED_DEPOSITOR_WINDOW");
         _preflight(deployer);
 
         vm.startBroadcast(deployer);
@@ -101,7 +106,9 @@ contract DeployShielded is BursarScript {
             asset,
             IAccessRegistry(accessRegistry),
             MAX_DEPOSIT,
-            MAX_TOTAL
+            MAX_TOTAL,
+            maxPerDepositor,
+            depositorWindow
         );
         d.relay = new ShieldedRelay(d.pool, IAccessRegistry(accessRegistry), MAX_RELAY_FEE_BPS);
         d.entrypoint.registerPool(IERC20(asset), d.pool, MIN_DEPOSIT, VETTING_FEE_BPS, MAX_RELAY_FEE_BPS);
@@ -157,6 +164,8 @@ contract DeployShielded is BursarScript {
         _expect("pool.accessRegistry", accessRegistry, address(d.pool.ACCESS_REGISTRY()));
         _expectUint("pool.maxDeposit", MAX_DEPOSIT, d.pool.MAX_DEPOSIT());
         _expectUint("pool.maxTotal", MAX_TOTAL, d.pool.MAX_TOTAL());
+        _expectUint("pool.maxPerDepositor", maxPerDepositor, d.pool.MAX_PER_DEPOSITOR());
+        _expectUint("pool.depositorWindow", depositorWindow, d.pool.DEPOSITOR_WINDOW());
 
         _expect("relay.pool", address(d.pool), address(d.relay.POOL()));
         _expect("relay.entrypoint", address(d.entrypoint), d.relay.ENTRYPOINT());
@@ -185,6 +194,8 @@ contract DeployShielded is BursarScript {
         _writeAmount(K.SHIELDED_SCOPE, d.pool.SCOPE());
         _writeAmount(K.SHIELDED_MAX_DEPOSIT, MAX_DEPOSIT);
         _writeAmount(K.SHIELDED_MAX_TOTAL, MAX_TOTAL);
+        _writeAmount(K.SHIELDED_MAX_PER_DEPOSITOR, maxPerDepositor);
+        _write(K.SHIELDED_DEPOSITOR_WINDOW, depositorWindow);
         _writeAmount(K.SHIELDED_MIN_DEPOSIT, MIN_DEPOSIT);
         _write(K.SHIELDED_VETTING_FEE, VETTING_FEE_BPS);
         _write(K.SHIELDED_MAX_RELAY_FEE, MAX_RELAY_FEE_BPS);

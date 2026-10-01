@@ -87,6 +87,8 @@ library RecordKeys {
     string internal constant SHIELDED_SCOPE = ".privacy.shielded.scope";
     string internal constant SHIELDED_MAX_DEPOSIT = ".privacy.shielded.maxDeposit";
     string internal constant SHIELDED_MAX_TOTAL = ".privacy.shielded.maxTotal";
+    string internal constant SHIELDED_MAX_PER_DEPOSITOR = ".privacy.shielded.maxPerDepositor";
+    string internal constant SHIELDED_DEPOSITOR_WINDOW = ".privacy.shielded.depositorWindow";
     string internal constant SHIELDED_MIN_DEPOSIT = ".privacy.shielded.minimumDeposit";
     string internal constant SHIELDED_VETTING_FEE = ".privacy.shielded.vettingFeeBps";
     string internal constant SHIELDED_MAX_RELAY_FEE = ".privacy.shielded.maxRelayFeeBps";
