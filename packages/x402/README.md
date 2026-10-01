@@ -42,6 +42,18 @@ on their own:
   name however it is presented. A settle whose `authorization.nonce` names anything else is refused
   as `escrow_nonce_mismatch`.
 
+A worked example, pinned in `test/escrow.test.ts`. The request is `POST
+https://api.provider.dev/render` with the body `{"prompt":"a koi"}` and a salt of 32 bytes of
+`0x5a`:
+
+| Value | Bytes |
+|---|---|
+| Body digest (sha256) | `c92bf6fd684a4a314f2c91a87add5659a34ea89b50ee1f93daa4e714462b78b7` |
+| `requestNonce` | `0x4f810efdbacc3a641d0f8c03fd0bb5b13d8fe2d08cd79614f0e26008753eb281` |
+| Document | `{"method":"POST","requestNonce":"0x4f81…b281","resource":"https://api.provider.dev/render"}` |
+| `inputCommit` | `0xf9a23ab1740d9aaa2fa6dc9a3c1693f55388e7c6a05101fa398d4b4bced20672` |
+| Settlement nonce for lock 7 on escrow `0x4315F8be7C9661345710910577Ec31cb867f3c20`, chain 4663 | `0x1418196368293e577152568a40bac115e60707df4e9bdbd4b4d0595490fa606c` |
+
 ## Design
 
 No service in this repository holds a user's key, and the only key the facilitator holds is its
