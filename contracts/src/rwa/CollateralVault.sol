@@ -369,6 +369,8 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
     function haircutOf(address asset) public view returns (uint16 bps, bool afterHours) {
         uint8 t = _tierOf[asset];
         if (t == 0) revert NotCollateral(asset);
+        // Only the answer's age picks the haircut.
+        // slither-disable-next-line unused-return
         (, uint256 updatedAt,,) = guard.valuation(asset);
         (bps,, afterHours) = _haircuts(_tiers[t - 1], registry.get(asset).collateralHaircutBps, updatedAt);
     }
