@@ -1,7 +1,7 @@
 import { link, mkdir, open, readFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { classCapabilityId, classOfLabel } from '@bursar/core';
+import { classCapabilityId, classOfLabel, isRequestDocumentURI } from '@bursar/core';
 import type { SpendClass } from '@bursar/core';
 import { SealOpenError, isSealedURI, openSealedURI } from '@bursar/sdk';
 import type { Hex } from 'viem';
@@ -99,6 +99,13 @@ export async function executeJob(
   options: ExecutorOptions,
   signal?: AbortSignal,
 ): Promise<ExecutionOutcome> {
+  // A lock opened for an x402 call publishes that call as its input. The payee's own server answers
+  // the call and releases the lock, so there is no job in it for this worker. It is refused here in
+  // its own words: left to the URI policy below it would read as a payer's malformed input.
+  if (isRequestDocumentURI(job.inputURI)) {
+    return { kind: 'rejected', reason: 'the lock pays for an HTTP call the payee serves itself; the sidecar does not run it' };
+  }
+
   const route = options.routes.get(job.capabilityId);
   if (!route) {
     return { kind: 'rejected', reason: `unknown capability ${job.capabilityId}` };

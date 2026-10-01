@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { hashRequest, randomSalt, requestCommit, requestDocument, requestURI } from '@bursar/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { canonicalStringify, capabilityId, commitCanonical } from '../src/commit.js';
@@ -172,6 +173,20 @@ describe('executeJob', () => {
 });
 
 describe('input URI policy', () => {
+  it('leaves a lock that pays for an x402 call to the server that served it', async () => {
+    const { options, fetches, writes } = harness();
+    const binding = { requestHash: hashRequest('{"q":1}'), salt: randomSalt() };
+    const document = requestDocument({ method: 'POST', url: 'https://api.provider.dev/render', binding });
+
+    const outcome = await executeJob(job({ inputCommit: requestCommit(document), inputURI: requestURI(document) }), options);
+
+    // The description of a request is not a job. Nothing is fetched, called or written, and the
+    // log says whose lock it is.
+    expect(outcome).toMatchObject({ kind: 'rejected', reason: expect.stringContaining('serves itself') });
+    expect(fetches).toHaveLength(0);
+    expect(writes).toHaveLength(0);
+  });
+
   it.each([
     ['file:///etc/passwd', 'scheme file: is not allowed'],
     ['ftp://127.0.0.1/input.json', 'scheme ftp: is not allowed'],

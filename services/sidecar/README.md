@@ -211,6 +211,12 @@ Transactions are still sent one at a time, each confirmed before the next is sig
 finishes, the sidecar reads the chain's clock again and does not sign a `release` for a lock whose
 deadline has passed in the meantime.
 
+A lock opened by the SDK's `mandate.fetch` on the mandate lane pays for an HTTP call that the
+payee's own server answers. It publishes that call as its input, under the media type
+`application/vnd.bursar.x402-request+json`, and there is no job in it for the sidecar: it logs
+`job_rejected` for the lock, runs nothing, and leaves the release to the server that served the
+call.
+
 The scan for new locks stays five blocks behind the head. The head and the logs can be answered by
 different RPC providers, and a provider a few blocks behind would otherwise report no locks for
 blocks it has not seen yet, after which the scan would never look at them again.
