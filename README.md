@@ -19,16 +19,17 @@ uses, the services that verify and settle payments, and the console at
 
 ## Status
 
-Bursar is live on Robinhood Chain mainnet (chain 4663) and settles in USDG. The contracts were
-deployed on 2026-09-22 and hold real funds.
+Bursar is live on Robinhood Chain mainnet (chain 4663) and settles in USDG. The first contracts
+were deployed on 2026-09-22; the current set, the fourth, was deployed on 2026-10-01. They hold
+real funds.
 
-**No external audit has been performed.** The caps on mainnet are deliberately low: a provider
-with no history can be paid at most 25 USDG per job, and the cap rises 2.25 USDG per point of
-score to 250 USDG at a score of 100. The score is the share of a provider's settled jobs that were
-delivered, weighed by what it has settled: a job under 1 USDG counts for nothing, each payer counts
-for at most 62.5 USDG of settled work, and a full score takes 250 USDG of it, so at least four
-payers. The cap applies to each payment, not to a provider's total. Size any mandate you fund
-accordingly.
+The caps on mainnet are deliberately low: a provider with no history can be paid at most 25 USDG
+per job, and the cap rises 2.25 USDG per point of score to 250 USDG at a score of 100. The score is
+the share of a provider's settled jobs that were delivered, weighed by what it has settled: a job
+under 1 USDG counts for nothing, each payer counts for at most 62.5 USDG of settled work, and a
+full score takes 250 USDG of it, so at least four payers. The cap applies to each payment, not to a
+provider's total. Size any mandate you fund accordingly. [SECURITY.md](SECURITY.md) has the review
+status and the trust assumptions behind these limits.
 
 Packages are not yet published to npm. Build them from this repository.
 
@@ -244,11 +245,57 @@ Robinhood Chain mainnet, chain id 4663. Settlement asset: USDG at
 The full records, including transactions, parameters and roles, are in
 [`contracts/deployments/`](contracts/deployments).
 
-### Current set (v3)
+### Current set (v4)
 
-New mandates are created here. It is a development deployment: its timelock delay and its dispute
-vote windows are one hour each, so changes can be exercised within a day. Before the public
-launch the delay returns to 48 hours and each vote window to six hours.
+New mandates are created here. The fourth set was deployed on 2026-10-01 and is recorded in
+[`rhc-mainnet-v4.json`](contracts/deployments/rhc-mainnet-v4.json). It keeps the third set's
+timelock and token contracts; every other contract is new. It is a development deployment: its
+timelock delay and its dispute vote windows are one hour each, so changes can be exercised within
+a day. Before the public launch the delay returns to 48 hours and each vote window to six hours.
+
+| Contract | Address |
+|---|---|
+| `AdminTimelock` | [`0xD91A6577828424E386900D0bB41596c6eF3BF8DF`](https://robinhoodchain.blockscout.com/address/0xD91A6577828424E386900D0bB41596c6eF3BF8DF) |
+| `MandateAccountFactory` | [`0xC42dBCbd34E64e2D81B48866F673ddB7B42ba562`](https://robinhoodchain.blockscout.com/address/0xC42dBCbd34E64e2D81B48866F673ddB7B42ba562) |
+| `Escrow` | [`0x11e73B5632837355e250fC236cFC2Be03aD0845A`](https://robinhoodchain.blockscout.com/address/0x11e73B5632837355e250fC236cFC2Be03aD0845A) |
+| `Reputation` | [`0x4FEa7af88C60988E80b065F6e2af071C7fB3F5E8`](https://robinhoodchain.blockscout.com/address/0x4FEa7af88C60988E80b065F6e2af071C7fB3F5E8) |
+| `OracleRegistry` | [`0xbb628E362EceE9Ce16f2e48DD79f5ed4558596e3`](https://robinhoodchain.blockscout.com/address/0xbb628E362EceE9Ce16f2e48DD79f5ed4558596e3) |
+| `AgentRegistry` | [`0x6501ABAb6aF58549De0Dd42040240665591c6C2a`](https://robinhoodchain.blockscout.com/address/0x6501ABAb6aF58549De0Dd42040240665591c6C2a) |
+
+Stocks, treasury and credit:
+
+| Contract | Address |
+|---|---|
+| `AssetRegistry` | [`0xbd4950505d45e53740DA4941B666B3C796818393`](https://robinhoodchain.blockscout.com/address/0xbd4950505d45e53740DA4941B666B3C796818393) |
+| `PriceGuard` | [`0x1f7aaf32b34c8848784F51847dC7B23c50FA7b36`](https://robinhoodchain.blockscout.com/address/0x1f7aaf32b34c8848784F51847dC7B23c50FA7b36) |
+| `StockSpendRouter` | [`0x4061b1346bedE97DcA8D7295977B703046fA9905`](https://robinhoodchain.blockscout.com/address/0x4061b1346bedE97DcA8D7295977B703046fA9905) |
+| `TreasuryPark` | [`0xfE7419caAd0181f77F850ae5D1c70bFd16Ef118f`](https://robinhoodchain.blockscout.com/address/0xfE7419caAd0181f77F850ae5D1c70bFd16Ef118f) |
+| Park adapter, SGOV | [`0xFb71c36F32d42251039494761A674E24d2cc712b`](https://robinhoodchain.blockscout.com/address/0xFb71c36F32d42251039494761A674E24d2cc712b) |
+| Park adapter, USDG | [`0xC92F0275717CaB35CD5A501223bCEE042b4a5506`](https://robinhoodchain.blockscout.com/address/0xC92F0275717CaB35CD5A501223bCEE042b4a5506) |
+| `CreditPool` | [`0xFcE28EA7316506F3299b300C25C861F3FA071796`](https://robinhoodchain.blockscout.com/address/0xFcE28EA7316506F3299b300C25C861F3FA071796) |
+| `CollateralVault` | [`0xcb2D73D7E99A5a66E2d458c05394652c04A502a7`](https://robinhoodchain.blockscout.com/address/0xcb2D73D7E99A5a66E2d458c05394652c04A502a7) |
+
+Privacy:
+
+| Contract | Address |
+|---|---|
+| `WithinMandateVerifier` | [`0xFF4b6B355c2A923fdf585BC4DaBec152D615B459`](https://robinhoodchain.blockscout.com/address/0xFF4b6B355c2A923fdf585BC4DaBec152D615B459) |
+| `CommittedMandateFactory` | [`0x227259542FE9C6b1F1899A94ec13d7A824A4B4EB`](https://robinhoodchain.blockscout.com/address/0x227259542FE9C6b1F1899A94ec13d7A824A4B4EB) |
+| `DisclosureRegistry` | [`0x2C7B264f596302806d945f42DCF242A757188994`](https://robinhoodchain.blockscout.com/address/0x2C7B264f596302806d945f42DCF242A757188994) |
+| `SolvencyLog` | [`0x9B0131e101080A19Ef5D94b47B0a4BBD7e342020`](https://robinhoodchain.blockscout.com/address/0x9B0131e101080A19Ef5D94b47B0a4BBD7e342020) |
+| `Entrypoint` | [`0x42DA6BE9eAf31A7b5051a0926ACB2e93E32991ee`](https://robinhoodchain.blockscout.com/address/0x42DA6BE9eAf31A7b5051a0926ACB2e93E32991ee) |
+| `EntrypointImplementation` | [`0x20989ee637c7513428f9b1ca8020BE67c1D60f1d`](https://robinhoodchain.blockscout.com/address/0x20989ee637c7513428f9b1ca8020BE67c1D60f1d) |
+| `ShieldedPool` | [`0xdF48d94951d4944A15d73e33fCc695bAe6161256`](https://robinhoodchain.blockscout.com/address/0xdF48d94951d4944A15d73e33fCc695bAe6161256) |
+| `ShieldedRelay` | [`0x2aC40b3A95b4B88d0Fc774E503926ad96Fbed440`](https://robinhoodchain.blockscout.com/address/0x2aC40b3A95b4B88d0Fc774E503926ad96Fbed440) |
+| `WithdrawalVerifier` | [`0xE78C90A981036Db48Bd7a611974148d78417bBE0`](https://robinhoodchain.blockscout.com/address/0xE78C90A981036Db48Bd7a611974148d78417bBE0) |
+| `CommitmentVerifier` | [`0x888922cc4F2C1428f04788823D36511b6062F85b`](https://robinhoodchain.blockscout.com/address/0x888922cc4F2C1428f04788823D36511b6062F85b) |
+
+### Previous set (v3)
+
+The third set, deployed on 2026-09-30, stays on chain and keeps serving the mandates, locks and
+disputes opened through it. The console, the SDK and the MCP server still read it. Its timelock
+is the current one, and its token contracts are listed below as carried over. The rest of the set
+is in [`rhc-mainnet-v3.json`](contracts/deployments/rhc-mainnet-v3.json).
 
 | Contract | Address |
 |---|---|
@@ -259,36 +306,20 @@ launch the delay returns to 48 hours and each vote window to six hours.
 | `OracleRegistry` | [`0x20E75139996fFf7B3158DF28Bf133b326DCD2BdF`](https://robinhoodchain.blockscout.com/address/0x20E75139996fFf7B3158DF28Bf133b326DCD2BdF) |
 | `AgentRegistry` | [`0xCa7b01237a43a515FbFBB5BA3e0Fed7e953139c9`](https://robinhoodchain.blockscout.com/address/0xCa7b01237a43a515FbFBB5BA3e0Fed7e953139c9) |
 
-### Previous set (v2)
+### Earlier sets
 
-The v2 and v1 contracts stay on chain and keep serving the mandates, locks and disputes opened
-through them. The console, the SDK and the MCP server still read them.
-
-| Contract | Address |
-|---|---|
-| `AdminTimelock` | [`0x135eF562ac57845AeA1Bb650fc0E74D67A4a866B`](https://robinhoodchain.blockscout.com/address/0x135eF562ac57845AeA1Bb650fc0E74D67A4a866B) |
-| `MandateAccountFactory` | [`0xe9f8cc653fF40E346e0591f353Be58DF0533cfD0`](https://robinhoodchain.blockscout.com/address/0xe9f8cc653fF40E346e0591f353Be58DF0533cfD0) |
-| `Escrow` | [`0x4315F8be7C9661345710910577Ec31cb867f3c20`](https://robinhoodchain.blockscout.com/address/0x4315F8be7C9661345710910577Ec31cb867f3c20) |
-| `Reputation` | [`0x48BF5F8Cea580148B2A5Ee3A9c487BF1dCafd9c3`](https://robinhoodchain.blockscout.com/address/0x48BF5F8Cea580148B2A5Ee3A9c487BF1dCafd9c3) |
-| `OracleRegistry` | [`0xE38349668f0C470C814487E95C14e7652F713B17`](https://robinhoodchain.blockscout.com/address/0xE38349668f0C470C814487E95C14e7652F713B17) |
-| `AgentRegistry` | [`0x552E95102aE6B9232dD6A744B8f6bd348b379D26`](https://robinhoodchain.blockscout.com/address/0x552E95102aE6B9232dD6A744B8f6bd348b379D26) |
-
-### First set (v1)
-
-| Contract | Address |
-|---|---|
-| `AdminTimelock` | [`0x5a32Eab02454f97a39857E85b536F83EE0f844Bf`](https://robinhoodchain.blockscout.com/address/0x5a32Eab02454f97a39857E85b536F83EE0f844Bf) |
-| `MandateAccountFactory` | [`0xF8Ca04BEc1D7bcf767154AC6F7Ed1DD840CCF216`](https://robinhoodchain.blockscout.com/address/0xF8Ca04BEc1D7bcf767154AC6F7Ed1DD840CCF216) |
-| `Escrow` | [`0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4`](https://robinhoodchain.blockscout.com/address/0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4) |
-| `Reputation` | [`0x8F123EDDDC586EEaAC3B1D6A5B9dF7BC0247680d`](https://robinhoodchain.blockscout.com/address/0x8F123EDDDC586EEaAC3B1D6A5B9dF7BC0247680d) |
-| `OracleRegistry` | [`0xCb7c60037eC43b9692A5dDcA42A500181Cf549FF`](https://robinhoodchain.blockscout.com/address/0xCb7c60037eC43b9692A5dDcA42A500181Cf549FF) |
-| `AgentRegistry` | [`0x4a9e90F15c0FEC02f7592C6E618cd3B64076035b`](https://robinhoodchain.blockscout.com/address/0x4a9e90F15c0FEC02f7592C6E618cd3B64076035b) |
+The second set (v2, deployed on 2026-09-28) and the first set (v1, deployed on 2026-09-22) stay on
+chain and keep serving the mandates, locks and disputes opened through them. The console, the SDK
+and the MCP server still read them. Each has a timelock of its own. Their addresses are in
+[`rhc-mainnet-v2.json`](contracts/deployments/rhc-mainnet-v2.json) and
+[`rhc-mainnet.json`](contracts/deployments/rhc-mainnet.json).
 
 ### Token contracts
 
-`BRSR` and `Vesting` are shared by every set. `Staking` and `Buyback` belong to the current set,
-and resolver bonds on its registry are held in this `Staking` pool. The v2 and v1 registries keep
-reading the earlier pool, listed here as previous.
+`BRSR` and `Vesting` are shared by every set. `Staking`, `Buyback` and the liquidity seeder were
+deployed with the third set and carry over to the fourth; resolver bonds on both registries are
+held in this `Staking` pool. The v2 and v1 registries keep reading the earlier pool, listed here
+as previous.
 
 | Contract | Address |
 |---|---|
@@ -296,6 +327,7 @@ reading the earlier pool, listed here as previous.
 | `Vesting` | [`0x5aD3d29C80C1617F3B195d74D593Bc9839681b2F`](https://robinhoodchain.blockscout.com/address/0x5aD3d29C80C1617F3B195d74D593Bc9839681b2F) |
 | `Staking` | [`0x31CbD06003089B00897F0d7e3c283C66a1768d9A`](https://robinhoodchain.blockscout.com/address/0x31CbD06003089B00897F0d7e3c283C66a1768d9A) |
 | `Buyback` | [`0x51a88fb749738CB31ddb1F35A426ab2189F45eab`](https://robinhoodchain.blockscout.com/address/0x51a88fb749738CB31ddb1F35A426ab2189F45eab) |
+| `V4LiquiditySeeder` | [`0x2cD0c0f114A4E7A20EF7967355E0986D0F82e125`](https://robinhoodchain.blockscout.com/address/0x2cD0c0f114A4E7A20EF7967355E0986D0F82e125) |
 | `Staking`, previous | [`0x3f2a0E7822B30aD928488F053348b137866Cf962`](https://robinhoodchain.blockscout.com/address/0x3f2a0E7822B30aD928488F053348b137866Cf962) |
 | `Buyback`, previous | [`0xE979a30564a6F15DCCdB5488d5ac0D74a1bda6F0`](https://robinhoodchain.blockscout.com/address/0xE979a30564a6F15DCCdB5488d5ac0D74a1bda6F0) |
 
@@ -303,7 +335,7 @@ Mandate accounts are created per principal by a factory and are not listed here.
 
 ### An example mandate to read
 
-[`0x4a373BFCc5bb36dc6cA10C407189c45eb40058E5`](https://app.bursar.world/console/0x4a373BFCc5bb36dc6cA10C407189c45eb40058E5)
+[`0x8605853aC6A64dA11F4ED0Ff0Ad128961Cc3cd5c`](https://app.bursar.world/console/0x8605853aC6A64dA11F4ED0Ff0Ad128961Cc3cd5c)
 is a live mandate account created by the current factory, and it is the one to point at while you
 learn the system. It settles through the current escrow, holds 0.20 USDG and has no expiry. It
 allows up to 0.10 USDG per payment, 0.50 USDG a day and 2.00 USDG a month, with a lifetime total
@@ -312,20 +344,22 @@ agent's signature, and a payment of exactly 0.10 waits for the principal to appr
 pay for services, hire agents and buy SPY, NVDA or AAPL through the stock router. One address,
 `0x877c349EFb5926082C413833E8055F0991185c61`, is both its principal and its agent. That suits a
 demonstration; a mandate in use gives its agent a key of its own. Open it in the
-[console](https://app.bursar.world/console/0x4a373BFCc5bb36dc6cA10C407189c45eb40058E5) to see its
+[console](https://app.bursar.world/console/0x8605853aC6A64dA11F4ED0Ff0Ad128961Cc3cd5c) to see its
 limits and history. The same principal also runs a collateral-lane example,
-[`0x6CE1bF2833C8790e7D63E988FA308727a04dFDDA`](https://app.bursar.world/console/0x6CE1bF2833C8790e7D63E988FA308727a04dFDDA),
-which holds no USDG and borrows each spend against the SPY it has posted.
+[`0x856471C6922A3ccBa6b514E316B617B5f5C4bA18`](https://app.bursar.world/console/0x856471C6922A3ccBa6b514E316B617B5f5C4bA18),
+which borrows what a spend needs against the SPY it has posted.
 
-Reading it needs no key. With the SDK, `mandateAccount('0x4a373BFCc5bb36dc6cA10C407189c45eb40058E5')`
+Reading it needs no key. With the SDK, `mandateAccount('0x8605853aC6A64dA11F4ED0Ff0Ad128961Cc3cd5c')`
 opens a read-only client (see [`packages/sdk/README.md`](packages/sdk/README.md)). With the MCP
 server, set `MANDATE_ACCOUNT` to that address and no signer, and it serves only the tools that read
 (see [`packages/mcp/README.md`](packages/mcp/README.md)). Paying through it takes its agent key,
 which is not published. To spend, create a mandate of your own in the console.
 
-The v1 example,
+The v3 example,
+[`0x4a373BFCc5bb36dc6cA10C407189c45eb40058E5`](https://app.bursar.world/console/0x4a373BFCc5bb36dc6cA10C407189c45eb40058E5),
+settles through the v3 escrow, and the v1 example,
 [`0xB4Bd99d8604fDB876fA1B38a3f8bA024D20ccD0b`](https://app.bursar.world/console/0xB4Bd99d8604fDB876fA1B38a3f8bA024D20ccD0b),
-settles through the v1 escrow and stays readable the same way.
+through the v1 escrow. Both stay readable the same way.
 
 ## Contributing
 
