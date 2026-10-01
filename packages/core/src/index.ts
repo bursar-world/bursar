@@ -157,6 +157,8 @@ export {
   V1_ABIS,
   V2_ABIS,
   V3_ABIS,
+  V4_ABIS,
+  contractSetAtLeast,
   contractSetOf,
   contractSetOfEscrow,
   contractSetOfRegistry,

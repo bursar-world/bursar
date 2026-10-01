@@ -1,6 +1,6 @@
 import { encodeFunctionData, getContract, parseEventLogs } from 'viem';
 import type { Address, Chain, GetContractReturnType, Hex, PublicClient, Transport } from 'viem';
-import { CURRENT_CONTRACT_SET, ZERO_MICRO, contractSetOfEscrow, escrowAbi, micro } from '@bursar/core';
+import { CURRENT_CONTRACT_SET, ZERO_MICRO, contractSetAtLeast, contractSetOfEscrow, escrowAbi, micro } from '@bursar/core';
 import type { ContractSet, Micro } from '@bursar/core';
 
 import { canonicalStringify, commitCanonical, toDataUri } from './commit.js';
@@ -191,7 +191,7 @@ export class EscrowClient {
    */
   async owed(party?: Address): Promise<Micro> {
     const who = this.#party('owed', party);
-    if (this.contractSet !== 'v3') return ZERO_MICRO;
+    if (!contractSetAtLeast(this.contractSet, 'v3')) return ZERO_MICRO;
     return micro(await this.#escrow.read.owed([who]));
   }
 
@@ -203,7 +203,7 @@ export class EscrowClient {
   async claim(party?: Address): Promise<OwedClaimReceipt> {
     const who = this.#party('claim', party);
 
-    if (this.contractSet !== 'v3') {
+    if (!contractSetAtLeast(this.contractSet, 'v3')) {
       throw new CallRefusedError(
         'ZeroAmount',
         'Nothing is owed on this escrow. It pays each party when a settlement goes through, and a ' +
@@ -323,7 +323,7 @@ export async function escrow(
       read.minTtl(),
       read.maxTtl(),
       read.disputeWindow(),
-      contractSet === 'v3' ? read.minLock().then(micro) : Promise.resolve(ONE_MICRO),
+      contractSetAtLeast(contractSet, 'v3') ? read.minLock().then(micro) : Promise.resolve(ONE_MICRO),
       read.feeBps(),
       read.resolverFeeBps(),
       read.disputeBondBps(),

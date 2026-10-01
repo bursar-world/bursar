@@ -3,6 +3,7 @@ import {
   classLabel,
   classOfLabel,
   committedMandateAccountAbi,
+  contractSetAtLeast,
   contractSetOfEscrow,
   escrowAbi,
   micro,
@@ -103,7 +104,7 @@ export function createPrivateGateway(options: {
     (floor ??= client
       .readContract({ address, abi, functionName: 'escrow' })
       .then((escrow) =>
-        (contractSetOfEscrow(escrow) ?? CURRENT_CONTRACT_SET) === 'v3'
+        contractSetAtLeast(contractSetOfEscrow(escrow) ?? CURRENT_CONTRACT_SET, 'v3')
           ? client.readContract({ address: escrow, abi: escrowAbi, functionName: 'minLock' })
           : 1n,
       )

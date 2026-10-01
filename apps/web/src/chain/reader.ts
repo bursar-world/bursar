@@ -1,4 +1,13 @@
-import { CURRENT_CONTRACT_SET, SPEND_CLASS_BIT, classOfLabel, contractSetOfEscrow, deploymentsForChain, micro, toCapabilityId } from '@bursar/core';
+import {
+  CURRENT_CONTRACT_SET,
+  SPEND_CLASS_BIT,
+  classOfLabel,
+  contractSetAtLeast,
+  contractSetOfEscrow,
+  deploymentsForChain,
+  micro,
+  toCapabilityId,
+} from '@bursar/core';
 import type { ContractSet, Micro } from '@bursar/core';
 import { wei } from '../money';
 import type { Wei } from '../money';
@@ -278,8 +287,8 @@ export async function readSystem(scope: ReadScope): Promise<ChainSnapshot> {
     ...(args === undefined ? {} : { args }),
   });
   const escrowSlots = liveEscrows().map((escrow) => {
-    // Only a v3 escrow has a floor or holds a payout back, and asking an earlier one reverts.
-    const v3 = (contractSetOfEscrow(escrow) ?? CURRENT_CONTRACT_SET) === 'v3';
+    // An escrow before v3 has no floor and holds no payout back, and asking it for either reverts.
+    const floored = contractSetAtLeast(contractSetOfEscrow(escrow) ?? CURRENT_CONTRACT_SET, 'v3');
     return {
       address: escrow,
       feeBps: batch.add<number>('escrow.feeBps', escrowRead(escrow, 'feeBps')),
@@ -289,8 +298,8 @@ export async function readSystem(scope: ReadScope): Promise<ChainSnapshot> {
       disputeBondBps: batch.add<number>('escrow.disputeBondBps', escrowRead(escrow, 'disputeBondBps')),
       resolverFeeBps: batch.add<number>('escrow.resolverFeeBps', escrowRead(escrow, 'resolverFeeBps')),
       treasury: batch.add<Address>('escrow.treasury', escrowRead(escrow, 'treasury')),
-      minLock: v3 ? batch.add<bigint>('escrow.minLock', escrowRead(escrow, 'minLock')) : undefined,
-      owed: v3 && scope.mandate ? batch.add<bigint>('escrow.owed:mandate', escrowRead(escrow, 'owed', [scope.mandate])) : undefined,
+      minLock: floored ? batch.add<bigint>('escrow.minLock', escrowRead(escrow, 'minLock')) : undefined,
+      owed: floored && scope.mandate ? batch.add<bigint>('escrow.owed:mandate', escrowRead(escrow, 'owed', [scope.mandate])) : undefined,
     };
   });
 

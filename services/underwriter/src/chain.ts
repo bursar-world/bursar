@@ -4,6 +4,7 @@ import {
   type Micro,
   type RhcPublicClient,
   agentRegistryAbi,
+  contractSetAtLeast,
   contractSetOfEscrow,
   escrowAbi,
   mandateAccountAbi,
@@ -528,7 +529,7 @@ export function createMandateChain(client: RhcPublicClient): MandateChain {
         const call = <const T extends string>(functionName: T) =>
           client.readContract({ address: escrow, abi: escrowAbi, functionName, ...at(blockNumber) } as never);
 
-        const floored = (contractSetOfEscrow(escrow) ?? CURRENT_CONTRACT_SET) === 'v3';
+        const floored = contractSetAtLeast(contractSetOfEscrow(escrow) ?? CURRENT_CONTRACT_SET, 'v3');
 
         const [settlementAsset, reputation, registry, minTtl, maxTtl, minLock, feeBps, disputeBondBps] = (await Promise.all([
           call('settlementAsset'),

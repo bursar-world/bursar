@@ -5,6 +5,7 @@ import {
   classLabel,
   classesInMask,
   classOfLabel,
+  contractSetAtLeast,
   contractSetOfEscrow,
   escrowAbi,
   mandateAccountAbi,
@@ -179,7 +180,9 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
 
     // An earlier escrow refuses only an empty lock, and asking it for a floor reverts.
     floor ??= (
-      contractSet === 'v3' ? client.readContract({ ...escrowContract, functionName: 'minLock' }) : Promise.resolve(1n)
+      contractSetAtLeast(contractSet, 'v3')
+        ? client.readContract({ ...escrowContract, functionName: 'minLock' })
+        : Promise.resolve(1n)
     ).catch((error: unknown) => {
       floor = null;
       throw error;
@@ -786,8 +789,8 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
       bondBps,
       resolver,
       balance,
-      // Only a v3 escrow refuses a dispute on a held payment once its deadline has passed.
-      closesAtDeadline: contractSet === 'v3',
+      // From v3 on the escrow refuses a dispute on a held payment once its deadline has passed.
+      closesAtDeadline: contractSetAtLeast(contractSet, 'v3'),
     });
 
     const receipt = await submitter.dispute({ mandateAccount: account, escrowId: settlementId });

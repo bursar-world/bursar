@@ -3,6 +3,7 @@ import {
   CURRENT_CONTRACT_SET,
   committedMandateAccountAbi,
   committedMandateFactoryAbi,
+  contractSetAtLeast,
   contractSetOfEscrow,
   escrowAbi,
   privacyDeployment,
@@ -205,8 +206,8 @@ export async function readCommittedMandate(address: Address): Promise<CommittedR
   if (!listed.some((entry) => sameAddress(entry, address))) return undefined;
   const [balance, owed] = await Promise.all([
     client.readContract({ address: asset, abi: settlementAssetAbi, functionName: 'balanceOf', args: [address] }),
-    // Only a v3 escrow holds a payout back, and asking an earlier one reverts.
-    (contractSetOfEscrow(escrow) ?? CURRENT_CONTRACT_SET) === 'v3'
+    // An escrow before v3 holds no payout back, and asking it for one reverts.
+    contractSetAtLeast(contractSetOfEscrow(escrow) ?? CURRENT_CONTRACT_SET, 'v3')
       ? client.readContract({ address: escrow, abi: escrowAbi, functionName: 'owed', args: [address] })
       : Promise.resolve(undefined),
   ]);

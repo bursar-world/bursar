@@ -1,4 +1,4 @@
-import { micro } from '@bursar/core';
+import { contractSetAtLeast, micro } from '@bursar/core';
 import type { ContractSet, Micro } from '@bursar/core';
 import { LockStatus, MerchantGate } from '@bursar/sdk';
 
@@ -127,7 +127,8 @@ export function contestable(
     // A dispute that closed without a ruling puts the lock back to Locked with its dispute time
     // kept, and the registry refuses a second dispute on the same lock.
     if (lock.disputedAt !== undefined && lock.disputedAt !== null) return false;
-    return set !== 'v3' || lock.deadline === undefined || now.getTime() <= lock.deadline.getTime();
+    const closesAtDeadline = set !== undefined && contractSetAtLeast(set, 'v3');
+    return !closesAtDeadline || lock.deadline === undefined || now.getTime() <= lock.deadline.getTime();
   }
   if (lock.status !== LockStatus.Released || lock.releasedAt === null || disputeWindow === undefined) return false;
   return lock.releasedAt.getTime() + Number(disputeWindow) * 1000 > now.getTime();

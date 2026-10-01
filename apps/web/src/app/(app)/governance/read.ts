@@ -1,7 +1,7 @@
 import { toFunctionSelector } from 'viem';
 import type { Address, Hex } from 'viem';
 
-import { contractSetOf, deploymentByContract, deploymentsForChain } from '@bursar/core';
+import { contractSetAtLeast, contractSetOf, deploymentByContract, deploymentsForChain } from '@bursar/core';
 import type { Deployment } from '@bursar/core';
 
 import { ADDRESSES, CHAIN_ID, ReadBatch, TOKEN_ROLES, addBlockNumber, addChainTime, adminTimelockAbi, rhcClient, runBatch, sameAddress } from '@/chain';
@@ -54,7 +54,7 @@ export function governanceTimelocks(): readonly TimelockTag[] {
 function brakeOf(address: Address): TimelockTag['brake'] {
   const record = deploymentByContract('AdminTimelock', address);
   if (record === undefined) return undefined;
-  return contractSetOf(record) === 'v3' ? 'each-target' : 'all-or-nothing';
+  return contractSetAtLeast(contractSetOf(record), 'v3') ? 'each-target' : 'all-or-nothing';
 }
 
 /**

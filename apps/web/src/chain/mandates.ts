@@ -1,6 +1,7 @@
 import {
   COLLATERAL_LANE,
   collateralDeployment,
+  contractSetAtLeast,
   contractSetOf,
   deploymentsForChain,
   isTotalBudgetWindow,
@@ -128,7 +129,7 @@ export function laneAvailable(lane: FundingLane): boolean {
  * only the v2.1 factory's accounts do; from v3 on the set's own factory deploys that build.
  */
 function newAccountsDraw(): boolean {
-  return rwaDeployment(CHAIN_ID)?.MandateAccountFactoryV21 !== undefined || contractSetOf(deployment()) === 'v3';
+  return rwaDeployment(CHAIN_ID)?.MandateAccountFactoryV21 !== undefined || contractSetAtLeast(contractSetOf(deployment()), 'v3');
 }
 
 /**

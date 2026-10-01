@@ -234,7 +234,8 @@ export function createEscrowPort(options: EscrowPortOptions): EscrowPort {
         client.readContract({ address, abi: escrowAbi, functionName: 'resolver' }),
       ]);
 
-      const lateDisputes = (contractSetOfEscrow(address) ?? CURRENT_CONTRACT_SET) !== 'v3';
+      const set = contractSetOfEscrow(address) ?? CURRENT_CONTRACT_SET;
+      const lateDisputes = set === 'v1' || set === 'v2';
 
       return { settlementAsset, feeBps, resolverFeeBps, disputeBondBps, disputeWindow, resolver, lateDisputes };
     },

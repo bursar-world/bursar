@@ -1713,7 +1713,7 @@ export async function mandateAccount(
       client.readContract({ address: escrow, abi: escrowAbi, functionName: 'maxTtl' }),
       client.readContract({ address: escrow, abi: escrowAbi, functionName: 'reputation' }),
       client.readContract({ address: escrow, abi: escrowAbi, functionName: 'registry' }),
-      contractSet === 'v3'
+      contractSet !== 'v1' && contractSet !== 'v2'
         ? client.readContract({ address: escrow, abi: escrowAbi, functionName: 'minLock' })
         : Promise.resolve(1n),
     ]),

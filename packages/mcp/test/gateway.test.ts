@@ -165,7 +165,7 @@ describe('inspect', () => {
 
     const view = await gatewayFor(createFakeNode(state)).inspect();
 
-    expect(view.contractSet).toBe('v3');
+    expect(view.contractSet).toBe('v4');
     expect(view.classes).toEqual(['service']);
     expect(view.totalCap?.micro).toBe('5000000');
   });
@@ -434,7 +434,7 @@ describe('pay', () => {
       merchantProof: [],
       approval: null,
       spendClass: 0,
-      contractSet: 'v3',
+      contractSet: 'v4',
     });
     expect(view.settlementId).toBe('42');
     expect(view.deliverBy).toBe('2027-01-15T08:05:00Z');

@@ -1,6 +1,7 @@
 import {
   V2_ABIS,
   agentRegistryAbi,
+  contractSetAtLeast,
   contractSetOfEscrow,
   createRhcClient,
   escrowAbi,
@@ -437,7 +438,7 @@ export function createChain(options: ChainOptions): { port: ChainPort; client: R
 
     parties: async (registry, disputeId, contractSet) => {
       if (contractSet === 'v1') return [];
-      if (contractSet === 'v3') {
+      if (contractSetAtLeast(contractSet, 'v3')) {
         const found = await client.readContract({ address: registry, abi: oracleRegistryAbi, functionName: 'partiesOf', args: [disputeId] });
         return found.filter((party) => !isZeroAddress(party));
       }

@@ -72,7 +72,7 @@ export type MandateView = {
   readonly documentHash: Hex | null;
   /**
    * Which build of the contracts the mandate runs. v1 holds its classes in the capability namespace.
-   * v2 and v3 accounts share one shape; a v3 escrow floors the lock size.
+   * Accounts from v2 on share one shape; from v3 the escrow floors the lock size.
    */
   readonly contractSet: ContractSet;
   /** The spend classes the account allows natively. Null on v1, where no mask is held. */

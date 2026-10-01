@@ -1,4 +1,4 @@
-import { CURRENT_CONTRACT_SET, micro, mulBps } from '@bursar/core';
+import { CURRENT_CONTRACT_SET, contractSetAtLeast, micro, mulBps } from '@bursar/core';
 import type { Micro } from '@bursar/core';
 import { LockStatus } from '@bursar/sdk';
 import type { Address, Hex } from 'viem';
@@ -383,15 +383,17 @@ export async function readProviderDesk(payee: Address, signal?: AbortSignal): Pr
     ...(args === undefined ? {} : { args }),
   });
 
+  const floored = contractSetAtLeast(current.contractSet, 'v3');
+
   const slots = {
     blockNumber: addBlockNumber(head),
     chainTime: addChainTime(head),
     nextId: head.add<bigint>('escrow.nextId', escrowCall('nextId')),
     feeBps: head.add<number>('escrow.feeBps', escrowCall('feeBps')),
     disputeWindow: head.add<bigint>('escrow.disputeWindow', escrowCall('disputeWindow')),
-    // Only a v3 escrow has a floor or holds a payout back, and asking an earlier one reverts.
-    minLock: current.contractSet === 'v3' ? head.add<bigint>('escrow.minLock', escrowCall('minLock')) : undefined,
-    owed: current.contractSet === 'v3' ? head.add<bigint>('escrow.owed', escrowCall('owed', [payee])) : undefined,
+    // An escrow before v3 has no floor and holds no payout back, and asking it for either reverts.
+    minLock: floored ? head.add<bigint>('escrow.minLock', escrowCall('minLock')) : undefined,
+    owed: floored ? head.add<bigint>('escrow.owed', escrowCall('owed', [payee])) : undefined,
     minTtl: head.add<bigint>('escrow.minTtl', escrowCall('minTtl')),
     maxTtl: head.add<bigint>('escrow.maxTtl', escrowCall('maxTtl')),
     disputeBondBps: head.add<number>('escrow.disputeBondBps', escrowCall('disputeBondBps')),

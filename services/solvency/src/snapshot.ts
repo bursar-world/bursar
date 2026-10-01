@@ -2,6 +2,8 @@ import {
   V1_ABIS,
   V2_ABIS,
   V3_ABIS,
+  V4_ABIS,
+  contractSetAtLeast,
   contractSetOf,
   deploymentsForChain,
   settlementAssetAbi,
@@ -22,6 +24,7 @@ const ABIS: Readonly<Record<ContractSet, typeof V1_ABIS | typeof V2_ABIS | typeo
   v1: V1_ABIS,
   v2: V2_ABIS,
   v3: V3_ABIS,
+  v4: V4_ABIS,
 };
 
 const isZero = (address: Address): boolean => /^0x0{40}$/i.test(address);
@@ -80,7 +83,7 @@ export async function snapshot(
     // The escrow keeps no total of what it owes, only an amount per recipient. Every recipient is a
     // party to some lock, or the registry its resolver fees go to, so reading each of those once
     // covers all of it.
-    if (set === 'v3') {
+    if (contractSetAtLeast(set, 'v3')) {
       parties.set(d.contracts.OracleRegistry.toLowerCase(), d.contracts.OracleRegistry);
       for (const party of parties.values()) liabilities += (await read('owed', [party])) as bigint;
     }

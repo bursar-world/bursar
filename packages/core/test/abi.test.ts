@@ -8,6 +8,8 @@ import {
   V1_ABIS,
   V2_ABIS,
   V3_ABIS,
+  V4_ABIS,
+  contractSetAtLeast,
   contractSetOf,
   contractSetOfEscrow,
   contractSetOfRegistry,
@@ -167,15 +169,58 @@ describe('the v3 ABIs', () => {
     expect(V3_ABIS.Escrow).toBe(escrowAbi);
   });
 
-  it('answer for any record the frozen sets do not name', () => {
-    const v3 = parseDeployment({
-      ...(RAW_DEPLOYMENTS['rhc-mainnet-v2'] as Record<string, unknown>),
-      network: 'rhc-mainnet-v3',
-      supersedes: 'rhc-mainnet-v2',
+  it('answer for the record deployed before the audit, by name', () => {
+    expect(contractSetOf(deployment('rhc-mainnet-v3'))).toBe('v3');
+    expect(contractSetOfEscrow(deployment('rhc-mainnet-v3').contracts.Escrow)).toBe('v3');
+    expect(contractSetOf(deployment('rhc-mainnet-v2'))).toBe('v2');
+  });
+});
+
+/**
+ * The generated ABIs describe v4. A v3 contract answers everything it has through them, so v3 has
+ * no frozen copy, and a reader has to be able to ask whether a set has what v4 added.
+ */
+describe('the v4 ABIs', () => {
+  const named = (abi: readonly { type: string; name?: string }[], type: string) =>
+    abi.filter((e) => e.type === type).map((e) => e.name);
+
+  it('weigh reputation, observe pools and seize what a written-off line held', () => {
+    for (const added of ['weights', 'creditOf', 'edgeVolume', 'setWeights']) {
+      expect(named(BURSAR_ABIS.Reputation, 'function')).toContain(added);
+    }
+    for (const added of ['observe', 'drawValuation', 'aged', 'pending']) {
+      expect(named(BURSAR_ABIS.PriceGuard, 'function')).toContain(added);
+    }
+    for (const added of ['drawHalt', 'seized', 'claimSeized']) {
+      expect(named(BURSAR_ABIS.CollateralVault, 'function')).toContain(added);
+    }
+    expect(named(BURSAR_ABIS.Reputation, 'error')).toContain('BadWeights');
+    expect(named(BURSAR_ABIS.PriceGuard, 'error')).toContain('ObservationTooSoon');
+    expect(named(BURSAR_ABIS.CollateralVault, 'error')).toContain('NothingSeized');
+  });
+
+  it('share the account, escrow and dispute contracts with v3', () => {
+    expect(V4_ABIS).toBe(V3_ABIS);
+  });
+
+  it('answer for any record no earlier set names', () => {
+    const v4 = parseDeployment({
+      ...(RAW_DEPLOYMENTS['rhc-mainnet-v3'] as Record<string, unknown>),
+      network: 'rhc-mainnet-v4',
+      supersedes: 'rhc-mainnet-v3',
     });
 
-    expect(contractSetOf(v3)).toBe('v3');
-    expect(CURRENT_CONTRACT_SET).toBe('v3');
-    expect(contractSetOf(deployment('rhc-mainnet-v2'))).toBe('v2');
+    expect(contractSetOf(v4)).toBe('v4');
+    expect(CURRENT_CONTRACT_SET).toBe('v4');
+  });
+
+  it('put the sets in the order they were built', () => {
+    expect(contractSetAtLeast('v4', 'v4')).toBe(true);
+    expect(contractSetAtLeast('v3', 'v4')).toBe(false);
+    expect(contractSetAtLeast('v4', 'v3')).toBe(true);
+    expect(contractSetAtLeast('v3', 'v3')).toBe(true);
+    expect(contractSetAtLeast('v2', 'v3')).toBe(false);
+    expect(contractSetAtLeast('v1', 'v2')).toBe(false);
+    expect(contractSetAtLeast(CURRENT_CONTRACT_SET, 'v1')).toBe(true);
   });
 });

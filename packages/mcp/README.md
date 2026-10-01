@@ -342,10 +342,10 @@ POST {BURSAR_RELAY_URL}/v1/spends
 → 200 { "escrowId": "42", "txHash": "0x…" }
 ```
 
-`spendClass` is 0 for a service payment and 1 for a hire. A v2 or v3 mandate checks it against the
+`spendClass` is 0 for a service payment and 1 for a hire. A mandate from v2 on checks it against the
 classes its principal allows. `contractSet` names the build the mandate runs, which says which account
-ABI to encode against: a v1 mandate takes the spend request without `spendClass`, and v2 and v3 take
-the same request with it.
+ABI to encode against: a v1 mandate takes the spend request without `spendClass`, and every later one,
+v2 to v4, takes the same request with it.
 
 ```
 POST {BURSAR_RELAY_URL}/v1/spends/{escrowId}/dispute
