@@ -37,11 +37,12 @@ import {IAccessRegistry} from "./IAccessRegistry.sol";
 /// it, so churning a position buys no room.
 ///
 /// A blocked address is still paid what it put in, and nothing more. The pool keeps, per address,
-/// what it has deposited over the pool's life and what it has been paid while blocked, and `_push`
-/// lets the second run up to the first. An address listed after it deposited can still ragequit
-/// or withdraw straight to itself; one that never deposited is paid nothing. The allowance counts
-/// what the address brought in, not which notes pay it out, so it also bounds what anyone else's
-/// note can pay a blocked address.
+/// what it has deposited and what it has been paid over the pool's life, and while the address is
+/// blocked `_push` lets the second run up to the first. An address blocked after it deposited can
+/// still ragequit or withdraw straight to itself; one that never deposited, or that already took
+/// its money out, is paid nothing. Payouts count whether or not the address was blocked at the
+/// time, and whichever notes they came from, so what a blocked address can collect is its net
+/// position and never anyone else's note.
 ///
 /// Withdrawals relayed through the upstream Entrypoint are refused outright: the Entrypoint
 /// pays the final recipient itself, after the pool has pushed to it, so the pool could not
@@ -75,8 +76,9 @@ contract ShieldedPool is PrivacyPool, IPrivacyPoolComplex {
 
     /// What each address has deposited over the pool's life, after the vetting fee.
     mapping(address depositor => uint256 amount) public depositedBy;
-    /// What each address has been paid while the registry listed it. Never above `depositedBy`.
-    mapping(address recipient => uint256 amount) public paidWhileBlocked;
+    /// What each address has been paid over the pool's life, blocked or not. While an address is
+    /// blocked it may not run past `depositedBy`.
+    mapping(address recipient => uint256 amount) public paidTo;
 
     error DepositAboveCap(uint256 value, uint256 cap);
     error DepositorCapReached(address depositor, uint256 depositedAfter, uint256 cap);
@@ -148,13 +150,13 @@ contract ShieldedPool is PrivacyPool, IPrivacyPoolComplex {
 
     function _push(address recipient, uint256 amount) internal override(PrivacyPool) {
         if (recipient == address(ENTRYPOINT)) revert RelayThroughShieldedRelay();
-        if (ACCESS_REGISTRY.isBlocked(recipient)) {
-            // Own money only: what has been paid out while blocked may reach what was deposited
-            // and no further, whichever notes the payouts come from.
-            uint256 paidAfter = paidWhileBlocked[recipient] + amount;
-            if (paidAfter > depositedBy[recipient]) revert RecipientBlocked(recipient);
-            paidWhileBlocked[recipient] = paidAfter;
+        // Own money only: a blocked address is paid while its payouts stay inside its deposits and
+        // no further, whichever notes they come from and whenever the earlier ones happened.
+        uint256 paidAfter = paidTo[recipient] + amount;
+        if (ACCESS_REGISTRY.isBlocked(recipient) && paidAfter > depositedBy[recipient]) {
+            revert RecipientBlocked(recipient);
         }
+        paidTo[recipient] = paidAfter;
         poolValue -= amount;
         IERC20(ASSET).safeTransfer(recipient, amount);
     }

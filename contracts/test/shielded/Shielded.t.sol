@@ -451,7 +451,9 @@ contract ShieldedTest is Test {
         registry.setBlocked(RECIPIENT, false);
         relay.relay(_relayWithdrawal(), p);
         assertEq(usdg.balanceOf(RECIPIENT), 396_000);
-        assertEq(pool.paidWhileBlocked(RECIPIENT), 0);
+        // The pool paid the relay, which is what its books say.
+        assertEq(pool.paidTo(RECIPIENT), 0);
+        assertEq(pool.paidTo(address(relay)), 400_000);
     }
 
     function test_blockedFeeRecipientRefused() public {
@@ -537,6 +539,7 @@ contract ShieldedTest is Test {
         pool.ragequit(_ragequitProof());
         assertEq(usdg.balanceOf(bob), before + 300_000);
         assertEq(usdg.balanceOf(address(pool)), 1_000_000);
+        assertEq(pool.paidTo(bob), 300_000);
     }
 
     function test_ragequitWorksWithoutAnyAspRoot() public {
@@ -597,6 +600,9 @@ contract ShieldedTest is Test {
         pool.withdraw(w, p);
         assertEq(usdg.balanceOf(DIRECT), 400_000);
         assertEq(pool.poolValue(), 900_000);
+        // Unblocked, an address is paid past its deposits, and the payout still counts.
+        assertEq(pool.paidTo(DIRECT), 400_000);
+        assertEq(pool.depositedBy(DIRECT), 0);
     }
 
     /// The same withdrawal pays 0.4 USDG of alice's note to DIRECT. With 0.4 USDG of deposits of
@@ -613,7 +619,7 @@ contract ShieldedTest is Test {
 
         assertEq(usdg.balanceOf(DIRECT), 400_000);
         assertEq(pool.depositedBy(DIRECT), 400_000);
-        assertEq(pool.paidWhileBlocked(DIRECT), 400_000);
+        assertEq(pool.paidTo(DIRECT), 400_000);
         assertEq(pool.poolValue(), 1_300_000);
     }
 
@@ -631,9 +637,9 @@ contract ShieldedTest is Test {
         vm.expectRevert(abi.encodeWithSelector(ShieldedPool.RecipientBlocked.selector, DIRECT));
         pool.withdraw(w, p);
         assertFalse(pool.nullifierHashes(p.pubSignals[1]), "a refusal must not spend the note");
-        assertEq(pool.paidWhileBlocked(DIRECT), 0);
+        assertEq(pool.paidTo(DIRECT), 0);
 
-        // A blocked address cannot deposit, so the top-up happens between two listings.
+        // A blocked address cannot deposit, so the top-up happens while it is unblocked.
         registry.setBlocked(DIRECT, false);
         _depositFrom(DIRECT, 10_000, 78);
         registry.setBlocked(DIRECT, true);
@@ -642,6 +648,6 @@ contract ShieldedTest is Test {
         pool.withdraw(w, p);
         assertEq(usdg.balanceOf(DIRECT), 400_000);
         assertEq(pool.depositedBy(DIRECT), 409_999);
-        assertEq(pool.paidWhileBlocked(DIRECT), 400_000);
+        assertEq(pool.paidTo(DIRECT), 400_000);
     }
 }

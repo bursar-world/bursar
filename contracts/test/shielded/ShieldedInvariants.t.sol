@@ -22,7 +22,7 @@ import {MockVerifier} from "../mocks/MockVerifier.sol";
 
 /// Random but legal traffic against one shielded pool: deposits from several depositors through
 /// the Entrypoint, withdrawals taken straight from the pool and through the relay, ragequits, the
-/// registry listing and delisting depositors, tokens sent to the pool outside any deposit, and
+/// registry blocking and unblocking depositors, tokens sent to the pool outside any deposit, and
 /// time passing between them.
 ///
 /// The verifiers accept every proof, so the handler writes the public signals itself and keeps
@@ -71,13 +71,14 @@ contract ShieldedHandler is CommonBase, StdUtils {
     uint256 public paidOut;
     uint256 public donated;
     mapping(address depositor => uint256 amount) public depositedBy;
-    mapping(address recipient => uint256 amount) public paidWhileBlocked;
+    mapping(address recipient => uint256 amount) public paidTo;
 
-    /// Deposits admitted or refused against what the caps predict, payouts to a listed address
-    /// against what its allowance predicts, and refusals that spent the note anyway. All three
-    /// are asserted to be zero.
+    /// Deposits admitted or refused against what the caps predict, payouts to a blocked address
+    /// against what its allowance predicts, payouts that took a blocked address past its deposits,
+    /// and refusals that spent the note anyway. All four are asserted to be zero.
     uint256 public gateBreaks;
     uint256 public exitBreaks;
+    uint256 public blockedOverpayments;
     uint256 public spentOnRefusal;
 
     /// Coverage.
@@ -153,7 +154,7 @@ contract ShieldedHandler is CommonBase, StdUtils {
     }
 
     /// A note's owner proves a withdrawal to any processooor it likes; here that is any depositor,
-    /// so a listed address is sometimes paid out of someone else's note, which is exactly what the
+    /// so a blocked address is sometimes paid out of someone else's note, which is exactly what the
     /// allowance has to bound.
     function withdraw(uint256 noteSeed, uint256 amountSeed, uint256 toSeed) external {
         (bool found, uint256 id) = _liveNote(noteSeed);
@@ -215,7 +216,7 @@ contract ShieldedHandler is CommonBase, StdUtils {
         }
     }
 
-    /// Lists a depositor a third of the time and delists it otherwise, so listed actors do not
+    /// Blocks a depositor a third of the time and unblocks it otherwise, so blocked actors do not
     /// pile up and starve the paths that need an open one.
     function list(uint256 who, uint256 shape) external {
         registry.setBlocked(_actor(who), shape % 3 == 0);
@@ -264,11 +265,11 @@ contract ShieldedHandler is CommonBase, StdUtils {
         return bytes4(0);
     }
 
-    /// Whether the pool's gate lets `recipient` be paid `amount` now: always while unlisted, and
-    /// while listed only up to what it deposited.
+    /// Whether the pool's gate lets `recipient` be paid `amount` now: always while unblocked, and
+    /// while blocked only up to its net position, every earlier payout counted.
     function _payable(address recipient, uint256 amount) private view returns (bool) {
         if (!registry.isBlocked(recipient)) return true;
-        return paidWhileBlocked[recipient] + amount <= depositedBy[recipient];
+        return paidTo[recipient] + amount <= depositedBy[recipient];
     }
 
     /// The note is spent. What it held beyond `amount` is the new note the proof committed to,
@@ -282,9 +283,10 @@ contract ShieldedHandler is CommonBase, StdUtils {
             );
         }
         paidOut += amount;
+        paidTo[recipient] += amount;
         if (registry.isBlocked(recipient)) {
-            paidWhileBlocked[recipient] += amount;
             ++blockedPayouts;
+            if (paidTo[recipient] > depositedBy[recipient]) ++blockedOverpayments;
         }
     }
 
@@ -445,21 +447,18 @@ contract ShieldedInvariantTest is Test {
         assertEq(handler.gateBreaks(), 0, "a deposit was admitted or refused against the caps");
     }
 
-    /// A listed address has been paid at most what it deposited, the pool's books say the same
-    /// as the handler's, and every payout to a listed address went exactly as the allowance
-    /// predicts.
-    function invariant_aBlockedAddressIsNeverPaidMoreThanItDeposited() public view {
+    /// No payout to a blocked address ever took its total past what it deposited, the pool's two
+    /// figures match the handler's for every address the pool has paid, and every payout to a
+    /// blocked address went exactly as the allowance predicts.
+    function invariant_aBlockedAddressIsNeverPaidPastItsDeposits() public view {
         for (uint256 i; i < handler.actorCount(); ++i) {
             address actor = handler.actors(i);
-            assertLe(
-                handler.paidWhileBlocked(actor),
-                handler.depositedBy(actor),
-                "a blocked address was paid past its deposits"
-            );
-            assertEq(pool.paidWhileBlocked(actor), handler.paidWhileBlocked(actor), "paidWhileBlocked drifted");
+            assertEq(pool.paidTo(actor), handler.paidTo(actor), "paidTo drifted");
             assertEq(pool.depositedBy(actor), handler.depositedBy(actor), "depositedBy drifted");
         }
-        assertEq(handler.exitBreaks(), 0, "a payout to a listed address went against the allowance");
+        assertEq(pool.paidTo(address(relay)), handler.paidTo(address(relay)), "paidTo drifted for the relay");
+        assertEq(handler.blockedOverpayments(), 0, "a payout took a blocked address past its deposits");
+        assertEq(handler.exitBreaks(), 0, "a payout to a blocked address went against the allowance");
     }
 
     function invariant_aRefusalNeverSpendsTheNote() public view {
@@ -467,15 +466,15 @@ contract ShieldedInvariantTest is Test {
     }
 
     /// Every live note can be taken back by its depositor: always while the depositor is
-    /// unlisted, and while listed exactly when its allowance covers the note. Tried against a
-    /// snapshot, so the check moves nothing.
+    /// unblocked, and while blocked exactly when its net position covers the note. Tried against
+    /// a snapshot, so the check moves nothing.
     function invariant_aDepositorCanAlwaysRagequitALiveNote() public {
         uint256 count = handler.noteCount();
         for (uint256 i; i < count; ++i) {
             (address depositor,,, uint256 value, bool live) = handler.notes(i);
             if (!live) continue;
-            bool expected = !registry.isBlocked(depositor)
-                || pool.paidWhileBlocked(depositor) + value <= pool.depositedBy(depositor);
+            bool expected =
+                !registry.isBlocked(depositor) || pool.paidTo(depositor) + value <= pool.depositedBy(depositor);
 
             // Read before the prank: a call into the handler would use it up.
             bytes memory call = abi.encodeCall(pool.ragequit, (handler.ragequitProofFor(i)));
@@ -489,16 +488,16 @@ contract ShieldedInvariantTest is Test {
                 expected,
                 expected
                     ? "a depositor could not ragequit a live note"
-                    : "a listed depositor was paid past its allowance"
+                    : "a blocked depositor was paid past its allowance"
             );
         }
     }
 
     /// Guards against a vacuous suite. Every handler action swallows its own revert, so a fixture
     /// wired slightly wrong would run clean and prove nothing. This drives one depositor through a
-    /// deposit, a listing, a withdrawal to itself out of its own note, the ragequit that uses up
+    /// deposit, a block, a withdrawal to itself out of its own note, the ragequit that uses up
     /// its allowance, a refusal out of someone else's note once the allowance is spent, and a
-    /// relayed withdrawal once delisted.
+    /// relayed withdrawal once unblocked.
     function test_theFixtureDrivesADepositorThroughEveryExit() public {
         address alice = handler.actors(0);
         handler.deposit(0, 100e6, 1);
@@ -509,44 +508,65 @@ contract ShieldedInvariantTest is Test {
         assertEq(pool.depositedBy(alice), 99_900_000);
 
         handler.list(0, 0);
-        assertTrue(registry.isBlocked(alice), "the listing did not take");
+        assertTrue(registry.isBlocked(alice), "the block did not take");
         handler.deposit(0, 50e6, 1);
-        assertEq(handler.deposits(), 1, "a listed depositor deposited");
+        assertEq(handler.deposits(), 1, "a blocked depositor deposited");
         assertEq(handler.refusals(), 1);
 
-        // Listed, alice takes 40 USDG of her own note straight out, inside her allowance.
+        // Blocked, alice takes 40 USDG of her own note straight out, inside her allowance.
         handler.withdraw(0, 40e6, 0);
-        assertEq(handler.withdrawals(), 1, "a listed depositor could not take its own money out");
-        assertEq(pool.paidWhileBlocked(alice), 40e6);
+        assertEq(handler.withdrawals(), 1, "a blocked depositor could not take its own money out");
+        assertEq(pool.paidTo(alice), 40e6);
         assertEq(handler.blockedPayouts(), 1);
 
         // The rest, as the new note the withdrawal left, goes back by ragequit and uses the
         // allowance up.
         handler.ragequit(1);
-        assertEq(handler.ragequits(), 1, "a listed depositor could not ragequit the rest");
-        assertEq(pool.paidWhileBlocked(alice), 99_900_000);
+        assertEq(handler.ragequits(), 1, "a blocked depositor could not ragequit the rest");
+        assertEq(pool.paidTo(alice), 99_900_000);
         assertEq(pool.poolValue(), 0);
 
-        // Bob deposits. Alice, still listed and with nothing left to take back, cannot be paid
+        // Bob deposits. Alice, still blocked and with nothing left to take back, cannot be paid
         // out of his note.
         handler.deposit(1, 100e6, 1);
         handler.withdraw(2, 1, 0);
-        assertEq(handler.withdrawals(), 1, "a listed address was paid out of someone else's note");
+        assertEq(handler.withdrawals(), 1, "a blocked address was paid out of someone else's note");
         assertEq(handler.refusals(), 2);
         assertEq(handler.spentOnRefusal(), 0, "the refusal spent the note");
 
-        // Delisted, she is paid through the relay out of the same note.
+        // Unblocked, she is paid through the relay out of the same note.
         handler.list(0, 1);
         handler.relayWithdrawal(2, 10e6, 0, 100);
-        assertEq(handler.relayed(), 1, "the relay did not pay a delisted recipient");
+        assertEq(handler.relayed(), 1, "the relay did not pay an unblocked recipient");
 
         assertEq(handler.gateBreaks(), 0);
         assertEq(handler.exitBreaks(), 0);
         invariant_thePoolOwesWhatCameInLessWhatWentOut();
         invariant_theBalanceCoversTheBooks();
         invariant_noDepositorExceedsItsWindow();
-        invariant_aBlockedAddressIsNeverPaidMoreThanItDeposited();
+        invariant_aBlockedAddressIsNeverPaidPastItsDeposits();
         invariant_aDepositorCanAlwaysRagequitALiveNote();
+    }
+
+    /// The bound is the net position. An address that took its money out before it was blocked
+    /// has nothing left to take back, so a withdrawal of someone else's note to it is refused.
+    function test_anAddressPaidOutBeforeItWasBlockedCannotBePaidOthersNotes() public {
+        address alice = handler.actors(0);
+        handler.deposit(0, 100e6, 1);
+        handler.withdraw(0, 99_900_000, 0);
+        assertEq(handler.withdrawals(), 1, "alice could not take her own note out");
+        assertEq(pool.poolValue(), 0);
+
+        handler.list(0, 0);
+        assertTrue(registry.isBlocked(alice), "the block did not take");
+
+        // One unit of bob's note to alice, who has already taken out everything she put in.
+        handler.deposit(1, 100e6, 1);
+        handler.withdraw(1, 1, 0);
+        assertEq(handler.withdrawals(), 1, "a blocked address was paid someone else's note past its position");
+        assertEq(handler.refusals(), 1);
+        assertEq(handler.spentOnRefusal(), 0, "the refusal spent the note");
+        assertEq(pool.poolValue(), 99_900_000);
     }
 
     /// The deposits that aim at the exact room left reach the depositor cap and the pool cap on
