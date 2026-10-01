@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { NO_DEBT_HEALTH, collateralDeployment } from '@bursar/core';
+import { NO_DEBT_HEALTH, collateralDeployment, deployment } from '@bursar/core';
 
 import { connect } from '../src/connection.js';
 import { CollateralClient, CollateralSetError, NoDebtError, NotCollateralLaneError, collateral } from '../src/collateral.js';
@@ -20,7 +20,9 @@ type Read = { functionName: string; args?: readonly unknown[] };
  * for the chain today runs v3, so its vault has no draw rule and seizes nothing; `onV4` reads the
  * same lane through an escrow no record names, which is the current build.
  */
-function withReads(reads: Record<string, (args?: readonly unknown[]) => unknown>, onV4 = false): MandateAccountClient {
+// A client on the set named: the fourth set's lane answers the live record, the third set's lane
+// answers with the third record's escrow, which the client reads as that set.
+function withReads(reads: Record<string, (args?: readonly unknown[]) => unknown>, set: 'v3' | 'v4' = 'v3'): MandateAccountClient {
   const base = connect({ chainId: 4663 });
   const publicClient = {
     readContract: async ({ functionName, args }: Read) => {
@@ -30,7 +32,7 @@ function withReads(reads: Record<string, (args?: readonly unknown[]) => unknown>
     },
     getBlock: async () => ({ timestamp: 1_790_686_194n }),
   };
-  const addresses = onV4 ? { ...base.addresses, escrow: '0x4444444444444444444444444444444444444444' } : base.addresses;
+  const addresses = set === 'v4' ? base.addresses : { ...base.addresses, escrow: deployment('rhc-mainnet-v3').contracts.Escrow };
   return {
     address: MANDATE,
     connection: { ...base, addresses, publicClient },
@@ -133,7 +135,7 @@ describe('collateral client', () => {
           MAX_OBSERVATION_AGE: () => 3_600n,
           MAX_FEED_JUMP_BPS: () => 1_500n,
         },
-        true,
+        'v4',
       ),
     );
     const standing = await client.drawStanding();
@@ -159,7 +161,7 @@ describe('collateral client', () => {
           MAX_OBSERVATION_AGE: () => 3_600n,
           MAX_FEED_JUMP_BPS: () => 1_500n,
         },
-        true,
+        'v4',
       ),
     );
 
@@ -168,14 +170,14 @@ describe('collateral client', () => {
 
   it('lists the collateral write-offs have seized, per asset, leaving out the empty ones', async () => {
     const client = collateral(
-      withReads({ collateralAssets: () => [SGOV, SPY], seized: (args) => (args?.[0] === SPY ? 7n : 0n) }, true),
+      withReads({ collateralAssets: () => [SGOV, SPY], seized: (args) => (args?.[0] === SPY ? 7n : 0n) }, 'v4'),
     );
 
     expect(await client.seized()).toEqual([{ symbol: 'SPY', asset: SPY, raw: 7n }]);
   });
 
   it('refuses to claim seized collateral in an asset where none waits, before anything is sent', async () => {
-    const client = collateral(withReads({ seized: () => 0n }, true));
+    const client = collateral(withReads({ seized: () => 0n }, 'v4'));
 
     const failure = await client.claimSeized('SPY').catch((error: unknown) => error);
 
