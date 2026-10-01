@@ -138,6 +138,8 @@ contract V4LiquiditySeeder is ReentrancyGuard {
     event PoolInitialized(uint160 sqrtPriceX96, int24 tick);
     event LiquidityAdded(int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 amount0, uint256 amount1);
     event FeesCollected(int24 tickLower, int24 tickUpper, uint256 amount0, uint256 amount1);
+    // Left as published. Indexing `to` now would move it out of the data anyone already reads.
+    // slither-disable-next-line unindexed-event-address
     event LiquidityRemoved(
         int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 amount0, uint256 amount1, address to
     );
@@ -191,6 +193,8 @@ contract V4LiquiditySeeder is ReentrancyGuard {
     /// corrects it. Everything that decides it lives in `script/SeedPool.s.sol`, which derives
     /// it twice and refuses to broadcast unless the two derivations agree.
     function initializePool(uint160 sqrtPriceX96) external onlyOwner returns (int24 tick) {
+        // The event carries the tick the manager returns, so it can only follow the call.
+        // slither-disable-next-line reentrancy-events
         tick = poolManager.initialize(key(), sqrtPriceX96);
         emit PoolInitialized(sqrtPriceX96, tick);
     }
@@ -223,6 +227,9 @@ contract V4LiquiditySeeder is ReentrancyGuard {
         (amount0, amount1, fees0, fees1) =
             _run(tickLower, tickUpper, int256(uint256(liquidity)), amount0Max, amount1Max, address(this));
 
+        // Booked once the manager has taken the liquidity. The call is under the reentrancy guard,
+        // and the callback does not read this figure.
+        // slither-disable-next-line reentrancy-benign
         liquidityOf[tickLower][tickUpper] += liquidity;
 
         _refund(currency0, before0 + fees0);
@@ -399,6 +406,7 @@ contract V4LiquiditySeeder is ReentrancyGuard {
         // Cleared by the callback. A manager that returned without calling back would otherwise
         // leave the hash armed for someone else's unlock.
         if (_callbackHash != bytes32(0)) {
+            // slither-disable-next-line reentrancy-benign
             delete _callbackHash;
             revert CallbackNotConsumed();
         }

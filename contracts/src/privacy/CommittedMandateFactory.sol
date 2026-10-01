@@ -53,6 +53,9 @@ contract CommittedMandateFactory {
         if (Create2.computeAddress(salt, keccak256(initCode)).code.length != 0) revert AlreadyDeployed();
 
         account = Create2.deploy(0, salt, initCode);
+        // The callee is the account created on the line above, from code this factory fixes:
+        // `sealInitial` writes its own version, emits, and calls nothing.
+        // slither-disable-next-line reentrancy-benign,reentrancy-events
         CommittedMandateAccount(account).sealInitial(ciphertext);
         _accounts[principal].push(account);
 
@@ -78,6 +81,8 @@ contract CommittedMandateFactory {
     {
         // The creation code is a constant, so no two argument sets can pack to the same bytes.
         // forge-lint: disable-start(encode-packed-collision)
+        // Creation code, not a literal with digits to miscount.
+        // slither-disable-next-line too-many-digits
         return abi.encodePacked(
             type(CommittedMandateAccount).creationCode,
             abi.encode(principal, agent, settlementAsset, escrow, verifier, termsCommitment, counter, ceiling)

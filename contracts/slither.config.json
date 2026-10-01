@@ -1,4 +1,6 @@
 {
   "include_paths": "contracts/src/(?!zk/)",
+  "detectors_to_exclude": "timestamp,naming-convention,pragma,assembly,low-level-calls",
+  "exclude_optimization": true,
   "fail_on": "medium"
 }

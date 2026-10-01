@@ -48,6 +48,9 @@ contract DisclosureRegistry {
 
     function _principalOf(address account) private view returns (address) {
         if (account.code.length == 0) return address(0);
+        // The account pays, out of the gas it is given, to build whatever it returns, so copying
+        // the answer back costs this call about as much again and no more.
+        // slither-disable-next-line return-bomb
         (bool ok, bytes memory data) =
             account.staticcall{gas: PRINCIPAL_GAS}(abi.encodeCall(IPrincipalOf.principal, ()));
         if (!ok || data.length < 32) return address(0);

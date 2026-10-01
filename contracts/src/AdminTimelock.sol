@@ -104,6 +104,8 @@ contract AdminTimelock {
     }
 
     modifier exists(uint256 id) {
+        // A proposal that was made carries the time it was made at, which is never zero.
+        // slither-disable-next-line incorrect-equality
         if (_proposals[id].createdAt == 0) revert ProposalNotFound();
         _;
     }
@@ -177,6 +179,9 @@ contract AdminTimelock {
         p.executed = true;
         result = _call(p.target, p.data);
 
+        // Says the call went through, so it follows the call. The proposal is marked executed before
+        // it, and a target calling back in cannot run it twice.
+        // slither-disable-next-line reentrancy-events
         emit ProposalExecuted(id);
     }
 
@@ -223,6 +228,9 @@ contract AdminTimelock {
                 continue;
             }
 
+            // One call per target, and the event is its answer. A target that reverts is skipped, so
+            // none can keep the rest from pausing.
+            // slither-disable-next-line calls-loop,reentrancy-events
             (bool ok, bytes memory reason) = target.call(abi.encodeWithSignature("pause()"));
             if (ok) emit GuardianPaused(target, msg.sender);
             else emit GuardianPauseSkipped(target, msg.sender, reason);

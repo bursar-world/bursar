@@ -48,6 +48,9 @@ import {IAccessRegistry} from "./IAccessRegistry.sol";
 /// pays the final recipient itself, after the pool has pushed to it, so the pool could not
 /// screen that recipient. Relayed withdrawals go through `ShieldedRelay`, which screens the
 /// recipient before it calls `withdraw`.
+// Upstream `deposit` is payable for its native-asset pools. Here `_pull` refuses any value sent
+// with one, so no ether can come in through it.
+// slither-disable-next-line locked-ether
 contract ShieldedPool is PrivacyPool, IPrivacyPoolComplex {
     using SafeERC20 for IERC20;
 
@@ -121,6 +124,8 @@ contract ShieldedPool is PrivacyPool, IPrivacyPoolComplex {
     /// no window is open, which is when the full room is already there.
     function windowResetsAt(address depositor) external view returns (uint256) {
         DepositWindow memory w = _rolled(_windows[depositor]);
+        // An empty window is one that is not open. `deposited` is a ledger figure, not a balance.
+        // slither-disable-next-line incorrect-equality
         return w.deposited == 0 ? 0 : uint256(w.start) + DEPOSITOR_WINDOW;
     }
 

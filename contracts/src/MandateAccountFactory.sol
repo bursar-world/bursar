@@ -26,6 +26,8 @@ contract MandateAccountFactory is IMandateAccountFactory {
 
         escrow = escrow_;
         settlementAsset = settlementAsset_;
+        // Creation code, not a literal with digits to miscount.
+        // slither-disable-next-line too-many-digits
         blueprint = _writeBlueprint(type(MandateAccount).creationCode);
     }
 

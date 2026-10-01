@@ -402,12 +402,17 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
         uint256 balance = IERC20(settlementAsset).balanceOf(address(this));
         uint256 free = balance > rewardFloat ? balance - rewardFloat : 0;
         uint256 credited = amount < free ? amount : free;
+        // Nothing arrived, so there is nothing to book.
+        // slither-disable-next-line incorrect-equality
         if (credited == 0) return;
 
         rewardFloat += credited;
 
         uint8 shares = _disputes[disputeId].rewardShares;
+        // A count of resolvers, and the division is by it.
+        // slither-disable-next-line incorrect-equality
         uint256 perShare = shares == 0 ? 0 : credited / shares;
+        // slither-disable-next-line incorrect-equality
         if (perShare == 0) {
             // Either the vote produced nobody worth paying, or the pot is smaller than the
             // number of resolvers splitting it. The fee belongs to the sink, not to this
@@ -425,6 +430,7 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
         }
 
         // Truncation dust, at most `shares - 1` units, follows the orphaned pots to the sink.
+        // slither-disable-next-line divide-before-multiply
         unallocatedRewards += credited - perShare * shares;
 
         emit RewardsPosted(disputeId, credited, shares, perShare);
@@ -657,6 +663,8 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
         uint256 before = asset.balanceOf(address(this));
         asset.safeTransferFrom(msg.sender, address(this), amount);
         uint256 credited = asset.balanceOf(address(this)) - before;
+        // The delta this one transfer made; a token that delivered nothing is refused.
+        // slither-disable-next-line incorrect-equality
         if (credited == 0) revert ZeroAmount();
         return credited.toUint128();
     }
@@ -684,6 +692,8 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
     function _revealedScores(uint256 disputeId, uint8 revealCount) private view returns (uint8[] memory scores) {
         scores = new uint8[](revealCount);
         address[] storage roster = _voters[disputeId];
+        // Counts up from zero as each revealed score is copied in.
+        // slither-disable-next-line uninitialized-local
         uint256 found;
         for (uint256 i; i < roster.length; ++i) {
             Vote storage vote = _votes[disputeId][roster[i]];
@@ -719,6 +729,8 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
         returns (uint8 shares)
     {
         address[] storage roster = _voters[disputeId];
+        // The running total this pass slashes, from zero.
+        // slither-disable-next-line uninitialized-local
         uint128 slashed;
 
         for (uint256 i; i < roster.length; ++i) {
@@ -767,6 +779,9 @@ contract OracleRegistry is IOracleRegistry, Pausable, ReentrancyGuard {
     /// payer that does not answer is taken at its own address alone.
     function _principalOf(address payer) private view returns (address) {
         if (payer.code.length == 0) return address(0);
+        // The payer pays, out of the gas it is given, to build whatever it returns, so copying the
+        // answer back costs this call about as much again and no more.
+        // slither-disable-next-line return-bomb
         (bool ok, bytes memory data) = payer.staticcall{gas: PRINCIPAL_READ_GAS}(abi.encodeWithSignature("principal()"));
         if (!ok || data.length < 32) return address(0);
         uint256 word = abi.decode(data, (uint256));

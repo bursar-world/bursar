@@ -40,6 +40,8 @@ contract RobinhoodStockAdapter is IParkAsset, V4Swapper {
         // Immutable, and with no park nothing can call the adapter.
         if (park_ == address(0)) revert ZeroAddress();
         park = park_;
+        // The registry lists no zero address, so the lookup below refuses one.
+        // slither-disable-next-line missing-zero-check
         asset = asset_;
         registry = registry_;
         guard = guard_;
@@ -86,6 +88,8 @@ contract RobinhoodStockAdapter is IParkAsset, V4Swapper {
                 to: address(this)
             })
         );
+        // The second look is for its revert: the trade has to leave the pool inside the band too.
+        // slither-disable-next-line unused-return
         guard.tradePrice(asset, beneficiary);
     }
 
@@ -104,6 +108,8 @@ contract RobinhoodStockAdapter is IParkAsset, V4Swapper {
                 key: a.pool, zeroForOne: a.pool.currency0 == asset, exactIn: true, amount: raw, limit: floor, to: to
             })
         );
+        // The second look is for its revert: the trade has to leave the pool inside the band too.
+        // slither-disable-next-line unused-return
         guard.exitPrice(asset, beneficiary);
     }
 
@@ -127,6 +133,8 @@ contract RobinhoodStockAdapter is IParkAsset, V4Swapper {
                 to: to
             })
         );
+        // The second look is for its revert: the trade has to leave the pool inside the band too.
+        // slither-disable-next-line unused-return
         guard.exitPrice(asset, beneficiary);
     }
 

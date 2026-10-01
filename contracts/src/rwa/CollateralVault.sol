@@ -288,6 +288,8 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         uint256 priceE8 = guard.exitPrice(asset, address(this));
 
         rawSold = _sliceToSell(mandate, asset, held, priceE8);
+        // Zero is `_sliceToSell` finding nothing that needs selling.
+        // slither-disable-next-line incorrect-equality
         if (rawSold == 0) revert NothingToSell();
         collateralOf[mandate][asset] = held - rawSold;
 
@@ -340,6 +342,9 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
     }
 
     /// Inside the US equities 24/5 session by the clock: Monday 01:00 UTC to Saturday 00:00 UTC.
+    // Calendar arithmetic on a timestamp. The remainders are a weekday and a time of day, and the
+    // equalities compare a weekday; nothing here is drawn at random.
+    // slither-disable-next-line weak-prng,incorrect-equality
     function inSession(uint256 ts) public pure returns (bool) {
         uint256 dow = (ts / 1 days + 4) % 7; // 0 = Sunday; 1970-01-01 was a Thursday.
         if (dow == 0 || dow == 6) return false;
@@ -365,6 +370,8 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         uint8 t = _tierOf[asset];
         if (t == 0) revert NotCollateral(asset);
         AssetRegistry.Asset memory a = registry.get(asset);
+        // Only the answer's age picks the haircut.
+        // slither-disable-next-line unused-return
         (,,, uint256 updatedAt,) = IAggregatorV3(a.feed).latestRoundData();
         (bps,, afterHours) = _haircuts(_tiers[t - 1], a.collateralHaircutBps, updatedAt);
     }
@@ -372,6 +379,8 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
     /// Whether a draw would count a position in `asset` right now and, when it would not, the
     /// first condition it fails. `None` means it counts. The same answer for every line.
     function drawHalt(address asset) external view returns (PriceGuard.DrawHalt halt) {
+        // The halt is the whole answer here. `positions` reports the rest.
+        // slither-disable-next-line unused-return
         (,,,, halt) = guard.drawValuation(asset, _drawBound(_tierOf[asset], registry.get(asset).valuationStaleness));
     }
 
@@ -411,6 +420,9 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         (,,, headroom,) = account(mandate);
     }
 
+    // One pass per accepted asset, a list only governance extends, calling the lane's own registry
+    // and guard.
+    // slither-disable-next-line calls-loop
     function _position(address mandate, address asset) private view returns (Priced memory x) {
         PositionView memory p = x.p;
         p.asset = asset;
@@ -432,6 +444,8 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         p.haircutBps = live;
         x.counted = block.timestamp - updatedAt <= bound && unpaused;
         p.fresh = x.counted && inBand;
+        // An empty position has nothing to value.
+        // slither-disable-next-line incorrect-equality
         if (!x.counted || p.raw == 0) return x;
         x.atFeed = Math.mulDiv(p.raw, priceE8, 10 ** (uint256(a.decimals) + 2));
         x.triggerAdjusted = Math.mulDiv(x.atFeed, BPS - live, BPS);
@@ -499,8 +513,11 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         returns (uint256 raw)
     {
         uint256 x = _valueToSell(mandate, asset);
+        // The two answers `_valueToSell` gives by name: nothing to sell, and sell all of it.
+        // slither-disable-start incorrect-equality
         if (x == 0) return 0;
         if (x == type(uint256).max) return held;
+        // slither-disable-end incorrect-equality
         AssetRegistry.Asset memory a = registry.get(asset);
         // The pool band covers the fee and the fill against the feed.
         x = Math.mulDiv(x, BPS + a.bandBps, BPS);
@@ -533,6 +550,7 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         );
         // The sale has to leave the pool inside the band as well as find it there, or a push to
         // the band's edge earlier in the transaction lets the fill run past it.
+        // slither-disable-next-line unused-return
         guard.exitPrice(asset, address(this));
     }
 
@@ -545,6 +563,9 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         if (toRepay > 0 && debt > 0) {
             repaid = toRepay > debt ? debt : toRepay;
             usdg.forceApprove(address(pool), repaid);
+            // `repaid` is capped at the debt read above in this block, so the pool takes all of it
+            // and hands the same figure back.
+            // slither-disable-next-line unused-return
             pool.repay(mandate, repaid);
         }
         uint256 surplus = toRepay - repaid;
@@ -557,6 +578,9 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
     /// `seized`. The tokens stay put: a transfer that fails must not hold up the write-off, so
     /// the lender is paid through `claimSeized` once the token lets them move.
     function _writeOff(address mandate) private {
+        // The pool is this lane's own, and every way into the vault that moves collateral is under
+        // the reentrancy guard. The amount written off is in the pool's event.
+        // slither-disable-next-line unused-return,reentrancy-benign
         pool.writeOff(mandate);
         uint256 n = _assets.length;
         for (uint256 i; i < n; ++i) {
@@ -592,6 +616,8 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
                 if (x.p.tier != 0) return false;
                 continue;
             }
+            // Dust: a position whose band floor rounds to nothing.
+            // slither-disable-next-line incorrect-equality
             if (Math.mulDiv(x.atFeed, BPS - x.bandBps, BPS) == 0) continue;
             if (x.inBand || x.p.tier != 0) return false;
             if (x.halt != PriceGuard.DrawHalt.ObservationOffBand) return false;
@@ -632,9 +658,13 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
     }
 
     function _setAssetTier(address asset, uint8 tier) private {
+        // Called for its revert. Only the constructor loops it, over the launch list.
+        // slither-disable-next-line unused-return,calls-loop
         registry.get(asset); // reverts for an unregistered asset
         if (tier > _tiers.length) revert BadTier();
         if (_tierOf[asset] == 0 && tier != 0) {
+            // False until the list is found to hold the asset.
+            // slither-disable-next-line uninitialized-local
             bool known;
             for (uint256 i; i < _assets.length; ++i) {
                 if (_assets[i] == asset) known = true;

@@ -74,6 +74,9 @@ interface IReputation {
     function onTimedOut(address payer, address payee, uint128 amount) external;
     function onDisputed(address payer, address payee, uint128 amount) external;
 
+    // From here to the end marker a setter names its argument after the getter it sets. An
+    // interface has no body in which the one could be read for the other.
+    // slither-disable-start shadowing-local
     /// The escrow takes this address in its own constructor, so the pairing can only be
     /// closed from this side, once, immediately after deployment.
     function setEscrow(address escrow) external;
@@ -84,6 +87,7 @@ interface IReputation {
     /// was booked, because recounting it would mean walking every payer a payee has ever had.
     /// `minScored` and `fullCredit` are read live, so each binds the next lock and the next read.
     function setWeights(Weights calldata weights) external;
+    // slither-disable-end shadowing-local
 
     function transferAdmin(address to) external;
     function acceptAdmin() external;

@@ -215,6 +215,7 @@ contract Staking is IStaking, Pausable, ReentrancyGuard {
         shares = _sharesFor(credited);
         // A deposit too small to buy a share at the current price would otherwise be a
         // donation to everyone else.
+        // slither-disable-next-line incorrect-equality
         if (shares == 0) revert DustAmount();
 
         totalStaked += credited;
@@ -239,6 +240,8 @@ contract Staking is IStaking, Pausable, ReentrancyGuard {
         // and the unbonding pool it moves into takes its share of every slash.
         uint256 amount = _stakeFor(shares);
         uint256 claim = _unbondingSharesFor(amount);
+        // The same refusal for an exit too small to hold one claim on the unbonding pool.
+        // slither-disable-next-line incorrect-equality
         if (claim == 0) revert DustAmount();
 
         totalShares -= shares;
@@ -374,6 +377,8 @@ contract Staking is IStaking, Pausable, ReentrancyGuard {
         if (loss == 0 || staked == 0 || load >= cap) return 0;
 
         taken = Math.min(loss, Math.mulDiv(staked, cap - load, WAD));
+        // The allowance left rounds to nothing.
+        // slither-disable-next-line incorrect-equality
         if (taken == 0) return 0;
 
         uint256 remaining = staked - taken;
@@ -388,6 +393,8 @@ contract Staking is IStaking, Pausable, ReentrancyGuard {
         _slashLoad = uint128(load + Math.mulDiv(taken, WAD, staked, Math.Rounding.Ceil));
         _slashLoadAt = uint64(block.timestamp);
 
+        // Zero only when the slash took the whole pool, by subtraction or by the dust rule above.
+        // slither-disable-next-line incorrect-equality
         if (remaining == 0) {
             _wipe();
         } else {
@@ -492,12 +499,16 @@ contract Staking is IStaking, Pausable, ReentrancyGuard {
     }
 
     function setCreditManager(address account) external onlyAdmin {
+        // Zero leaves nobody able to post spread, which is how a pool starts.
+        // slither-disable-next-line missing-zero-check
         creditManager = account;
         emit CreditManagerUpdated(account);
     }
 
     /// Zero leaves nobody able to slash, which is the state a pool starts in.
     function setSlasher(address account) external onlyAdmin {
+        // Zero clears the role.
+        // slither-disable-next-line missing-zero-check
         slasher = account;
         emit SlasherUpdated(account);
     }
@@ -705,6 +716,8 @@ contract Staking is IStaking, Pausable, ReentrancyGuard {
         uint256 before = token.balanceOf(address(this));
         token.safeTransferFrom(msg.sender, address(this), amount);
         credited = token.balanceOf(address(this)) - before;
+        // The delta this one transfer made; a token that delivered nothing is refused.
+        // slither-disable-next-line incorrect-equality
         if (credited == 0) revert ZeroAmount();
     }
 
@@ -716,6 +729,8 @@ contract Staking is IStaking, Pausable, ReentrancyGuard {
     /// hold ends, whether or not the pause has.
     function _heldSoFar() private view returns (uint64) {
         uint64 until = exitsHeldUntil;
+        // Zero while no pause is holding exits. `unpause` writes it back.
+        // slither-disable-next-line incorrect-equality
         if (until == 0) return _heldBefore;
         uint64 t = uint64(block.timestamp);
         return _heldBefore + (t < until ? t : until) - _pausedAt;
@@ -727,6 +742,8 @@ contract Staking is IStaking, Pausable, ReentrancyGuard {
 
     function _slashLoadNow() private view returns (uint256) {
         uint256 load = _slashLoad;
+        // No slash has used any allowance, so there is nothing to drain.
+        // slither-disable-next-line incorrect-equality
         if (load == 0) return 0;
         uint256 drained = Math.mulDiv(_slashCap(), block.timestamp - _slashLoadAt, slashWindow);
         return load > drained ? load - drained : 0;
@@ -749,11 +766,15 @@ contract Staking is IStaking, Pausable, ReentrancyGuard {
     /// wei, and the last claim out takes whatever is left.
     function _unbondingSharesFor(uint256 amount) private view returns (uint256) {
         uint256 supply = totalUnbondingShares;
+        // An empty unbonding pool, counted in claims and not in tokens held.
+        // slither-disable-next-line incorrect-equality
         return supply == 0 ? amount : Math.mulDiv(amount, supply, unbondingStaked);
     }
 
     function _unbondingValue(uint256 claim) private view returns (uint256) {
         uint256 supply = totalUnbondingShares;
+        // An empty unbonding pool, counted in claims and not in tokens held.
+        // slither-disable-next-line incorrect-equality
         return supply == 0 ? 0 : Math.mulDiv(claim, unbondingStaked, supply);
     }
 

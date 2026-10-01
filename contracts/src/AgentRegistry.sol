@@ -366,6 +366,8 @@ contract AgentRegistry is IAgentRegistry, Pausable, ReentrancyGuard {
     /// Re-pointable, unlike the escrow pairing, because replacing the slasher moves custody
     /// of nothing.
     function setSlasher(address newSlasher) external onlyAdmin {
+        // Zero is how the role is cleared.
+        // slither-disable-next-line missing-zero-check
         slasher = newSlasher;
         emit SlasherUpdated(newSlasher);
     }

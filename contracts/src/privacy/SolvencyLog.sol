@@ -79,6 +79,8 @@ contract SolvencyLog {
 
     function transferAdmin(address to) external {
         if (msg.sender != admin) revert NotAdmin();
+        // Two steps: nobody can accept as the zero address, and naming it withdraws an offer.
+        // slither-disable-next-line missing-zero-check
         pendingAdmin = to;
         emit AdminTransferStarted(to);
     }

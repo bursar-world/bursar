@@ -121,6 +121,8 @@ contract PriceGuard {
             if (age < MIN_OBSERVATION_AGE) revert ObservationTooSoon(asset, age, MIN_OBSERVATION_AGE);
             aged[asset] = p;
         }
+        // The round ids and the start time are left unread: the age comes from `updatedAt`.
+        // slither-disable-next-line unused-return
         (, int256 answer,, uint256 updatedAt,) = IAggregatorV3(a.feed).latestRoundData();
         uint256 feedE8 = answer > 0 && updatedAt <= block.timestamp ? uint256(answer) : 0;
         uint256 poolE8 = _poolPrice(asset, a);
@@ -215,6 +217,8 @@ contract PriceGuard {
         if (accessRegistry.paused()) revert AccessPaused();
         if (accessRegistry.isBlocked(account)) revert Blocked(account);
 
+        // The round ids and the start time are left unread: the age comes from `updatedAt`.
+        // slither-disable-next-line unused-return
         (, int256 answer,, uint256 updatedAt,) = IAggregatorV3(a.feed).latestRoundData();
         if (answer <= 0 || updatedAt > block.timestamp) revert BadPrice(asset);
         uint256 age = block.timestamp - updatedAt;
@@ -231,6 +235,8 @@ contract PriceGuard {
         returns (uint256 priceE8, uint256 updatedAt, bool unpaused, bool inBand)
     {
         int256 answer;
+        // The round ids and the start time are left unread: the age comes from `updatedAt`.
+        // slither-disable-next-line unused-return
         (, answer,, updatedAt,) = IAggregatorV3(a.feed).latestRoundData();
         if (answer <= 0 || updatedAt > block.timestamp) return (0, updatedAt, false, false);
         priceE8 = uint256(answer);
@@ -264,6 +270,8 @@ contract PriceGuard {
     }
 
     function _poolPrice(address asset, AssetRegistry.Asset memory a) private view returns (uint256) {
+        // Only the price is read from the slot.
+        // slither-disable-next-line unused-return
         (uint160 sqrtPriceX96,,,) = stateView.getSlot0(keccak256(abi.encode(a.pool)));
         return midE8(sqrtPriceX96, a.pool.currency0 == asset, a.decimals);
     }

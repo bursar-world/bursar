@@ -314,6 +314,8 @@ contract Buyback is Pausable, ReentrancyGuard {
         currency1 = c1;
         poolFee = poolFee_;
         poolTickSpacing = poolTickSpacing_;
+        // Zero is a pool with no hook, as `PoolKey` says.
+        // slither-disable-next-line missing-zero-check
         poolHooks = poolHooks_;
         settlementIsCurrency0 = settlementAsset_ == c0;
 
@@ -384,6 +386,8 @@ contract Buyback is Pausable, ReentrancyGuard {
         bytes memory result = poolManager.unlock(abi.encode(spend, minOutWei));
         // Cleared here as well as in the callback, so a manager that returns without calling
         // back cannot leave the flag armed for someone else's unlock.
+        // Neither write is dead: the callback reads the flag while the manager holds the call.
+        // slither-disable-next-line write-after-write,reentrancy-benign
         _unlocking = false;
 
         (spentMicroUsd, receivedWei) = abi.decode(result, (uint256, uint256));
@@ -477,6 +481,8 @@ contract Buyback is Pausable, ReentrancyGuard {
 
     /// Zero leaves nobody able to call `buyback`.
     function setKeeper(address keeper_) external onlyAdmin {
+        // Zero is allowed. It is how the keeper is removed.
+        // slither-disable-next-line missing-zero-check
         keeper = keeper_;
         emit KeeperUpdated(keeper_);
     }
@@ -554,6 +560,8 @@ contract Buyback is Pausable, ReentrancyGuard {
     }
 
     function nextBuybackAt() external view returns (uint64) {
+        // No buyback has run yet. The stamp is a block's time, which is never zero.
+        // slither-disable-next-line incorrect-equality
         if (lastBuybackAt == 0) return 0;
         return lastBuybackAt + _params.minInterval;
     }
@@ -566,8 +574,11 @@ contract Buyback is Pausable, ReentrancyGuard {
         if (elapsed < duration) return w;
 
         unchecked {
+            // Whole periods on purpose: the division drops the part of a period already run.
+            // slither-disable-start divide-before-multiply
             // forge-lint: disable-next-line(divide-before-multiply)
             w.start += uint64((elapsed / duration) * duration);
+            // slither-disable-end divide-before-multiply
         }
         w.spentMicroUsd = 0;
 

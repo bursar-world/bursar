@@ -86,6 +86,8 @@ contract StockSpendRouter is IStockRouter, V4Swapper, ReentrancyGuard {
         if (usdgIn > a.perTradeCap) revert TradeCapExceeded(usdgIn, a.perTradeCap);
 
         uint256 price = guard.checkQuote(asset, to, quotedPriceE8);
+        // Called for its refusals, this time for the mandate itself. The price is the one above.
+        // slither-disable-next-line unused-return
         guard.tradePrice(asset, msg.sender);
 
         uint256 floor = _floor(a, price, usdgIn, _slippage(msg.sender, a));
@@ -98,6 +100,7 @@ contract StockSpendRouter is IStockRouter, V4Swapper, ReentrancyGuard {
         );
         // The purchase has to leave the pool inside the band as well as find it there, or a push
         // to the band's edge earlier in the transaction lets the fill run past it.
+        // slither-disable-next-line unused-return
         guard.tradePrice(asset, msg.sender);
 
         emit StockBought(msg.sender, asset, usdgIn, amountOut, price);

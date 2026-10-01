@@ -131,6 +131,8 @@ contract Vesting is ReentrancyGuard {
 
         grantsWritten = true;
 
+        // The sum of the grants, from zero.
+        // slither-disable-next-line uninitialized-local
         uint256 total;
         for (uint256 i; i < beneficiaries.length; ++i) {
             address beneficiary = beneficiaries[i];
@@ -159,6 +161,8 @@ contract Vesting is ReentrancyGuard {
 
         uint128 vested = _vested(grant);
         amountWei = vested - grant.claimedWei;
+        // Nothing new has vested since the last claim.
+        // slither-disable-next-line incorrect-equality
         if (amountWei == 0) revert NothingToClaim();
 
         grant.claimedWei = vested;
@@ -199,6 +203,8 @@ contract Vesting is ReentrancyGuard {
     /// the schedule.
     function sweep() external onlyAdmin nonReentrant returns (uint256 amountWei) {
         amountWei = token.balanceOf(address(this)) - outstandingWei;
+        // No surplus over what the grants are owed. A transfer in only makes one to sweep.
+        // slither-disable-next-line incorrect-equality
         if (amountWei == 0) revert NothingUnallocated();
 
         token.safeTransfer(treasury, amountWei);
@@ -236,6 +242,8 @@ contract Vesting is ReentrancyGuard {
     /// address with no grant.
     function scheduleOf(address beneficiary) external view returns (uint64 cliffAt, uint64 endsAt) {
         uint64 start = _grants[beneficiary].start;
+        // `createGrants` refuses a zero start, so zero here is an address with no grant.
+        // slither-disable-next-line incorrect-equality
         if (start == 0) return (0, 0);
         return (start + CLIFF, start + DURATION);
     }
@@ -245,6 +253,8 @@ contract Vesting is ReentrancyGuard {
     }
 
     function _vested(Grant memory grant) private view returns (uint128) {
+        // `createGrants` refuses a zero start, so zero here is an address with no grant.
+        // slither-disable-next-line incorrect-equality
         if (grant.start == 0) return 0;
         // A revocation already rewrote the total to what had vested, so the frozen schedule
         // needs no clock of its own.

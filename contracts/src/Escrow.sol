@@ -141,6 +141,8 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
         // `lock` wants a deadline strictly inside the bounds, so maxTtl == minTtl + 1 admits
         // none and every lock would revert.
         if (uint256(minTtl_) + 1 >= maxTtl_) revert BadTtl();
+        // Constructor arguments held above zero: the floor, and the bond the floor has to carry.
+        // slither-disable-next-line incorrect-equality
         if (minLock_ == 0 || (disputeBondBps_ != 0 && _bps(minLock_, disputeBondBps_) == 0)) revert BadMinLock();
 
         settlementAsset = settlementAsset_;
@@ -275,6 +277,8 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
 
         address payer = entry.payer;
         address payee = entry.payee;
+        // Assigned on the open-lock branch, which is the only one that reads it.
+        // slither-disable-next-line uninitialized-local
         address resolver_;
 
         if (previous == LockStatus.Released) {
@@ -316,6 +320,9 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
                 emit DisputeBonded(id, msg.sender, bond);
             }
 
+            // The registry files the dispute under this lock's id, and `disputeIdOf` reads it back
+            // when the ruling is paid.
+            // slither-disable-next-line unused-return
             IOracleRegistry(resolver_).openDispute(id, payer, payee);
         }
 
@@ -582,14 +589,20 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
     /// A transfer that failed for want of gas is the caller's doing, not the recipient's, and
     /// is refused rather than booked, the same way the best-effort calls below treat it.
     function _pay(address to, uint128 amount) private returns (bool paid) {
+        // A leg a split rounded down to nothing. There is no transfer to make.
+        // slither-disable-next-line incorrect-equality
         if (amount == 0) return true;
 
         uint256 before = gasleft();
         (bool ok, bytes memory data) = settlementAsset.call(abi.encodeCall(IERC20.transfer, (to, amount)));
         // Read the way SafeERC20 reads it: no return data is a success, a returned false is not.
+        // slither-disable-next-line incorrect-equality
         if (ok && (data.length == 0 || abi.decode(data, (bool)))) return true;
 
         _requireNotStarved(before);
+        // Booked after the call because it records that the call was refused. Every path that
+        // reaches here, and `claim`, which pays it out, runs under the reentrancy guard.
+        // slither-disable-next-line reentrancy-no-eth,reentrancy-benign
         owed[to] += amount;
 
         emit PaymentOwed(to, amount);
@@ -628,6 +641,8 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
     /// callback must not be able to block the settlement it is a party to. The money has
     /// already moved when this runs.
     function _creditPayer(uint256 id, address payer, uint128 amount) private {
+        // Neither is a balance: there is nothing to credit, or no code to take the call.
+        // slither-disable-next-line incorrect-equality
         if (amount == 0 || payer.code.length == 0) return;
 
         uint256 before = gasleft();
@@ -641,6 +656,8 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
     /// under the escrow must never strand settlement. A plain call to a codeless address
     /// succeeds silently, so the code length is checked before the call's success counts.
     function _notifyReputation(uint256 id, bytes memory payload) private {
+        // False until the call answers. A registry with no code is never called.
+        // slither-disable-next-line uninitialized-local
         bool delivered;
         if (reputation.code.length != 0) {
             uint256 before = gasleft();

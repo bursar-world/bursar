@@ -7,6 +7,9 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 
 import {IEscrow} from "../interfaces/IEscrow.sol";
 
+// The verifier is written by snarkjs, which declares no interface. Every proof the tests
+// verify reaches it through this one.
+// slither-disable-next-line missing-inheritance
 interface IWithinMandateVerifier {
     function verifyProof(
         uint256[2] calldata a,
@@ -127,6 +130,8 @@ contract CommittedMandateAccount is ReentrancyGuard {
                 || verifier_ == address(0)
         ) revert ZeroAddress();
         principal = principal_;
+        // No agent is a valid start: the principal can spend itself and name one later.
+        // slither-disable-next-line missing-zero-check
         agent = agent_;
         settlementAsset = settlementAsset_;
         escrow = escrow_;
@@ -223,6 +228,8 @@ contract CommittedMandateAccount is ReentrancyGuard {
     }
 
     function setAgent(address agent_) external onlyPrincipal {
+        // Zero removes the agent and leaves the principal as the only spender.
+        // slither-disable-next-line missing-zero-check
         agent = agent_;
         emit AgentUpdated(agent_);
     }

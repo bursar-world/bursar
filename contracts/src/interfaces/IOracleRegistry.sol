@@ -222,6 +222,9 @@ interface IOracleRegistry {
     /// Unseats a resolver with no open vote and returns its bond, so a seat slashed to nothing
     /// or left idle does not hold the capped roster for good. Admin only.
     function evict(address resolver) external;
+    // From here to the end marker a setter names its argument after the getter it sets. An
+    // interface has no body in which the one could be read for the other.
+    // slither-disable-start shadowing-local
     function setConfig(Config calldata config) external;
     function setSlashSink(address slashSink) external;
 
@@ -234,6 +237,7 @@ interface IOracleRegistry {
     /// after this contract, and re-pointing it later would change the currency of bonds already
     /// held. Until it is called nobody can bond.
     function setStaking(address staking) external;
+    // slither-disable-end shadowing-local
 
     function transferAdmin(address to) external;
     function acceptAdmin() external;

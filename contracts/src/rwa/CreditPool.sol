@@ -256,6 +256,8 @@ contract CreditPool is ReentrancyGuard {
         _accrue();
         uint256 held = usdg.balanceOf(address(this));
         amount = reserves < held ? reserves : held;
+        // No spread is booked, or there is no balance to pay it from.
+        // slither-disable-next-line incorrect-equality
         if (amount == 0) revert NothingToSweep();
         reserves -= amount;
         spreadPaid += amount;
@@ -298,6 +300,8 @@ contract CreditPool is ReentrancyGuard {
 
     function debtOf(address mandate) public view returns (uint256) {
         uint256 scaled = scaledDebtOf[mandate];
+        // No line is open. Scaled debt is a ledger entry and not a balance.
+        // slither-disable-next-line incorrect-equality
         if (scaled == 0) return 0;
         return Math.mulDiv(scaled, currentIndex(), WAD, Math.Rounding.Ceil);
     }
@@ -317,6 +321,8 @@ contract CreditPool is ReentrancyGuard {
         uint256 d = Math.mulDiv(totalScaled, borrowIndex, WAD);
         uint256 held = usdg.balanceOf(address(this));
         uint256 c = held > reserves ? held - reserves : 0;
+        // Nothing is lent, and with the pool empty as well the division below would be by zero.
+        // slither-disable-next-line incorrect-equality
         if (d == 0) return 0;
         return Math.mulDiv(d, BPS, d + c);
     }
@@ -328,6 +334,8 @@ contract CreditPool is ReentrancyGuard {
 
     function currentIndex() public view returns (uint256) {
         uint256 dt = block.timestamp - lastAccrual;
+        // No time has passed, or there is no debt for it to have accrued on.
+        // slither-disable-next-line incorrect-equality
         if (dt == 0 || totalScaled == 0) return borrowIndex;
         return borrowIndex + Math.mulDiv(borrowIndex, rateBps() * dt, BPS * YEAR);
     }
@@ -343,6 +351,8 @@ contract CreditPool is ReentrancyGuard {
     }
 
     function _accrue() private {
+        // Already accrued in this block. `lastAccrual` is only ever set to a block's own time.
+        // slither-disable-next-line incorrect-equality
         if (block.timestamp == lastAccrual) return;
         if (totalScaled != 0) borrowIndex = currentIndex();
         lastAccrual = uint64(block.timestamp);

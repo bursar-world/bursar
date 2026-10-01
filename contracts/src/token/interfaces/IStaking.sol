@@ -171,6 +171,8 @@ interface IStaking {
     /// is discretionary.
     function sweepUnallocated() external returns (uint256 amount);
 
+    // Named for the getter it sets. An interface has no body for the two to be confused in.
+    // slither-disable-next-line shadowing-local
     function setTiers(Tier[] calldata tiers) external;
     function setUnbondingPeriod(uint64 period) external;
     function setUnbondWindow(uint64 window) external;

@@ -134,6 +134,9 @@ contract AssetRegistry {
         return keccak256(abi.encode(a.pool));
     }
 
+    // Looped only by the constructor, over the launch list. A feed or token that does not answer
+    // there should stop the deployment.
+    // slither-disable-next-line calls-loop
     function _set(address asset, Asset memory config) private {
         if (asset == address(0) || config.feed == address(0)) revert ZeroAddress();
         if (IAggregatorV3(config.feed).decimals() != 8) revert FeedNot8Decimals(config.feed);

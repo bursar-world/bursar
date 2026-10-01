@@ -130,6 +130,8 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
     }
 
     function transferAdmin(address to) external onlyAdmin {
+        // Two steps: nobody can accept as the zero address, and naming it withdraws an offer.
+        // slither-disable-next-line missing-zero-check
         pendingAdmin = to;
         emit AdminTransferStarted(admin, to);
     }
@@ -167,6 +169,9 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
         _book(mandate, adapter, usdgIn);
         ParkVault(vault).sweep(address(usdg), adapter, usdgIn);
         rawOut = IParkAsset(adapter).acquire(usdgIn, minOut, mandate);
+        // What the adapter bought is known only once it has bought it. The adapters are the ones the
+        // admin listed, and every function that moves a position is under the reentrancy guard.
+        // slither-disable-next-line reentrancy-no-eth
         _positions[mandate][adapter].raw += uint128(rawOut);
 
         emit Parked(mandate, adapter, usdgIn, rawOut);
@@ -208,6 +213,9 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
 
             (uint256 rawIn, uint256 usdgOut) = _release(adapter, mandate, p.raw, worth > left ? left : 0);
             if (rawIn == 0) continue;
+            // Reduced by what the sale took, which the adapter reports only after selling. The
+            // reentrancy guard covers every function that moves a position.
+            // slither-disable-next-line reentrancy-no-eth
             _reduce(adapter, p, rawIn);
             left = usdgOut < left ? left - usdgOut : 0;
 
@@ -221,6 +229,8 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
         _onlyOperator(mandate);
         address vault = _vault(mandate);
         uint256 held = usdg.balanceOf(vault);
+        // Nothing is waiting in the vault. A transfer in only gives the sweep something to return.
+        // slither-disable-next-line incorrect-equality
         if (held == 0) revert ZeroAmount();
         ParkVault(vault).sweep(address(usdg), mandate, held);
         emit IdleReturned(mandate, held);
@@ -235,6 +245,8 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
     }
 
     function vaultOf(address mandate) public view returns (address) {
+        // Creation code, not a literal with digits to miscount.
+        // slither-disable-next-line too-many-digits
         return Create2.computeAddress(bytes32(uint256(uint160(mandate))), keccak256(type(ParkVault).creationCode));
     }
 
@@ -259,6 +271,9 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
             (uint256 v,,, bool fresh) = IParkAsset(adapter).value(raw);
             if (!fresh) continue;
             total += v;
+            // One read per listed adapter, a list only the admin extends. This is a view no contract
+            // reads, so an adapter that does not answer holds up a figure and no payment.
+            // slither-disable-next-line calls-loop
             counted += Math.mulDiv(v, BPS - IParkAsset(adapter).haircutBps(), BPS);
         }
     }
@@ -274,6 +289,9 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
     /// at market when the position turns out too small for it. Zeros mean the adapter could not
     /// trade (a stale trade price, a paused token, a pool outside its band) and the caller moves
     /// on to the next one.
+    // One sale per listed adapter, each inside a `try`, so an adapter that cannot trade is passed
+    // over and the loop goes on.
+    // slither-disable-next-line calls-loop
     function _release(address adapter, address mandate, uint256 raw, uint256 exact)
         private
         returns (uint256 rawIn, uint256 usdgOut)
@@ -313,6 +331,8 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
         address principal = IMandateAccount(mandate).principal();
         uint256 n = _factories.length;
         for (uint256 i; i < n; ++i) {
+            // The factories are fixed at construction and are the deployment's own.
+            // slither-disable-next-line calls-loop
             address[] memory list = _factories[i].accountsOf(principal);
             for (uint256 j; j < list.length; ++j) {
                 if (list[j] == mandate) return true;
@@ -334,6 +354,8 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
 
     function _setAdapter(address adapter, bool enabled) private {
         if (!isAdapter[adapter] && enabled) {
+            // False until the list is found to hold the adapter.
+            // slither-disable-next-line uninitialized-local
             bool known;
             for (uint256 i; i < _adapters.length; ++i) {
                 if (_adapters[i] == adapter) known = true;

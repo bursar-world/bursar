@@ -159,6 +159,9 @@ interface IEscrow {
     /// call it; the money only ever goes to `party`.
     function claim(address party) external returns (uint128 amount);
 
+    // From here to the end marker a setter names its argument after the getter it sets. An
+    // interface has no body in which the one could be read for the other.
+    // slither-disable-start shadowing-local
     /// Emits a disclosure for one resolver on a disputed lock. Either party may call it. The
     /// escrow stores nothing: the ciphertext is for the named resolver to read off the log.
     function grantDisclosure(uint256 id, address resolver, bytes32 sliceCommit, bytes calldata ciphertext) external;
@@ -177,6 +180,7 @@ interface IEscrow {
     /// Turns on the party gate, once and permanently. Leaving it unset keeps the registry
     /// optional, which is what a minimal deployment wants.
     function setRegistry(IAgentRegistry registry) external;
+    // slither-disable-end shadowing-local
 
     /// Pushes the fees a run of settlements has accrued to the treasury. Permissionless: the
     /// treasury should not need a hot key to be paid, and the destination is not the caller's

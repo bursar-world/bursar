@@ -205,6 +205,9 @@ interface IMandateAccount {
     /// `token` is free so a mistaken airdrop can be swept out. Only the principal calls it.
     function withdraw(address token, address to, uint256 amount) external;
 
+    // From here to the end marker a setter names its argument after the getter it sets. An
+    // interface has no body in which the one could be read for the other.
+    // slither-disable-start shadowing-local
     function setAgent(address agent) external;
     function revokeAgent() external;
 
@@ -263,6 +266,7 @@ interface IMandateAccount {
     /// The treasury lane that covers a USDG shortfall inside `spend` and `buy`. Not on the
     /// first v2 accounts.
     function setTreasuryPark(address treasuryPark) external;
+    // slither-disable-end shadowing-local
     function treasuryPark() external view returns (address);
 
     /// Passes a disclosure for one resolver through to the escrow, as the payer of the lock.

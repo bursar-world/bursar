@@ -116,6 +116,8 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
         if (principal_ == address(0) || settlementAsset_ == address(0) || escrow_ == address(0)) revert ZeroAddress();
 
         principal = principal_;
+        // A mandate can be funded before it is staffed, so it may start with no agent.
+        // slither-disable-next-line missing-zero-check
         agent = agent_;
         settlementAsset = settlementAsset_;
         escrow = escrow_;
@@ -207,12 +209,16 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
         uint128 total = totalSpent;
         totalSpent = total > amount ? total - amount : 0;
 
+        // An epoch counts resets. It is not an amount or a time, and only the same number is
+        // the same bucket.
+        // slither-disable-start incorrect-equality
         if (daily.epoch == record.dailyEpoch) {
             daily.spent = daily.spent > amount ? daily.spent - amount : 0;
         }
         if (monthly.epoch == record.monthlyEpoch) {
             monthly.spent = monthly.spent > amount ? monthly.spent - amount : 0;
         }
+        // slither-disable-end incorrect-equality
 
         _daily = daily;
         _monthly = monthly;
@@ -234,6 +240,8 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
         // settles every lock at its face amount and survives neither.
         if (balanceAfter < balanceBefore) revert TransferMismatch();
         uint256 received = balanceAfter - balanceBefore;
+        // What this one transfer delivered, measured under the reentrancy guard.
+        // slither-disable-next-line incorrect-equality
         if (received == 0 || received > amount) revert TransferMismatch();
 
         emit Deposited(msg.sender, received);
@@ -248,6 +256,8 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
     }
 
     function setAgent(address agent_) external override onlyPrincipal {
+        // Zero leaves the mandate with no agent until the principal names one.
+        // slither-disable-next-line missing-zero-check
         agent = agent_;
         revoked = false;
 
@@ -427,9 +437,15 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
 
         IERC20 usdg = IERC20(settlementAsset);
         IERC20 bought = IERC20(asset);
+        // Read under the reentrancy guard, and no function left open moves `asset` out of the
+        // account. A transfer in while the router runs can only raise what is measured below, and
+        // the floor is on what arrived.
+        // slither-disable-next-line reentrancy-balance
         uint256 heldBefore = bought.balanceOf(address(this));
 
         usdg.forceApprove(router_, usdgIn);
+        // The router's own figure for the fill is left unread. The fill is measured below.
+        // slither-disable-next-line unused-return
         IStockRouter(router_).buy(asset, usdgIn, minOut, quotedPriceE8, address(this));
         usdg.forceApprove(router_, 0);
 
@@ -441,11 +457,15 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
     }
 
     function setRouter(address router_) external override onlyPrincipal {
+        // Zero switches purchases off: `buy` refuses while no router is set.
+        // slither-disable-next-line missing-zero-check
         router = router_;
         emit RouterUpdated(router_);
     }
 
     function setTreasuryPark(address treasuryPark_) external override onlyPrincipal {
+        // Zero switches the park off, which is how an account without one is left.
+        // slither-disable-next-line missing-zero-check
         treasuryPark = treasuryPark_;
         emit TreasuryParkUpdated(treasuryPark_);
     }
@@ -549,6 +569,7 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
         // Written after the lock, since the escrow is what assigns the id. Nothing can be
         // credited against an id that does not exist yet: a credit reentered from inside
         // `lock` finds no record and reverts.
+        // slither-disable-next-line reentrancy-benign
         _spends[escrowId] = SpendRecord({amount: request.amount, dailyEpoch: daily.epoch, monthlyEpoch: monthly.epoch});
 
         emit Spent(escrowId, request.merchant, request.capabilityId, request.amount, daily.spent, monthly.spent);
@@ -671,6 +692,8 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
     /// elapsed counts against it. Snapping to now would let an agent that waits out a window
     /// buy itself a fresh one on a schedule of its choosing.
     function _rolled(Window memory w) private view returns (Window memory) {
+        // A window that was never set has no period to roll by.
+        // slither-disable-next-line incorrect-equality
         if (w.duration == 0) return w;
 
         uint256 elapsed = block.timestamp - w.start;
@@ -679,8 +702,10 @@ contract MandateAccount is IMandateAccount, EIP712, ReentrancyGuard {
         unchecked {
             // Truncating first keeps the remainder: the part of the new window that has
             // already run stays on the clock.
+            // slither-disable-start divide-before-multiply
             // forge-lint: disable-next-line(divide-before-multiply)
             w.start += uint64((elapsed / w.duration) * w.duration);
+            // slither-disable-end divide-before-multiply
             // Epochs count resets, not elapsed periods. A credit only has to know whether the
             // bucket it was drawn from is still the one being spent against.
             ++w.epoch;
