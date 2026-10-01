@@ -177,6 +177,10 @@ contract RecordTest is ScriptHarness {
         probe.writeBytes32(".token.poolId", id);
         probe.writeString(".rwa.assets.SGOV.kind", "treasury");
         probe.writeAmount(".parameters.CommittedMandateFactory.ceiling", 25e6);
+        probe.writeAmount(K.SHIELDED_MAX_PER_DEPOSITOR, 250e6);
+        probe.writeUint(K.SHIELDED_DEPOSITOR_WINDOW, 7 days);
+        probe.writeAmount(".parameters.Reputation.fullCredit", 250e6);
+        probe.writeUint(".parameters.PriceGuard.maxFeedJumpBps", 1500);
 
         // Sections that did not exist are created, and what the record held stays.
         assertEq(probe.recordAddress(K.CREDIT_POOL), pool);
@@ -189,6 +193,10 @@ contract RecordTest is ScriptHarness {
         assertEq(vm.parseJsonBytes32(vm.readFile(path), ".token.poolId"), id);
         assertEq(probe.recordString(".rwa.assets.SGOV.kind"), "treasury");
         assertEq(probe.recordUint(".parameters.CommittedMandateFactory.ceiling"), 25e6);
+        assertEq(probe.recordUint(K.SHIELDED_MAX_PER_DEPOSITOR), 250e6);
+        assertEq(probe.recordUint(K.SHIELDED_DEPOSITOR_WINDOW), 7 days);
+        assertEq(probe.recordUint(".parameters.Reputation.fullCredit"), 250e6);
+        assertEq(probe.recordUint(".parameters.PriceGuard.maxFeedJumpBps"), 1500);
         assertEq(probe.recordString(".network"), "record");
         assertEq(probe.settlementAsset(), USDG);
 

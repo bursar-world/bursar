@@ -204,6 +204,15 @@
             "scope": { "$ref": "#/$defs/decimal" },
             "maxDeposit": { "$ref": "#/$defs/decimal" },
             "maxTotal": { "$ref": "#/$defs/decimal" },
+            "maxPerDepositor": {
+              "description": "What one address may deposit in any one window, from the fourth set on.",
+              "$ref": "#/$defs/decimal"
+            },
+            "depositorWindow": {
+              "description": "The window's length in seconds, from the fourth set on.",
+              "type": "integer",
+              "minimum": 1
+            },
             "minimumDeposit": { "$ref": "#/$defs/decimal" },
             "vettingFeeBps": { "$ref": "#/$defs/bps" },
             "maxRelayFeeBps": { "$ref": "#/$defs/bps" },
