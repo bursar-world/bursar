@@ -1,5 +1,6 @@
 'use client';
 
+import { readRequestURI } from '@bursar/core';
 import type { Micro } from '@bursar/core';
 import { LockStatus } from '@bursar/sdk';
 import type { Address } from 'viem';
@@ -209,6 +210,11 @@ function Evidence({ uri }: { readonly uri: string }) {
  * neither party published.
  */
 function decodeInline(uri: string): string | undefined {
+  // A payment for an x402 call publishes the call under a media type of its own. It is read with
+  // the reader the facilitator uses, so the desk shows one only where the facilitator saw one.
+  const request = readRequestURI(uri);
+  if (request !== null) return JSON.stringify(request, null, 2);
+
   if (uri.slice(0, INLINE_JSON.length).toLowerCase() !== INLINE_JSON) return undefined;
 
   let text: string;

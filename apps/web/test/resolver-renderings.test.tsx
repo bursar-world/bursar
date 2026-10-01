@@ -1,4 +1,4 @@
-import { micro } from '@bursar/core';
+import { micro, requestDocument, requestURI } from '@bursar/core';
 import { LockStatus } from '@bursar/sdk';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
@@ -300,6 +300,14 @@ describe('published evidence on a dispute card', () => {
     const shown = card(inline(BRIEF), inline(DELIVERY));
     expect(shown).toContain('A mandate is a budget an agent can');
     expect(shown).toContain('words');
+  });
+
+  it('shows the call an x402 payment was opened for, which travels under its own media type', () => {
+    const binding = { requestHash: 'ab'.repeat(32), salt: `0x${'5a'.repeat(32)}` as const };
+    const shown = card(requestURI(requestDocument({ method: 'POST', url: 'https://api.provider.dev/render', binding })));
+    expect(shown).toContain('What was asked for');
+    expect(visible(shown)).toContain('https://api.provider.dev/render');
+    expect(visible(shown)).toContain('requestNonce');
   });
 
   it('keeps the raw URI to hand rather than throwing it away', () => {
