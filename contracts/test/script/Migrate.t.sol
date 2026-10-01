@@ -264,6 +264,7 @@ contract MigrateTest is World, LaneFlows {
         _theJoinDeploysNothingAndWritesWhatTheChainHolds();
         _theJoinClosesThePairingWhenTheCoreRunDidNot();
         _theJoinRefusesASetThatIsNotTheRecords();
+        _theJoinRefusesFloorsNobodyNamed();
         _aPreviousRecordTheNewOneDoesNotSupersedeIsRefused();
         _theWholeMoveInTheRunbooksOrder();
     }
@@ -326,13 +327,11 @@ contract MigrateTest is World, LaneFlows {
         );
     }
 
-    /// Each contract has to be the one the record implies, and the floors have to be in place.
+    /// Each carried contract has to be the one the record implies.
     function _theJoinRefusesASetThatIsNotTheRecords() private {
         _back();
         address carried = _readAddress(path, K.STAKING);
         address buyback = _readAddress(path, K.BUYBACK);
-        address seeder = _readAddress(path, K.SEEDER);
-        address brsr = _readAddress(path, K.BRSR);
         address poolManager = _readAddress(path, K.POOL_MANAGER);
 
         // Two of three carried is not a carried set: the run deploys afresh and refuses what the
@@ -345,18 +344,30 @@ contract MigrateTest is World, LaneFlows {
             abi.encodeWithSelector(BursarScript.AlreadyRecorded.selector, K.STAKING, carried)
         );
 
-        // A buyback that compounds into another pool.
+        // An entry that names another kind of contract fails on the first read it lacks.
         _back();
-        Staking other = new Staking(IERC20(brsr), IERC20(USDG), timelock, makeAddr("sink"), treasury, 7 days, 1e27);
-        Buyback foreign = new Buyback(
-            USDG, brsr, poolManager, 3000, 60, address(0), address(other), timelock, treasury, Buyback(buyback).params()
-        );
-        vm.writeJson(vm.toString(address(foreign)), nextPath, K.BUYBACK);
+        address escrow = _readAddress(previousPath, K.ESCROW);
+        vm.writeJson(vm.toString(escrow), nextPath, K.STAKING);
         _expectRefused(
             DEPLOYER,
             address(new DeployStaking()),
             "run()",
-            abi.encodeWithSelector(BursarScript.WiringFailed.selector, "buyback.staking", carried, address(other))
+            abi.encodeWithSelector(BursarScript.NoAnswer.selector, "Staking.stakeToken", escrow)
+        );
+
+        // A buyback that compounds into another pool.
+        _back();
+        address other = address(
+            new Staking(
+                IERC20(_readAddress(path, K.BRSR)), IERC20(USDG), timelock, makeAddr("sink"), treasury, 7 days, 1e27
+            )
+        );
+        vm.writeJson(vm.toString(_foreignBuyback(buyback, other)), nextPath, K.BUYBACK);
+        _expectRefused(
+            DEPLOYER,
+            address(new DeployStaking()),
+            "run()",
+            abi.encodeWithSelector(BursarScript.WiringFailed.selector, "buyback.staking", carried, other)
         );
 
         // A seeder someone else owns.
@@ -369,8 +380,28 @@ contract MigrateTest is World, LaneFlows {
             "run()",
             abi.encodeWithSelector(BursarScript.WiringFailed.selector, "seeder.owner", timelock, stranger)
         );
+    }
 
-        // A recorded resolver governance never gave a floor, and a floor that differs.
+    /// The carried buyback's twin, compounding into another staking pool.
+    function _foreignBuyback(address buyback, address other) private returns (address) {
+        return address(
+            new Buyback(
+                USDG,
+                _readAddress(path, K.BRSR),
+                _readAddress(path, K.POOL_MANAGER),
+                3000,
+                60,
+                address(0),
+                other,
+                timelock,
+                treasury,
+                Buyback(buyback).params()
+            )
+        );
+    }
+
+    /// The floor is recorded as one figure, so every recorded resolver has to hold it.
+    function _theJoinRefusesFloorsNobodyNamed() private {
         _back();
         address[] memory four = new address[](4);
         for (uint256 i; i < 3; ++i) {
@@ -384,16 +415,16 @@ contract MigrateTest is World, LaneFlows {
             "run()",
             abi.encodeWithSelector(DeployStaking.BondFloorNotSet.selector, address(0x1004))
         );
+
         _back();
         vm.prank(timelock);
-        Staking(carried).setBondFloor(resolvers[2], 40_000e18);
+        Staking(_readAddress(path, K.STAKING)).setBondFloor(resolvers[2], 40_000e18);
         _expectRefused(
             DEPLOYER,
             address(new DeployStaking()),
             "run()",
             abi.encodeWithSelector(DeployStaking.BondFloorsDiffer.selector, resolvers[2], 40_000e18, FLOOR)
         );
-        assertEq(seeder, _readAddress(path, K.SEEDER));
     }
 
     function _copyAddressesInto(address[] memory values, string memory key) private {

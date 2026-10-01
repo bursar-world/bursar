@@ -208,6 +208,7 @@ contract DeployStaking is BursarScript {
         staking = Staking(_recordAddress(K.STAKING));
         buyback = Buyback(_recordAddress(K.BUYBACK));
         seeder = V4LiquiditySeeder(_recordAddress(K.SEEDER));
+        _requireCarriedSet();
         // A seeder holds a position, so the market it was built for is open.
         poolOpen = true;
 
@@ -236,9 +237,7 @@ contract DeployStaking is BursarScript {
     /// Everything checkable before a transaction is sent. `setStaking` takes one call and decides
     /// the currency of every future bond, so a failure after it is a redeploy of this whole set.
     function _preflight(address deployer) private view {
-        if (joining) {
-            _requireCarriedSet();
-        } else {
+        if (!joining) {
             _requireUnrecorded(K.STAKING);
             _requireUnrecorded(K.BUYBACK);
             _requireUnrecorded(K.SEEDER);
@@ -299,18 +298,21 @@ contract DeployStaking is BursarScript {
     }
 
     /// The carried contracts have to be the ones the record implies, read off the chain before
-    /// the registry is bound to the pool for good: the pool stakes the recorded BRSR, pays the
-    /// settlement asset and answers to the recorded timelock; the buyback compounds into that pool
-    /// and trades the recorded market; the seeder holds that market's position for that buyback,
-    /// and belongs to the timelock.
+    /// any figure is taken from them and before the registry is bound to the pool for good: the
+    /// pool stakes the recorded BRSR, pays the settlement asset and answers to the recorded
+    /// timelock; the buyback compounds into that pool and trades the recorded market; the seeder
+    /// holds that market's position for that buyback, and belongs to the timelock. Each read is
+    /// one a record naming the wrong kind of contract fails by name.
     function _requireCarriedSet() private view {
-        _expect("staking.stakeToken", brsr, address(staking.stakeToken()));
-        _expect("staking.rewardToken", asset, address(staking.rewardToken()));
-        _expect("staking.admin", timelock, staking.admin());
-        _expect("buyback.staking", address(staking), address(buyback.staking()));
-        _expect("buyback.admin", timelock, buyback.admin());
-        _expect("seeder.buyback", address(buyback), seeder.buyback());
-        _expect("seeder.owner", timelock, seeder.owner());
+        _expect("staking.stakeToken", brsr, _identity(address(staking), "stakeToken()", "Staking.stakeToken"));
+        _expect("staking.rewardToken", asset, _identity(address(staking), "rewardToken()", "Staking.rewardToken"));
+        _expect("staking.admin", timelock, _identity(address(staking), "admin()", "Staking.admin"));
+        _expect("buyback.staking", address(staking), _identity(address(buyback), "staking()", "Buyback.staking"));
+        _expect("buyback.admin", timelock, _identity(address(buyback), "admin()", "Buyback.admin"));
+        _expect(
+            "seeder.buyback", address(buyback), _identity(address(seeder), "buyback()", "V4LiquiditySeeder.buyback")
+        );
+        _expect("seeder.owner", timelock, _identity(address(seeder), "owner()", "V4LiquiditySeeder.owner"));
 
         bytes32 built = _poolId();
         if (seeder.poolId() != built) revert WiringFailed("seeder.poolId", address(buyback), address(seeder));
@@ -322,6 +324,10 @@ contract DeployStaking is BursarScript {
         // names, or the wiring batch would move it to someone nobody chose.
         address live = buyback.keeper();
         if (live != address(0)) _expect("buyback.keeper", keeper, live);
+    }
+
+    function _identity(address target, string memory signature, string memory what) private view returns (address) {
+        return _read(target, abi.encodeWithSignature(signature), what);
     }
 
     function _deploy() private {
