@@ -52,6 +52,11 @@ Listens on **127.0.0.1:8403**, one port above the facilitator. `UNDERWRITER_HOST
 claims a journal and passes every other check, then refuses every decision with
 `underwriter_chain_unavailable`, which is the one state where a readiness probe is worse than none.
 
+Every refusal is `{ error, detail, details? }` with a stable `error` code. Three conditions are
+answered with one fixed sentence each, because what the service knows about them names a host, a
+process or a file: `underwriter_journal_held`, `log_broken` and
+`underwriter_database_pool_exhausted`. The full reason is written to the service's log.
+
 Amounts cross as decimal strings of atomic micro-USD under the name `amountMicro`, the same name
 the facilitator uses for the same quantity. `amountMicros` is accepted as a deprecated spelling. A
 JSON number is a double and cannot carry a micro-USD amount exactly, so a number is refused rather

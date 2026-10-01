@@ -3,7 +3,7 @@ import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 import { type ApiRequest, type ApiResponse, bearer, failure, readBody, send, tokenMatches } from './io.js';
-import { errorResponse } from './routes.js';
+import { errorResponse, operatorFacing } from './routes.js';
 import type { Router } from './routes.js';
 
 /*
@@ -54,7 +54,7 @@ export function createHttpServer(options: HttpServerOptions): Server {
         send(outgoing, await options.router(request));
       } catch (error) {
         const result: ApiResponse = errorResponse(error);
-        if (result.status >= 500) options.onError?.(error);
+        if (result.status >= 500 || operatorFacing(error)) options.onError?.(error);
         if (!outgoing.headersSent) send(outgoing, result);
         else outgoing.destroy();
       }

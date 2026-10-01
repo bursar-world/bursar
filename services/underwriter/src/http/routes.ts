@@ -266,13 +266,33 @@ function publicDetails(details: Readonly<Record<string, unknown>>): Record<strin
   return Object.keys(shown).length === 0 ? undefined : shown;
 }
 
+/**
+ * The conditions whose message is written for an operator, not the caller.
+ *
+ * A journal that is held names the host and process holding it; a broken one names the file it is
+ * in and how far it replayed; an exhausted pool names its size and the variable that moves it. All
+ * of that is for the log, where the server writes it, and the caller gets the condition in one
+ * fixed sentence under the same code.
+ */
+const OPERATOR_FACING: Readonly<Record<string, string>> = {
+  underwriter_journal_held: 'This underwriter does not hold the spend journal for this account, so it takes no decision for it.',
+  log_broken: 'The spend journal for this account could not be read or written. Nothing was recorded.',
+  underwriter_database_pool_exhausted: 'This underwriter cannot open another spend journal right now.',
+};
+
+/** Whether the caller was given a fixed sentence in place of the message, which then belongs in the log. */
+export function operatorFacing(error: unknown): boolean {
+  return isBursarError(error) && error.code in OPERATOR_FACING;
+}
+
 /** Turns a thrown error into the status and code a caller can act on. */
 export function errorResponse(error: unknown): ApiResponse {
   if (!isBursarError(error)) return { status: 500, body: { error: 'internal_error' } };
 
   const status = STATUS[error.code] ?? 409;
   const details = publicDetails(error.details);
-  return { status, body: { error: error.code, detail: error.message, ...(details === undefined ? {} : { details }) } };
+  const detail = OPERATOR_FACING[error.code] ?? error.message;
+  return { status, body: { error: error.code, detail, ...(details === undefined ? {} : { details }) } };
 }
 
 const STATUS: Readonly<Record<string, number>> = {

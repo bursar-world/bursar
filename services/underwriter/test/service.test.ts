@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -369,6 +369,11 @@ describe('the underwriter process', () => {
     expect(body.details?.['lockPath']).toBeUndefined();
     expect(body.details?.['holder']).toBeUndefined();
     expect(body.details?.['account']).toBe(ACCOUNT);
+    // The sentence is as fixed as the keys: the message names the holder, and the holder is a host.
+    expect(body.detail).not.toContain(directory);
+    expect(body.detail).not.toContain(hostname());
+    expect(body.detail).not.toContain(String(process.pid));
+    expect(body.detail).toBe('This underwriter does not hold the spend journal for this account, so it takes no decision for it.');
   });
 
   it('is not ready while the account it speaks for answers nothing', async () => {

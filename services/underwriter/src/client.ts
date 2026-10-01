@@ -24,8 +24,22 @@ export type UnderwriterClientOptions = {
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
+/**
+ * The URL as much of it as is safe to put in a message: the origin. The variable it comes from is
+ * declared secret because a URL routinely carries a key in its userinfo, its path or its query, and
+ * every message here reaches the facilitator's caller as the detail of a refusal.
+ */
+function origin(base: string): string {
+  try {
+    return new URL(base).origin;
+  } catch {
+    return 'a URL this process could not parse';
+  }
+}
+
 export function createUnderwriterClient(options: UnderwriterClientOptions): UnderwriterLookup {
   const base = options.baseUrl.replace(/\/+$/, '');
+  const where = origin(base);
   const call = options.fetch ?? globalThis.fetch;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
@@ -42,7 +56,7 @@ export function createUnderwriterClient(options: UnderwriterClientOptions): Unde
         },
       });
     } catch (cause) {
-      throw new ChainUnavailableError(`the underwriter at ${base} did not answer`, { path }, cause);
+      throw new ChainUnavailableError(`the underwriter at ${where} did not answer`, { path }, cause);
     }
 
     const text = await response.text();
@@ -51,7 +65,7 @@ export function createUnderwriterClient(options: UnderwriterClientOptions): Unde
       try {
         body = JSON.parse(text) as unknown;
       } catch {
-        throw new ChainUnavailableError(`the underwriter at ${base} answered ${response.status} with something that is not JSON`, {
+        throw new ChainUnavailableError(`the underwriter at ${where} answered ${response.status} with something that is not JSON`, {
           path,
           status: response.status,
         });
@@ -63,7 +77,7 @@ export function createUnderwriterClient(options: UnderwriterClientOptions): Unde
   return async (agentId: string): Promise<UnderwriterPort | null> => {
     const found = await request(`/v1/mandates/${encodeURIComponent(agentId)}`, { method: 'GET' });
     if (found.status === 404) return null;
-    if (found.status !== 200) throw remoteFailure(base, found);
+    if (found.status !== 200) throw remoteFailure(where, found);
 
     const mandate = record(found.body);
     const account = string(mandate, 'account');
@@ -85,7 +99,7 @@ export function createUnderwriterClient(options: UnderwriterClientOptions): Unde
           }),
         });
 
-        if (answered.status !== 200) throw remoteFailure(base, answered);
+        if (answered.status !== 200) throw remoteFailure(where, answered);
 
         const body = record(answered.body);
         return {
@@ -109,6 +123,7 @@ export function createUnderwriterProbe(
   options: UnderwriterClientOptions,
 ): () => Promise<{ ready: boolean } & Record<string, unknown>> {
   const base = options.baseUrl.replace(/\/+$/, '');
+  const where = origin(base);
   const call = options.fetch ?? globalThis.fetch;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
@@ -119,12 +134,10 @@ export function createUnderwriterProbe(
         signal: AbortSignal.timeout(timeoutMs),
         headers: options.token ? { authorization: `Bearer ${options.token}` } : {},
       });
-    } catch (cause) {
-      return {
-        ready: false,
-        reachable: false,
-        detail: `the underwriter at ${base} did not answer: ${cause instanceof Error ? cause.message : String(cause)}`,
-      };
+    } catch {
+      // The transport's reason names addresses and ports on the private network, and this answer
+      // is read on the facilitator's probe. The host to check is the one thing worth saying.
+      return { ready: false, reachable: false, detail: `the underwriter at ${where} did not answer` };
     }
 
     const text = await response.text();
@@ -132,7 +145,7 @@ export function createUnderwriterProbe(
     try {
       if (text !== '') body = JSON.parse(text) as unknown;
     } catch {
-      return { ready: false, reachable: true, detail: `the underwriter at ${base} answered ${response.status} with something that is not JSON` };
+      return { ready: false, reachable: true, detail: `the underwriter at ${where} answered ${response.status} with something that is not JSON` };
     }
 
     const reported = body !== null && typeof body === 'object' ? (body as Record<string, unknown>) : {};
@@ -140,11 +153,11 @@ export function createUnderwriterProbe(
   };
 }
 
-function remoteFailure(base: string, answer: { status: number; body: unknown }): Error {
+function remoteFailure(where: string, answer: { status: number; body: unknown }): Error {
   const body = answer.body as { error?: unknown; detail?: unknown } | null;
   const code = typeof body?.error === 'string' ? body.error : 'unknown_error';
   const detail = typeof body?.detail === 'string' ? `: ${body.detail}` : '';
-  return new RequestError(`the underwriter at ${base} answered ${answer.status} ${code}${detail}`, {
+  return new RequestError(`the underwriter at ${where} answered ${answer.status} ${code}${detail}`, {
     status: answer.status,
     code,
   });
