@@ -172,24 +172,49 @@ abstract contract BursarScript is Script {
         return vm.readFile(_recordPath());
     }
 
-    function _recorded(string memory key) internal view returns (bool) {
-        return vm.keyExistsJson(_json(), key);
+    /// The record is read afresh on every lookup, so a write is seen by the next read, and each
+    /// read copies the whole file into memory. Memory is never freed and costs the square of its
+    /// size, so a run that looks up a few hundred keys would spend most of its gas holding copies
+    /// of one file. A lookup that answers with a value keeps none of what it allocated: it notes
+    /// where free memory started and hands it back.
+    function _memoryMark() private pure returns (uint256 free) {
+        assembly {
+            free := mload(0x40)
+        }
     }
 
-    function _recordAddress(string memory key) internal view returns (address) {
+    function _memoryRelease(uint256 free) private pure {
+        assembly {
+            mstore(0x40, free)
+        }
+    }
+
+    function _recorded(string memory key) internal view returns (bool found) {
+        uint256 free = _memoryMark();
+        found = vm.keyExistsJson(_json(), key);
+        _memoryRelease(free);
+    }
+
+    function _recordAddress(string memory key) internal view returns (address at) {
+        uint256 free = _memoryMark();
         string memory json = _json();
-        return vm.keyExistsJson(json, key) ? vm.parseJsonAddress(json, key) : address(0);
+        if (vm.keyExistsJson(json, key)) at = vm.parseJsonAddress(json, key);
+        _memoryRelease(free);
     }
 
-    function _recordUint(string memory key) internal view returns (uint256) {
+    function _recordUint(string memory key) internal view returns (uint256 value) {
+        uint256 free = _memoryMark();
         string memory json = _json();
         if (!vm.keyExistsJson(json, key)) revert NotRecorded(key);
-        return vm.parseJsonUint(json, key);
+        value = vm.parseJsonUint(json, key);
+        _memoryRelease(free);
     }
 
-    function _recordBool(string memory key) internal view returns (bool) {
+    function _recordBool(string memory key) internal view returns (bool value) {
+        uint256 free = _memoryMark();
         string memory json = _json();
-        return vm.keyExistsJson(json, key) && vm.parseJsonBool(json, key);
+        value = vm.keyExistsJson(json, key) && vm.parseJsonBool(json, key);
+        _memoryRelease(free);
     }
 
     function _recordString(string memory key) internal view returns (string memory) {
@@ -226,10 +251,12 @@ abstract contract BursarScript is Script {
 
     /// An address the previous record names, or zero when the shell names no previous record or
     /// that record lacks the key.
-    function _previousAddress(string memory key) internal view returns (address) {
+    function _previousAddress(string memory key) internal view returns (address at) {
         if (bytes(_previousPath()).length == 0) return address(0);
+        uint256 free = _memoryMark();
         string memory json = _previousJson();
-        return vm.keyExistsJson(json, key) ? vm.parseJsonAddress(json, key) : address(0);
+        if (vm.keyExistsJson(json, key)) at = vm.parseJsonAddress(json, key);
+        _memoryRelease(free);
     }
 
     /// A contract an earlier script deployed, which this one builds on. Missing, or recorded with
