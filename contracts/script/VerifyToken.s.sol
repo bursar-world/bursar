@@ -10,9 +10,9 @@ import {Vesting} from "../src/token/Vesting.sol";
 /// Asks the chain about the token the record names: the fixed supply, and the vesting contract
 /// that pays the team's share out of it.
 ///
-/// On Robinhood Chain both carry over from the first deployment and the vesting contract still
-/// answers to the first timelock until the migration hands it over. That handover is reported as
-/// owed; with `BURSAR_VERIFY_STRICT=1`, which the migration ends on, it fails the run.
+/// On Robinhood Chain both carry over from the first deployment. A vesting contract that does not
+/// answer to the record's timelock yet is reported as owed, with the step that hands it over; with
+/// `BURSAR_VERIFY_STRICT=1`, which the migration ends on, it fails the run.
 abstract contract TokenChecks is Verifier {
     uint256 private constant SUPPLY = 1_000_000_000e18;
 
@@ -33,12 +33,13 @@ abstract contract TokenChecks is Verifier {
 
         address timelock = _recordAddress(K.ADMIN_TIMELOCK);
         address admin = v.admin();
+        _fact("Vesting.admin", admin);
         if (admin == timelock) {
             _is("Vesting.pendingAdmin", address(0), v.pendingAdmin());
         } else if (v.pendingAdmin() == timelock) {
-            _owe("Vesting.admin: the timelock has to accept the handover (MigrateGovernance.s.sol)");
+            _owe("Vesting.admin: the timelock has to accept the handover (Vesting.acceptAdmin, by proposal)");
         } else {
-            _owe(string.concat("Vesting.admin is ", vm.toString(admin), ": the migration hands it to the timelock"));
+            _owe(string.concat("Vesting.admin is ", vm.toString(admin), ": its handover to the timelock is owed"));
         }
     }
 }

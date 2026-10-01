@@ -49,8 +49,9 @@ abstract contract CoreChecks is Verifier {
         if (ok) {
             uint256[3] memory live = abi.decode(answer, (uint256[3]));
             for (uint256 i; i < 3 && i < signers.length; ++i) {
-                (bool isAddress, address signer) = _asAddress("AdminTimelock.signer", timelock, live[i]);
-                if (isAddress) _is("AdminTimelock.signer", signers[i], signer);
+                string memory seat = string.concat("AdminTimelock.signer[", vm.toString(i), "]");
+                (bool isAddress, address signer) = _asAddress(seat, timelock, live[i]);
+                if (isAddress) _is(seat, signers[i], signer);
             }
         }
         _isUintAt("the deploy key holds a signer seat", 0, timelock, abi.encodeCall(t.isSigner, (deployer)));

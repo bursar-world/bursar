@@ -9,20 +9,11 @@ import {RecordKeys as K} from "./lib/RecordKeys.sol";
 
 import {CreditPool} from "../src/rwa/CreditPool.sol";
 
-/// The part of the replaced credit pool this step calls. Its interface is the one deployed, read
-/// from the source it was built from.
-interface IRetiringCreditPool {
-    function lender() external view returns (address);
-    function cash() external view returns (uint256);
-    function totalDebt() external view returns (uint256);
-    function withdrawLiquidity(address to, uint256 amount) external;
-}
-
-/// Moves the collateral lane's lending cash from the replaced credit pool to the new one, from the
+/// Moves the collateral lane's lending cash from the previous credit pool to the new one, from the
 /// lender's key.
 ///
-/// `run` takes back every unit of USDG the old pool is not lending out. The pool pays it to the
-/// lender alone, so the key this runs with has to be the lender both pools name. A line still
+/// `run` takes back every unit of USDG the previous pool is not lending out. The pool pays it to
+/// the lender alone, so the key this runs with has to be the lender both pools name. A line still
 /// drawn there keeps its debt, and whatever it repays later can be taken back the same way.
 ///
 /// `fund(amount)` lends `amount` micro-USD to the new pool. Anyone may fund; only the recorded
@@ -34,12 +25,12 @@ interface IRetiringCreditPool {
 contract MigrateCredit is Migration {
     function run() external {
         _begin();
-        IRetiringCreditPool old = IRetiringCreditPool(_old("BURSAR_V2_RECORD", ".rwa.collateral.CreditPool"));
-        _requireKey("lender of the replaced credit pool", old.lender());
+        CreditPool previous = CreditPool(_previous(K.CREDIT_POOL));
+        _requireKey("lender of the previous credit pool", previous.lender());
 
-        uint256 cash = old.cash();
-        uint256 debt = old.totalDebt();
-        console2.log("replaced credit pool          ", address(old));
+        uint256 cash = previous.cash();
+        uint256 debt = previous.totalDebt();
+        console2.log("previous credit pool          ", address(previous));
         console2.log("cash it can return, micro-USD ", cash);
         console2.log("still lent out, micro-USD     ", debt);
         if (cash == 0) {
@@ -50,12 +41,13 @@ contract MigrateCredit is Migration {
         IERC20 usdg = IERC20(_settlementAsset());
         uint256 before = usdg.balanceOf(msg.sender);
         vm.startBroadcast(msg.sender);
-        old.withdrawLiquidity(msg.sender, cash);
+        previous.withdrawLiquidity(msg.sender, cash);
         vm.stopBroadcast();
 
-        require(old.cash() == 0, "the replaced pool still holds cash");
-        require(usdg.balanceOf(msg.sender) == before + cash, "the lender did not receive the cash");
+        // At least, never exactly: anyone can send the lender a unit in between.
+        require(usdg.balanceOf(msg.sender) >= before + cash, "the lender did not receive the cash");
         console2.log("returned to the lender, micro ", cash);
+        console2.log("left in the previous pool, micro", previous.cash());
     }
 
     function fund(uint256 amount) external {
@@ -72,7 +64,7 @@ contract MigrateCredit is Migration {
         pool.fund(amount);
         vm.stopBroadcast();
 
-        require(pool.cash() == before + amount, "the pool did not book the funding");
+        require(pool.cash() >= before + amount, "the pool did not book the funding");
         console2.log("new credit pool               ", address(pool));
         console2.log("lendable cash now, micro-USD  ", pool.cash());
         console2.log("lender, who alone can take it back", pool.lender());

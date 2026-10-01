@@ -17,7 +17,9 @@ import {IStaking} from "../src/token/interfaces/IStaking.sol";
 /// credit pool's two roles on the staking pool.
 ///
 /// Each of those is reported as owed while it is unset, and as a mismatch once it is set to
-/// anything but what the record intends. `VerifyWiring.s.sol` checks the whole batch took effect.
+/// anything but what the record intends. On a staking pool carried over from the previous
+/// deployment, the credit pool's two roles still name that deployment's pool until the batch
+/// moves them, and that too is owed. `VerifyWiring.s.sol` checks the whole batch took effect.
 abstract contract StakingChecks is Verifier {
     function _checkStaking() internal {
         address staking = _contract(K.STAKING);
@@ -62,15 +64,14 @@ abstract contract StakingChecks is Verifier {
             );
         }
 
-        // Spread in and stake out both answer to the credit pool, once governance names it.
+        // Spread in and stake out both answer to the credit pool, once governance names it. A pool
+        // carried over from the previous deployment names that deployment's credit pool until the
+        // wiring batch moves both roles, which is owed, not wrong.
         address pool = _recordAddress(K.CREDIT_POOL);
-        if (pool != address(0)) {
-            _governed("Staking.creditManager", pool, staking.creditManager());
-            _governed("Staking.slasher", pool, staking.slasher());
-        } else {
-            _is("Staking.creditManager", address(0), staking.creditManager());
-            _is("Staking.slasher", address(0), staking.slasher());
-        }
+        address previous = _previousAddress(K.CREDIT_POOL);
+        _governedFrom("Staking.creditManager", pool, previous, staking.creditManager());
+        _governedFrom("Staking.slasher", pool, previous, staking.slasher());
+        _fact("Staking.totalStaked", staking.totalStaked());
         _checkTiers(staking.tiers());
     }
 
@@ -82,8 +83,9 @@ abstract contract StakingChecks is Verifier {
         }
         _isUint("Staking.tiers.length", intended.length, live.length);
         for (uint256 i; i < intended.length && i < live.length; ++i) {
-            _isUint("Staking.tiers.minStake", intended[i].minStake, live[i].minStake);
-            _isUint("Staking.tiers.rebateBps", intended[i].rebateBps, live[i].rebateBps);
+            string memory tier = string.concat("Staking.tiers[", vm.toString(i), "]");
+            _isUint(string.concat(tier, ".minStake"), intended[i].minStake, live[i].minStake);
+            _isUint(string.concat(tier, ".rebateBps"), intended[i].rebateBps, live[i].rebateBps);
         }
     }
 
@@ -107,6 +109,9 @@ abstract contract StakingChecks is Verifier {
         _isUint("Buyback.minInterval", _param("Buyback.minInterval"), p.minInterval);
         // The ceiling is governance's to move, so a later value is not a mismatch. One that has aged
         // out refuses every buyback and skips every slash until it is restated.
+        _fact("Buyback.maxPriceMicroUsdPerBrsr", p.maxPriceMicroUsdPerBrsr);
+        _fact("Buyback.ceilingSetAt", buyback.ceilingSetAt());
+        _fact("Buyback.maxCeilingAge", buyback.maxCeilingAge());
         if (p.maxPriceMicroUsdPerBrsr == 0) {
             _owe("Buyback ceiling is zero: every buyback refuses until governance sets one");
         } else if (block.timestamp > uint256(buyback.ceilingSetAt()) + buyback.maxCeilingAge()) {
@@ -131,6 +136,7 @@ abstract contract StakingChecks is Verifier {
             seeder.poolId() == vm.parseJsonBytes32(_json(), ".token.poolId")
         );
         (int24 lower, int24 upper) = V4Math.fullRangeTicks(seeder.poolTickSpacing());
+        _fact("V4LiquiditySeeder.liquidity", seeder.liquidityOf(lower, upper));
         if (seeder.liquidityOf(lower, upper) == 0) {
             _owe("V4LiquiditySeeder holds no liquidity: the migration moves the pool's position into it");
         }

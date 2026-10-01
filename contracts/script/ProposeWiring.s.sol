@@ -9,6 +9,18 @@ import {Buyback} from "../src/token/Buyback.sol";
 import {Staking} from "../src/token/Staking.sol";
 import {V4LiquiditySeeder} from "../src/token/V4LiquiditySeeder.sol";
 
+/// The parts of the previous deployment's Entrypoint and shielded pool this batch reaches. The
+/// vendored Privacy Pools code pins a compiler this script cannot import alongside the rest, so
+/// the two reads and the one call are declared here.
+interface IPreviousEntrypoint {
+    function hasRole(bytes32 role, address account) external view returns (bool);
+    function windDownPool(address pool) external;
+}
+
+interface IPreviousShieldedPool {
+    function dead() external view returns (bool);
+}
+
 /// The wiring no constructor could do, because each piece is governance's to decide: who may
 /// trigger a buyback, which resolvers may bond and at what floor, the rebate a staked balance
 /// earns, and the two roles the credit pool holds on the staking pool.
@@ -22,10 +34,21 @@ import {V4LiquiditySeeder} from "../src/token/V4LiquiditySeeder.sol";
 /// - `V4LiquiditySeeder.acceptOwnership`, when the recorded seeder is one `SeedPool.s.sol` opened
 ///   the market with and offered to the timelock. A seeder the staking run deployed is the
 ///   timelock's already, and the call is left out.
+/// - `Entrypoint.windDownPool` on the previous deployment's Entrypoint, for its shielded pool,
+///   when `BURSAR_PREVIOUS_RECORD` names one. The pool stops taking deposits and every note in it
+///   stays withdrawable. The timelock holds that Entrypoint's owner role, so the call is its.
+///
+/// A deployment that carries its staking pool and buyback over finds the keeper, the floors and
+/// the rebate table already applied, and the batch proposes only what differs: the credit pool's
+/// two roles, which move to the new pool, and the wind-down.
 ///
 /// Run after `DeployCollateral.s.sol`, from signer keys; `Governance.sol` describes the steps.
 /// `VerifyWiring.s.sol` checks that every call in the batch took effect.
 contract ProposeWiring is Governance {
+    bytes32 internal constant OWNER_ROLE = keccak256("OWNER_ROLE");
+
+    error EntrypointNotGoverned(address entrypoint, address timelock);
+
     function _calls() internal view override returns (Call[] memory calls) {
         address timelock = _upstream(K.ADMIN_TIMELOCK);
         address staking = _upstream(K.STAKING);
@@ -40,7 +63,10 @@ contract ProposeWiring is Governance {
         address seeder = _recordAddress(K.SEEDER);
         bool acceptSeeder = seeder.code.length != 0 && V4LiquiditySeeder(seeder).pendingOwner() == timelock;
 
-        calls = new Call[](resolvers.length + (acceptSeeder ? 5 : 4));
+        (address entrypoint, address previousPool) = _previousShielded(timelock);
+        bool windDown = previousPool != address(0);
+
+        calls = new Call[](resolvers.length + 4 + (acceptSeeder ? 1 : 0) + (windDown ? 1 : 0));
         calls[0] = Call(timelock, buyback, abi.encodeCall(Buyback.setKeeper, (keeper)), "Buyback.setKeeper");
         for (uint256 i; i < resolvers.length; ++i) {
             calls[1 + i] = Call(
@@ -56,13 +82,36 @@ contract ProposeWiring is Governance {
         calls[n + 1] =
             Call(timelock, staking, abi.encodeCall(Staking.setCreditManager, (pool)), "Staking.setCreditManager");
         calls[n + 2] = Call(timelock, staking, abi.encodeCall(Staking.setSlasher, (pool)), "Staking.setSlasher");
+        n += 3;
         if (acceptSeeder) {
-            calls[n + 3] = Call(
+            calls[n++] = Call(
                 timelock,
                 seeder,
                 abi.encodeCall(V4LiquiditySeeder.acceptOwnership, ()),
                 "V4LiquiditySeeder.acceptOwnership"
             );
+        }
+        if (windDown) {
+            calls[n] = Call(
+                timelock,
+                entrypoint,
+                abi.encodeCall(IPreviousEntrypoint.windDownPool, (previousPool)),
+                "Entrypoint.windDownPool, the previous shielded pool"
+            );
+        }
+    }
+
+    /// The previous deployment's Entrypoint and shielded pool, both zero when the shell names no
+    /// previous record. The timelock has to hold the Entrypoint's owner role, or the call would
+    /// land and revert after its delay.
+    function _previousShielded(address timelock) private view returns (address entrypoint, address pool) {
+        pool = _previousAddress(K.SHIELDED_POOL);
+        if (pool == address(0)) return (address(0), address(0));
+        _requireCode(K.SHIELDED_POOL, pool);
+        entrypoint = _previousAddress(K.ENTRYPOINT);
+        _requireCode(K.ENTRYPOINT, entrypoint);
+        if (!IPreviousEntrypoint(entrypoint).hasRole(OWNER_ROLE, timelock)) {
+            revert EntrypointNotGoverned(entrypoint, timelock);
         }
     }
 
@@ -71,6 +120,9 @@ contract ProposeWiring is Governance {
         bytes memory args = _args(call.data);
         if (selector == Buyback.setKeeper.selector) {
             return Buyback(call.target).keeper() == abi.decode(args, (address));
+        }
+        if (selector == IPreviousEntrypoint.windDownPool.selector) {
+            return IPreviousShieldedPool(abi.decode(args, (address))).dead();
         }
         Staking staking = Staking(call.target);
         if (selector == Staking.setBondFloor.selector) {

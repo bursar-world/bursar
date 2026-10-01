@@ -12,17 +12,19 @@ import {IOracleRegistry} from "../src/interfaces/IOracleRegistry.sol";
 import {Staking} from "../src/token/Staking.sol";
 
 /// Moves the three resolvers to the new dispute registry: the treasury sends each one its bond,
-/// each resolver bonds it on the new registry and asks the old registries for its old bond back,
+/// each resolver bonds it on the new registry and asks the previous registry for its old bond back,
 /// and seven days later takes that back and returns it to the treasury, which paid for it.
 ///
 ///   forge script script/MigrateResolvers.s.sol --sig "fund()"    --keystore "$KEYS/treasury"   ...
 ///   forge script script/MigrateResolvers.s.sol --sig "bond()"    --keystore "$KEYS/resolver-1" ...
 ///   forge script script/MigrateResolvers.s.sol --sig "reclaim()" --keystore "$KEYS/resolver-1" ...
 ///
-/// `bond` needs governance to have named the resolver's floor on the new staking pool first
-/// (`ProposeWiring.s.sol`): until then nobody can bond, which is the point of the allowlist.
+/// `bond` needs the resolver's floor on the record's staking pool. On a pool carried over from the
+/// previous deployment the floors are already in place, so bonding waits for nothing; on a fresh
+/// one governance names them in the wiring batch first, and until then nobody can bond, which is
+/// the point of the allowlist.
 ///
-/// The old registries keep ruling on the disputes already open on them while the bonds unbond,
+/// The previous registry keeps ruling on the disputes already open on it while the bonds unbond,
 /// and a bond with a vote still open stays until the vote closes.
 contract MigrateResolvers is Migration {
     using SafeERC20 for IERC20;
@@ -55,8 +57,8 @@ contract MigrateResolvers is Migration {
         vm.stopBroadcast();
     }
 
-    /// Run by each resolver. Bonds the floor on the new registry, then asks each old registry for
-    /// the old bond back.
+    /// Run by each resolver. Bonds the floor on the new registry, then asks the previous registry
+    /// for the old bond back.
     function bond() external {
         _begin();
         address[] memory resolvers = _recordAddresses(K.RESOLVERS);
@@ -85,15 +87,14 @@ contract MigrateResolvers is Migration {
             else registry.register(uint128(needed));
             console2.log("bonded on the new registry, BRSR wei", needed);
         }
-        _requestUnbond(_oldOptional("BURSAR_V2_RECORD", ".contracts.OracleRegistry"));
-        _requestUnbond(_oldOptional("BURSAR_V1_RECORD", ".contracts.OracleRegistry"));
+        _requestUnbond(_previousOptional(K.ORACLE_REGISTRY));
         vm.stopBroadcast();
 
         require(registry.getResolver(msg.sender).bond >= floor, "the new bond is below the floor");
     }
 
-    /// Run by each resolver once the old bonds have matured. Takes them back and returns them to
-    /// the treasury.
+    /// Run by each resolver once the old bond has matured. Takes it back and returns it to the
+    /// treasury.
     function reclaim() external {
         _begin();
         IERC20 brsr = IERC20(_upstream(K.BRSR));
@@ -101,8 +102,7 @@ contract MigrateResolvers is Migration {
         uint256 before = brsr.balanceOf(msg.sender);
 
         vm.startBroadcast(msg.sender);
-        _completeUnbond(_oldOptional("BURSAR_V2_RECORD", ".contracts.OracleRegistry"));
-        _completeUnbond(_oldOptional("BURSAR_V1_RECORD", ".contracts.OracleRegistry"));
+        _completeUnbond(_previous(K.ORACLE_REGISTRY));
         uint256 returned = brsr.balanceOf(msg.sender) - before;
         if (returned != 0) brsr.safeTransfer(treasury, returned);
         vm.stopBroadcast();
@@ -110,29 +110,33 @@ contract MigrateResolvers is Migration {
         console2.log("returned to the treasury, BRSR wei", returned);
     }
 
-    function _requestUnbond(address old) private {
-        if (old == address(0)) return;
-        IOracleRegistry.Resolver memory r = IOracleRegistry(old).getResolver(msg.sender);
+    function _requestUnbond(address previous) private {
+        if (previous == address(0)) return;
+        IOracleRegistry.Resolver memory r = IOracleRegistry(previous).getResolver(msg.sender);
         if (uint8(r.status) != ACTIVE) return;
-        IOracleRegistry(old).requestUnbond();
-        console2.log("asked for the old bond back from", old);
+        IOracleRegistry(previous).requestUnbond();
+        console2.log("asked for the old bond back from", previous);
     }
 
-    function _completeUnbond(address old) private {
-        if (old == address(0)) return;
-        IOracleRegistry registry = IOracleRegistry(old);
+    function _completeUnbond(address previous) private {
+        IOracleRegistry registry = IOracleRegistry(previous);
         IOracleRegistry.Resolver memory r = registry.getResolver(msg.sender);
         if (uint8(r.status) != UNBONDING) return;
         uint256 maturesAt = uint256(r.unbondingAt) + registry.config().unbondingPeriod;
         if (block.timestamp < maturesAt) {
             console2.log(
                 string.concat(
-                    "not matured yet at ", vm.toString(old), ": matures ", _utc(maturesAt), ", in ", _until(maturesAt)
+                    "not matured yet at ",
+                    vm.toString(previous),
+                    ": matures ",
+                    _utc(maturesAt),
+                    ", in ",
+                    _until(maturesAt)
                 )
             );
             return;
         }
         registry.completeUnbond();
-        console2.log("took the old bond back from", old);
+        console2.log("took the old bond back from", previous);
     }
 }

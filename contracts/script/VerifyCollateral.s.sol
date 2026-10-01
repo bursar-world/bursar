@@ -34,6 +34,8 @@ abstract contract CollateralChecks is Verifier {
         _isUint("CreditPool.perMandateCap", _param("CreditPool.perMandateCap"), p.perMandateCap());
         _isUint("CreditPool.baseRateBps", _param("CreditPool.baseRateBps"), p.baseRateBps());
         _isUint("CreditPool.slopeBps", _param("CreditPool.slopeBps"), p.slopeBps());
+        _fact("CreditPool.cash", p.cash());
+        _fact("CreditPool.totalDebt", p.totalDebt());
         if (p.cash() == 0) _owe("CreditPool holds no cash to lend: the lender funds it");
 
         CollateralVault v = CollateralVault(vault);

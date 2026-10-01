@@ -70,10 +70,18 @@ abstract contract ShieldedChecks is Verifier {
         address timelock = _recordAddress(K.ADMIN_TIMELOCK);
         address deployer = _recordAddress(K.DEPLOYER);
         address postman = _recordAddress(K.ASP_POSTMAN);
-        _isTrue("Entrypoint: the timelock does not hold OWNER_ROLE", e.hasRole(OWNER_ROLE, timelock));
-        _isTrue("Entrypoint: the deploy key still holds OWNER_ROLE", !e.hasRole(OWNER_ROLE, deployer));
-        _isTrue("Entrypoint: the postman does not hold ASP_POSTMAN", e.hasRole(ASP_POSTMAN, postman));
-        _isTrue("Entrypoint: the deploy key holds ASP_POSTMAN", !e.hasRole(ASP_POSTMAN, deployer));
+        bool timelockOwns = e.hasRole(OWNER_ROLE, timelock);
+        bool deployerOwns = e.hasRole(OWNER_ROLE, deployer);
+        bool postmanPosts = e.hasRole(ASP_POSTMAN, postman);
+        bool deployerPosts = e.hasRole(ASP_POSTMAN, deployer);
+        _fact("Entrypoint.OWNER_ROLE held by the timelock", timelockOwns);
+        _fact("Entrypoint.OWNER_ROLE held by the deploy key", deployerOwns);
+        _fact("Entrypoint.ASP_POSTMAN held by the postman", postmanPosts);
+        _fact("Entrypoint.ASP_POSTMAN held by the deploy key", deployerPosts);
+        _isTrue("Entrypoint: the timelock does not hold OWNER_ROLE", timelockOwns);
+        _isTrue("Entrypoint: the deploy key still holds OWNER_ROLE", !deployerOwns);
+        _isTrue("Entrypoint: the postman does not hold ASP_POSTMAN", postmanPosts);
+        _isTrue("Entrypoint: the deploy key holds ASP_POSTMAN", !deployerPosts);
         bytes32 slot = vm.load(address(e), IMPLEMENTATION_SLOT);
         _is("Entrypoint implementation", implementation, address(uint160(uint256(slot))));
 
@@ -98,7 +106,9 @@ abstract contract ShieldedChecks is Verifier {
         _isUint("ShieldedPool.MAX_PER_DEPOSITOR", _recordUint(K.SHIELDED_MAX_PER_DEPOSITOR), p.MAX_PER_DEPOSITOR());
         _isUint("ShieldedPool.DEPOSITOR_WINDOW", _recordUint(K.SHIELDED_DEPOSITOR_WINDOW), p.DEPOSITOR_WINDOW());
         _isUint("ShieldedPool.SCOPE", _recordUint(K.SHIELDED_SCOPE), p.SCOPE());
-        _isTrue("ShieldedPool is wound down", !p.dead());
+        bool dead = p.dead();
+        _fact("ShieldedPool.dead", dead);
+        _isTrue("ShieldedPool is wound down", !dead);
     }
 
     /// The pool calls its hashing libraries by address, so the recorded ones have to hold code and

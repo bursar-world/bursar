@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Verifier} from "./lib/Verifier.sol";
 import {RecordKeys as K} from "./lib/RecordKeys.sol";
 import {TokenConfig} from "./lib/TokenConfig.sol";
+import {IShieldedPoolReads} from "./VerifyShielded.s.sol";
 
 import {Buyback} from "../src/token/Buyback.sol";
 import {Staking} from "../src/token/Staking.sol";
@@ -13,7 +14,9 @@ import {IStaking} from "../src/token/interfaces/IStaking.sol";
 /// Checks that every call in `ProposeWiring.s.sol` took effect: the buyback's keeper is the
 /// recorded keeper, every recorded resolver has its floor and nobody else can bond, the rebate
 /// table is in place, the credit pool is both the staking pool's credit manager and its slasher,
-/// and a recorded seeder belongs to the timelock. Nothing here is owed: unset is a mismatch.
+/// a recorded seeder belongs to the timelock, and the previous deployment's shielded pool, when
+/// `BURSAR_PREVIOUS_RECORD` names one, takes no more deposits. Nothing here is owed: unset is a
+/// mismatch.
 abstract contract WiringChecks is Verifier {
     function _checkWiring() internal {
         address staking = _contract(K.STAKING);
@@ -49,11 +52,27 @@ abstract contract WiringChecks is Verifier {
             keccak256(abi.encode(live)) == keccak256(abi.encode(intended))
         );
 
+        _checkPreviousPool();
+
         if (_recordAddress(K.SEEDER) == address(0)) return;
         address seeder = _contract(K.SEEDER);
         if (seeder != address(0)) {
             _is("V4LiquiditySeeder.owner", _recordAddress(K.ADMIN_TIMELOCK), V4LiquiditySeeder(seeder).owner());
         }
+    }
+
+    /// The previous deployment's shielded pool is wound down by the batch: no new deposit, every
+    /// note still withdrawable.
+    function _checkPreviousPool() private {
+        address pool = _previousAddress(K.SHIELDED_POOL);
+        if (pool == address(0)) return;
+        if (pool.code.length == 0) {
+            _mismatch(string.concat("the previous shielded pool holds no code at ", vm.toString(pool)));
+            return;
+        }
+        bool dead = IShieldedPoolReads(pool).dead();
+        _fact("previous ShieldedPool.dead", dead);
+        _isTrue("the previous shielded pool still takes deposits", dead);
     }
 }
 

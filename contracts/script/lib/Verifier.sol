@@ -12,6 +12,11 @@ import {BursarScript} from "./BursarScript.sol";
 /// set, found unset, is owed: listed, and fatal only under `BURSAR_VERIFY_STRICT=1`, which is how
 /// the last check after the migration is run. Anything else is a mismatch, and any mismatch fails
 /// the run after every question has been asked, so one run names every problem.
+///
+/// Every value a check reads is also printed, as `fact      <what> = <value>`, in the order it is
+/// read. A run's output is therefore the deployment as the chain describes it: each address, each
+/// admin and role holder, each figure and each wiring, in a form a reader or a report can take
+/// as it stands.
 abstract contract Verifier is BursarScript {
     error VerificationFailed(uint256 mismatches, uint256 owed);
 
@@ -43,14 +48,17 @@ abstract contract Verifier is BursarScript {
             _mismatch(string.concat(key, " holds no code at ", vm.toString(at)));
             return address(0);
         }
+        _fact(_unkeyed(key), at);
     }
 
     function _is(string memory what, address expected, address actual) internal {
+        _fact(what, actual);
         if (expected == actual) return;
         _mismatch(string.concat(what, ": expected ", vm.toString(expected), ", found ", vm.toString(actual)));
     }
 
     function _isUint(string memory what, uint256 expected, uint256 actual) internal {
+        _fact(what, actual);
         if (expected == actual) return;
         _mismatch(string.concat(what, ": expected ", vm.toString(expected), ", found ", vm.toString(actual)));
     }
@@ -62,8 +70,8 @@ abstract contract Verifier is BursarScript {
     /// A value governance sets. Unset is owed; the intended value passes; anything else is a
     /// mismatch, because a proposal that named the wrong address is worse than none.
     function _governed(string memory what, address intended, address actual) internal {
-        if (actual == intended) return;
-        if (actual == address(0)) {
+        if (actual == address(0) && intended != actual) {
+            _fact(what, actual);
             _owe(string.concat(what, " is unset: governance names ", vm.toString(intended)));
             return;
         }
@@ -71,12 +79,52 @@ abstract contract Verifier is BursarScript {
     }
 
     function _governedUint(string memory what, uint256 intended, uint256 actual) internal {
-        if (actual == intended) return;
-        if (actual == 0) {
+        if (actual == 0 && intended != actual) {
+            _fact(what, actual);
             _owe(string.concat(what, " is unset: governance sets ", vm.toString(intended)));
             return;
         }
         _isUint(what, intended, actual);
+    }
+
+    /// A role on a carried contract, which the previous deployment holds until the wiring batch
+    /// moves it. Still the previous holder is owed, like unset; the intended holder passes; anyone
+    /// else is a mismatch. Before the new holder is recorded, `intended` is zero: unset passes and
+    /// the previous holder is still owed.
+    function _governedFrom(string memory what, address intended, address previous, address actual) internal {
+        if (previous != address(0) && actual == previous && actual != intended) {
+            _fact(what, actual);
+            _owe(string.concat(what, " still names the previous deployment: the wiring batch moves it"));
+            return;
+        }
+        if (intended == address(0)) {
+            _is(what, address(0), actual);
+            return;
+        }
+        _governed(what, intended, actual);
+    }
+
+    function _fact(string memory what, address value) internal pure {
+        console2.log(string.concat("fact      ", what, " = ", vm.toString(value)));
+    }
+
+    function _fact(string memory what, uint256 value) internal pure {
+        console2.log(string.concat("fact      ", what, " = ", vm.toString(value)));
+    }
+
+    function _fact(string memory what, bool value) internal pure {
+        console2.log(string.concat("fact      ", what, " = ", value ? "true" : "false"));
+    }
+
+    /// A record key as a reader writes it: `contracts.Escrow`, without the leading dot.
+    function _unkeyed(string memory key) private pure returns (string memory) {
+        bytes memory raw = bytes(key);
+        if (raw.length == 0 || raw[0] != ".") return key;
+        bytes memory out = new bytes(raw.length - 1);
+        for (uint256 i; i < out.length; ++i) {
+            out[i] = raw[i + 1];
+        }
+        return string(out);
     }
 
     function _owe(string memory what) internal {

@@ -4,7 +4,6 @@ pragma solidity ^0.8.24;
 import {console2} from "forge-std/console2.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {MigrateLiquidity} from "../../../script/MigrateLiquidity.s.sol";
 import {SeedPool} from "../../../script/SeedPool.s.sol";
 import {RecordKeys as K} from "../../../script/lib/RecordKeys.sol";
 import {V4Math} from "../../../script/lib/V4Math.sol";
@@ -70,11 +69,11 @@ contract ForkSandwicher {
     }
 }
 
-/// The token rail the scripts deploy, against the live BRSR/USDG pool: the governance seeder names
-/// that pool, the position moves into it through the migration step, a buyback from the recorded
-/// keeper fills under the ceiling and stakes what it buys, the trade an open buyback invites is
-/// refused, a ceiling under the market refuses to fill, and the seeding script adds through the
-/// governance seeder at the price the pool stands at.
+/// The token rail the planned record carries over, against the live BRSR/USDG pool: the governance
+/// seeder names that pool and holds its position, a buyback from the recorded keeper fills under
+/// the ceiling and stakes what it buys, the trade an open buyback invites is refused, a ceiling
+/// under the market refuses to fill, and the seeding script adds through the governance seeder at
+/// the price the pool stands at.
 contract TokenRailForkTest is ForkWorld {
     uint256 internal constant BRSR_UNIT = 1e18;
 
@@ -106,13 +105,11 @@ contract TokenRailForkTest is ForkWorld {
         timelock = _readAddress(path, K.ADMIN_TIMELOCK);
         treasury = _readAddress(path, K.TREASURY);
         keeper = _readAddress(path, K.KEEPER);
-        _set("BURSAR_TOKEN_RECORD", "deployments/rhc-mainnet-token.json");
         _save();
     }
 
     function test_fork_onlyTheKeeperBuysBackUnderTheCeiling() public {
         _theGovernanceSeederNamesTheLivePool();
-        _theLivePositionMovesToGovernancesSeeder();
         _aBuybackFromTheKeeperFillsUnderTheCeilingAndStakesWhatItBuys();
         _theTradeAnOpenBuybackInvitesIsRefused();
         _aCeilingUnderTheMarketRefusesToFill();
@@ -128,27 +125,8 @@ contract TokenRailForkTest is ForkWorld {
         assertGt(sqrtPriceX96, 0, "the recorded pool is not open");
         assertEq(lpFee, buyback.poolFee());
         assertGt(stateView.getLiquidity(poolId), 0, "the live pool holds no liquidity");
-    }
-
-    /// The migration step, run by the liquidity key: the whole position leaves the old seeder and
-    /// lands in governance's, and the price does not move.
-    function _theLivePositionMovesToGovernancesSeeder() private {
-        _restore();
-        address old =
-            vm.parseJsonAddress(vm.readFile("deployments/rhc-mainnet-token.json"), ".contracts.V4LiquiditySeeder");
         (int24 lower, int24 upper) = V4Math.fullRangeTicks(buyback.poolTickSpacing());
-        uint128 held = V4LiquiditySeeder(old).liquidityOf(lower, upper);
-        (uint160 before,,,) = stateView.getSlot0(poolId);
-
-        _set("BURSAR_ALLOW_MAINNET_SEED", "i-am-moving-the-market");
-        _run(V4LiquiditySeeder(old).owner(), address(new MigrateLiquidity()));
-        _unset("BURSAR_ALLOW_MAINNET_SEED");
-
-        assertEq(V4LiquiditySeeder(old).liquidityOf(lower, upper), 0, "the old seeder still holds liquidity");
-        uint128 moved = seeder.liquidityOf(lower, upper);
-        assertApproxEqRel(moved, held, 0.0001e18, "the new seeder holds a different position");
-        (uint160 after_,,,) = stateView.getSlot0(poolId);
-        assertEq(after_, before, "moving the position moved the price");
+        assertGt(seeder.liquidityOf(lower, upper), 0, "the governance seeder holds no position");
     }
 
     function _aBuybackFromTheKeeperFillsUnderTheCeilingAndStakesWhatItBuys() private {

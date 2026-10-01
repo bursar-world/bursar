@@ -10,56 +10,31 @@ import {RecordKeys as K} from "./lib/RecordKeys.sol";
 
 import {MandateAccountFactory} from "../src/MandateAccountFactory.sol";
 import {IMandateAccount} from "../src/interfaces/IMandateAccount.sol";
+import {CommittedMandateAccount} from "../src/privacy/CommittedMandateAccount.sol";
 import {CommittedMandateFactory} from "../src/privacy/CommittedMandateFactory.sol";
 import {CollateralVault} from "../src/rwa/CollateralVault.sol";
 import {StockSpendRouter} from "../src/rwa/StockSpendRouter.sol";
-
-/// What this step calls on the example mandates of the replaced sets. The same signatures in every
-/// build that went live, read from the sources they were built from.
-interface IRetiringMandate {
-    function principal() external view returns (address);
-    function withdraw(address token, address to, uint256 amount) external;
-}
-
-interface IRetiringCommittedMandate {
-    function principal() external view returns (address);
-    function withdraw(address to, uint256 amount) external;
-}
-
-interface IRetiringPark {
-    function position(address mandate, address adapter)
-        external
-        view
-        returns (uint256 raw, uint256 basis, uint256 value, uint256 priceE8, uint256 updatedAt, bool fresh);
-    function unpark(address mandate, address adapter, uint256 raw, uint256 minUsdg) external returns (uint256);
-}
-
-interface IRetiringVault {
-    function collateralOf(address mandate, address asset) external view returns (uint256);
-    function withdraw(address mandate, address asset, uint256 raw, address to) external;
-}
+import {TreasuryPark} from "../src/rwa/TreasuryPark.sol";
 
 /// The public example mandates, moved to the new set, from the key that is their principal.
 ///
-/// `drain` returns what the old examples hold to that key: a parked treasury position is sold back
-/// to USDG first, collateral comes out of the old vault, and every balance is withdrawn. Only the
-/// principal can do any of it, so a mandate the key does not control is skipped and named.
+/// `drain` returns what the previous record's three examples hold to that key: the public
+/// example's parked treasury position is sold back to USDG first, the collateral example's stock
+/// comes out of the previous vault, and every balance is withdrawn. Only the principal can do any
+/// of it, so a mandate the key does not control is skipped and named.
 ///
-/// `create` makes the new examples and funds them small: a mandate that pays the registered payee
-/// and may buy stocks, one on the collateral lane with the drained stock posted as its collateral,
-/// and, when its terms are supplied, a committed one. The committed mandate's terms are hashed and
-/// sealed to the principal's viewing key by the console, so this step takes the results as
-/// `BURSAR_COMMITTED_TERMS`, `BURSAR_COMMITTED_COUNTER` and `BURSAR_COMMITTED_CIPHERTEXT` and skips
-/// it when they are unset. Each example is written to the record.
+/// `create` makes the new examples on the new set, on the same terms, and funds them small: a
+/// mandate that pays the registered payee and may buy stocks, one on the collateral lane with the
+/// drained stock posted as its collateral, and, when its terms are supplied, a committed one. The
+/// committed mandate's terms are hashed and sealed to the principal's viewing key by
+/// `script/committed-example.mjs`, so this step takes the results as `BURSAR_COMMITTED_TERMS`,
+/// `BURSAR_COMMITTED_COUNTER` and `BURSAR_COMMITTED_CIPHERTEXT` and skips it when they are unset.
+/// Each example is written to the record, under a salt derived from the record's name.
 ///
 ///   forge script script/MigrateExamples.s.sol --sig "drain()"  --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/payer" [--broadcast]
 ///   forge script script/MigrateExamples.s.sol --sig "create()" --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/payer" [--broadcast]
 contract MigrateExamples is Migration {
     using SafeERC20 for IERC20;
-
-    bytes32 internal constant PUBLIC_SALT = keccak256("bursar.example-mandate.v3");
-    bytes32 internal constant COLLATERAL_SALT = keccak256("bursar.collateral-mandate.v3");
-    bytes32 internal constant COMMITTED_SALT = keccak256("bursar.committed-mandate.v3");
 
     /// What each example is funded with, in micro-USD, unless the environment says otherwise.
     uint256 internal constant PUBLIC_FUNDING = 200_000;
@@ -71,51 +46,42 @@ contract MigrateExamples is Migration {
         _begin();
         address usdg = _settlementAsset();
 
-        address example = _oldOptional("BURSAR_V2_RECORD", ".exampleMandate.address");
+        address example = _previousOptional(".exampleMandate.address");
         if (_controls(example)) {
             vm.startBroadcast(msg.sender);
             _unpark(example);
             _withdrawAll(example, usdg);
             for (uint256 i; i < symbols.length; ++i) {
-                _withdrawAll(
-                    example, _oldOptional("BURSAR_V2_RECORD", string.concat(".rwa.assets.", symbols[i], ".address"))
-                );
+                _withdrawAll(example, _previousAsset(symbols[i]));
             }
             vm.stopBroadcast();
         }
 
-        address credit = _oldOptional("BURSAR_V2_RECORD", ".rwa.collateral.liveProof.mandate");
+        address credit = _previousOptional(".exampleCollateralMandate.address");
         if (_controls(credit)) {
-            IRetiringVault vault = IRetiringVault(_oldOptional("BURSAR_V2_RECORD", ".rwa.collateral.CollateralVault"));
+            CollateralVault vault = CollateralVault(_previous(K.COLLATERAL_VAULT));
             vm.startBroadcast(msg.sender);
             for (uint256 i; i < symbols.length; ++i) {
-                address asset = _oldOptional("BURSAR_V2_RECORD", string.concat(".rwa.assets.", symbols[i], ".address"));
+                address asset = _previousAsset(symbols[i]);
                 if (asset == address(0)) continue;
                 uint256 posted = vault.collateralOf(credit, asset);
                 if (posted == 0) continue;
                 vault.withdraw(credit, asset, posted, msg.sender);
-                console2.log(string.concat("collateral back from the old vault, ", symbols[i]), posted);
+                console2.log(string.concat("collateral back from the previous vault, ", symbols[i]), posted);
             }
             _withdrawAll(credit, usdg);
             vm.stopBroadcast();
         }
 
-        address committed = _oldOptional("BURSAR_V2_RECORD", ".privacy.exampleCommittedMandate.address");
+        address committed = _previousOptional(".exampleCommittedMandate.address");
         if (_controls(committed)) {
             uint256 held = IERC20(usdg).balanceOf(committed);
             if (held != 0) {
                 vm.startBroadcast(msg.sender);
-                IRetiringCommittedMandate(committed).withdraw(msg.sender, held);
+                CommittedMandateAccount(committed).withdraw(msg.sender, held);
                 vm.stopBroadcast();
                 console2.log("USDG back from the committed example, micro", held);
             }
-        }
-
-        address first = _oldOptional("BURSAR_V1_RECORD", ".exampleMandate.address");
-        if (_controls(first)) {
-            vm.startBroadcast(msg.sender);
-            _withdrawAll(first, usdg);
-            vm.stopBroadcast();
         }
     }
 
@@ -131,10 +97,12 @@ contract MigrateExamples is Migration {
         address committed = _createCommitted(usdg);
         vm.stopBroadcast();
 
-        _recordExample(".exampleMandate", pub, address(factory), PUBLIC_SALT);
-        _recordExample(".exampleCollateralMandate", credit, address(factory), COLLATERAL_SALT);
+        _recordExample(".exampleMandate", pub, address(factory), _salt("example-mandate"));
+        _recordExample(".exampleCollateralMandate", credit, address(factory), _salt("collateral-mandate"));
         if (committed != address(0)) {
-            _recordExample(".exampleCommittedMandate", committed, _recordAddress(K.COMMITTED_FACTORY), COMMITTED_SALT);
+            _recordExample(
+                ".exampleCommittedMandate", committed, _recordAddress(K.COMMITTED_FACTORY), _salt("committed-mandate")
+            );
         }
     }
 
@@ -142,9 +110,10 @@ contract MigrateExamples is Migration {
         // Services, agent hires and eligible stocks; 0.10 a call, 0.50 a day, 2.00 a month, 1.00
         // over its life, the terms the earlier example ran on.
         IMandateAccount.Limits memory limits = _limits(7, 0);
-        m = factory.predict(msg.sender, msg.sender, PUBLIC_SALT, limits);
+        bytes32 salt = _salt("example-mandate");
+        m = factory.predict(msg.sender, msg.sender, salt, limits);
         if (m.code.length == 0) {
-            factory.create(msg.sender, msg.sender, PUBLIC_SALT, limits);
+            factory.create(msg.sender, msg.sender, salt, limits);
             IMandateAccount account = IMandateAccount(m);
             account.setCapability(keccak256("service:gpu.render:1"), true);
             account.setMerchant(payee, true);
@@ -174,9 +143,10 @@ contract MigrateExamples is Migration {
     function _createCollateral(MandateAccountFactory factory, address payee) private returns (address m) {
         IMandateAccount.Limits memory limits = _limits(3, 1);
         CollateralVault vault = CollateralVault(_upstream(K.COLLATERAL_VAULT));
-        m = factory.predict(msg.sender, msg.sender, COLLATERAL_SALT, limits);
+        bytes32 salt = _salt("collateral-mandate");
+        m = factory.predict(msg.sender, msg.sender, salt, limits);
         if (m.code.length == 0) {
-            factory.create(msg.sender, msg.sender, COLLATERAL_SALT, limits);
+            factory.create(msg.sender, msg.sender, salt, limits);
             IMandateAccount account = IMandateAccount(m);
             account.setTreasuryPark(address(vault));
             account.setCapability(keccak256("service:demo.x402:1"), true);
@@ -202,13 +172,20 @@ contract MigrateExamples is Migration {
         uint256 counter = _envUint("BURSAR_COMMITTED_COUNTER");
         bytes memory ciphertext = _envBytes("BURSAR_COMMITTED_CIPHERTEXT");
         CommittedMandateFactory factory = CommittedMandateFactory(_upstream(K.COMMITTED_FACTORY));
-        m = factory.predict(msg.sender, msg.sender, COMMITTED_SALT, terms, counter);
+        bytes32 salt = _salt("committed-mandate");
+        m = factory.predict(msg.sender, msg.sender, salt, terms, counter);
         if (m.code.length == 0) {
-            factory.create(msg.sender, msg.sender, COMMITTED_SALT, terms, counter, ciphertext);
+            factory.create(msg.sender, msg.sender, salt, terms, counter, ciphertext);
             console2.log("committed example             ", m);
         }
         uint256 funding = _envUintOr("BURSAR_COMMITTED_FUNDING", COMMITTED_FUNDING);
         if (usdg.balanceOf(m) < funding) usdg.safeTransfer(m, funding - usdg.balanceOf(m));
+    }
+
+    /// `bursar.<kind>.<record name>`, so each record's examples sit at addresses of their own and
+    /// `script/committed-example.mjs` derives the same salt from the same record.
+    function _salt(string memory kind) private view returns (bytes32) {
+        return keccak256(bytes(string.concat("bursar.", kind, ".", _recordString(K.NETWORK))));
     }
 
     function _limits(uint32 classMask, uint8 lane) private pure returns (IMandateAccount.Limits memory) {
@@ -227,23 +204,27 @@ contract MigrateExamples is Migration {
         });
     }
 
+    function _previousAsset(string memory symbol) private view returns (address) {
+        return _previousOptional(string.concat(K.RWA_ASSETS, ".", symbol, ".address"));
+    }
+
     function _controls(address mandate) private view returns (bool) {
         if (mandate == address(0) || mandate.code.length == 0) return false;
-        if (IRetiringMandate(mandate).principal() == msg.sender) return true;
+        if (IMandateAccount(mandate).principal() == msg.sender) return true;
         console2.log("skipped, this key is not its principal:", mandate);
         return false;
     }
 
     /// Sells a parked treasury position back to USDG, inside the mandate, before it is withdrawn.
     function _unpark(address mandate) private {
-        address park = _oldOptional("BURSAR_V2_RECORD", ".rwa.TreasuryPark");
-        address adapter = _oldOptional("BURSAR_V2_RECORD", ".rwa.adapters.SGOV");
+        address park = _previousOptional(K.TREASURY_PARK);
+        address adapter = _previousOptional(K.SGOV_ADAPTER);
         if (park == address(0) || adapter == address(0)) return;
-        (uint256 raw,, uint256 value,,, bool fresh) = IRetiringPark(park).position(mandate, adapter);
+        (uint256 raw,, uint256 value,,, bool fresh) = TreasuryPark(park).position(mandate, adapter);
         if (raw == 0) return;
         require(fresh, "the parked position has no fresh price; unpark it in market hours");
         // Two percent under the feed value: the adapter's own band check is the tighter guard.
-        uint256 back = IRetiringPark(park).unpark(mandate, adapter, raw, (value * 98) / 100);
+        uint256 back = TreasuryPark(park).unpark(mandate, adapter, raw, (value * 98) / 100);
         console2.log("unparked, USDG back, micro    ", back);
     }
 
@@ -251,7 +232,7 @@ contract MigrateExamples is Migration {
         if (token == address(0)) return;
         uint256 held = IERC20(token).balanceOf(mandate);
         if (held == 0) return;
-        IRetiringMandate(mandate).withdraw(token, msg.sender, held);
+        IMandateAccount(mandate).withdraw(token, msg.sender, held);
         console2.log("withdrawn from", mandate);
         console2.log("  token", token);
         console2.log("  amount", held);

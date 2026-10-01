@@ -5,14 +5,10 @@ import {console2} from "forge-std/console2.sol";
 
 import {BursarScript} from "./BursarScript.sol";
 
-/// What the migration scripts share: the new deployment's record at `BURSAR_RECORD`, and the
-/// records being retired, each named by its own variable so no script reads one it did not mean to.
-///
-/// | | |
-/// |---|---|
-/// | `BURSAR_V2_RECORD` | the contract set being replaced, `deployments/rhc-mainnet-v2.json` |
-/// | `BURSAR_TOKEN_RECORD` | the token set whose staking pool, buyback and seeder are replaced, `deployments/rhc-mainnet-token.json` |
-/// | `BURSAR_V1_RECORD` | the first contract set, `deployments/rhc-mainnet.json` |
+/// What the migration scripts share: the new deployment's record at `BURSAR_RECORD`, and the one
+/// it replaces at `BURSAR_PREVIOUS_RECORD`, which has to be the record the new one names in
+/// `supersedes`. The previous record has the shape every record since the third set has, so one
+/// set of keys reads both.
 ///
 /// Every script prints what it is about to do and sends nothing without `--broadcast`. Every step
 /// can be run again: one whose effect is already on chain says so and sends nothing. The commands
@@ -27,22 +23,19 @@ abstract contract Migration is BursarScript {
         _requireChain();
     }
 
-    /// An address from a retiring record, which has to hold code: the migration only ever moves
+    /// A contract of the previous record, which has to hold code: the migration only ever moves
     /// money out of contracts that are there.
-    function _old(string memory recordEnv, string memory key) internal view returns (address at) {
-        string memory path = _envString(recordEnv);
-        string memory json = vm.readFile(path);
-        if (!vm.keyExistsJson(json, key)) revert NotRecorded(string.concat(path, " ", key));
+    function _previous(string memory key) internal view returns (address at) {
+        string memory json = _previousJson();
+        if (!vm.keyExistsJson(json, key)) revert NotRecorded(string.concat(_previousPath(), " ", key));
         at = vm.parseJsonAddress(json, key);
         if (at.code.length == 0) revert NotContract(key, at);
     }
 
-    /// The same, for an entry that may be missing: an example mandate some records never had.
-    function _oldOptional(string memory recordEnv, string memory key) internal view returns (address) {
-        string memory path = _envRaw(_key(recordEnv));
-        if (bytes(path).length == 0) return address(0);
-        string memory json = vm.readFile(path);
-        return vm.keyExistsJson(json, key) ? vm.parseJsonAddress(json, key) : address(0);
+    /// The same, for an entry the previous record may lack, or for a run with no previous record
+    /// at all, which is a first deployment registering its own payee and resolvers.
+    function _previousOptional(string memory key) internal view returns (address) {
+        return _previousAddress(key);
     }
 
     function _requireKey(string memory role, address expected) internal view {

@@ -35,6 +35,11 @@ interface IGovernance {
 /// that needs it, and recorded. After that the record answers, and an environment that disagrees
 /// with it stops the run: a shell carrying last month's treasury is exactly the mistake the
 /// record exists to catch.
+///
+/// A deployment that replaces another names the record it replaces in `supersedes`, and the shell
+/// points `BURSAR_PREVIOUS_RECORD` at that record's file. The migration scripts move money out of
+/// the contracts it names, the wiring batch winds its shielded pool down, and the verify scripts
+/// read it to tell a carried contract still wired to the previous set from one wired wrong.
 abstract contract BursarScript is Script {
     /// Robinhood Chain mainnet, read from the chain itself. Testnet 46630 answers, but USDG has no
     /// contract there, so nothing on it can settle and it is not a deploy target.
@@ -71,6 +76,7 @@ abstract contract BursarScript is Script {
     error NoAnswer(string what, address account);
     error WrongDeployer(address recorded, address caller);
     error RecordMismatch(string key, address recorded, address fromEnv);
+    error PreviousRecordMismatch(string supersedes, string network);
     error TimelockPeriodZero();
     error WiringFailed(string what, address expected, address actual);
     error ParameterNotApplied(string what, uint256 expected, uint256 actual);
@@ -194,6 +200,36 @@ abstract contract BursarScript is Script {
     function _recordAddresses(string memory key) internal view returns (address[] memory list) {
         string memory json = _json();
         if (vm.keyExistsJson(json, key)) list = vm.parseJsonAddressArray(json, key);
+    }
+
+    /// The file of the record this deployment supersedes, as the shell names it in
+    /// `BURSAR_PREVIOUS_RECORD`. Empty when the shell names none.
+    function _previousPath() internal view returns (string memory) {
+        return _envRaw(_key("BURSAR_PREVIOUS_RECORD"));
+    }
+
+    /// The previous record's contents. It has to be the record this one says it supersedes, on
+    /// this chain: a shell still pointing at the record before that one is the mistake the
+    /// `supersedes` field exists to catch.
+    function _previousJson() internal view returns (string memory json) {
+        string memory path = _previousPath();
+        if (bytes(path).length == 0) revert MissingEnv(_key("BURSAR_PREVIOUS_RECORD"));
+        json = vm.readFile(path);
+        string memory supersedes = _recordString(K.SUPERSEDES);
+        string memory network = vm.keyExistsJson(json, K.NETWORK) ? vm.parseJsonString(json, K.NETWORK) : "";
+        if (keccak256(bytes(supersedes)) != keccak256(bytes(network))) {
+            revert PreviousRecordMismatch(supersedes, network);
+        }
+        uint256 chain = vm.parseJsonUint(json, K.CHAIN_ID);
+        if (chain != block.chainid) revert RecordChainMismatch(chain, block.chainid);
+    }
+
+    /// An address the previous record names, or zero when the shell names no previous record or
+    /// that record lacks the key.
+    function _previousAddress(string memory key) internal view returns (address) {
+        if (bytes(_previousPath()).length == 0) return address(0);
+        string memory json = _previousJson();
+        return vm.keyExistsJson(json, key) ? vm.parseJsonAddress(json, key) : address(0);
     }
 
     /// A contract an earlier script deployed, which this one builds on. Missing, or recorded with
