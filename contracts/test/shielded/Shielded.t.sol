@@ -14,23 +14,11 @@ import {IEntrypoint} from "../../vendor/privacy-pools-core/src/interfaces/IEntry
 import {IPrivacyPool} from "../../vendor/privacy-pools-core/src/interfaces/IPrivacyPool.sol";
 import {IState} from "../../vendor/privacy-pools-core/src/interfaces/IState.sol";
 
-import {IAccessRegistry} from "../../src/shielded/IAccessRegistry.sol";
 import {ShieldedPool} from "../../src/shielded/ShieldedPool.sol";
 import {ShieldedRelay} from "../../src/shielded/ShieldedRelay.sol";
 
+import {MockAccessRegistry} from "../mocks/MockAccessRegistry.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
-
-contract MockAccessRegistry is IAccessRegistry {
-    mapping(address => bool) public blocked;
-
-    function setBlocked(address account, bool value) external {
-        blocked[account] = value;
-    }
-
-    function isBlocked(address account) external view returns (bool) {
-        return blocked[account];
-    }
-}
 
 /// The proofs in test/fixtures/shielded.json are real Groth16 proofs made with the official
 /// Privacy Pools v1.3.0 proving keys by packages/sdk/scripts/shielded-fixture.ts. They are bound to
