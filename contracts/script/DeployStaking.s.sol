@@ -38,6 +38,12 @@ import {V4LiquiditySeeder} from "../src/token/V4LiquiditySeeder.sol";
 /// timelock, is where the migration moves the existing position. On a chain where the pool is not
 /// open yet there is no position to hold: `SeedPool.s.sol` opens the market at a price someone
 /// chose, brings its own seeder and hands it to governance.
+///
+/// A record that already names all three, with code behind them, carries the token set over from
+/// the deployment it supersedes. Then this run deploys nothing: it checks the three are the
+/// contracts the record implies, closes the registry's pairing to the carried pool unless the core
+/// run already did, and writes the figures the carried contracts hold into `parameters`, read off
+/// the chain, so the verify scripts check the same record either way.
 contract DeployStaking is BursarScript {
     uint8 internal constant BRSR_DECIMALS = 18;
     uint256 internal constant BRSR_SUPPLY = 1_000_000_000e18;
@@ -70,6 +76,9 @@ contract DeployStaking is BursarScript {
     error TickSpacingOutOfRange(int24 tickSpacing);
     error PriceCeilingNotAPrice(uint128 value, uint128 max);
     error BondFloorZero();
+    error BondFloorNotSet(address resolver);
+    error BondFloorsDiffer(address resolver, uint256 floor, uint256 first);
+    error PoolIdMismatch(bytes32 recorded, bytes32 built);
     error RoleCollision(string role, string otherRole, address account);
     error AddressFrozen(string role, address account);
 
@@ -84,6 +93,9 @@ contract DeployStaking is BursarScript {
     address private oracleRegistry;
     address private keeper;
     address[] private resolvers;
+
+    /// The record carries the token set over: nothing is deployed, the figures come off the chain.
+    bool private joining;
 
     uint64 private unbondingPeriod;
     uint256 private minBond;
@@ -104,10 +116,14 @@ contract DeployStaking is BursarScript {
         address deployer = _deployer();
 
         _loadEnv();
+        joining = _carried();
+        if (joining) _loadCarried();
+        else _loadFigures();
         _preflight(deployer);
 
         vm.startBroadcast(deployer);
-        _deploy();
+        if (joining) _join();
+        else _deploy();
         vm.stopBroadcast();
 
         _verify();
@@ -142,7 +158,17 @@ contract DeployStaking is BursarScript {
         // Until a keeper service runs, the first resolver's key calls the buyback. It already
         // signs on a schedule, and the role can move by proposal the day a dedicated key exists.
         keeper = _roleOr(K.KEEPER, "BURSAR_BUYBACK_KEEPER", resolvers[0]);
+    }
 
+    /// Whether the record already carries the whole token set, with code behind each entry. An
+    /// entry with no code is a broadcast that never landed and is deployed afresh, as always.
+    function _carried() private view returns (bool) {
+        return _recordAddress(K.STAKING).code.length != 0 && _recordAddress(K.BUYBACK).code.length != 0
+            && _recordAddress(K.SEEDER).code.length != 0;
+    }
+
+    /// The figures a fresh deployment applies, from the parameter file.
+    function _loadFigures() private {
         unbondingPeriod = _envUint64("BURSAR_STAKING_UNBONDING_PERIOD");
         minBond = _envUint("BURSAR_STAKING_MIN_BOND");
         bondFloor = _envUint("BURSAR_RESOLVER_BOND_FLOOR");
@@ -176,12 +202,47 @@ contract DeployStaking is BursarScript {
         });
     }
 
+    /// The same figures, read off the carried contracts. The parameter file is not consulted: what
+    /// the record describes is what is on chain, and the verify scripts hold the chain to it.
+    function _loadCarried() private {
+        staking = Staking(_recordAddress(K.STAKING));
+        buyback = Buyback(_recordAddress(K.BUYBACK));
+        seeder = V4LiquiditySeeder(_recordAddress(K.SEEDER));
+        // A seeder holds a position, so the market it was built for is open.
+        poolOpen = true;
+
+        unbondingPeriod = staking.unbondingPeriod();
+        minBond = staking.minBond();
+        bondFloor = _carriedFloor();
+
+        poolFee = buyback.poolFee();
+        poolTickSpacing = buyback.poolTickSpacing();
+        poolHooks = buyback.poolHooks();
+        buybackParams = buyback.params();
+    }
+
+    /// The floor governance named for the recorded resolvers on the carried pool. It is recorded as
+    /// one figure, so every resolver has to hold the same one, and it has to be set: the wiring
+    /// batch would otherwise name a floor nobody chose.
+    function _carriedFloor() private view returns (uint256 floor) {
+        for (uint256 i; i < resolvers.length; ++i) {
+            uint256 held = staking.bondFloorOf(resolvers[i]);
+            if (held == 0) revert BondFloorNotSet(resolvers[i]);
+            if (i == 0) floor = held;
+            else if (held != floor) revert BondFloorsDiffer(resolvers[i], held, floor);
+        }
+    }
+
     /// Everything checkable before a transaction is sent. `setStaking` takes one call and decides
     /// the currency of every future bond, so a failure after it is a redeploy of this whole set.
     function _preflight(address deployer) private view {
-        _requireUnrecorded(K.STAKING);
-        _requireUnrecorded(K.BUYBACK);
-        _requireUnrecorded(K.SEEDER);
+        if (joining) {
+            _requireCarriedSet();
+        } else {
+            _requireUnrecorded(K.STAKING);
+            _requireUnrecorded(K.BUYBACK);
+            _requireUnrecorded(K.SEEDER);
+        }
 
         // Checks the token's decimals and supply: the buyback's whole arithmetic is one
         // conversion between a six-decimal price and an eighteen-decimal token.
@@ -201,7 +262,10 @@ contract DeployStaking is BursarScript {
             address registryDeployer = registry.deployer();
             if (registryDeployer != deployer) revert OracleRegistryNotReady("deployer", registryDeployer, deployer);
             address wired = address(registry.staking());
-            if (wired != address(0)) revert OracleRegistryNotReady("staking", wired, address(0));
+            // The core run names a carried pool itself when the record already holds it. Wired to
+            // that pool the pairing is closed; wired to any other it is another deployment's.
+            address accepted = joining ? address(staking) : address(0);
+            if (wired != address(0) && wired != accepted) revert OracleRegistryNotReady("staking", wired, accepted);
             address registryAsset = registry.settlementAsset();
             if (registryAsset != asset) revert OracleRegistryNotReady("settlementAsset", registryAsset, asset);
         }
@@ -234,6 +298,32 @@ contract DeployStaking is BursarScript {
         }
     }
 
+    /// The carried contracts have to be the ones the record implies, read off the chain before
+    /// the registry is bound to the pool for good: the pool stakes the recorded BRSR, pays the
+    /// settlement asset and answers to the recorded timelock; the buyback compounds into that pool
+    /// and trades the recorded market; the seeder holds that market's position for that buyback,
+    /// and belongs to the timelock.
+    function _requireCarriedSet() private view {
+        _expect("staking.stakeToken", brsr, address(staking.stakeToken()));
+        _expect("staking.rewardToken", asset, address(staking.rewardToken()));
+        _expect("staking.admin", timelock, staking.admin());
+        _expect("buyback.staking", address(staking), address(buyback.staking()));
+        _expect("buyback.admin", timelock, buyback.admin());
+        _expect("seeder.buyback", address(buyback), seeder.buyback());
+        _expect("seeder.owner", timelock, seeder.owner());
+
+        bytes32 built = _poolId();
+        if (seeder.poolId() != built) revert WiringFailed("seeder.poolId", address(buyback), address(seeder));
+        if (_recorded(".token.poolId")) {
+            bytes32 recorded = vm.parseJsonBytes32(_json(), ".token.poolId");
+            if (recorded != built) revert PoolIdMismatch(recorded, built);
+        }
+        // The keeper is governance's to name. One already named has to be the one the record
+        // names, or the wiring batch would move it to someone nobody chose.
+        address live = buyback.keeper();
+        if (live != address(0)) _expect("buyback.keeper", keeper, live);
+    }
+
     function _deploy() private {
         staking = new Staking(IERC20(brsr), IERC20(asset), timelock, slashSink, treasury, unbondingPeriod, minBond);
 
@@ -259,8 +349,18 @@ contract DeployStaking is BursarScript {
         else seeder = V4LiquiditySeeder(address(0));
     }
 
+    /// The one call a carried set can still need: the registry's pairing to the pool, unless the
+    /// core run closed it when it found the pool in the record.
+    function _join() private {
+        if (oracleRegistry == address(0)) return;
+        IOracleRegistry registry = IOracleRegistry(oracleRegistry);
+        if (address(registry.staking()) == address(0)) registry.setStaking(address(staking));
+    }
+
     /// The same questions `VerifyStaking.s.sol` asks the chain, asked of the simulation first so a
-    /// wrong answer stops the run with nothing sent.
+    /// wrong answer stops the run with nothing sent. A carried set skips the assertions that hold
+    /// only for contracts nobody has used: it may hold stake, and governance has already named its
+    /// keeper and the previous deployment's credit pool on it.
     function _verify() private view {
         _expect("staking.stakeToken", brsr, address(staking.stakeToken()));
         _expect("staking.rewardToken", asset, address(staking.rewardToken()));
@@ -270,11 +370,13 @@ contract DeployStaking is BursarScript {
         _expect("staking.treasury", treasury, staking.treasury());
         _expectUint("staking.unbondingPeriod", unbondingPeriod, staking.unbondingPeriod());
         _expectUint("staking.minBond", minBond, staking.minBond());
-        _expectUint("staking.totalShares", 0, staking.totalShares());
-        // Asserted unset: nothing can pay spread in or take stake until governance names the
-        // credit pool in the wiring batch.
-        _expect("staking.creditManager", address(0), staking.creditManager());
-        _expect("staking.slasher", address(0), staking.slasher());
+        if (!joining) {
+            _expectUint("staking.totalShares", 0, staking.totalShares());
+            // Asserted unset: nothing can pay spread in or take stake until governance names the
+            // credit pool in the wiring batch.
+            _expect("staking.creditManager", address(0), staking.creditManager());
+            _expect("staking.slasher", address(0), staking.slasher());
+        }
 
         if (oracleRegistry != address(0)) {
             IOracleRegistry registry = IOracleRegistry(oracleRegistry);
@@ -289,7 +391,7 @@ contract DeployStaking is BursarScript {
         _expect("buyback.treasury", treasury, buyback.treasury());
         _expect("buyback.admin", timelock, buyback.admin());
         _expect("buyback.pendingAdmin", address(0), buyback.pendingAdmin());
-        _expect("buyback.keeper", address(0), buyback.keeper());
+        if (!joining) _expect("buyback.keeper", address(0), buyback.keeper());
         _expectUint("buyback.maxCeilingAge", CEILING_AGE, buyback.maxCeilingAge());
 
         // The pool key is derived again from the two tokens. Sorting decides the swap direction,
@@ -342,7 +444,8 @@ contract DeployStaking is BursarScript {
         if (poolOpen) _write(K.SEEDER, address(seeder));
         _write(K.KEEPER, keeper);
         _write(".token.poolId", _poolId());
-        _write(K.TOKEN_FROM_BLOCK, block.number);
+        // A carried set keeps the block its own deployment recorded.
+        if (!joining) _write(K.TOKEN_FROM_BLOCK, _chainBlock());
 
         _write(".parameters.Staking.unbondingPeriod", unbondingPeriod);
         _writeAmount(".parameters.Staking.minBond", minBond);
@@ -363,11 +466,14 @@ contract DeployStaking is BursarScript {
         console2.log("chain", block.chainid);
         console2.log("deployer", deployer);
         console2.log("Staking", address(staking));
+        if (joining) console2.log("  live, carried over by this run");
         console2.log("  minBond, BRSR wei, for any resolver without a floor", minBond);
         console2.log("Buyback", address(buyback));
+        if (joining) console2.log("  live, carried over by this run");
         console2.log("  maxPriceMicroUsdPerBrsr", buybackParams.maxPriceMicroUsdPerBrsr);
         if (poolOpen) {
             console2.log("V4LiquiditySeeder", address(seeder));
+            if (joining) console2.log("  live, carried over by this run");
             console2.log("  owner", timelock);
         } else {
             console2.log("The BRSR/USDG pool is not open: SeedPool.s.sol opens it and records its seeder");
@@ -376,6 +482,11 @@ contract DeployStaking is BursarScript {
             console2.log("  no OracleRegistry in the record: resolver bonds stay closed");
         } else {
             console2.log("  resolver bonds now post to", oracleRegistry);
+        }
+        if (joining) {
+            console2.log("Next: ProposeWiring.s.sol, once DeployCollateral.s.sol has recorded the credit pool");
+            console2.log("  the keeper, the floors and the rebate table are in place; the pool's two roles move");
+            return;
         }
         console2.log("Next: ProposeWiring.s.sol, once DeployCollateral.s.sol has recorded the credit pool");
         console2.log("  keeper to set", keeper);
