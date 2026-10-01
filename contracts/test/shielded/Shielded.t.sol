@@ -149,6 +149,16 @@ contract ShieldedTest is Test {
         }
     }
 
+    /// A deposit from an address setUp did not fund. No proof exists for the note it creates; it
+    /// is there so the address has deposits of its own on the pool's books.
+    function _depositFrom(address who, uint256 value, uint256 precommitment) internal {
+        usdg.mint(who, value);
+        vm.startPrank(who);
+        usdg.approve(address(entrypoint), value);
+        entrypoint.deposit(IERC20(USDG), value, precommitment);
+        vm.stopPrank();
+    }
+
     function _relayWithdrawal() internal view returns (IPrivacyPool.Withdrawal memory) {
         return IPrivacyPool.Withdrawal({processooor: address(relay), data: fixture.readBytes(".relayData")});
     }
@@ -166,6 +176,8 @@ contract ShieldedTest is Test {
         _depositBoth();
         assertEq(pool.depositors(fixture.readUint(".deposit1.label")), alice);
         assertEq(pool.depositors(fixture.readUint(".deposit2.label")), bob);
+        assertEq(pool.depositedBy(alice), 1_000_000);
+        assertEq(pool.depositedBy(bob), 300_000);
         assertEq(usdg.balanceOf(address(pool)), 1_300_000);
         assertEq(pool.currentTreeSize(), 2);
     }
@@ -310,8 +322,11 @@ contract ShieldedTest is Test {
         relay.relay(_relayWithdrawal(), p);
     }
 
+    /// The relay screens the final recipient and cannot tell whose note it forwards, so a blocked
+    /// recipient is refused there even with deposits of its own on the pool's books.
     function test_blockedRecipientRefusedWithoutBurningNullifier() public {
         _depositBoth();
+        _depositFrom(RECIPIENT, 400_000, 77);
         _postRoot(".relayed");
         ProofLib.WithdrawProof memory p = _withdrawProof(".relayed");
         registry.setBlocked(RECIPIENT, true);
@@ -324,6 +339,7 @@ contract ShieldedTest is Test {
         registry.setBlocked(RECIPIENT, false);
         relay.relay(_relayWithdrawal(), p);
         assertEq(usdg.balanceOf(RECIPIENT), 396_000);
+        assertEq(pool.paidWhileBlocked(RECIPIENT), 0);
     }
 
     function test_blockedFeeRecipientRefused() public {
@@ -426,14 +442,20 @@ contract ShieldedTest is Test {
         pool.ragequit(_ragequitProof());
     }
 
-    function test_blockedDepositorRagequitRefusedWithoutBurning() public {
+    /// A depositor the registry blocks after its deposit still has ragequit, the exit that needs
+    /// nobody's approval, and takes back what it put in.
+    function test_aBlockedDepositorRagequitsItsOwnDeposit() public {
         _depositBoth();
         registry.setBlocked(bob, true);
         ProofLib.RagequitProof memory p = _ragequitProof();
+        uint256 before = usdg.balanceOf(bob);
+
         vm.prank(bob);
-        vm.expectRevert(abi.encodeWithSelector(ShieldedPool.RecipientBlocked.selector, bob));
         pool.ragequit(p);
-        assertFalse(pool.nullifierHashes(p.pubSignals[1]));
+
+        assertEq(usdg.balanceOf(bob), before + 300_000);
+        assertEq(pool.poolValue(), 1_000_000);
+        assertTrue(pool.nullifierHashes(p.pubSignals[1]));
     }
 
     function test_aWithdrawalNamingTheRelayCannotBeTakenDirectly() public {
@@ -443,9 +465,10 @@ contract ShieldedTest is Test {
         pool.withdraw(_relayWithdrawal(), _withdrawProof(".relayed"));
     }
 
-    function test_aBlockedDirectWithdrawalIsRefusedWithoutBurningTheNote() public {
-        // The fixture proves a withdrawal whose processooor is DIRECT itself, taken straight from
-        // the pool with no relay in between. The pool is the only screen on this path.
+    /// The fixture proves a withdrawal whose processooor is DIRECT itself, taken straight from the
+    /// pool with no relay in between, so the pool is the only screen on this path. DIRECT never
+    /// deposited: blocked, it has nothing to take back, and the note stays spendable.
+    function test_aBlockedAddressThatNeverDepositedIsRefusedWithoutBurningTheNote() public {
         _depositBoth();
         _postRoot(".direct");
         ProofLib.WithdrawProof memory p = _withdrawProof(".direct");
@@ -462,5 +485,51 @@ contract ShieldedTest is Test {
         pool.withdraw(w, p);
         assertEq(usdg.balanceOf(DIRECT), 400_000);
         assertEq(pool.poolValue(), 900_000);
+    }
+
+    /// The same withdrawal pays 0.4 USDG of alice's note to DIRECT. With 0.4 USDG of deposits of
+    /// its own on the books, a blocked DIRECT is paid exactly that, and has then taken out
+    /// everything it brought in.
+    function test_aBlockedAddressIsPaidExactlyWhatItPutIn() public {
+        _depositBoth();
+        _depositFrom(DIRECT, 400_000, 77);
+        _postRoot(".direct");
+        registry.setBlocked(DIRECT, true);
+
+        vm.prank(DIRECT);
+        pool.withdraw(IPrivacyPool.Withdrawal({processooor: DIRECT, data: ""}), _withdrawProof(".direct"));
+
+        assertEq(usdg.balanceOf(DIRECT), 400_000);
+        assertEq(pool.depositedBy(DIRECT), 400_000);
+        assertEq(pool.paidWhileBlocked(DIRECT), 400_000);
+        assertEq(pool.poolValue(), 1_300_000);
+    }
+
+    /// One unit short of what the withdrawal pays, and the blocked address is refused without the
+    /// note being spent. Once it has deposited more of its own, the same proof goes through.
+    function test_aBlockedAddressIsRefusedOneUnitAboveWhatItPutIn() public {
+        _depositBoth();
+        _depositFrom(DIRECT, 399_999, 77);
+        _postRoot(".direct");
+        ProofLib.WithdrawProof memory p = _withdrawProof(".direct");
+        IPrivacyPool.Withdrawal memory w = IPrivacyPool.Withdrawal({processooor: DIRECT, data: ""});
+        registry.setBlocked(DIRECT, true);
+
+        vm.prank(DIRECT);
+        vm.expectRevert(abi.encodeWithSelector(ShieldedPool.RecipientBlocked.selector, DIRECT));
+        pool.withdraw(w, p);
+        assertFalse(pool.nullifierHashes(p.pubSignals[1]), "a refusal must not spend the note");
+        assertEq(pool.paidWhileBlocked(DIRECT), 0);
+
+        // A blocked address cannot deposit, so the top-up happens between two listings.
+        registry.setBlocked(DIRECT, false);
+        _depositFrom(DIRECT, 10_000, 78);
+        registry.setBlocked(DIRECT, true);
+
+        vm.prank(DIRECT);
+        pool.withdraw(w, p);
+        assertEq(usdg.balanceOf(DIRECT), 400_000);
+        assertEq(pool.depositedBy(DIRECT), 409_999);
+        assertEq(pool.paidWhileBlocked(DIRECT), 400_000);
     }
 }
