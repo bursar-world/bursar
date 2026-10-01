@@ -18,8 +18,9 @@ total. Size any mandate you fund accordingly.
 
 What the current deployment on chain 4663 relies on, what bounds each item, and what changes it.
 The roles behind each are listed in [GOVERNANCE.md](GOVERNANCE.md#privileged-roles); what the
-contracts must always hold is in [docs/INVARIANTS.md](docs/INVARIANTS.md); how the team watches and
-responds is in [docs/RUNBOOK.md](docs/RUNBOOK.md).
+contracts must always hold is in [docs/INVARIANTS.md](docs/INVARIANTS.md); the static analysis every
+change is checked against is in [docs/STATIC-ANALYSIS.md](docs/STATIC-ANALYSIS.md); how the team watches
+and responds is in [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
 - **Governance keys.** The current set is a development deployment. Its timelock has a one-hour
   delay, and its three signers and guardian are plain keys held by the team, with two approvals

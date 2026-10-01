@@ -45,7 +45,7 @@ Packages are not yet published to npm. Build them from this repository.
 | [`services/underwriter/`](services/underwriter/README.md) | Decides whether an agent may spend, against the live mandate account, and journals the decision. |
 | [`services/sidecar/`](services/sidecar/README.md) | Runs on the provider's side: watches escrow for its jobs, does the work, releases payment. |
 | [`apps/web/`](apps/web/README.md) | The console at app.bursar.world, for principals, providers, resolvers and governance. |
-| `docs/` | The [ruling policy](docs/RULING-POLICY.md), the [invariants](docs/INVARIANTS.md) every contract holds, and the [operations runbook](docs/RUNBOOK.md). |
+| `docs/` | The [ruling policy](docs/RULING-POLICY.md), the [invariants](docs/INVARIANTS.md) every contract holds, the [static analysis](docs/STATIC-ANALYSIS.md) each change is checked against, and the [operations runbook](docs/RUNBOOK.md). |
 
 ## Architecture
 
