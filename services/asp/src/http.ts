@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { join } from 'node:path';
 
+import { allowedOrigin, type OriginPolicy } from './cors.js';
 import type { PublishedSet } from './set.js';
 
 /**
@@ -75,23 +76,34 @@ export async function handle(view: AspView, method: string, path: string): Promi
   return { status: 404, body: { error: 'not_found', detail: 'Unknown path.' } };
 }
 
-export function serve(view: AspView, port: number): Server {
+export type ServeOptions = {
+  readonly port: number;
+  /** Unset listens on every interface. */
+  readonly host?: string | undefined;
+  readonly origins: OriginPolicy;
+  /** Where the detail of a fault goes. The client is told only that there was one. */
+  readonly log: (line: string) => void;
+};
+
+export function serve(view: AspView, options: ServeOptions): Server {
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? '/', 'http://asp');
-    handle(view, request.method ?? 'GET', url.pathname)
-      .catch((error: unknown) => ({
-        status: 500,
-        body: { error: 'internal', detail: error instanceof Error ? error.message : String(error) },
-      }))
+    const method = request.method ?? 'GET';
+    handle(view, method, url.pathname)
+      .catch((error: unknown) => {
+        options.log(`${method} ${url.pathname} failed: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
+        return { status: 500, body: { error: 'internal', detail: 'The association set could not be read right now. Try again shortly.' } };
+      })
       .then(({ status, body }) => {
+        const origin = allowedOrigin(options.origins, request.headers.origin);
         response.writeHead(status, {
           'content-type': 'application/json',
-          'access-control-allow-origin': '*',
           'cache-control': status === 200 ? 'public, max-age=15' : 'no-store',
+          ...(origin === null ? {} : { 'access-control-allow-origin': origin, vary: 'origin' }),
         });
         response.end(JSON.stringify(body));
       });
   });
-  server.listen(port);
+  server.listen(options.port, options.host);
   return server;
 }

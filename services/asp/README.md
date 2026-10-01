@@ -38,7 +38,18 @@ bursar-asp verify            # recompute and compare with the posted root
 ```
 
 The postman key is `ASP_PRIVATE_KEY`, or `ASP_KEYSTORE` with `ASP_PASSWORD_FILE`. It must hold
-`ASP_POSTMAN` on the Entrypoint. `ASP_DATA_DIR` keeps published sets across restarts.
+`ASP_POSTMAN` on the Entrypoint. `ASP_DATA_DIR` keeps published sets across restarts. `ASP_HOST`
+picks the interface to listen on; unset means every interface.
 
 HTTP: `GET /v1/association-set` (the set whose root the chain holds), `GET
-/v1/association-set/<cid>`, `GET /health`.
+/v1/association-set/<cid>`, `GET /health`. Health reports `lastError` as `cycle_failed` or null;
+the reason for a failed cycle is in the service's log.
+
+Browsers may call it from the origins in `ASP_ALLOWED_ORIGINS`, a comma-separated list that
+defaults to the console, `https://app.bursar.world`. A listener on `ASP_HOST=127.0.0.1` also
+answers pages served from this machine. Requests with no `Origin` header, from the SDK or the MCP
+server, are not subject to it.
+
+Every refusal is `{ error, detail }` with a stable `error` code. A fault inside the service answers
+`internal` with one fixed sentence; what went wrong is written to the service's log and nowhere
+else.

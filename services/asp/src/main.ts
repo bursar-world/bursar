@@ -8,6 +8,7 @@
  *
  * Environment: RHC_RPC_URL (default the public endpoint); ASP_PRIVATE_KEY, or ASP_KEYSTORE and
  * ASP_PASSWORD_FILE, for the postman key (only `post` and `run` send); PORT (default 4320);
+ * ASP_HOST (default every interface); ASP_ALLOWED_ORIGINS (default https://app.bursar.world);
  * ASP_INTERVAL_SECONDS (default 30), how often the set is recomputed and served; ASP_DATA_DIR to
  * keep published sets across restarts.
  */
@@ -17,6 +18,7 @@ import { privacyDeployment, rhcChain, viemChain } from '@bursar/core';
 import { ASP_POSTMAN_ROLE, shieldedEntrypointAbi } from '@bursar/sdk';
 import { createPublicClient, createWalletClient, http } from 'viem';
 
+import { originPolicy } from './cors.js';
 import { SetStore, serve } from './http.js';
 import { cadencedPoster, lastPostedAt, latestRoot } from './post.js';
 import { computeSet, type Pool } from './set.js';
@@ -82,31 +84,39 @@ async function run() {
   const poster = await posterFor(wallet);
   const store = new SetStore(process.env['ASP_DATA_DIR'] ?? null);
   const intervalMs = Number(process.env['ASP_INTERVAL_SECONDS'] ?? 30) * 1000;
-  let last = { at: 0, error: null as string | null };
+  let last = { at: 0, failed: false };
   const port = Number(process.env['PORT'] ?? 4320);
+  const host = process.env['ASP_HOST'];
   serve(
     {
       store,
       chainRoot: () => latestRoot(client, deployment!.Entrypoint),
+      // The cycle's own error text stays in the log: an RPC failure spells out the endpoint it
+      // was talking to, and this route answers anyone.
       health: () => ({
-        ok: last.error === null && Date.now() - last.at < intervalMs * 4,
+        ok: !last.failed && Date.now() - last.at < intervalMs * 4,
         pool: pool.pool,
         entrypoint: deployment!.Entrypoint,
         postman: wallet.account.address,
         lastRunAt: last.at === 0 ? null : new Date(last.at).toISOString(),
-        lastError: last.error,
+        lastError: last.failed ? 'cycle_failed' : null,
       }),
     },
-    port,
+    {
+      port,
+      host,
+      origins: originPolicy('ASP_ALLOWED_ORIGINS', process.env['ASP_ALLOWED_ORIGINS'], host),
+      log: (line) => console.error(line),
+    },
   );
-  console.log(`asp serving on :${port}, pool ${pool.pool}`);
+  console.log(`asp serving on ${host ?? '*'}:${port}, pool ${pool.pool}`);
   for (;;) {
     try {
       await once(store, poster);
-      last = { at: Date.now(), error: null };
+      last = { at: Date.now(), failed: false };
     } catch (error) {
-      last = { at: Date.now(), error: error instanceof Error ? error.message : String(error) };
-      console.error(`asp cycle failed: ${last.error}`);
+      last = { at: Date.now(), failed: true };
+      console.error(`asp cycle failed: ${error instanceof Error ? error.message : String(error)}`);
     }
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
