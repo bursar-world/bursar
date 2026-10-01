@@ -7,6 +7,60 @@ with their chain and date, because a deployed contract does not change when this
 
 ## [Unreleased]
 
+Everything below is live on Robinhood Chain mainnet (chain 4663). The current set is a
+development deployment: its timelock delay and its dispute vote windows are one hour each, so a
+change can be exercised within a day. The 48-hour delay returns before the public launch. Full
+records are in `contracts/deployments/`.
+
+### Contracts
+
+- Third contract set, deployed 2026-09-30 and now the live record (`rhc-mainnet-v3.json`). Every
+  contract is new except `BRSR` and `Vesting`. Its `AdminTimelock` has a one-hour delay; a proposer
+  can withdraw its own proposal, and cancelling anyone else's takes vetoes from two signers.
+  Reputation caps start at 25 USDG and rise 2.25 USDG per score point to the 250 USDG ceiling.
+  Dispute commit and reveal windows are one hour each.
+- Second contract set, deployed 2026-09-28 (`rhc-mainnet-v2.json`), now superseded. The first set
+  with a one-hour delay. Mandates gained spend classes, a lifetime total and a settlement lane. Its
+  contracts stay on chain and keep serving the mandates, locks and disputes opened through them.
+- Stock purchases and the treasury lane: `AssetRegistry`, `PriceGuard`, `StockSpendRouter` and
+  `TreasuryPark`. Purchases of SPY, NVDA and AAPL are capped at 25 USDG per trade, parking in SGOV
+  at 100 USDG per mandate and 1,000 USDG in total. Every trade is priced by the asset's feed and
+  checked against its pinned Uniswap v4 pool.
+- The collateral lane: `CreditPool` lends USDG to a mandate against stock or treasury tokens posted
+  in `CollateralVault`, 10 USDG per mandate and 100 USDG in total, with liquidation below a health
+  of 1.0. The pool's spread is paid to BRSR stakers.
+- Committed mandates: a mandate whose terms are a commitment, with every spend proven inside them
+  by `WithinMandateVerifier`. Each committed mandate can lock at most 25 USDG over its life.
+  `DisclosureRegistry` lets a party to a dispute grant one resolver one slice of the job, and
+  `SolvencyLog` takes a daily root over the protocol's public obligations and the balances behind
+  them.
+- Shielded settlement on Privacy Pools v1.3.0: a USDG `ShieldedPool` capped at 100 USDG per
+  deposit and 1,000 USDG in the pool, behind the upstream `Entrypoint`, and a `ShieldedRelay`
+  that screens recipients against the Robinhood Chain access registry.
+- `Staking` is now a share pool behind the collateral lane: it earns the credit pool's spread, is
+  slashed when a line is written off, and holds the resolver bond floors. The three vetted
+  resolvers have a floor of 30,000 BRSR each; nobody else can bond. `Buyback` names a keeper and
+  trades under a price ceiling of 240 micro-USD per BRSR that expires seven days after it is set.
+- The BRSR/USDG market opened on 2026-09-29 at 200 micro-USD per BRSR, and the position moved into
+  a `V4LiquiditySeeder` the current timelock owns.
+- `Vesting` and the community allocation of BRSR move from the first timelock to the current one
+  through proposals on the first timelock, with its 48-hour delay.
+
+### Services
+
+- Resolver: votes the three bonded resolver keys on every dispute under the published
+  [ruling policy](docs/RULING-POLICY.md), with a backup runner that reveals from the keystores
+  alone. Ruling policy version 2.
+- Association-set provider and relayer for the shielded pool, and a solvency service that posts
+  the daily root.
+
+### Documentation
+
+- An operations runbook, `docs/RUNBOOK.md`, and an hourly monitor of the live deployment,
+  `contracts/script/monitor.mjs`.
+- `GOVERNANCE.md` lists every privileged role, and `SECURITY.md` states the trust assumptions and
+  current limits.
+
 ## [0.1.0] - 2026-09-27
 
 First public release. Everything below is live on Robinhood Chain mainnet (chain 4663) and
@@ -14,7 +68,9 @@ settles in USDG.
 
 ### Contracts
 
-Deployed on 2026-09-22. Addresses and full deployment records are in `contracts/deployments/`.
+The first contract set, deployed on 2026-09-22 and recorded in
+`contracts/deployments/rhc-mainnet.json`. It has since been superseded by the sets above; its
+contracts stay on chain and keep serving the mandates, locks and disputes opened through them.
 
 - `MandateAccount` and `MandateAccountFactory`: a principal's spending mandate, with per-call,
   daily and monthly caps, allowed payees and capabilities, an approval threshold above which the
@@ -23,11 +79,13 @@ Deployed on 2026-09-22. Addresses and full deployment records are in `contracts/
   cancellation and disputes. 1% protocol fee, 0.5% resolver fee on disputed locks, 5% dispute
   bond.
 - `Reputation`: per-payee settlement history and a per-job payee cap that starts at 25 USDG and
-  rises with that history to at most 125 USDG under the current curve. The contract ceiling is
+  rises with that history to at most 125 USDG under this set's curve. The contract ceiling is
   250 USDG.
 - `OracleRegistry`: commit-reveal dispute resolution by bonded resolvers, with a quorum of two.
 - `AgentRegistry`: staked directory of counterparties, with a 5 USDG minimum stake.
-- `AdminTimelock`: two-of-three governance with a 48-hour delay and a pause-only guardian.
+- `AdminTimelock`: two-of-three governance with a 48-hour delay and a pause-only guardian. This
+  first timelock keeps its 48-hour delay; the later sets' timelocks are development deployments
+  with a one-hour delay, as described under Unreleased and in [GOVERNANCE.md](GOVERNANCE.md).
 - `BRSR`: fixed supply of one billion, split 80% community (held by the timelock), 10% team
   (in `Vesting`, four years with a one-year cliff), 5% treasury and 5% liquidity.
 - `Staking`: resolver bonds in BRSR with a 25,000 BRSR floor, and a fee rebate table of four
