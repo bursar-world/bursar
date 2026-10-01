@@ -50,7 +50,7 @@ if (command !== 'terms' || !/^0x[0-9a-fA-F]{130}$/.test(signature ?? '')) {
 const viemManifest = createRequire(join(SDK, 'package.json')).resolve('viem/package.json');
 const viem = await load(join(dirname(viemManifest), JSON.parse(readFileSync(viemManifest, 'utf8')).exports['.'].import));
 
-const need = (name) => process.env[name] || fail(`${name} is not set: source script/env/rhc-mainnet-v3.env`);
+const need = (name) => process.env[name] || fail(`${name} is not set: source script/env/rhc-mainnet-v4.env`);
 const record = JSON.parse(readFileSync(need('BURSAR_RECORD'), 'utf8'));
 const factory = record.privacy?.CommittedMandateFactory ?? fail('The record names no CommittedMandateFactory yet: step 1 deploys it.');
 const payee = need('BURSAR_EXAMPLE_PAYEE');
@@ -68,8 +68,9 @@ const terms = sdk.writeTerms({
   label: 'Bursar committed example',
 });
 const commitment = sdk.commit(terms);
-// MigrateExamples.s.sol creates the account under this salt, with the payer as principal and agent.
-const salt = viem.keccak256(viem.toBytes('bursar.committed-mandate.v3'));
+// MigrateExamples.s.sol creates the account under this salt, derived from the record's name, with
+// the payer as principal and agent.
+const salt = viem.keccak256(viem.toBytes(`bursar.committed-mandate.${record.network}`));
 const client = viem.createPublicClient({ transport: viem.http(need('RHC_RPC_URL')) });
 const account = await sdk.predictAccount(client, factory, { principal: payer, agent: payer, salt, commitment });
 const sealed = await sdk.sealTerms(sdk.deriveViewingKey(signature).termsKey, { account, version: 1 }, terms);
