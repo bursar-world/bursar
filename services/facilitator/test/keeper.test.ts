@@ -221,8 +221,21 @@ describe('deciding whether to observe an asset', () => {
     expect(observeDecision({ ...SETTLED, halt }, RULE, NOW)).toEqual({ action: 'observe', reason: 'halted' });
   });
 
-  it.each(['NoPrice', 'Paused', 'FeedStale', 'SpotOffBand'] as const)('leaves a draw halted on %s to the market, and skips an unchanged reading', (halt) => {
+  it.each(['NoPrice', 'Paused', 'FeedStale', 'SpotOffBand', 'Unreadable'] as const)('leaves a draw halted on %s to the market, and skips an unchanged reading', (halt) => {
     expect(observeDecision({ ...SETTLED, halt }, RULE, NOW)).toEqual({ action: 'skip' });
+  });
+
+  it('reports a condition this build does not name as unknown, and does not read it as counting', async () => {
+    const chain = new FakeChain();
+    chain.rule = RULE;
+    chain.lineList = [HEALTHY];
+    chain.observations = { [SPY]: { ...SETTLED, halt: undefined } };
+
+    const report = await run(chain, true);
+
+    expect(report.observations?.[0]?.halt).toBe('Unknown');
+    expect(report.health.halted).toEqual([{ asset: SPY, halt: 'Unknown' }]);
+    expect(report.health.observed).toBe(true);
   });
 
   it('observes when the pool or the feed has moved since the waiting reading', () => {

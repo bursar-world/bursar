@@ -582,6 +582,13 @@ const DRAW_HALT: Readonly<Record<Halt, Reading>> = {
       `${tokenAt(figures, 0, context)} counts for nothing toward a draw right now: its pool trades outside ` +
       'its band of the feed. It counts again once the two agree, and nothing a mandate sends changes that.',
   },
+  Unreadable: {
+    owner: 'token',
+    message: (figures, context) =>
+      `${tokenAt(figures, 0, context)} counts for nothing toward a draw right now: its price cannot be read. ` +
+      'Its feed, its token’s pause switches or its pool’s state did not answer, and the vault values a holding ' +
+      'it cannot read at nothing rather than refusing the call. It counts again once they answer.',
+  },
 };
 
 function isHalt(value: unknown): value is Halt {

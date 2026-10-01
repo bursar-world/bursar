@@ -86,8 +86,14 @@ export type TierAsset = {
   readonly haircutBps: number | undefined;
   readonly afterHours: boolean | undefined;
   /** Why a draw counts nothing for this asset right now. `None` while it counts; undefined where unread or not a v4 lane. */
-  readonly halt: DrawHalt | undefined;
+  readonly halt: ConsoleHalt | undefined;
 };
+
+/**
+ * A draw condition as the console holds it: the guard's own, or `unknown` for a number the vault
+ * answered that this build does not name. The second is shown as not counting, never as counting.
+ */
+export type ConsoleHalt = DrawHalt | 'unknown';
 
 export type LaneTerms = {
   /** 1e18 is 1.0. */
@@ -138,7 +144,7 @@ export type CollateralPosition = {
   readonly walletHeld: bigint | undefined;
   readonly allowance: bigint | undefined;
   /** Why a draw counts nothing for this position right now. `None` while it counts; undefined where unread or not a v4 lane. */
-  readonly halt: DrawHalt | undefined;
+  readonly halt: ConsoleHalt | undefined;
 };
 
 export type CollateralAccount = {
@@ -200,8 +206,8 @@ function boundsFrom(results: { get<T>(slot: Slot<T> | undefined): T | undefined 
   return minAge === undefined || maxAge === undefined || maxFeedJumpBps === undefined ? undefined : { minAge, maxAge, maxFeedJumpBps };
 }
 
-function haltOf(value: number | undefined): DrawHalt | undefined {
-  return value === undefined ? undefined : drawHaltOf(value);
+function haltOf(value: number | undefined): ConsoleHalt | undefined {
+  return value === undefined ? undefined : (drawHaltOf(value) ?? 'unknown');
 }
 
 export async function readHaircutSchedule(): Promise<HaircutSchedule | undefined> {
@@ -384,32 +390,34 @@ export async function readCollateralAccount(mandate: Address, wallet: Address | 
 }
 
 /**
- * Why a draw counts nothing for a position, for a person, with what changes it. Undefined while the
- * position counts. Written without the guard's names: a reader needs the condition and the next
- * thing that moves it.
+ * Why a draw counts nothing for a position, for a person, with what changes it. Keyed by every
+ * condition the guard declares, so one it adds is a type error here until it has a sentence. Written
+ * without the guard's names: a reader needs the condition and the next thing that moves it.
  */
-export function drawHaltLine(halt: DrawHalt, bounds?: ObservationBounds): string | undefined {
-  const minAge = bounds === undefined ? 'once it has aged' : `${formatDuration(Number(bounds.minAge))} after it is taken`;
-  switch (halt) {
-    case 'None':
-      return undefined;
-    case 'NoPrice':
-      return 'Its price feed has no usable price.';
-    case 'Paused':
-      return 'The token, its price feed or the access registry is paused.';
-    case 'FeedStale':
-      return 'Its price is too old to borrow against during market hours.';
-    case 'NoObservation':
-      return `The price check holds no reading of its pool old enough to count. A reading counts ${minAge}.`;
-    case 'ObservationExpired':
-      return `The price check’s last reading of its pool is ${bounds === undefined ? 'too old to count' : `more than ${formatDuration(Number(bounds.maxAge))} old`}. A new reading counts ${minAge}.`;
-    case 'ObservationOffBand':
-      return `At the price check’s last reading its pool was out of line with its price. A reading taken with the two in line counts ${minAge}.`;
-    case 'FeedJump':
-      return `Its price has moved ${bounds === undefined ? 'further' : `more than ${Number(bounds.maxFeedJumpBps) / 100}%`} since the price check’s last reading of its pool${bounds === undefined ? ' than a draw allows' : ''}. A new reading counts ${minAge}.`;
-    case 'SpotOffBand':
-      return 'Its pool is out of line with its price right now.';
-  }
+const HALT_LINES: Readonly<Record<ConsoleHalt, (bounds: ObservationBounds | undefined) => string | undefined>> = {
+  None: () => undefined,
+  NoPrice: () => 'Its price feed has no usable price.',
+  Paused: () => 'The token, its price feed or the access registry is paused.',
+  FeedStale: () => 'Its price is too old to borrow against during market hours.',
+  NoObservation: (bounds) => `The price check holds no reading of its pool old enough to count. A reading counts ${readingCounts(bounds)}.`,
+  ObservationExpired: (bounds) =>
+    `The price check’s last reading of its pool is ${bounds === undefined ? 'too old to count' : `more than ${formatDuration(Number(bounds.maxAge))} old`}. A new reading counts ${readingCounts(bounds)}.`,
+  ObservationOffBand: (bounds) =>
+    `At the price check’s last reading its pool was out of line with its price. A reading taken with the two in line counts ${readingCounts(bounds)}.`,
+  FeedJump: (bounds) =>
+    `Its price has moved ${bounds === undefined ? 'further' : `more than ${Number(bounds.maxFeedJumpBps) / 100}%`} since the price check’s last reading of its pool${bounds === undefined ? ' than a draw allows' : ''}. A new reading counts ${readingCounts(bounds)}.`,
+  SpotOffBand: () => 'Its pool is out of line with its price right now.',
+  Unreadable: () => 'The price of this asset cannot be read right now. It counts again once its price feed and its pool answer.',
+  unknown: () => 'The vault reports a condition this console does not name yet. Until it does, treat the position as not counting.',
+};
+
+function readingCounts(bounds: ObservationBounds | undefined): string {
+  return bounds === undefined ? 'once it has aged' : `${formatDuration(Number(bounds.minAge))} after it is taken`;
+}
+
+/** Undefined while the position counts. */
+export function drawHaltLine(halt: ConsoleHalt, bounds?: ObservationBounds): string | undefined {
+  return HALT_LINES[halt](bounds);
 }
 
 /** The posted positions a draw counts nothing for, each with the line that says why. */

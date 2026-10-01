@@ -116,6 +116,14 @@ describe('why a draw counts nothing for a position', () => {
     expect(drawHaltRefusal(8, SPY, CONTEXT)?.code).toBe('SpotOffBand');
   });
 
+  it('says a holding the guard cannot read counts for nothing and is not a refusal', () => {
+    const refusal = drawHaltRefusal(9, SPY, CONTEXT, BOUNDS);
+
+    expect(refusal?.code).toBe('Unreadable');
+    expect(refusal?.message).toContain('its price cannot be read');
+    expect(refusal?.message).toContain('at nothing rather than refusing the call');
+  });
+
   it('says what clears a missing reading, and who may send it', () => {
     const refusal = drawHaltRefusal('NoObservation', SPY, CONTEXT, BOUNDS);
 

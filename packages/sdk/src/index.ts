@@ -33,6 +33,7 @@ export {
   CollateralUnavailableError,
   NoDebtError,
   NotCollateralLaneError,
+  UnknownDrawHaltError,
   collateral,
 } from './collateral.js';
 export type {

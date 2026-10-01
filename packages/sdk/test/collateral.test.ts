@@ -148,6 +148,24 @@ describe('collateral client', () => {
     expect(await client.observationBounds()).toEqual({ minAge: 300n, maxAge: 3_600n, maxFeedJumpBps: 1_500n });
   });
 
+  it('refuses to name a draw condition this build does not know, rather than reading it as counting', async () => {
+    const client = collateral(
+      withReads(
+        {
+          collateralAssets: () => [SPY],
+          drawHalt: () => 42,
+          guard: () => '0x9999999999999999999999999999999999999999',
+          MIN_OBSERVATION_AGE: () => 300n,
+          MAX_OBSERVATION_AGE: () => 3_600n,
+          MAX_FEED_JUMP_BPS: () => 1_500n,
+        },
+        true,
+      ),
+    );
+
+    await expect(client.drawStanding()).rejects.toThrow(/draw condition 42/);
+  });
+
   it('lists the collateral write-offs have seized, per asset, leaving out the empty ones', async () => {
     const client = collateral(
       withReads({ collateralAssets: () => [SGOV, SPY], seized: (args) => (args?.[0] === SPY ? 7n : 0n) }, true),

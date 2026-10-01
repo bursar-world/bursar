@@ -95,8 +95,8 @@ export type Observation = {
   /** The pool's mid and the feed's answer now, as `observe` would record them. Zero for no answer. */
   readonly poolE8: bigint;
   readonly feedE8: bigint;
-  /** What the vault says a draw against this asset fails on right now. */
-  readonly halt: DrawHalt;
+  /** What the vault says a draw against this asset fails on right now. Undefined for a condition this build does not name. */
+  readonly halt: DrawHalt | undefined;
 };
 
 export interface KeeperChain {
@@ -165,10 +165,10 @@ export type ObserveReason =
   /** The pool or the feed has moved since the waiting reading was taken. */
   | 'moved';
 
-/** One asset's standing under the draw rule, after the pass. */
+/** One asset's standing under the draw rule, after the pass. `Unknown` is a condition this build does not name. */
 export type ObservationSnapshot = {
   readonly asset: Address;
-  readonly halt: DrawHalt;
+  readonly halt: DrawHalt | 'Unknown';
   /** Null while the guard holds no such reading. */
   readonly agedAgeSeconds: number | null;
   readonly pendingAgeSeconds: number | null;
@@ -181,7 +181,7 @@ export type ObservationSnapshot = {
  */
 export type ObservationHealth = {
   readonly observed: boolean;
-  readonly halted: readonly { readonly asset: Address; readonly halt: DrawHalt }[];
+  readonly halted: readonly { readonly asset: Address; readonly halt: DrawHalt | 'Unknown' }[];
   readonly summary: string;
 };
 
@@ -240,11 +240,14 @@ export async function runKeeper(options: KeeperOptions): Promise<KeeperReport> {
   };
 }
 
-/** Halts the next reading may clear. The rest are the feed's, the issuer's or the pool's to clear. */
-const CLEARED_BY_OBSERVING: ReadonlySet<DrawHalt> = new Set(['NoObservation', 'ObservationExpired', 'ObservationOffBand', 'FeedJump']);
+/**
+ * Halts the next reading may clear. The rest are the feed's, the issuer's or the pool's to clear,
+ * `Unreadable` among them: a feed or a pool that does not answer is not helped by a reading of it.
+ */
+const CLEARED_BY_OBSERVING: ReadonlySet<DrawHalt | undefined> = new Set(['NoObservation', 'ObservationExpired', 'ObservationOffBand', 'FeedJump']);
 
 /** Halts that mean this keeper has not kept up. */
-const UNKEPT: ReadonlySet<DrawHalt> = new Set(['NoObservation', 'ObservationExpired']);
+const UNKEPT: ReadonlySet<DrawHalt | 'Unknown'> = new Set(['NoObservation', 'ObservationExpired']);
 
 function clip(priceE8: bigint): bigint {
   return priceE8 > MAX_SAMPLE_PRICE ? MAX_SAMPLE_PRICE : priceE8;
@@ -293,7 +296,7 @@ async function observeAssets(
     const o = await chain.observation(asset);
     snapshots.push({
       asset,
-      halt: o.halt,
+      halt: o.halt ?? 'Unknown',
       agedAgeSeconds: o.aged.at === 0n ? null : Number(now - o.aged.at),
       pendingAgeSeconds: o.pending.at === 0n ? null : Number(now - o.pending.at),
     });
@@ -548,7 +551,7 @@ export function createKeeperChain(options: ViemKeeperOptions): KeeperChain {
         publicClient.readContract({ address, abi: priceGuardAbi, functionName: 'valuation', args: [asset] }),
         publicClient.readContract({ address: vault, abi: collateralVaultAbi, functionName: 'drawHalt', args: [asset] }),
       ]);
-      return { aged: toSample(aged), pending: toSample(pending), poolE8, feedE8: valuation[0], halt: drawHaltOf(halt) ?? 'None' };
+      return { aged: toSample(aged), pending: toSample(pending), poolE8, feedE8: valuation[0], halt: drawHaltOf(halt) };
     },
     async simulateObserve(asset) {
       await publicClient.simulateContract({ address: await guardAddress(), abi: priceGuardAbi, functionName: 'observe', args: [asset], account: caller });

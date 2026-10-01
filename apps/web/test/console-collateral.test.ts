@@ -67,6 +67,14 @@ describe('why a position counts for nothing toward borrowing', () => {
     }
   });
 
+  it('says a price that cannot be read counts for nothing, in the console’s words', () => {
+    expect(drawHaltLine('Unreadable', bounds)).toBe('The price of this asset cannot be read right now. It counts again once its price feed and its pool answer.');
+  });
+
+  it('shows a condition it does not name as not counting, never as counting', () => {
+    expect(drawHaltLine('unknown')).toContain('treat the position as not counting');
+  });
+
   it('quotes the guard’s bounds when it has them, and stays true without them', () => {
     expect(drawHaltLine('NoObservation', bounds)).toBe('The price check holds no reading of its pool old enough to count. A reading counts 5m after it is taken.');
     expect(drawHaltLine('ObservationExpired', bounds)).toContain('more than 1h old');

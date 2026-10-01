@@ -159,6 +159,18 @@ export class NoDebtError extends BursarError {
   }
 }
 
+/** The vault answered a draw condition this build does not name. Newer contracts, older package. */
+export class UnknownDrawHaltError extends BursarError {
+  constructor(asset: Address, value: number) {
+    super(
+      'collateral_halt_unknown',
+      `The vault reports draw condition ${value} for ${asset}, which this build of @bursar/sdk does not name. ` +
+        'The position may count for nothing toward a draw. Update the package before reading it as anything.',
+      { asset, value },
+    );
+  }
+}
+
 /** The lane runs a build from before v4, which does not hold draws to an observation or seize collateral. */
 export class CollateralSetError extends BursarError {
   constructor(what: string, record: Pick<Deployment, 'network'>) {
@@ -351,7 +363,9 @@ export class CollateralClient {
       ),
     );
     return assets.map((asset, index) => {
-      const halt = drawHaltOf(halts[index] ?? 0) ?? 'None';
+      const value = halts[index] ?? 0;
+      const halt = drawHaltOf(value);
+      if (halt === undefined) throw new UnknownDrawHaltError(asset, value);
       return {
         symbol: this.#context.symbolOf(asset),
         asset,

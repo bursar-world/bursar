@@ -35,7 +35,9 @@ export const NO_DEBT_HEALTH = (1n << 256n) - 1n;
 /**
  * `PriceGuard.DrawHalt`, in the order the enum declares: the first condition a draw against a
  * holding fails, and `None` when it fails none. Current state is checked before history and the
- * pool's spot last.
+ * pool's spot last. `Unreadable` is the member the guard reports ahead of every other when the
+ * feed, the token's pause views or the pool's state cannot be read; the valuation then counts the
+ * holding as nothing rather than reverting.
  */
 export const DRAW_HALTS = [
   'None',
@@ -47,6 +49,7 @@ export const DRAW_HALTS = [
   'ObservationOffBand',
   'FeedJump',
   'SpotOffBand',
+  'Unreadable',
 ] as const;
 
 export type DrawHalt = (typeof DRAW_HALTS)[number];
