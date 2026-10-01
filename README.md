@@ -23,9 +23,12 @@ Bursar is live on Robinhood Chain mainnet (chain 4663) and settles in USDG. The 
 deployed on 2026-09-22 and hold real funds.
 
 **No external audit has been performed.** The caps on mainnet are deliberately low: a provider
-with no history can be paid at most 25 USDG per job, rising with its settlement record to at most
-125 USDG per job under the current curve. The cap applies to each payment, not to a provider's
-total. Size any mandate you fund accordingly.
+with no history can be paid at most 25 USDG per job, and the cap rises 2.25 USDG per point of
+score to 250 USDG at a score of 100. The score is the share of a provider's settled jobs that were
+delivered, weighed by what it has settled: a job under 1 USDG counts for nothing, each payer counts
+for at most 62.5 USDG of settled work, and a full score takes 250 USDG of it, so at least four
+payers. The cap applies to each payment, not to a provider's total. Size any mandate you fund
+accordingly.
 
 Packages are not yet published to npm. Build them from this repository.
 

@@ -9,8 +9,10 @@ privately first.
 An independent review of the contracts and services was completed on 2026-10-01, and its findings
 are being closed. The caps on mainnet are deliberately low to bound what a defect can cost: a payee
 with no settlement history can be paid at most 25 USDG per job, rising with its record to the
-250 USDG ceiling under the current curve. The cap applies to each payment, not to a payee's total.
-Size any mandate you fund accordingly.
+250 USDG ceiling under the current curve. A point is earned with settled work: a job under 1 USDG
+counts for nothing, each payer counts for at most 62.5 USDG of settled work, and a full score
+takes 250 USDG of it from at least four payers. The cap applies to each payment, not to a payee's
+total. Size any mandate you fund accordingly.
 
 ## Trust assumptions and current limits
 

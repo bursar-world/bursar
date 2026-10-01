@@ -65,7 +65,7 @@ What the timelock can change:
 
 | Contract | Parameters under the timelock |
 |---|---|
-| `Reputation` | The cap curve: base cap, cap per score point, maximum cap. |
+| `Reputation` | The cap curve: base cap, cap per score point, maximum cap. The scoring weights: the smallest payment that counts, the most one payer counts for, and the settled volume a full score takes. |
 | `OracleRegistry` | Commit and reveal windows, unbonding period, quorum, voter limit, deviation band, slash rate, slash sink, and slashing a resolver by governance ruling. |
 | `AgentRegistry` | Minimum stake, slash rate, slasher, slash sink, the blocklist, pause. |
 | `Staking` | Fee rebate tiers, unbonding period, the global and per-resolver bond floors, denying a resolver's bond, credit manager, treasury, slash sink, pause. |

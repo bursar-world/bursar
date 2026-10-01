@@ -14,6 +14,16 @@ records are in `contracts/deployments/`.
 
 ### Contracts
 
+- `Reputation`: a score now weighs how much a payee has settled and with how many payers, as well
+  as how many of its jobs ended well. A job under 1 USDG counts for nothing, each payer counts for
+  at most 62.5 USDG of settled work, and a full score takes 250 USDG of it, so at least four
+  payers. The cap curve is unchanged: 25 USDG with no history, 2.25 USDG more per point, 250 USDG
+  at a score of 100. Governance sets the three weights the way it sets the curve. `payeeStats`,
+  `edges`, `score` and `capOf` read as before, with `creditOf`, `edgeVolume` and `weights` beside
+  them, and the escrow passes each job's amount along with its outcome.
+- `AgentRegistry`: a provider can ask for its stake back while the registry is paused. The
+  seven-day delay is unchanged, and so is what a pause stops: new registrations, top-ups and
+  reactivations.
 - Third contract set, deployed 2026-09-30 and now the live record (`rhc-mainnet-v3.json`). Every
   contract is new except `BRSR` and `Vesting`. Its `AdminTimelock` has a one-hour delay; a proposer
   can withdraw its own proposal, and cancelling anyone else's takes vetoes from two signers.
@@ -79,8 +89,8 @@ contracts stay on chain and keep serving the mandates, locks and disputes opened
   cancellation and disputes. 1% protocol fee, 0.5% resolver fee on disputed locks, 5% dispute
   bond.
 - `Reputation`: per-payee settlement history and a per-job payee cap that starts at 25 USDG and
-  rises with that history to at most 125 USDG under this set's curve. The contract ceiling is
-  250 USDG.
+  rises with that history to at most 125 USDG under the curve this set deployed with. The
+  contract ceiling is 250 USDG.
 - `OracleRegistry`: commit-reveal dispute resolution by bonded resolvers, with a quorum of two.
 - `AgentRegistry`: staked directory of counterparties, with a 5 USDG minimum stake.
 - `AdminTimelock`: two-of-three governance with a 48-hour delay and a pause-only guardian. This
