@@ -3,6 +3,8 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
+import { PROVIDER_ROUTES, routeClass } from '../src/http/routes.js';
+
 /**
  * The README and the router, held to the same list.
  *
@@ -60,6 +62,24 @@ describe('the route table in the README', () => {
       const first = declared.findIndex((other) => other.method === route.method && other.pattern.test(sample));
       expect(first, `${route.method} ${sample} is answered by an earlier route`).toBe(index);
     }
+  });
+
+  it('opens the x402 surface and the probes to providers and keeps every other route for the admin token', async () => {
+    const [source, document] = await Promise.all([readFile(ROUTES, 'utf8'), readFile(README, 'utf8')]);
+    const answered = fromPattern(source);
+
+    const provider = answered.filter((route) => routeClass(route.split(' ')[1] ?? '') === 'provider');
+    expect(provider.sort()).toEqual(['GET /config', 'GET /healthz', 'GET /readyz', 'GET /supported', 'POST /settle', 'POST /verify']);
+    expect(answered.length - provider.length).toBeGreaterThan(20);
+    for (const path of PROVIDER_ROUTES) expect(answered.some((route) => route.endsWith(` ${path}`)), `${path} is not a route`).toBe(true);
+
+    // The parameters in a ledger path never turn it into a provider route, and nor does a path
+    // nobody answers.
+    for (const path of ['/accounts/agent-1', '/lanes/agent-1/prefund', '/settlements/pending/0xabc', '/nope', '/']) expect(routeClass(path)).toBe('admin');
+
+    // The README names the same six under the provider token.
+    const tokens = document.slice(document.indexOf('### Two tokens'), document.indexOf('## Configuration'));
+    for (const path of PROVIDER_ROUTES) expect(tokens, `${path} is not under the provider token in the README`).toMatch(new RegExp(`\\\`(GET|POST) ${path}\\\``));
   });
 
   it('puts the two routes nothing works without before the one that needs them', async () => {

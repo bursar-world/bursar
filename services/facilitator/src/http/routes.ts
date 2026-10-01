@@ -55,6 +55,20 @@ export type RouterOptions = {
 
 export type Router = (request: ApiRequest) => Promise<ApiResponse>;
 
+/**
+ * The routes a provider's resource server calls: the x402 surface, discovery and the two probes.
+ * They open to FACILITATOR_AUTH_TOKEN. Everything else writes or reads the lane ledger and the
+ * trust journal and opens to FACILITATOR_ADMIN_TOKEN alone. A path not in this set is admin,
+ * unknown paths included, so a new route has to be placed here on purpose to reach providers.
+ */
+export const PROVIDER_ROUTES: ReadonlySet<string> = new Set(['/healthz', '/readyz', '/supported', '/config', '/verify', '/settle']);
+
+export type RouteClass = 'provider' | 'admin';
+
+export function routeClass(path: string): RouteClass {
+  return PROVIDER_ROUTES.has(path) ? 'provider' : 'admin';
+}
+
 type Route = {
   readonly method: string;
   readonly pattern: RegExp;

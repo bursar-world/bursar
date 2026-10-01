@@ -104,6 +104,26 @@ describe('configuration', () => {
 
   it('runs without a token on loopback', () => {
     expect(loadConfig(env({ FACILITATOR_HOST: '127.0.0.1' })).authToken).toBeNull();
+    expect(loadConfig(env({ FACILITATOR_HOST: '127.0.0.1' })).adminToken).toBeNull();
+  });
+
+  it('keeps the admin token apart from the provider token', () => {
+    const provider = 'x'.repeat(32);
+    const admin = 'y'.repeat(32);
+    const config = loadConfig(env({ FACILITATOR_HOST: '0.0.0.0', FACILITATOR_AUTH_TOKEN: provider, FACILITATOR_ADMIN_TOKEN: admin }));
+    expect(config.authToken).toBe(provider);
+    expect(config.adminToken).toBe(admin);
+    // A settle-only deployment needs no admin token; its ledger routes answer admin_token_unset.
+    expect(loadConfig(env({ FACILITATOR_HOST: '0.0.0.0', FACILITATOR_AUTH_TOKEN: provider })).adminToken).toBeNull();
+    expect(codeOf(() => loadConfig(env({ FACILITATOR_HOST: '0.0.0.0', FACILITATOR_AUTH_TOKEN: provider, FACILITATOR_ADMIN_TOKEN: provider })))).toBe(
+      'facilitator_tokens_identical',
+    );
+    expect(codeOf(() => loadConfig(env({ FACILITATOR_ADMIN_TOKEN: 'short' })))).toBe('env_invalid');
+  });
+
+  it('describes itself without naming either token', () => {
+    const described = describeConfig(loadConfig(env({ FACILITATOR_HOST: '0.0.0.0', FACILITATOR_AUTH_TOKEN: 'x'.repeat(32), FACILITATOR_ADMIN_TOKEN: 'y'.repeat(32) })));
+    expect(JSON.stringify(described)).not.toMatch(/x{32}|y{32}/);
   });
 
   it('refuses a fee floor of zero, because a settled call is not free', () => {

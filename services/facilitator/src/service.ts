@@ -1,7 +1,7 @@
 import { checkGasFloat, createRhcClient } from '@bursar/core';
 import type { RhcClient } from '@bursar/core';
 import type { FacilitatorConfig } from './config.js';
-import { describeConfig } from './config.js';
+import { describeConfig, isLoopback } from './config.js';
 import { appliedMigrations, migrationPlan } from './db/migrate.js';
 import { createPostgres, describeDatabase } from './db/postgres.js';
 import type { Database } from './db/sql.js';
@@ -343,9 +343,13 @@ export function createFacilitatorService(options: ServiceOptions): FacilitatorSe
         host: config.host,
         port: config.port,
         authToken: config.authToken,
+        adminToken: config.adminToken,
         onError: (error) => log(`request failed: ${error instanceof Error ? error.message : String(error)}`),
       });
       running = await listen(server, config.host, config.port);
+      if (config.adminToken === null && (config.authToken !== null || !isLoopback(config.host))) {
+        log('FACILITATOR_ADMIN_TOKEN is not set, so the ledger routes answer admin_token_unset');
+      }
       relay.start();
       maintenance = setInterval(runMaintenance, maintenanceIntervalMs);
       // Housekeeping is not a reason for the process to stay alive.

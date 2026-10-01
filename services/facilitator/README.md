@@ -91,6 +91,26 @@ broadcasting for this key.
 Give the process a stop grace period of at least 160 seconds. A settle waits up to a minute per
 transaction for its receipt, and shutdown lets in-flight settles finish before it exits.
 
+### Two tokens
+
+Two bearer tokens guard the routes, and each opens one class of route.
+
+`FACILITATOR_AUTH_TOKEN` is the provider token. It opens the six routes a provider's resource
+server calls: `POST /verify`, `POST /settle`, `GET /supported`, `GET /config`, `GET /healthz` and
+`GET /readyz`. A listener on anything but loopback needs it, and it guards those routes, health
+included.
+
+`FACILITATOR_ADMIN_TOKEN` is the admin token. It opens every other route: accounts, pools, lanes,
+authorisations, underwriting, reservations, settlement batches and the trust journal. The provider
+token is never accepted on them, and the two values must differ. Leave the admin token unset on a
+deployment that only settles, and those routes answer 403 `admin_token_unset`; the start-up log says
+so. A path nobody answers counts as an admin route, so a probe without the admin token learns
+nothing about the route table.
+
+A loopback listener with neither token set runs open, because the operating system is the boundary
+there. Once a provider token is set the listener is taken to be reachable, and the ledger routes
+stay shut until an admin token is set as well. Send either token as `Authorization: Bearer <token>`.
+
 ## Configuration
 
 | Variable | Required | Notes |
@@ -110,7 +130,8 @@ transaction for its receipt, and shutdown lets in-flight settles finish before i
 | `FACILITATOR_FEE_BPS` | yes | 0 to 9999. The fee on each settle this service broadcasts, before a staked payee's rebate. See [The fee](#the-fee). |
 | `FACILITATOR_FEE_FLOOR_MICRO` | yes | Atomic micro-USD. The smallest fee this deployment will spend a broadcast on. No rebate takes a fee below it. |
 | `FACILITATOR_HOST`, `FACILITATOR_PORT` | no | `127.0.0.1:8402`. |
-| `FACILITATOR_AUTH_TOKEN` | off loopback | Required on every route, health included, when the host is not loopback. |
+| `FACILITATOR_AUTH_TOKEN` | off loopback | The provider token. Opens `/verify`, `/settle`, `/supported`, `/config`, `/healthz` and `/readyz`. Required when the host is not loopback. At least 32 characters. |
+| `FACILITATOR_ADMIN_TOKEN` | no | The admin token. Opens every other route. Must differ from the provider token; unset, those routes answer `admin_token_unset`. At least 32 characters. See [Two tokens](#two-tokens). |
 | `FACILITATOR_REQUIRE_BINDING` | no | Default true. See below. |
 | `FACILITATOR_DAILY_SETTLEMENTS`, `FACILITATOR_PER_PAYER_HOURLY` | no | Gas budget. |
 | `FACILITATOR_RESERVATION_TTL_SECONDS` | no | Default 120, minimum 90. A settle claims a hold only while it has at least 60 seconds left. |
@@ -232,7 +253,9 @@ returns a JavaScript number and silently destroys any amount above 2^53 micro-US
 
 Thirty of them, in the order a newcomer meets them. Every route answers JSON. Amounts are decimal
 strings of atomic micro-USD in both directions, and `amountMicro` is the name for that quantity
-here and on the underwriter.
+here and on the underwriter. `GET /config`, `GET /supported`, `POST /verify`, `POST /settle`,
+`GET /healthz` and `GET /readyz` open to the provider token; every other route needs the admin
+token ([Two tokens](#two-tokens)).
 
 ### Before anything else
 
@@ -318,6 +341,10 @@ Every refusal outside `/verify` and `/settle` has one shape: `error` is a stable
 
 `/verify` answers a refusal as `{ "isValid": false, "invalidReason": "...", "payer": "0x..." }` and
 `/settle` as `{ "success": false, "errorReason": "...", ... }`, the x402 shapes clients already read.
+
+A missing or wrong token answers 401 `unauthorized`; a ledger route on a deployment with no admin
+token answers 403 `admin_token_unset`. A fault inside the service answers 500 `internal_error` with
+no detail: what went wrong is in the service's log.
 
 ### Request bodies
 

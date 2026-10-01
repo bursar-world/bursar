@@ -88,8 +88,18 @@ export const UNDERWRITER_UNCONFIGURED =
 const schema = {
   FACILITATOR_HOST: withDefault(envVar.string({ minLength: 1 }), '127.0.0.1'),
   FACILITATOR_PORT: withDefault(envVar.int({ min: 1, max: 65_535 }), 8402),
-  /** Required unless the listener is on loopback, where the operating system is the boundary. */
+  /**
+   * Opens the provider routes: verify, settle, supported, config and the two probes. Required
+   * unless the listener is on loopback, where the operating system is the boundary.
+   */
   FACILITATOR_AUTH_TOKEN: optional(envVar.string({ minLength: 32, secret: true })),
+  /**
+   * Opens every other route, which is the lane ledger and the trust journal. A provider holding
+   * the first token can settle a payment; it must not be able to create accounts, record funding
+   * or redrive the outbox. Unset, those routes answer `admin_token_unset` on anything but a
+   * tokenless loopback listener.
+   */
+  FACILITATOR_ADMIN_TOKEN: optional(envVar.string({ minLength: 32, secret: true })),
 
   DATABASE_URL: envVar.url({ protocols: ['postgres:', 'postgresql:'] }),
   /** Whether a starting process may write to that schema. See `MIGRATE_MODES`. */
@@ -170,6 +180,7 @@ export type FacilitatorConfig = {
   readonly host: string;
   readonly port: number;
   readonly authToken: string | null;
+  readonly adminToken: string | null;
   readonly databaseUrl: string;
   readonly migrate: MigrateMode;
   readonly chain: RhcChain;
@@ -216,6 +227,10 @@ const GAS_FLOAT_MINIMUM_CEILING_WEI = 1_000n * 10n ** 18n;
 /** Loopback is a boundary the operating system enforces. Anything else needs a token. */
 const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
 
+export function isLoopback(host: string): boolean {
+  return LOOPBACK.has(host);
+}
+
 export function loadConfig(source: EnvSource = process.env): FacilitatorConfig {
   const env = loadEnv(schema, source);
 
@@ -230,6 +245,14 @@ export function loadConfig(source: EnvSource = process.env): FacilitatorConfig {
       'facilitator_token_required',
       `FACILITATOR_HOST is ${env.FACILITATOR_HOST}, so the service is reachable off this machine and every route needs FACILITATOR_AUTH_TOKEN`,
       { host: env.FACILITATOR_HOST },
+    );
+  }
+
+  // One value in both variables is one token with two names, which is what the split exists to end.
+  if (env.FACILITATOR_ADMIN_TOKEN && env.FACILITATOR_ADMIN_TOKEN === env.FACILITATOR_AUTH_TOKEN) {
+    throw new FacilitatorConfigError(
+      'facilitator_tokens_identical',
+      'FACILITATOR_ADMIN_TOKEN equals FACILITATOR_AUTH_TOKEN, so a provider holding the first could reach the ledger routes. Give the admin token its own value.',
     );
   }
 
@@ -295,6 +318,7 @@ export function loadConfig(source: EnvSource = process.env): FacilitatorConfig {
     host: env.FACILITATOR_HOST,
     port: env.FACILITATOR_PORT,
     authToken: env.FACILITATOR_AUTH_TOKEN ?? null,
+    adminToken: env.FACILITATOR_ADMIN_TOKEN ?? null,
     databaseUrl: env.DATABASE_URL,
     migrate: env.FACILITATOR_MIGRATE,
     chain,

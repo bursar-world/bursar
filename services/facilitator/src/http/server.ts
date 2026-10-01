@@ -1,17 +1,22 @@
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { isLoopback } from '../config.js';
 import type { ApiRequest, ApiResponse } from './io.js';
 import { bearer, failure, readBody, send, tokenMatches } from './io.js';
-import { errorResponse } from './routes.js';
+import { errorResponse, routeClass } from './routes.js';
 import type { Router } from './routes.js';
 
 /**
- * Adapts node's HTTP server to the router, and guards every route with the bearer token.
+ * Adapts node's HTTP server to the router, and guards every route with one of two bearer tokens.
  *
- * The guard covers health as well. This service broadcasts transactions and reads a principal's
- * balances, so there is no route here worth answering for a stranger who found the port. A
- * loopback listener runs without a token because the operating system is the boundary there.
+ * The provider token opens the x402 surface and the probes, health included: this service
+ * broadcasts transactions and reads a principal's balances, so there is no route here worth
+ * answering for a stranger who found the port. The admin token opens the ledger, and only it does;
+ * a provider that can settle must not be able to fund an account or mark a batch paid. A loopback
+ * listener with neither token runs open, because the operating system is the boundary there. Once
+ * a provider token is set the listener is taken to be reachable, and the ledger stays shut until an
+ * admin token is set too.
  */
 
 export type HttpServerOptions = {
@@ -19,8 +24,34 @@ export type HttpServerOptions = {
   readonly host: string;
   readonly port: number;
   readonly authToken: string | null;
+  readonly adminToken: string | null;
   readonly onError?: (error: unknown) => void;
 };
+
+function refusal(options: HttpServerOptions, path: string, presented: string | null): ApiResponse | null {
+  if (routeClass(path) === 'provider') {
+    if (options.authToken === null || tokenMatches(presented, options.authToken)) return null;
+    return failure(
+      401,
+      'unauthorized',
+      'This route needs the bearer token set in FACILITATOR_AUTH_TOKEN. Send it as Authorization: Bearer <token>.',
+    );
+  }
+  if (options.adminToken === null) {
+    if (options.authToken === null && isLoopback(options.host)) return null;
+    return failure(
+      403,
+      'admin_token_unset',
+      'The ledger routes need FACILITATOR_ADMIN_TOKEN, which this deployment has not set. Set it, then send it as Authorization: Bearer <token>.',
+    );
+  }
+  if (tokenMatches(presented, options.adminToken)) return null;
+  return failure(
+    401,
+    'unauthorized',
+    'The ledger routes need the bearer token set in FACILITATOR_ADMIN_TOKEN. Send it as Authorization: Bearer <token>.',
+  );
+}
 
 /**
  * What a connection is allowed to hold, and for how long.
@@ -48,23 +79,18 @@ export function createHttpServer(options: HttpServerOptions): Server {
   const server = createServer((incoming, outgoing) => {
     void (async () => {
       try {
-        if (options.authToken && !tokenMatches(bearer(incoming.headers), options.authToken)) {
-          send(
-            outgoing,
-            failure(
-              401,
-              'unauthorized',
-              'Every route on this listener needs the bearer token set in FACILITATOR_AUTH_TOKEN. Send it as Authorization: Bearer <token>.',
-            ),
-          );
+        const url = new URL(incoming.url ?? '/', `http://${options.host}`);
+        const path = url.pathname.replace(/\/+$/, '') || '/';
+        const refused = refusal(options, path, bearer(incoming.headers));
+        if (refused) {
+          send(outgoing, refused);
           return;
         }
 
-        const url = new URL(incoming.url ?? '/', `http://${options.host}`);
         const { body, bytes } = await readBody(incoming);
         const request: ApiRequest = {
           method: incoming.method ?? 'GET',
-          path: url.pathname.replace(/\/+$/, '') || '/',
+          path,
           query: url.searchParams,
           headers: incoming.headers,
           body,
