@@ -20,6 +20,7 @@ import type { Address, Hex } from 'viem';
 import { ToolError } from './errors.js';
 import { bond as bondView, duration, instant, moneyFromUint } from './format.js';
 import type { RelayTransactionReceipt, RoleRelay } from './relay.js';
+import { untrusted } from './untrusted.js';
 import { statusOf } from './views.js';
 import type {
   ActionView,
@@ -266,9 +267,11 @@ export function createResolverGateway(options: ResolverGatewayOptions): Resolver
           amount: moneyFromUint(lock.amount),
           capabilityId: lock.capabilityId,
           inputCommit: lock.inputCommit,
-          inputURI: lock.inputURI,
+          // Both parties to a contested job wrote onto the lock, and a resolver is counterparty to
+          // both. What either wrote reaches the model as data, inside an envelope that says so.
+          inputURI: lock.inputURI === '' ? '' : untrusted(lock.inputURI, 'the inputURI the payer wrote'),
           outputCommit: lock.outputCommit === ZERO32 ? null : lock.outputCommit,
-          outputURI: lock.outputURI === '' ? null : lock.outputURI,
+          outputURI: lock.outputURI === '' ? null : untrusted(lock.outputURI, 'the outputURI the provider wrote'),
           deliverBy: instant(lock.deadline),
           deliveredAt: lock.releasedAt === 0n ? null : instant(lock.releasedAt),
           contestedBy: lock.disputer,

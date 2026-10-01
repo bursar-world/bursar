@@ -295,8 +295,10 @@ function toIndexedLog(row: RawLog, expected: Address): IndexedLog | null {
   const emitter = hashOf(row.address) ?? hashOf(row.smart_contract);
 
   if (emitter === null || emitter.toLowerCase() !== expected.toLowerCase()) return null;
-  if (!Array.isArray(row.topics) || typeof row.data !== 'string') return null;
-  if (typeof row.transaction_hash !== 'string' || typeof row.index !== 'number') return null;
+  if (!Array.isArray(row.topics) || !isHexData(row.data)) return null;
+  // The hash is reported to the caller as it came, so it has to be one. The index is a copy, and a
+  // copy can carry anything in a field.
+  if (!isHash(row.transaction_hash) || typeof row.index !== 'number') return null;
 
   const blockNumber = toBigint(row.block_number);
 
@@ -305,11 +307,19 @@ function toIndexedLog(row: RawLog, expected: Address): IndexedLog | null {
   return {
     address: emitter,
     topics: row.topics.filter((topic): topic is Hex => typeof topic === 'string' && topic.startsWith('0x')),
-    data: row.data as Hex,
+    data: row.data,
     blockNumber,
-    transactionHash: row.transaction_hash as Hex,
+    transactionHash: row.transaction_hash,
     logIndex: row.index,
   };
+}
+
+function isHexData(value: unknown): value is Hex {
+  return typeof value === 'string' && /^0x(?:[0-9a-fA-F]{2})*$/u.test(value);
+}
+
+function isHash(value: unknown): value is Hex {
+  return typeof value === 'string' && /^0x[0-9a-fA-F]{64}$/u.test(value);
 }
 
 function hashOf(value: NamedAddress | undefined): Address | null {

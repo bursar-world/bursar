@@ -33,6 +33,7 @@ import { fromUint, instant, instantOrNull, money, moneyFromUint } from './format
 import { refusalForName, refusalForSelector } from './reasons.js';
 import { toRelayApproval } from './relay.js';
 import type { SpendRelay } from './relay.js';
+import { untrusted } from './untrusted.js';
 import {
   FUNDS,
   disputeNext,
@@ -744,9 +745,12 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
       funds: FUNDS[status],
       deliverBy: instant(lock.deadline),
       inputCommit: lock.inputCommit,
-      inputURI: lock.inputURI,
+      // Both URIs are free text somebody wrote onto the lock. The payer's was this mandate's agent,
+      // in some earlier call or another process; the provider's is the counterparty's. Neither is
+      // this server's own sentence, so neither reaches the model as one.
+      inputURI: lock.inputURI === '' ? '' : untrusted(lock.inputURI, 'the inputURI the payer wrote'),
       outputCommit: isZeroHash(lock.outputCommit) ? null : lock.outputCommit,
-      outputURI: lock.outputURI === '' ? null : lock.outputURI,
+      outputURI: lock.outputURI === '' ? null : untrusted(lock.outputURI, 'the outputURI the provider wrote'),
       deliveredAt: released === null ? null : instant(released),
       disputableUntil: disputableUntil === null ? null : instant(disputableUntil),
       refundableFrom: status === 'held' ? instant(lock.deadline) : null,

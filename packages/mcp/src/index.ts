@@ -39,6 +39,8 @@ export type { AdvertisedTool, ErrorView, ToolContext, ToolDefinition, ToolResult
 
 export { ToolError, isToolError } from './errors.js';
 
+export { MAX_UNTRUSTED_CHARS, sanitize, untrusted } from './untrusted.js';
+
 export { refusalForName, refusalForSelector } from './reasons.js';
 export type { Refusal, RefusalScope, RefusalSubject } from './reasons.js';
 
