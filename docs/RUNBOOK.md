@@ -2,7 +2,7 @@
 
 How Bursar on Robinhood Chain (chain 4663) is watched, and what to do when a check fails. Written
 for whoever is on call. Every address comes from the live record,
-`contracts/deployments/rhc-mainnet-v3.json`; every command below is exact and sends nothing unless
+`contracts/deployments/rhc-mainnet-v4.json`; every command below is exact and sends nothing unless
 it says `cast send`. The roles the commands exercise are listed in
 [GOVERNANCE.md](../GOVERNANCE.md#privileged-roles), and the conditions the checks defend are in
 [INVARIANTS.md](INVARIANTS.md).
@@ -16,7 +16,7 @@ No private key is ever typed.
 
 ```sh
 cd contracts
-source script/env/rhc-mainnet-v3.env            # BURSAR_RECORD and RHC_RPC_URL
+source script/env/rhc-mainnet-v4.env            # BURSAR_RECORD and RHC_RPC_URL
 export KEYS="$HOME/.config/bursar/keystore"
 at() { jq -r "$1" "$BURSAR_RECORD"; }
 readback() { cast call --rpc-url "$RHC_RPC_URL" "$@"; }
@@ -48,13 +48,19 @@ node contracts/script/monitor.mjs
 | Timelock proposals: created in the last two hours, pending, executable, near expiry | A proposal is the only way any parameter changes. One nobody on the team made is an incident. |
 | Guardian pauses and executions in the last two hours, and the pause flag on every pausable contract | A pause stops new payments; a pause nobody knows about is an outage. |
 | Facilitator gas float, shielded relayer, postman, resolvers, signers and guardian: ETH balances | Each key pays gas in ETH. An empty key cannot settle, relay, post, vote or pause. |
-| Shielded pool fill against its 1,000 USDG cap, and whether a root has been posted since the last deposit | At the cap, deposits refuse. Without a current root, no note can be withdrawn. |
+| Shielded pool fill against its 1,000 USDG cap, and whether a root has been posted since the last deposit | At the cap, deposits refuse, as does a deposit that would take one address past 250 USDG in seven days. Without a current root, no note can be withdrawn. |
 | Each price feed's age against the 26-hour trade bound and the 100-hour collateral bound | Past 26 hours trades refuse; past 100 hours collateral counts as zero and liquidation defers. |
 | Credit pool: cash, debt, utilisation, bad debt | Debt above cash means draws refuse; bad debt means a line was written off and the lender carries it. |
 | Open disputes on the escrow and their reveal window | A dispute nobody finalises leaves a payment frozen. |
 | Buyback price ceiling age, and solvency log age | A stale ceiling stops buybacks; a missed day on the solvency log means the poster is down. |
 
 Thresholds are constants at the top of the script, each with a comment.
+
+The collateral keeper is a separate job, run every five minutes, that takes the price guard's
+reading of each asset's pool. A draw counts a position only against a reading between five minutes
+and an hour old, so if the keeper stops for an hour every draw halts until it runs again;
+repayments, and withdrawals from a line with no debt, go on. Its report, and how it is scheduled,
+are in [`services/facilitator/README.md`](../services/facilitator/README.md#the-collateral-keeper).
 
 ## Alerts and the first response
 
@@ -66,7 +72,7 @@ Thresholds are constants at the top of the script, each with a comment.
 | Facilitator gas float low | Below `FACILITATOR_GAS_FLOAT_MINIMUM_ETH` (0.004 ETH by default) | Top up, below. Settlements on the wallet lane stop when it empties; verification and the mandate lane continue. |
 | Relayer low | Below 0.0005 ETH, the relayer's own health floor; warn below 0.002 ETH | Top up. Relayed withdrawals and gas drops stop when it empties; deposits and ragequits are unaffected. |
 | Postman, resolver or keeper low | Below 0.0001 ETH (the resolver service's own floor); signers and guardian below 0.0002 ETH | Top up. A guardian with no gas cannot pause. |
-| Pool near cap | Above 80% of 1,000 USDG | Nothing to fix. Deposits refuse at the cap by design. |
+| Pool near cap | Above 80% of 1,000 USDG | Nothing to fix. Deposits refuse at the cap by design, and one address is held to 250 USDG in any seven days whatever the fill. |
 | Root behind deposits | A deposit after the last posted root for longer than the ten-minute posting cadence, or deposits with no root at all | Association-set root, below. |
 | Feed stale | Age over 26 hours inside the equities session (Monday 01:00 UTC to Saturday 00:00 UTC); over 100 hours at any time | Stale feed, below. Over 26 hours at a weekend is expected and reported `ok`. |
 | Credit pool | Utilisation over 90%, cash under one full line (10 USDG), or bad debt above zero | Liquidation, below. Bad debt is the lender's loss and never a staker's or a mandate's. |
@@ -122,9 +128,10 @@ What a pause stops, and what it never stops:
 
 Nothing here reaches a mandate: a principal can pause, withdraw from or revoke its own mandate at
 any time, and `MandateAccountFactory`, `CreditPool`, `CollateralVault`, `TreasuryPark`, the
-shielded pool and the relay have no pause. The first and second sets have their own timelocks with
-the same guardian; pause them the same way with their addresses from `rhc-mainnet.json` and
-`rhc-mainnet-v2.json`.
+shielded pool and the relay have no pause. The third set's escrow, `OracleRegistry` and
+`AgentRegistry` answer to the same timelock; add their addresses from `rhc-mainnet-v3.json` to the
+same call. The first and second sets have their own timelocks with the same guardian; pause them
+the same way with their addresses from `rhc-mainnet.json` and `rhc-mainnet-v2.json`.
 
 Unpausing is a proposal per contract, with the full delay:
 
