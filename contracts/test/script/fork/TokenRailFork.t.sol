@@ -181,17 +181,15 @@ contract TokenRailForkTest is ForkWorld {
     }
 
     /// The seeding script's path for an open pool, run as a provider would run it: it sizes the
-    /// position at the price it finds and adds exactly that through the governance seeder. What it
-    /// adds is governance's: the provider cannot take it back out, the timelock can.
+    /// position at the price it finds and adds exactly that through the governance seeder, on top
+    /// of the position the seeder already holds. What it adds is governance's: the provider cannot
+    /// take it back out, the timelock can.
     function _seedingAddsThroughTheGovernanceSeederAndOnlyGovernanceTakesItOut() private {
         _restore();
-        address provider = makeAddr("provider");
-        IERC20 brsr = IERC20(buyback.brsr());
-        vm.prank(treasury);
-        brsr.transfer(provider, 100_000 * BRSR_UNIT);
-        _usdg(provider, 10e6);
+        address provider = _provider();
         (int24 lower, int24 upper) = V4Math.fullRangeTicks(buyback.poolTickSpacing());
         uint128 before = stateView.getLiquidity(poolId);
+        uint128 held = seeder.liquidityOf(lower, upper);
         (uint160 price,,,) = stateView.getSlot0(poolId);
 
         _set("BURSAR_SEED_USDG_MICRO", "5000000");
@@ -201,7 +199,7 @@ contract TokenRailForkTest is ForkWorld {
         _as(provider, address(seeding), abi.encodeCall(seeding.seedExisting, ()));
         _unset("BURSAR_ALLOW_MAINNET_SEED");
 
-        uint128 added = seeder.liquidityOf(lower, upper);
+        uint128 added = seeder.liquidityOf(lower, upper) - held;
         assertGt(added, 0, "the seeder took no position");
         assertEq(stateView.getLiquidity(poolId), before + added, "the pool did not gain what the seeder holds");
         (uint160 after_,,,) = stateView.getSlot0(poolId);
@@ -213,6 +211,15 @@ contract TokenRailForkTest is ForkWorld {
         vm.prank(timelock);
         seeder.removeLiquidity(lower, upper, added, 0, 0, treasury);
         assertEq(stateView.getLiquidity(poolId), before, "liquidity left behind");
+    }
+
+    /// A liquidity provider with BRSR from the treasury and USDG of its own.
+    function _provider() private returns (address provider) {
+        provider = makeAddr("provider");
+        IERC20 brsr = IERC20(buyback.brsr());
+        vm.prank(treasury);
+        brsr.transfer(provider, 100_000 * BRSR_UNIT);
+        _usdg(provider, 10e6);
     }
 
     function _stake(address staker, uint256 amount) private {
