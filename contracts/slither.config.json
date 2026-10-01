@@ -1,0 +1,4 @@
+{
+  "include_paths": "contracts/src/(?!zk/)",
+  "fail_on": "medium"
+}
