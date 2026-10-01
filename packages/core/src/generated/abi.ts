@@ -9211,7 +9211,7 @@ export const priceGuardAbi = [
     ],
     "outputs": [
       {
-        "name": "",
+        "name": "priceE8",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -10696,6 +10696,11 @@ export const treasuryParkAbi = [
   },
   {
     "type": "error",
+    "name": "ZeroAddress",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ZeroAmount",
     "inputs": []
   }
@@ -11060,6 +11065,11 @@ export const parkAdapterAbi = [
         "internalType": "uint256"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "ZeroAddress",
+    "inputs": []
   }
 ] as const;
 

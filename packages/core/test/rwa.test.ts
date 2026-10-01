@@ -63,12 +63,8 @@ describe('why a draw counts nothing for a position', () => {
   it('names the conditions in the order the price guard declares them', () => {
     const declared = /enum DrawHalt \{([^}]*)\}/u.exec(source)?.[1]?.split(',').map((name) => name.trim()) ?? [];
 
-    // `Unreadable` reaches this source with the contract branch that added it, so the source may
-    // trail the list by that one member for now. It never leads it: a member the guard declares and
-    // this list does not name would read as a wrong reason.
-    expect(declared).toEqual(DRAW_HALTS.slice(0, declared.length));
-    expect(DRAW_HALTS.length - declared.length).toBeLessThanOrEqual(1);
-    expect(DRAW_HALTS.at(-1)).toBe('Unreadable');
+    // A member the guard declares and this list does not name would read as a wrong reason.
+    expect(declared).toEqual([...DRAW_HALTS]);
   });
 
   it('reads the number a vault answers, and nothing for one it does not know', () => {
