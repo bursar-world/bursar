@@ -11,7 +11,7 @@ import {
   toFunctionSelector,
 } from 'viem';
 import type { Address, Hex, Log } from 'viem';
-import { RHC_MAINNET, deployment, mandateAccountAbi, micro } from '@bursar/core';
+import { RHC_MAINNET, deployment, mandateAccountAbi, micro, nonceBindsRequest, readRequestURI, requestCommit } from '@bursar/core';
 
 import {
   AmbiguousSpendError,
@@ -484,6 +484,52 @@ describe('pay', () => {
     expect(call.args?.[2]).toMatchObject({ approvalId: approval.approvalId, amount: 30_000_000n });
     // An empty signature means the principal registered the approval on chain already.
     expect(call.args?.[3]).toBe('0x');
+  });
+});
+
+describe('fetch on the mandate lane', () => {
+  const RESOURCE = 'https://api.provider.dev/render';
+
+  /** Answers 402 with one `escrow` offer, then serves whatever arrives with a payment header. */
+  function paywall(): { fetchFn: typeof fetch; paid: Request[] } {
+    const paid: Request[] = [];
+    const fetchFn = (async (input: Request) => {
+      if (input.headers.get('x-payment') === null) {
+        const accepts = [{ scheme: 'escrow', network: 'eip155:4663', maxAmountRequired: '2500000', asset: ADDRESSES.settlementAsset, payTo: PROVIDER }];
+        return new Response(JSON.stringify({ x402Version: 1, accepts }), { status: 402 });
+      }
+      paid.push(input);
+      return new Response('{"frame":"rendered"}');
+    }) as typeof fetch;
+    return { fetchFn, paid };
+  }
+
+  /**
+   * A lock opened with no input gives a resolver nothing to check a disputed job against. The lock
+   * this opens says which call it pays for, on chain, in the bytes its commitment covers.
+   */
+  it('opens the lock with the call it pays for as its input, never an empty one', async () => {
+    const { mandate, sent } = await client({ logs: [spentLog(42n)] });
+    const { fetchFn, paid } = paywall();
+    const body = '{"prompt":"a koi"}';
+
+    const result = await mandate.fetch(RESOURCE, { method: 'POST', body, capability: CAPABILITY, lane: 'mandate', fetchFn });
+    expect(result.payment).toMatchObject({ lane: 'mandate', lock: { id: 42n, transaction: FAKE_HASH } });
+
+    const spend = decodeFunctionData({ abi: mandateAccountAbi, data: sent[0]?.data ?? '0x' });
+    const [request] = spend.args as unknown as [{ merchant: Address; amount: bigint; inputCommit: Hex; inputURI: string }];
+    expect(request).toMatchObject({ merchant: PROVIDER, amount: 2_500_000n });
+
+    const document = readRequestURI(request.inputURI);
+    expect(document).toMatchObject({ method: 'POST', resource: RESOURCE });
+    expect(document && requestCommit(document)).toBe(request.inputCommit);
+
+    // The retry carries the lock and the two halves of the binding the document's nonce derives from.
+    const envelope = JSON.parse(atob(paid[0]?.headers.get('x-payment') ?? '')) as {
+      payload: { lock: { id: string; inputCommit: Hex }; binding: { requestHash: string; salt: Hex } };
+    };
+    expect(envelope.payload.lock).toMatchObject({ id: '42', inputCommit: request.inputCommit });
+    expect(nonceBindsRequest(document?.requestNonce ?? '', envelope.payload.binding)).toBe(true);
   });
 });
 

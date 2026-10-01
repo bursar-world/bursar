@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ContractFunctionRevertedError, domainSeparator, verifyTypedData } from 'viem';
 import type { Address } from 'viem';
-import { RHC_MAINNET, hashRequest, micro, nonceBindsRequest } from '@bursar/core';
+import { RHC_MAINNET, escrowSettlementNonce, hashRequest, micro, nonceBindsRequest, readRequestURI, requestCommit } from '@bursar/core';
 import type { Micro } from '@bursar/core';
 
 import type { Connection } from '../src/connection.js';
@@ -478,7 +478,7 @@ describe('payRequest on the mandate lane', () => {
     };
   }
 
-  it('pays through the mandate, commits the lock to the request and sends a pointer to it', async () => {
+  it('pays through the mandate, publishes the request as the lock input and sends a pointer to the lock', async () => {
     const { connection } = fakeConnection({ read: tokenReads });
     const paid = { calls: [] as unknown[] };
     const fetchFn = challengeThen(settled(), [offer(), offer({ scheme: 'escrow', maxAmountRequired: '10000' })]);
@@ -492,7 +492,7 @@ describe('payRequest on the mandate lane', () => {
     });
 
     expect(paid.calls).toHaveLength(1);
-    const call = paid.calls[0] as { to: Address; amount: Micro; inputCommit: `0x${string}`; capability: string };
+    const call = paid.calls[0] as { to: Address; amount: Micro; inputCommit: `0x${string}`; inputURI: string; capability: string };
     expect(call).toMatchObject({ to: PAY_TO, amount: micro(10_000n), capability: 'service:demo.x402:1' });
 
     const header = lastRequest?.headers.get('x-payment') ?? '';
@@ -501,8 +501,55 @@ describe('payRequest on the mandate lane', () => {
     };
     expect(envelope.payload.lock).toMatchObject({ escrow: ESCROW, id: '9', transaction: LOCK_TX, inputCommit: call.inputCommit });
     expect(envelope.payload.binding.requestHash).toBe(hashRequest(new TextEncoder().encode('{"q":1}')));
-    expect(nonceBindsRequest(call.inputCommit, envelope.payload.binding)).toBe(true);
-    expect(result.payment).toMatchObject({ lane: 'mandate', lock: { escrow: ESCROW, id: 9n, transaction: LOCK_TX } });
+
+    // The lock's input is the call itself, published inline, and the commitment is over those bytes.
+    // A resolver reading the lock in a dispute finds the job; nothing about it is left empty.
+    const document = readRequestURI(call.inputURI);
+    expect(document).toMatchObject({ method: 'POST', resource: RESOURCE });
+    expect(document && requestCommit(document)).toBe(call.inputCommit);
+
+    // The nonce in the document is the one the body and the salt derive. The salt travels in the
+    // payment header and nowhere else, so the chain shows nothing a stranger could present.
+    expect(nonceBindsRequest(document?.requestNonce ?? '', envelope.payload.binding)).toBe(true);
+    expect(atob(call.inputURI.split(',')[1] ?? '')).not.toContain(envelope.payload.binding.salt.slice(2));
+
+    // What the facilitator records the payment under is derived from the lock, so the caller can
+    // name the settlement it is owed without the facilitator's help.
+    expect(result.payment).toMatchObject({
+      lane: 'mandate',
+      nonce: escrowSettlementNonce({ chainId: 4663, escrow: ESCROW, lockId: 9n, inputCommit: call.inputCommit }),
+      lock: { escrow: ESCROW, id: 9n, transaction: LOCK_TX, inputCommit: call.inputCommit },
+    });
+  });
+
+  it('opens a different lock for the same call paid twice', async () => {
+    const { connection } = fakeConnection({ read: tokenReads });
+    const paid = { calls: [] as unknown[] };
+    const accepts = [offer(), offer({ scheme: 'escrow', maxAmountRequired: '10000' })];
+    const through = { mandate: spender(paid), capability: 'service:demo.x402:1' };
+
+    await payRequest(RESOURCE, { connection, fetchFn: challengeThen(settled(), accepts), lane: 'mandate', through, init: { method: 'POST', body: '{"q":1}' } });
+    await payRequest(RESOURCE, { connection, fetchFn: challengeThen(settled(), accepts), lane: 'mandate', through, init: { method: 'POST', body: '{"q":1}' } });
+
+    const [first, second] = paid.calls as { inputCommit: `0x${string}`; inputURI: string }[];
+    expect(first?.inputCommit).not.toBe(second?.inputCommit);
+    expect(readRequestURI(first?.inputURI ?? '')?.resource).toBe(readRequestURI(second?.inputURI ?? '')?.resource);
+  });
+
+  it('keeps the query of the URL it paid for off the chain', async () => {
+    const { connection } = fakeConnection({ read: tokenReads });
+    const paid = { calls: [] as unknown[] };
+
+    await payRequest(`${RESOURCE}?key=secret#top`, {
+      connection,
+      fetchFn: challengeThen(settled(), [offer({ scheme: 'escrow', maxAmountRequired: '10000' })]),
+      lane: 'mandate',
+      through: { mandate: spender(paid), capability: 'service:demo.x402:1' },
+    });
+
+    const [call] = paid.calls as { inputURI: string }[];
+    expect(readRequestURI(call?.inputURI ?? '')).toMatchObject({ method: 'GET', resource: RESOURCE });
+    expect(atob(call?.inputURI.split(',')[1] ?? '')).not.toContain('secret');
   });
 
   it('refuses a server that offers no escrow payment rather than falling back to the wallet', async () => {

@@ -236,8 +236,12 @@ There are two lanes, and they differ in whose money moves and what the chain cou
 **`lane: 'mandate'`** pays from the mandate account. The account's `spend` locks the quoted price in
 escrow for the provider, under the same checks as `pay`, and the retry names that lock. The daily
 and monthly windows move by the amount paid, and a call they do not cover is refused by the
-contract. The provider has to offer the `escrow` scheme; its facilitator checks the lock, and the
-lock is committed to the request, so it cannot be redeemed against another one.
+contract. The provider has to offer the `escrow` scheme. The lock publishes the call it pays for as
+its input: the method, the endpoint (the URL without its query) and a commitment to the request
+body. The provider's facilitator holds that commitment to the request it received, so the lock
+cannot be redeemed against another one, and a resolver reading a disputed lock finds the job on
+chain. The body, its digest and the URL's query are never written to the chain. `payment.nonce` is
+the name the facilitator records the settlement under, derived from the lock.
 
 **The wallet lane**, the default, pays from the agent's own wallet with a single-use EIP-3009
 authorization for the exact amount quoted, under the `exact` scheme. Per-call only; windows

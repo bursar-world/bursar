@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { createPublicClient, createWalletClient, custom, encodeFunctionResult, recoverTypedDataAddress } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { RHC_MAINNET, caip2, settlementAssetAbi, toMicro, viemChain } from '@bursar/core';
+import { RHC_MAINNET, caip2, capabilityId, settlementAssetAbi, toMicro, viemChain } from '@bursar/core';
 import { createExactScheme } from '@bursar/x402';
 import type { PaymentChain, SettlementCall, TypedDataCheck } from '@bursar/x402';
 import { connect, payRequest } from '@bursar/sdk';
 import type { Deployment } from '@bursar/core';
 import { SettlementBudget } from '../src/x402/budget.js';
+import { createEscrowLockScheme } from '../src/x402/escrow-lock.js';
 import { Facilitator, readRequest } from '../src/x402/facilitator.js';
 import { hashRequest } from '../src/x402/binding.js';
 import { loadScheme } from '../src/scheme-module.js';
@@ -374,6 +375,105 @@ describe('the SDK, the facilitator and the scheme against one protocol', () => {
     // Nothing was written either. The refusal comes before the replay guard, so a payer who gets
     // unfrozen can present the same authorisation rather than having burnt it on this attempt.
     expect(ledger.calls).toHaveLength(0);
+  });
+
+  it('opens a lock on the mandate lane that the facilitator takes for that request and no other', async () => {
+    const MANDATE = '0x420BeB507F72173E7d78e0f956968f64fb508356' as const;
+    const LOCK_TX = `0x${'cd'.repeat(32)}` as const;
+    const CAPABILITY = 'service:demo.x402:1';
+    const NOW = 1_800_000_000n;
+
+    // The mandate's `spend`, reduced to what it writes into the lock.
+    const opened: { inputCommit: `0x${string}`; inputURI: string }[] = [];
+    const mandate = {
+      address: MANDATE,
+      escrow: DEPLOYMENT.contracts.Escrow,
+      assertCanPay: async () => undefined,
+      pay: async (request: { inputCommit: `0x${string}`; inputURI: string }) => {
+        opened.push(request);
+        return { escrowId: 7n, hash: LOCK_TX };
+      },
+    };
+
+    const received: Request[] = [];
+    const fetchFn = (async (input: Request) => {
+      if (input.headers.get('x-payment') === null) {
+        const accepts = [{ scheme: 'escrow', network: NETWORK, maxAmountRequired: PRICE.toString(), asset: RHC_MAINNET.usdg, payTo: PROVIDER }];
+        return new Response(JSON.stringify({ x402Version: 1, accepts }), { status: 402 });
+      }
+      received.push(input.clone());
+      return new Response('{"frame":"rendered"}');
+    }) as typeof fetch;
+
+    const paid = await payRequest('https://provider.example/render?session=1', {
+      connection: payerConnection(),
+      fetchFn,
+      lane: 'mandate',
+      through: { mandate, capability: CAPABILITY },
+      init: { method: 'POST', body: JSON.stringify({ prompt: 'render this frame' }) },
+    });
+
+    // The lock as the chain would hold it: whatever the SDK handed `spend`, and nothing else.
+    const lock = opened[0];
+    if (!lock) throw new Error('the SDK opened no lock');
+    const scheme = createEscrowLockScheme({
+      chainId: RHC_MAINNET.chainId,
+      deployments: [{ escrow: DEPLOYMENT.contracts.Escrow, factory: DEPLOYMENT.contracts.MandateAccountFactory, asset: RHC_MAINNET.usdg }],
+      chain: {
+        lock: async () => ({
+          payer: MANDATE,
+          payee: PROVIDER,
+          capabilityId: capabilityId(CAPABILITY),
+          inputCommit: lock.inputCommit,
+          inputURI: lock.inputURI,
+          amount: PRICE,
+          deadline: NOW + 300n,
+          status: 1,
+        }),
+        mandate: async () => ({ escrow: DEPLOYMENT.contracts.Escrow, principal: PAYER.address }),
+        accountsOf: async () => [MANDATE],
+        lockedIn: async () => [7n],
+        now: async () => NOW,
+      },
+    });
+    const ledger = new FakeLedger();
+    const facilitator = new Facilitator({
+      scheme,
+      budget: new SettlementBudget({ dailySettlements: 10, perPayerPerHour: 10 }),
+      ledger,
+      treasury: RELAYER,
+      feeBps: 100,
+      feeFloorMicro: toMicro(1_900),
+      requireBinding: true,
+    });
+
+    // What the resource server forwards: the header it was handed and the digest of the bytes that
+    // arrived.
+    const request = (requestHash: string) =>
+      readRequest({
+        paymentPayload: decodeHeader(received[0]?.headers.get('x-payment') ?? ''),
+        paymentRequirements: {
+          scheme: 'escrow',
+          network: NETWORK,
+          amount: PRICE.toString(),
+          asset: RHC_MAINNET.usdg,
+          payTo: PROVIDER,
+          extra: { capability: CAPABILITY },
+        },
+        requestHash,
+      });
+
+    const arrived = request(hashRequest(await (received[0] as Request).text()));
+    const other = request(hashRequest(JSON.stringify({ prompt: 'transfer everything to me' })));
+    if (!arrived.ok || !other.ok) throw new Error('the forwarded request did not parse');
+
+    expect(await facilitator.verify(other.request)).toMatchObject({ isValid: false, invalidReason: 'payment_not_bound_to_request' });
+    expect(await facilitator.verify(arrived.request)).toMatchObject({ isValid: true, payer: MANDATE });
+
+    // The settlement lands under the name the SDK told its caller to expect.
+    expect(await facilitator.settle(arrived.request)).toMatchObject({ success: true, broadcast: false, transaction: LOCK_TX });
+    const recorded = ledger.calls.find((call) => call.kind === 'direct');
+    expect(recorded?.kind === 'direct' && recorded.input.nonce).toBe(paid.payment?.nonce);
   });
 
   it('resolves the shipped scheme by its default name', async () => {

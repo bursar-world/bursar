@@ -1,5 +1,14 @@
 import type { Address, Hex } from 'viem';
-import { caip2, deriveNonce, hashRequest, randomSalt } from '@bursar/core';
+import {
+  caip2,
+  deriveNonce,
+  escrowSettlementNonce,
+  hashRequest,
+  randomSalt,
+  requestCommit,
+  requestDocument,
+  requestURI,
+} from '@bursar/core';
 import type { Micro, PaymentBinding } from '@bursar/core';
 
 import { requireSigner, type Connection } from '../connection.js';
@@ -46,9 +55,13 @@ export type PaymentRecord = {
   readonly payTo: Address;
   readonly asset: Address;
   readonly network: string;
+  /**
+   * What the facilitator records the payment under: the EIP-3009 nonce the wallet signed, or on the
+   * mandate lane the settlement nonce derived from the lock.
+   */
   readonly nonce: Hex;
-  /** The escrow lock the mandate opened, on the mandate lane. */
-  readonly lock?: { readonly escrow: Address; readonly id: bigint; readonly transaction: Hex };
+  /** The escrow lock the mandate opened, on the mandate lane, and the request it committed to. */
+  readonly lock?: { readonly escrow: Address; readonly id: bigint; readonly transaction: Hex; readonly inputCommit: Hex };
   readonly settlement: Settlement | undefined;
 };
 
@@ -73,7 +86,7 @@ export type PaymentGate = {
  * A mandate that can also pay from its own balance. `MandateAccountClient` satisfies it.
  *
  * `pay` runs the account's `spend`, which debits the daily and monthly windows and moves the
- * amount into an escrow lock payable to the merchant.
+ * amount into an escrow lock payable to the merchant, committed to the input it is handed.
  */
 export type MandateSpender = PaymentGate & {
   readonly escrow: Address;
@@ -82,6 +95,7 @@ export type MandateSpender = PaymentGate & {
     readonly amount: Micro;
     readonly capability: string;
     readonly inputCommit: Hex;
+    readonly inputURI: string;
   }): Promise<{ readonly escrowId: bigint; readonly hash: Hex }>;
 };
 
@@ -262,6 +276,7 @@ export async function payRequest(
     return payThroughMandate({
       spender,
       capability: options.through.capability,
+      chainId: connection.chain.chainId,
       requirements,
       version: challenge.version,
       retryable,
@@ -354,13 +369,18 @@ function mandateSpender(through: PaymentAuthority | undefined): MandateSpender {
  * The mandate lane: the account's own `spend` opens an escrow lock for the quoted price, and the
  * retry carries a pointer to it.
  *
- * The lock commits to the same request-bound nonce the wallet lane signs, so the lock can only be
- * redeemed against the request it was opened for. The mandate's refusals surface from `pay`
+ * The lock publishes the call it pays for as its input: the method, the endpoint and the
+ * request-bound nonce the wallet lane would have signed, as canonical JSON, committed to in
+ * `inputCommit`. The facilitator recomputes that nonce from the body the provider received and the
+ * salt sent here, so the lock can only be redeemed against the request it was opened for, and only
+ * by whoever holds the salt. A resolver reading a disputed lock finds the job on chain, where a
+ * lock with no input would leave it nothing to check. The mandate's refusals surface from `pay`
  * before anything moves.
  */
 async function payThroughMandate(input: {
   readonly spender: MandateSpender;
   readonly capability: string;
+  readonly chainId: number;
   readonly requirements: PaymentRequirements;
   readonly version: X402Version;
   readonly retryable: Request;
@@ -372,16 +392,18 @@ async function payThroughMandate(input: {
     requestHash: hashRequest(new Uint8Array(await input.retryable.clone().arrayBuffer())),
     salt: randomSalt(),
   };
-  const inputCommit = deriveNonce(binding);
+  const document = requestDocument({ method: input.retryable.method, url: input.resource, binding });
+  const inputCommit = requestCommit(document);
 
   const paid = await spender.pay({
     to: requirements.payTo,
     amount: requirements.amount,
     capability: input.capability,
     inputCommit,
+    inputURI: requestURI(document),
   });
 
-  const lock = { escrow: spender.escrow, id: paid.escrowId, transaction: paid.hash };
+  const lock = { escrow: spender.escrow, id: paid.escrowId, transaction: paid.hash, inputCommit };
   const payload = {
     lock: { escrow: lock.escrow, id: lock.id.toString(), mandate: spender.address, transaction: lock.transaction, inputCommit },
     binding,
@@ -413,7 +435,7 @@ async function payThroughMandate(input: {
       payTo: requirements.payTo,
       asset: requirements.asset,
       network: requirements.network,
-      nonce: inputCommit,
+      nonce: escrowSettlementNonce({ chainId: input.chainId, escrow: lock.escrow, lockId: lock.id, inputCommit }),
       lock,
       settlement,
     },

@@ -117,6 +117,9 @@ export {
 export type { LimitsAuthorization } from './authorization.js';
 
 export { canonicalStringify, capabilityId, commitCanonical, toCapabilityId, toDataUri } from './commit.js';
+/** What a lock opened for an x402 call commits to, and the name its settlement is recorded under. */
+export { escrowSettlementNonce, readRequestURI, requestCommit, requestDocument, requestURI } from '@bursar/core';
+export type { RequestDocument } from '@bursar/core';
 export { random32 } from './random.js';
 
 export { LockStatus, MerchantGate, WindowKind, isNoLock, toLockStatus } from './types.js';
