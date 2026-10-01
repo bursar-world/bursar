@@ -153,13 +153,13 @@ const same = (left: string, right: string) => left.toLowerCase() === right.toLow
 /**
  * Whether the lock was opened for the request in front of the facilitator.
  *
- * A lock that publishes its input carries a request document: it has to hash to the lock's
- * commitment, and the request-bound nonce in it has to be the one this body and the payer's salt
- * derive. A lock from a client that published nothing committed to that nonce directly. Either
- * way it is the nonce the exact rails hold an authorisation to, so one check serves both.
+ * What binds it is the request-bound nonce: the one this body and the payer's salt derive, and the
+ * one the exact rails hold an authorisation to. The current client publishes a request document
+ * that carries it and commits the lock to that document. An earlier client committed the lock to
+ * the nonce itself.
  */
 function opensFor(lock: EscrowLock, binding: RequestBinding): boolean {
-  if (lock.inputURI === '') return nonceBindsRequest(lock.inputCommit, binding);
+  if (nonceBindsRequest(lock.inputCommit, binding)) return true;
 
   const document = readRequestURI(lock.inputURI);
   return document !== null && same(requestCommit(document), lock.inputCommit) && nonceBindsRequest(document.requestNonce, binding);

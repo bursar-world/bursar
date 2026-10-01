@@ -164,9 +164,13 @@ describe('escrow lock scheme', () => {
     await expect(scheme().verify(payload(), requirements)).resolves.toMatchObject({ isValid: true });
   });
 
-  it('still accepts a lock from a client that published no input and committed to the derived nonce', async () => {
+  it('still accepts a lock from an earlier client, which committed to the request-bound nonce itself', async () => {
     const legacy = deriveNonce({ requestHash, salt: SALT });
     const c = chain({ inputCommit: legacy, inputURI: '' });
+
+    // Whatever such a client published beside the commitment, the commitment is what binds.
+    const hosted = chain({ inputCommit: legacy, inputURI: 'https://payer.example/request.json' });
+    await expect(scheme(hosted).verify(payload({ inputCommit: legacy }), requirements, bound)).resolves.toMatchObject({ isValid: true });
 
     await expect(scheme(c).verify(payload({ inputCommit: legacy }), requirements, bound)).resolves.toMatchObject({
       isValid: true,
