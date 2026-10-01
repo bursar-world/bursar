@@ -100,6 +100,8 @@ export function createContext(config: McpConfig, options: ContextOptions = {}): 
             keys: config.shielded.keys,
             relayerUrl: config.shielded.relayerUrl,
             aspUrl: config.shielded.aspUrl,
+            caps: config.shielded.caps,
+            ledgerPath: config.shielded.ledgerPath,
           }),
     collateral:
       config.account === null || config.privateMandate !== null

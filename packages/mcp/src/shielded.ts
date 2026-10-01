@@ -28,11 +28,13 @@ import type {
   ShieldedKeys,
   SolidityProof,
 } from '@bursar/sdk';
-import { formatEther, getAddress } from 'viem';
+import { formatEther, getAddress, isAddress, isHex } from 'viem';
 import type { Address, Hex } from 'viem';
 
 import { ToolError } from './errors.js';
 import { money } from './format.js';
+import { createSpendLedger } from './ledger.js';
+import { isJsonObject } from './schema.js';
 import type { MoneyView } from './types.js';
 
 export type ShieldedStatusView = {
@@ -53,10 +55,28 @@ export type ShieldedNoteView = {
   readonly approved: boolean;
 };
 
+/**
+ * The ceilings this server holds shielded payments under. The pool caps deposits and nothing on
+ * the way out, so these are the only bound on a withdrawal, and they come from the operator's
+ * environment and from nowhere a tool argument can reach.
+ */
+export type ShieldedCaps = {
+  /** The most one payment may ask for: the amount the recipient receives. */
+  readonly perPayment: Micro;
+  /** The most that may leave the float in any 24 hours, relayer fees included. */
+  readonly perDay: Micro;
+};
+
 export type ShieldedBalanceView = {
   readonly spendable: MoneyView;
   readonly notes: readonly ShieldedNoteView[];
   readonly awaitingApproval: MoneyView;
+  readonly caps: {
+    readonly perPayment: MoneyView;
+    readonly perDay: MoneyView;
+    readonly drawnToday: MoneyView;
+    readonly leftToday: MoneyView;
+  };
   readonly note: string;
 };
 
@@ -117,10 +137,14 @@ export function createShieldedGateway(options: {
   readonly keys: ShieldedKeys | null;
   readonly relayerUrl: string | null;
   readonly aspUrl: string | null;
+  readonly caps: ShieldedCaps;
+  /** Where the day's payments are recorded. A float with nowhere to record them is not served. */
+  readonly ledgerPath: string | null;
+  readonly now?: () => number;
   readonly loadEvents?: () => Promise<PoolEvents>;
   readonly prove?: WithdrawalProver;
 }): ShieldedGateway {
-  const { client, deployment: d, keys, relayerUrl, aspUrl, chainId } = options;
+  const { client, deployment: d, keys, relayerUrl, aspUrl, chainId, caps } = options;
   const scope = BigInt(d.scope);
   const prove = options.prove ?? proveWithNodeArtifacts;
   const loadEvents =
@@ -143,7 +167,7 @@ export function createShieldedGateway(options: {
           'Set BURSAR_RELAYER_URL and restart the server.',
       );
     }
-    const q = await fetchRelayQuote(relayerUrl);
+    const q = readQuote(await fetchRelayQuote(relayerUrl), relayerUrl);
     if (q.chainId !== chainId || getAddress(q.relay) !== getAddress(d.ShieldedRelay)) {
       throw new ToolError(
         'relayer_mismatch',
@@ -198,23 +222,48 @@ export function createShieldedGateway(options: {
     return { events, root, labels, spendable, approved };
   };
 
+  const ledger = options.ledgerPath === null ? null : createSpendLedger(options.ledgerPath, options.now);
+
+  // A float with nowhere to record its day is not served: the daily cap would have nothing to count.
   const float =
-    keys === null
+    keys === null || ledger === null
       ? null
       : {
           async balance(): Promise<ShieldedBalanceView> {
             const { spendable, approved } = await notesOf(keys);
+            const day = ledger.day();
             const sum = (list: OwnedNote[]) => list.reduce((acc, n) => acc + n.value, 0n);
             return {
               spendable: money(micro(sum(spendable.filter((n) => approved.has(n.label))))),
               awaitingApproval: money(micro(sum(spendable.filter((n) => !approved.has(n.label))))),
               notes: spendable.map((n) => ({ label: n.label.toString(), value: money(micro(n.value)), approved: approved.has(n.label) })),
+              caps: {
+                perPayment: money(caps.perPayment),
+                perDay: money(caps.perDay),
+                drawnToday: money(micro(day.drawn)),
+                leftToday: money(micro(caps.perDay > day.drawn ? caps.perDay - day.drawn : 0n)),
+              },
               note: BALANCE_NOTE,
             };
           },
 
           async pay(input: ShieldedPayInput): Promise<ShieldedPaymentView> {
+            if (input.amount > caps.perPayment) {
+              throw new ToolError(
+                'shielded_payment_cap',
+                `This server sends at most ${money(caps.perPayment).usdg} USDG in one shielded payment, and this ` +
+                  `one asks for ${money(input.amount).usdg} USDG. Nothing was sent. The operator sets the cap with ` +
+                  'BURSAR_SHIELDED_PER_PAYMENT_CAP.',
+                { cap: caps.perPayment.toString(), amount: input.amount.toString() },
+              );
+            }
+
             const q = await quote();
+            const withdrawn = grossUp(input.amount, BigInt(q.feeBps));
+            // Checked against the day before the proof, which takes seconds, and written against it
+            // again right before the payment leaves.
+            ledger.check(withdrawn, caps.perDay);
+
             const blocked = await client.readContract({
               address: d.AccessRegistry,
               abi: accessRegistryAbi,
@@ -229,11 +278,13 @@ export function createShieldedGateway(options: {
               );
             }
 
-            const withdrawn = grossUp(input.amount, BigInt(q.feeBps));
             const withdrawal = {
               processooor: d.ShieldedRelay,
               data: encodeRelayData({ recipient: input.recipient, feeRecipient: q.feeRecipient, relayFeeBPS: BigInt(q.feeBps) }),
             };
+
+            // One payment is written to the ledger once, however many proofs it takes.
+            let drawn = false;
 
             // Reads the pool and the association set afresh each time, so a second attempt proves
             // against the roots as they stand then.
@@ -256,7 +307,13 @@ export function createShieldedGateway(options: {
                 aspLabels: labels,
                 context: withdrawalContext(withdrawal, scope),
               });
-              const sent = await submitRelay(relayerUrl as string, { withdrawal, proof: proofToWire(proof), gasDrop: input.gasDrop });
+              if (!drawn) {
+                ledger.draw(withdrawn, caps.perDay);
+                drawn = true;
+              }
+              const sent = readRelayResult(
+                await submitRelay(relayerUrl as string, { withdrawal, proof: proofToWire(proof), gasDrop: input.gasDrop }),
+              );
               return { change, sent };
             };
 
@@ -342,6 +399,62 @@ async function rootPosting(
   } catch {
     return { index: null, postedAt: null };
   }
+}
+
+/**
+ * The relayer is a service, and what it answers is checked before any figure from it is used or
+ * repeated. A quote this server cannot read refuses the payment in this server's own words.
+ */
+function readQuote(payload: unknown, relayerUrl: string): RelayQuote {
+  const q = isJsonObject(payload) ? payload : {};
+  const { relay, feeRecipient, feeBps, gasDropWei, chainId } = q;
+
+  if (
+    typeof relay === 'string' &&
+    isAddress(relay, { strict: false }) &&
+    typeof feeRecipient === 'string' &&
+    isAddress(feeRecipient, { strict: false }) &&
+    typeof feeBps === 'number' &&
+    Number.isInteger(feeBps) &&
+    feeBps >= 0 &&
+    feeBps <= 10_000 &&
+    typeof gasDropWei === 'string' &&
+    /^\d+$/u.test(gasDropWei) &&
+    typeof chainId === 'number' &&
+    Number.isInteger(chainId) &&
+    chainId > 0
+  ) {
+    return { relay, feeRecipient, feeBps, gasDropWei, chainId };
+  }
+
+  throw new ToolError(
+    'relayer_bad_quote',
+    `The relayer at ${relayerUrl} answered with a quote this server cannot read, so nothing was sent. ` +
+      'Check that BURSAR_RELAYER_URL points at a Bursar relayer.',
+    { relayerUrl },
+  );
+}
+
+/** The relayer submits before it answers, so an answer that cannot be read leaves the outcome open. */
+function readRelayResult(payload: unknown): RelayResult {
+  const r = isJsonObject(payload) ? payload : {};
+  const { transactionHash, gasDropWei } = r;
+
+  if (
+    typeof transactionHash === 'string' &&
+    isHex(transactionHash) &&
+    transactionHash.length === 66 &&
+    typeof gasDropWei === 'string' &&
+    /^\d+$/u.test(gasDropWei)
+  ) {
+    return { transactionHash, gasDropWei };
+  }
+
+  throw new ToolError(
+    'relayer_bad_response',
+    'The relayer took this payment and answered with something this server cannot read, so the withdrawal ' +
+      'may be on chain. Read shielded_balance before paying again: a deposit that has shrunk was spent.',
+  );
 }
 
 /** The withdrawal that leaves `amount` with the recipient after the relayer's cut. */

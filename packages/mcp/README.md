@@ -89,8 +89,8 @@ BURSAR_ASP_URL=https://asp.example        # optional
 | Tool | What it does |
 | --- | --- |
 | `shielded_pool_status` | Whether the pool takes deposits, what it holds, the per-deposit and pool caps and the room left, the association-set root in force, and the relayer's fee. Offered on every server on Robinhood Chain. |
-| `shielded_balance` | Each deposit the key file can spend from, what is left in it, and whether the association-set service has approved it. |
-| `shielded_pay` | Proves a withdrawal from the smallest approved deposit that covers the amount and hands it to the relayer. The recipient receives the full amount; the relayer's fee is drawn on top. `gasDrop` asks the relayer to send a fresh recipient its first ETH. |
+| `shielded_balance` | Each deposit the key file can spend from, what is left in it, and whether the association-set service has approved it. Also the caps below, with what the last 24 hours have drawn against them. |
+| `shielded_pay` | Proves a withdrawal from the smallest approved deposit that covers the amount and hands it to the relayer. The recipient receives the full amount; the relayer's fee is drawn on top. `gasDrop` asks the relayer to send a fresh recipient its first ETH. Refused over either cap below, before anything is proven. |
 
 One payment draws on one deposit, so an amount above the largest approved deposit is refused with
 the figure that would fit. Without `BURSAR_RELAYER_URL` the payment tool is not offered: a
@@ -99,6 +99,31 @@ set is taken from `BURSAR_ASP_URL` when it matches the root on chain and rebuilt
 otherwise. If the association set or the pool's state moves between the proof and the submission,
 the pool refuses the proof and nothing is spent, so the payment is proven once more against the new
 roots. A second refusal is reported as one.
+
+### The caps on shielded payments
+
+The pool caps what goes in and nothing that comes out: a withdrawal is bounded only by the deposit
+it spends. So this server holds every shielded payment under two ceilings of its own, read from the
+environment and from nowhere a tool argument can reach.
+
+| Variable | Default | Bounds |
+| --- | --- | --- |
+| `BURSAR_SHIELDED_PER_PAYMENT_CAP` | `10000000` (10 USDG) | The `amount` of one payment, which is what the recipient receives. |
+| `BURSAR_SHIELDED_DAILY_CAP` | `100000000` (100 USDG) | What leaves the float in any 24 hours, relayer fees included. |
+| `BURSAR_SHIELDED_LEDGER` | `<key file>.ledger.json`, beside the key file | Where the payments of the last 24 hours are recorded. |
+
+The defaults come from the pool's own figures. It takes at most 100 USDG in one deposit and one
+payment draws on one deposit, so a payment may ask for a tenth of that, and a day may draw one such
+deposit in all. A daily cap below the per-payment cap is refused at startup. A payment over either
+cap is refused before anything is proven or sent, and the refusal names the cap, the figures, and
+the variable that sets it. Over the daily cap it also names when room returns.
+
+The daily cap is a rolling window, counted from a small JSON file this server writes whole and
+renames into place before each payment leaves, so the day survives a restart and a crash mid-write
+leaves the previous file intact. A ledger that cannot be read, or cannot be written, refuses the
+payment: a day this server cannot see is a day it cannot bound. The refusal says so and names the
+file; the operator repairs it or points `BURSAR_SHIELDED_LEDGER` at a writable location. Two
+servers handed the same key file share one ledger by default, which is one float and one day.
 
 What stays visible: each deposit into the pool (who and how much), and each payment out of it (how
 much and to whom). What the pool hides is which deposit paid for which payment, and that is only as
@@ -240,6 +265,12 @@ the mandate's writes and leaves the resolver's and the provider's off, because i
 | `BURSAR_RELAY_URL` | for spending through your own signer | The signer that submits transactions for this mandate, and the only way to sign for a resolver or a provider. |
 | `BURSAR_RELAY_TOKEN` | no | Bearer token for the signer. Scrubbed from everything this server emits. |
 | `BURSAR_RELAY_TIMEOUT_MS` | no | Defaults to 30000. |
+| `BURSAR_SHIELDED_KEY_FILE` | for a shielded balance | The shielded key file the principal handed this agent. Whoever reads it can spend the balance. |
+| `BURSAR_RELAYER_URL` | for `shielded_pay` | The relayer that submits shielded withdrawals from its own wallet. Without it the payment tool is not offered. |
+| `BURSAR_ASP_URL` | no | The association-set service. The set is rebuilt from chain data when it is unset or disagrees with the chain. |
+| `BURSAR_SHIELDED_PER_PAYMENT_CAP` | no | The most one shielded payment may ask for, in six-decimal atomic units. Defaults to `10000000`, 10 USDG. |
+| `BURSAR_SHIELDED_DAILY_CAP` | no | The most that may leave the shielded float in any 24 hours, relayer fees included. Defaults to `100000000`, 100 USDG, and has to be at least the per-payment cap. |
+| `BURSAR_SHIELDED_LEDGER` | no | Where the last 24 hours of shielded payments are recorded. Defaults to a file beside the key file. Read only with `BURSAR_SHIELDED_KEY_FILE`; a ledger this server cannot read or write stops every shielded payment. |
 | `BLOCKSCOUT_API_KEY` | for `mandate_list_settlements` | Authenticates the index read. Without it the index answers 402 and the listing says the key is missing; every other tool is unaffected. |
 | `BLOCKSCOUT_API_BASE` | no | Points the listing at a different index. Defaults to `https://api.blockscout.com/4663/api/v2`. |
 

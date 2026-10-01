@@ -583,8 +583,9 @@ export const TOOLS: readonly ToolDefinition[] = [
     description:
       'Read the shielded balance this agent was handed: each deposit it can spend from, what is left in it, ' +
       'and whether the association-set service has approved it yet. Only approved deposits can pay. The ' +
-      'balance is rebuilt from public chain data with the keys in the key file; nothing is stored. Nothing ' +
-      'is spent.',
+      'balance is rebuilt from public chain data with the keys in the key file; nothing is stored. It also ' +
+      'reports the caps this server holds shielded payments under, one per payment and one per rolling ' +
+      'day, with what the last 24 hours have drawn against them. Nothing is spent.',
     inputSchema: NO_ARGUMENTS,
   },
   {
@@ -597,7 +598,10 @@ export const TOOLS: readonly ToolDefinition[] = [
       'trace of whoever funded the balance. The recipient receives the full amount; the relayer\u2019s fee is ' +
       'drawn on top, and the rest of the deposit stays in the pool. With gasDrop the relayer also sends the ' +
       'recipient a little ETH, which is how a fresh address gets its first network fee. One payment draws on ' +
-      'one deposit. Proving takes a few seconds. The amount and the recipient are public on chain.',
+      'one deposit. The pool caps deposits and not withdrawals, so this server holds every payment under two ' +
+      'caps of its own, one per payment and one per rolling day; shielded_balance reports them, and a payment ' +
+      'over either is refused before anything is proven, with the cap named. Proving takes a few seconds. The ' +
+      'amount and the recipient are public on chain.',
     inputSchema: {
       type: 'object',
       required: ['recipient', 'amount'],

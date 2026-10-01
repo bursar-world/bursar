@@ -1,5 +1,7 @@
 import {
   BursarError,
+  formatMicro,
+  micro,
   privacyDeployment,
   rhcChain,
   rhcRpcProviders,
@@ -25,7 +27,10 @@ import type {
 import { readAgentHandoff } from '@bursar/sdk';
 import type { AgentHandoff, ShieldedKeys } from '@bursar/sdk';
 import { readFileSync } from 'node:fs';
+import { join, parse } from 'node:path';
 import type { Address, Hex } from 'viem';
+
+import type { ShieldedCaps } from './shielded.js';
 
 export type RelayConfig = {
   readonly url: string;
@@ -87,9 +92,21 @@ export type ShieldedConfig = {
   readonly relayerUrl: string | null;
   /** services/asp. Optional: the set is rebuilt from chain data when it is absent or disagrees. */
   readonly aspUrl: string | null;
+  /** The ceilings this server holds shielded payments under. The pool has none on a withdrawal. */
+  readonly caps: ShieldedCaps;
+  /** Where the day's payments are recorded against the daily cap. Null without a key file. */
+  readonly ledgerPath: string | null;
 };
 
 export const SHIELDED_KEYS_KIND = 'bursar-shielded-keys';
+
+/**
+ * The caps a server runs under until the operator sets its own, taken from the pool's own figures.
+ * The pool takes at most 100 USDG in one deposit and one payment draws on one deposit, so a payment
+ * may ask for a tenth of that, and a rolling day may draw one such deposit in all.
+ */
+export const DEFAULT_SHIELDED_PER_PAYMENT_CAP = micro(10_000_000n);
+export const DEFAULT_SHIELDED_DAILY_CAP = micro(100_000_000n);
 
 export type ProviderConfig = {
   readonly account: Address;
@@ -163,6 +180,12 @@ const SCHEMA = {
   BURSAR_SHIELDED_KEY_FILE: optional(envVar.string({ minLength: 1 })),
   BURSAR_RELAYER_URL: optional(envVar.url({ protocols: ['http:', 'https:'] })),
   BURSAR_ASP_URL: optional(envVar.url({ protocols: ['http:', 'https:'] })),
+  // The pool caps deposits and nothing on the way out, so a shielded payment is bounded here and
+  // nowhere else. These are money variables with a default, which the schema otherwise forbids: a
+  // cap an operator forgot to set can only stop a payment, never make one.
+  BURSAR_SHIELDED_PER_PAYMENT_CAP: optional(envVar.micro({ min: micro(1n) })),
+  BURSAR_SHIELDED_DAILY_CAP: optional(envVar.micro({ min: micro(1n) })),
+  BURSAR_SHIELDED_LEDGER: optional(envVar.string({ minLength: 1 })),
   BURSAR_RELAY_TOKEN: optional(envVar.string({ minLength: 8, secret: true })),
   BURSAR_RELAY_TIMEOUT_MS: withDefault(envVar.int({ min: 1_000, max: 120_000 }), 30_000),
   // The names `@bursar/core` reads the index under, declared here so one missing variable is
@@ -395,7 +418,8 @@ function shieldedConfig(env: Env, chainId: number, privacy: PrivacyDeployment | 
 
   const relayerUrl = env.BURSAR_RELAYER_URL ?? null;
   const aspUrl = env.BURSAR_ASP_URL ?? null;
-  if (path === undefined) return { deployment, keys: null, relayerUrl, aspUrl };
+  const caps = shieldedCaps(env);
+  if (path === undefined) return { deployment, keys: null, relayerUrl, aspUrl, caps, ledgerPath: null };
 
   let text: string;
   try {
@@ -404,7 +428,40 @@ function shieldedConfig(env: Env, chainId: number, privacy: PrivacyDeployment | 
     throw new BursarError('env_invalid', `BURSAR_SHIELDED_KEY_FILE names ${path}, and it could not be read.`, { path });
   }
 
-  return { deployment, keys: readShieldedKeys(text, chainId, deployment.ShieldedPool), relayerUrl, aspUrl };
+  return {
+    deployment,
+    keys: readShieldedKeys(text, chainId, deployment.ShieldedPool),
+    relayerUrl,
+    aspUrl,
+    caps,
+    ledgerPath: env.BURSAR_SHIELDED_LEDGER ?? ledgerBeside(path),
+  };
+}
+
+function shieldedCaps(env: Env): ShieldedCaps {
+  const perPayment = env.BURSAR_SHIELDED_PER_PAYMENT_CAP ?? DEFAULT_SHIELDED_PER_PAYMENT_CAP;
+  const perDay = env.BURSAR_SHIELDED_DAILY_CAP ?? DEFAULT_SHIELDED_DAILY_CAP;
+
+  if (perDay < perPayment) {
+    throw new BursarError(
+      'env_invalid',
+      `BURSAR_SHIELDED_DAILY_CAP is ${formatMicro(perDay)} USDG and BURSAR_SHIELDED_PER_PAYMENT_CAP is ` +
+        `${formatMicro(perPayment)} USDG. A day has to have room for one payment at the cap.`,
+      { perDay: perDay.toString(), perPayment: perPayment.toString() },
+    );
+  }
+
+  return { perPayment, perDay };
+}
+
+/**
+ * The ledger sits beside the key file unless the operator puts it elsewhere. The file is the
+ * float, so the record of what has left it belongs where the file is, and two servers handed the
+ * same file share one day.
+ */
+function ledgerBeside(keyFile: string): string {
+  const { dir, name } = parse(keyFile);
+  return join(dir, `${name}.ledger.json`);
 }
 
 const FIELD = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
