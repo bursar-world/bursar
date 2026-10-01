@@ -41,11 +41,11 @@
   "dependencies": {
     "@bursar/core": "workspace:*",
     "@bursar/sdk": "workspace:*",
-    "viem": "2.56.3"
+    "viem": "2.56.9"
   },
   "devDependencies": {
-    "@types/node": "22.20.2",
-    "tsx": "4.23.13",
+    "@types/node": "22.20.4",
+    "tsx": "4.23.15",
     "typescript": "5.9.3",
     "vitest": "4.1.11"
   },

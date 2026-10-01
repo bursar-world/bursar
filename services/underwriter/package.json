@@ -35,12 +35,12 @@
   "dependencies": {
     "@bursar/core": "workspace:*",
     "pg": "8.23.0",
-    "viem": "2.56.3"
+    "viem": "2.56.9"
   },
   "devDependencies": {
-    "@types/node": "22.20.2",
+    "@types/node": "22.20.4",
     "@types/pg": "8.23.1",
-    "tsx": "4.23.13",
+    "tsx": "4.23.15",
     "typescript": "5.9.3",
     "vitest": "4.1.11"
   },
