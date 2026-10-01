@@ -11,7 +11,7 @@ import {World} from "../World.sol";
 
 /// The planned contract set, deployed by the real scripts from its mainnet record, by the record's
 /// own deploy key, onto a fork of Robinhood Chain as it stands. The record carries the timelock and
-/// the token set over from the live deployment, so those scripts join rather than deploy. What the
+/// the token set over from the live deployment, so those scripts join what they find. What the
 /// lanes then touch is live: the feeds, the pinned pools, the access registry, USDG and its issuer
 /// controls. Nothing is mocked.
 ///

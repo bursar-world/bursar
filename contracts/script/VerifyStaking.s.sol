@@ -52,7 +52,9 @@ abstract contract StakingChecks is Verifier {
         _is("Staking.treasury", _recordAddress(K.TREASURY), staking.treasury());
         _isUint("Staking.unbondingPeriod", _param("Staking.unbondingPeriod"), staking.unbondingPeriod());
         _isUint("Staking.minBond", _param("Staking.minBond"), staking.minBond());
-        _isTrue("Staking is paused", !staking.paused());
+        bool paused = staking.paused();
+        _fact("Staking.paused", paused);
+        _isTrue("Staking is paused", !paused);
 
         uint256 floor = _param("Staking.resolverBondFloor");
         address[] memory resolvers = _recordAddresses(K.RESOLVERS);

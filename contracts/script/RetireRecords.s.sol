@@ -124,8 +124,8 @@ contract RetireRecords is Migration {
     }
 
     /// The apps can move once the new set has its examples and the carried staking pool answers to
-    /// the new credit pool. The committed example needs terms from the console, so it is noted
-    /// rather than required.
+    /// the new credit pool. The committed example needs terms sealed with the payer's own
+    /// signature, so its absence is noted and stops nothing.
     function _requireUsable() private view {
         if (_recordAddress(".exampleMandate.address").code.length == 0) {
             revert NotReadyForLive("exampleMandate: MigrateExamples.s.sol create() has not run");
@@ -180,8 +180,8 @@ contract RetireRecords is Migration {
             console2.log("the previous credit pool still holds cash or debt");
         }
 
-        // Every balance, not only what is booked to a line: a sale that stopped short or a
-        // transfer sent by hand is still somebody's.
+        // Every balance the vault holds, booked to a line or left by a sale that stopped short or
+        // a transfer sent by hand: each is still somebody's.
         address vault = _previous(K.COLLATERAL_VAULT);
         for (uint256 i; i < symbols.length; ++i) {
             address asset = _previousOptional(string.concat(K.RWA_ASSETS, ".", symbols[i], ".address"));
