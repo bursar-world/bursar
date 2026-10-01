@@ -1,12 +1,12 @@
 import { canonicalStringify, commitCanonical, toDataUri } from '@bursar/core';
-import { encodeEvidence, signDeliveryEvidence } from '@bursar/sdk';
+import { encodeEvidence, signDeliveryEvidence, signPayerStatement } from '@bursar/sdk';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Address } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
 import { DisputeStatus, LockStatus } from '../src/chain.js';
 import { NO_VALIDATORS } from '../src/evidence.js';
-import { createHandler } from '../src/http.js';
+import { MAX_SUBMISSIONS, createHandler } from '../src/http.js';
 import { openMemoryJournal } from '../src/journal.js';
 import type { Journal } from '../src/journal.js';
 import { V3_IN_FORCE_FROM } from '../src/policy.js';
@@ -245,6 +245,22 @@ describe('voter', () => {
     // Its ruling lands well after Version 3 took force, and is still the one it opened under.
     await drive(r, disputeId, opened + 13n * HOUR);
     expect((await ruling(r, disputeId)).body).toMatchObject({ policyVersion: 'v2', rule: 'P1', score: 0 });
+  });
+
+  it("keeps room for the payee's evidence however many statements the payer sends", async () => {
+    const payerKey = privateKeyToAccount(`0x${'c3'.repeat(32)}`);
+    const { escrowId } = openJob(r.chain, { payer: payerKey.address });
+    const post = (body: unknown) => r.handle({ method: 'POST', path: '/evidence', query: new URLSearchParams(), body, token: null });
+
+    for (let index = 0; index < MAX_SUBMISSIONS; index += 1) {
+      const statement = await signPayerStatement(payerKey, ESCROW, 4663, { escrowId, reason: `statement ${index}` });
+      expect((await post(encodeEvidence(statement))).status).toBe(202);
+    }
+    const more = await signPayerStatement(payerKey, ESCROW, 4663, { escrowId, reason: 'one more' });
+    expect((await post(encodeEvidence(more))).status).toBe(409);
+
+    // The payer's room is full. The payee's is not, so the delivery still counts.
+    expect((await deliver(r, escrowId)).body).toMatchObject({ counted: true });
   });
 
   it('reveals after a restart with an empty journal, recovering the score from the chain', async () => {

@@ -22,7 +22,10 @@ import type { Health } from './watcher.js';
 /** A signed delivery with its output inline fits comfortably. Anything bigger belongs at a URL. */
 export const MAX_BODY_BYTES = 64 * 1_024;
 
-/** Per dispute. Only a party can sign one, so this bounds a party, not the public. */
+/**
+ * Per party per dispute. Only a party can sign one, so this bounds a party, not the public, and a
+ * payer cannot fill the inbox with statements to keep the payee's delivery evidence out of it.
+ */
 export const MAX_SUBMISSIONS = 32;
 
 const MAX_REASON_CHARS = 2_000;
@@ -111,7 +114,7 @@ export function createHandler(options: HttpOptions): (request: { method: string;
     await journal.update(served.registry, disputeId, (current) => {
       if (current === undefined) return undefined;
       if (current.submissions.some((entry) => entry.hash === hash)) return undefined;
-      if (current.submissions.length >= MAX_SUBMISSIONS) {
+      if (current.submissions.filter((entry) => isAddressEqual(entry.signer, signer)).length >= MAX_SUBMISSIONS) {
         full = true;
         return undefined;
       }
@@ -120,7 +123,7 @@ export function createHandler(options: HttpOptions): (request: { method: string;
         submissions: [...current.submissions, { receivedAt: head.timestamp, hash, signer, wire: encodeEvidence(submission) }],
       };
     });
-    if (full) return refuse(409, 'inbox_full', `Dispute ${disputeId} already holds ${MAX_SUBMISSIONS} submissions.`);
+    if (full) return refuse(409, 'inbox_full', `Dispute ${disputeId} already holds ${MAX_SUBMISSIONS} submissions from ${signer}.`);
 
     return reply(202, {
       accepted: true,
