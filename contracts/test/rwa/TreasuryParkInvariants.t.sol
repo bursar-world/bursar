@@ -15,6 +15,7 @@ import {IMandateAccountFactory} from "../../src/interfaces/IMandateAccountFactor
 import {AssetRegistry} from "../../src/rwa/AssetRegistry.sol";
 import {PriceGuard} from "../../src/rwa/PriceGuard.sol";
 import {TreasuryPark} from "../../src/rwa/TreasuryPark.sol";
+import {V4Swapper} from "../../src/rwa/V4Swapper.sol";
 import {RobinhoodStockAdapter} from "../../src/rwa/adapters/RobinhoodStockAdapter.sol";
 import {UsdgAdapter} from "../../src/rwa/adapters/UsdgAdapter.sol";
 import {IAccessRegistry, IStateView} from "../../src/rwa/interfaces/IRwaExternal.sol";
@@ -56,6 +57,7 @@ struct ParkWiring {
 /// governance switched off. Counters carry the findings out.
 contract TreasuryParkHandler is CommonBase, StdUtils {
     uint256 internal constant BPS = 10_000;
+    uint256 internal constant Q96 = 1 << 96;
     uint256 internal constant SGOV_E8 = 101_17856966;
     bytes32 internal constant CAPABILITY = keccak256("service:gpu.render:1");
 
@@ -378,14 +380,15 @@ contract TreasuryParkHandler is CommonBase, StdUtils {
 
     /// Puts the market back, leaves every governance switch where the run left it, and takes
     /// every position and every idle balance back to its mandate. Expected to land on every
-    /// position: the money in an adapter governance disabled or an asset it delisted is still
-    /// the mandate's.
+    /// position the pool can fill: the money in an adapter governance disabled or an asset it
+    /// delisted is still the mandate's. A sliver too small for its sale to clear the adapter's
+    /// floor stays where it is, and the caller holds what is left to a dust bound.
     function drain() external {
         _restoreMarket();
         for (uint256 i; i < mandates.length; ++i) {
             for (uint256 j; j < adapters.length; ++j) {
                 (uint256 raw,,,,,) = park.position(mandates[i], adapters[j]);
-                if (raw == 0) continue;
+                if (raw == 0 || !sellable(adapters[j], raw)) continue;
                 vm.prank(principal);
                 uint256 usdgOut = park.unpark(mandates[i], adapters[j], raw, 0);
                 unparks += 1;
@@ -418,6 +421,23 @@ contract TreasuryParkHandler is CommonBase, StdUtils {
         uint256 pool = _poolPriceE8(a);
         uint256 gap = pool > price ? pool - price : price - pool;
         return pool != 0 && Math.mulDiv(gap, BPS, price, Math.Rounding.Ceil) <= a.bandBps;
+    }
+
+    /// Whether the pool's fill for `raw` clears the adapter's floor. The adapter refuses a sale
+    /// that fills under the feed value less the band, and the pool rounds every fill down, so
+    /// the sale of a sliver worth a fraction of a cent rounds under its own floor, or to nothing,
+    /// and is refused. The fill is the local manager's own arithmetic. The reserve always sells.
+    function sellable(address adapter, uint256 raw) public view returns (bool) {
+        if (adapter == address(usdgAdapter)) return true;
+        AssetRegistry.Asset memory a = registry.get(address(sgov));
+        (uint160 s,,,) = manager.getSlot0(keccak256(abi.encode(a.pool)));
+        uint256 net = (raw * (1_000_000 - a.pool.fee)) / 1_000_000;
+        uint256 atMid = a.pool.currency0 == address(sgov)
+            ? Math.mulDiv(Math.mulDiv(net, s, Q96), s, Q96)
+            : Math.mulDiv(Math.mulDiv(net, Q96, s), Q96, s);
+        uint256 fill = (atMid * (BPS - manager.haircutBps())) / BPS;
+        uint256 atFeed = Math.mulDiv(raw, uint256(feed.answer()), 10 ** (uint256(a.decimals) + 2));
+        return fill != 0 && fill >= Math.mulDiv(atFeed, BPS - a.bandBps, BPS);
     }
 
     function _park(address mandate, address adapter, uint256 amount, address caller) private {
@@ -478,8 +498,16 @@ contract TreasuryParkHandler is CommonBase, StdUtils {
             if (usdgOut > _worth(adapter, raw) || usdg.balanceOf(mandate) != held + usdgOut) yieldBreaks += 1;
             _checkCut(mandate, adapter, raw, before);
         } catch {
-            if (legal && caller == principal && _marketOpen()) refusals += 1;
+            if (legal && _fillable(mandate, adapter, raw)) refusals += 1;
         }
+    }
+
+    /// Whether nothing outside the park's own rules stands between a position and its sale. The
+    /// reserve always sells. SGOV sells while the drain's market is in force, the access registry
+    /// does not block the mandate, and the fill clears the floor.
+    function _fillable(address mandate, address adapter, uint256 raw) private view returns (bool) {
+        if (adapter == address(usdgAdapter)) return true;
+        return _marketOpen() && !access.isBlocked(mandate) && sellable(adapter, raw);
     }
 
     /// The basis comes off in the position's own proportion, rounded against the mandate, and
@@ -591,6 +619,11 @@ contract TreasuryParkInvariantTest is Test {
     uint256 internal constant SGOV_E8 = 101_17856966;
     uint32 internal constant H26 = 26 hours;
     uint32 internal constant H100 = 100 hours;
+
+    /// A tenth of a cent, in USDG units. A position remainder worth less can be too small for its
+    /// sale to clear the adapter's floor, as the finding test below shows; nothing worth this
+    /// much or more may ever be left behind.
+    uint256 internal constant DUST = 1_000;
 
     MockERC20 internal usdg;
     MockStock internal sgov;
@@ -854,33 +887,99 @@ contract TreasuryParkInvariantTest is Test {
     function invariant_theAdminSeatMovesOnlyByOfferAndAcceptance() public view {
         assertEq(park.admin(), handler.admin(), "the admin seat moved without an accepted offer");
         assertEq(handler.seatBreaks(), 0, "a stranger took the seat, or an offer moved it on its own");
-        assertEq(handler.refusals(), 0, "a call inside every rule was refused");
+    }
+
+    /// Nothing but the park's own rules refuses a move the reserve can make, and while the
+    /// market is open nothing else refuses one in SGOV: setting a buffer, returning idle USDG and
+    /// unparking what a position holds all land.
+    function invariant_aMoveInsideEveryRuleIsNeverRefused() public view {
+        assertEq(handler.refusals(), 0, "a move inside every rule was refused");
     }
 
     /// Every run ends with every position sold back and every vault emptied, with the governance
-    /// switches left exactly where the run put them. Nothing is stranded: the adapters hold
-    /// nothing, the basis totals are zero, and every mandate holds its money again.
+    /// switches left exactly where the run put them. Nothing is stranded: the reserve adapter
+    /// holds nothing, every mandate holds its money again, and what is left of an SGOV position
+    /// is a sliver under the dust bound that the pool cannot fill at the adapter's floor.
     function afterInvariant() public {
         if (handler.parks() == 0) handler.drivePark();
         assertGt(handler.parks(), 0, "nothing was ever parked");
         handler.drain();
 
+        uint256 slivers;
         for (uint256 i; i < handler.mandateCount(); ++i) {
             address mandate = handler.mandates(i);
             assertEq(usdg.balanceOf(park.vaultOf(mandate)), 0, "USDG left in a vault");
-            for (uint256 j; j < handler.adapterCount(); ++j) {
-                (uint256 raw, uint256 basis,,,,) = park.position(mandate, handler.adapters(j));
-                assertEq(raw + basis, 0, "a position was stranded");
+            (uint256 reserve, uint256 reserveBasis,,,,) = park.position(mandate, address(usdgAdapter));
+            assertEq(reserve + reserveBasis, 0, "a reserve position was stranded");
+
+            (uint256 raw, uint256 basis, uint256 value,,, bool fresh) = park.position(mandate, address(sgovAdapter));
+            if (raw == 0) {
+                assertEq(basis, 0, "basis left on an empty position");
+                continue;
             }
+            slivers += 1;
+            assertTrue(fresh, "the restored market reads stale");
+            assertLt(value, DUST, "an SGOV position above dust was stranded");
+            assertLe(basis, 2 * DUST, "basis above dust was left standing");
+            assertFalse(handler.sellable(address(sgovAdapter), raw), "a position the pool could fill was left behind");
         }
-        assertEq(sgov.balanceOf(address(sgovAdapter)), 0, "SGOV stranded on its adapter");
         assertEq(usdg.balanceOf(address(usdgAdapter)), 0, "USDG stranded on the reserve adapter");
-        assertEq(
-            park.totalBasis(address(sgovAdapter)) + park.totalBasis(address(usdgAdapter)), 0, "basis left standing"
-        );
+        assertEq(park.totalBasis(address(usdgAdapter)), 0, "reserve basis left standing");
+        assertLe(park.totalBasis(address(sgovAdapter)), slivers * 2 * DUST, "SGOV basis above dust left standing");
         invariant_usdgIsConservedPerMandate();
         invariant_anUnparkReturnsNoMoreThanThePositionIsWorth();
         invariant_theSettlementAssetIsConservedAcrossEveryHolder();
+        invariant_aMoveInsideEveryRuleIsNeverRefused();
+    }
+
+    /// Finding, kept as a test of what the contracts do today. The SGOV adapter refuses a sale
+    /// whose fill lands under the feed value less the band, and a pool rounds every fill down.
+    /// Under a fraction of a cent the rounding alone is wider than the band, and under one unit
+    /// of USDG the fill is nothing at all. A position's last sliver therefore cannot be unparked
+    /// on its own: the call reverts with SwapShort, the raw stays on the adapter and its basis
+    /// stays counted against the caps. Nothing worth a tenth of a cent or more is affected, and
+    /// the sliver is not lost: parked on top of, the position sells whole.
+    function test_finding_aSliverOfAnSgovPositionCannotBeUnparkedOnItsOwn() public {
+        address mandate = mandates[0];
+        address vault = park.vaultOf(mandate);
+        vm.startPrank(principal);
+        MandateAccount(mandate).withdraw(address(usdg), vault, 61e6);
+        uint256 raw = park.park(mandate, address(sgovAdapter), 50e6, 0);
+
+        // Half a unit of USDG at the feed. The pool fills nothing for it.
+        uint256 sliver = 5e9;
+        park.unpark(mandate, address(sgovAdapter), raw - sliver, 0);
+        vm.expectRevert(abi.encodeWithSelector(V4Swapper.SwapShort.selector, 0, 0));
+        park.unpark(mandate, address(sgovAdapter), sliver, 0);
+
+        (uint256 left, uint256 basis, uint256 value,,,) = park.position(mandate, address(sgovAdapter));
+        assertEq(left, sliver, "the sliver left the position");
+        assertEq(value, 0, "the sliver has a value at the feed");
+        assertLe(basis, 1, "more than a unit of basis rode on the sliver");
+        assertEq(sgov.balanceOf(address(sgovAdapter)), sliver, "the adapter does not hold the sliver");
+        assertFalse(handler.sellable(address(sgovAdapter), sliver), "the handler would have sold it");
+
+        // Two hundred units, a fiftieth of a cent. The pool fills 198 and the floor asks 199.
+        park.park(mandate, address(sgovAdapter), 10e6, 0);
+        (left,,,,,) = park.position(mandate, address(sgovAdapter));
+        uint256 crumb = (200 * 1e20) / SGOV_E8 + 1;
+        park.unpark(mandate, address(sgovAdapter), left - crumb, 0);
+        vm.expectPartialRevert(V4Swapper.SwapShort.selector);
+        park.unpark(mandate, address(sgovAdapter), crumb, 0);
+        (,, value,,,) = park.position(mandate, address(sgovAdapter));
+        assertEq(value, 200, "the crumb is not worth two hundred units at the feed");
+        assertLt(value, DUST);
+
+        // Parked on top of, the whole position sells and the book closes.
+        park.park(mandate, address(sgovAdapter), 1e6, 0);
+        (left,,,,,) = park.position(mandate, address(sgovAdapter));
+        park.unpark(mandate, address(sgovAdapter), left, 0);
+        vm.stopPrank();
+
+        (left, basis,,,,) = park.position(mandate, address(sgovAdapter));
+        assertEq(left + basis, 0, "the position did not close");
+        assertEq(sgov.balanceOf(address(sgovAdapter)), 0, "SGOV left on the adapter");
+        assertEq(park.totalBasis(address(sgovAdapter)), 0, "basis left standing");
     }
 
     function _wire(MandateAccount account) private {
