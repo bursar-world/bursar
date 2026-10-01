@@ -222,7 +222,7 @@ contract DeployRwa is BursarScript {
             }
         }
         _write(K.USDG_ADAPTER, address(d.usdgAdapter));
-        _write(K.RWA_FROM_BLOCK, block.number);
+        _write(K.RWA_FROM_BLOCK, _chainBlock());
 
         _write(".parameters.PriceGuard.minObservationAge", minObservationAge);
         _write(".parameters.PriceGuard.maxObservationAge", maxObservationAge);

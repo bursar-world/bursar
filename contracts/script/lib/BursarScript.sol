@@ -7,6 +7,13 @@ import {console2} from "forge-std/console2.sol";
 
 import {RecordKeys as K} from "./RecordKeys.sol";
 
+/// The Arbitrum precompile at address 100, which answers the chain's own block height. Robinhood
+/// Chain is an Arbitrum chain, so `block.number` there is Ethereum's block number, tens of millions
+/// behind the height its own logs are indexed by.
+interface IArbSys {
+    function arbBlockNumber() external view returns (uint256);
+}
+
 /// The part of `AdminTimelock` a script reads to know it is looking at governance. Declared here
 /// because the shielded scripts build on this contract with the compiler the vendored code needs,
 /// and `src/` outside `shielded/` is pinned to the other one.
@@ -371,6 +378,16 @@ abstract contract BursarScript is Script {
 
     function _twoDigits(uint256 n) private pure returns (string memory) {
         return n < 10 ? string.concat("0", vm.toString(n)) : vm.toString(n);
+    }
+
+    /// The block a reader scans this deployment's logs from: the chain's own height, which the
+    /// Arbitrum precompile answers on Robinhood Chain and in a simulation against it. A chain with
+    /// no precompile at that address, which a local anvil is, answers nothing, and its `block.number`
+    /// is the height its logs are indexed by.
+    function _chainBlock() internal view returns (uint256) {
+        (bool ok, bytes memory answer) = address(100).staticcall(abi.encodeCall(IArbSys.arbBlockNumber, ()));
+        if (ok && answer.length == 32) return abi.decode(answer, (uint256));
+        return block.number;
     }
 
     /// Whether `account`'s code carries `target` as a 20-byte constant, which is how a contract

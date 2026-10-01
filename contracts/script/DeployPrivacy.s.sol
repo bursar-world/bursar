@@ -78,7 +78,7 @@ contract DeployPrivacy is BursarScript {
         _write(K.DISCLOSURES, address(d.disclosures));
         _write(K.SOLVENCY_LOG, address(d.solvency));
         _write(K.SOLVENCY_POSTER, poster);
-        _write(K.PRIVACY_FROM_BLOCK, block.number);
+        _write(K.PRIVACY_FROM_BLOCK, _chainBlock());
         _writeAmount(".parameters.CommittedMandateFactory.ceiling", CEILING);
 
         console2.log("WithinMandateVerifier", address(d.verifier));

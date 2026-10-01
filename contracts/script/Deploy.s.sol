@@ -488,7 +488,7 @@ contract Deploy is BursarScript {
 
     function _record(address deployer) private {
         if (_recordAddress(K.DEPLOYER) == address(0)) _write(K.DEPLOYER, deployer);
-        if (!_recorded(K.FROM_BLOCK)) _write(K.FROM_BLOCK, block.number);
+        if (!_recorded(K.FROM_BLOCK)) _write(K.FROM_BLOCK, _chainBlock());
 
         address[] memory signerList = new address[](3);
         for (uint256 i; i < 3; ++i) {

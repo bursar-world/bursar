@@ -201,7 +201,7 @@ contract DeployShielded is BursarScript {
         _write(K.SHIELDED_MAX_RELAY_FEE, MAX_RELAY_FEE_BPS);
         _write(K.ASP_POSTMAN, postman);
         _write(K.SHIELDED_RELAYER, relayer);
-        _write(K.SHIELDED_FROM_BLOCK, block.number);
+        _write(K.SHIELDED_FROM_BLOCK, _chainBlock());
     }
 
     function _report() private view {

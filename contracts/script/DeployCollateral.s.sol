@@ -188,7 +188,7 @@ contract DeployCollateral is BursarScript {
         _write(K.COLLATERAL_VAULT, address(d.vault));
         _write(K.COLLATERAL_STAKING, staking);
         _write(K.LENDER, lender);
-        _write(K.COLLATERAL_FROM_BLOCK, block.number);
+        _write(K.COLLATERAL_FROM_BLOCK, _chainBlock());
 
         _writeAmount(".parameters.CreditPool.totalDebtCap", C.TOTAL_DEBT_CAP);
         _writeAmount(".parameters.CreditPool.perMandateCap", C.PER_MANDATE_CAP);
