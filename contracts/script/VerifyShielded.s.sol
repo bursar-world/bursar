@@ -83,7 +83,7 @@ abstract contract ShieldedChecks is Verifier {
         _isTrue("Entrypoint: the postman does not hold ASP_POSTMAN", postmanPosts);
         _isTrue("Entrypoint: the deploy key holds ASP_POSTMAN", !deployerPosts);
         bytes32 slot = vm.load(address(e), IMPLEMENTATION_SLOT);
-        _is("Entrypoint implementation", implementation, address(uint160(uint256(slot))));
+        _is("Entrypoint.implementation", implementation, address(uint160(uint256(slot))));
 
         (address registered, uint256 minimumDeposit, uint256 vettingFee, uint256 maxRelayFee) =
             e.assetConfig(_settlementAsset());

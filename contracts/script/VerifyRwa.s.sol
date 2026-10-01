@@ -74,7 +74,7 @@ abstract contract RwaChecks is Verifier {
             string memory at = string.concat(K.RWA_ASSETS, ".", terms[i].symbol);
             address token = _recordAddress(string.concat(at, ".address"));
             _is(
-                string.concat(at, " differs from external.assets"),
+                string.concat("rwa.assets.", terms[i].symbol, ".address"),
                 _recordAddress(string.concat(K.EXTERNAL_ASSETS, ".", terms[i].symbol, ".address")),
                 token
             );

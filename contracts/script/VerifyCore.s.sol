@@ -54,9 +54,9 @@ abstract contract CoreChecks is Verifier {
                 if (isAddress) _is(seat, signers[i], signer);
             }
         }
-        _isUintAt("the deploy key holds a signer seat", 0, timelock, abi.encodeCall(t.isSigner, (deployer)));
+        _isUintAt("AdminTimelock.isSigner(deploy key)", 0, timelock, abi.encodeCall(t.isSigner, (deployer)));
         if (hasGuardian) {
-            _isUintAt("the guardian holds a signer seat", 0, timelock, abi.encodeCall(t.isSigner, (guardian)));
+            _isUintAt("AdminTimelock.isSigner(guardian)", 0, timelock, abi.encodeCall(t.isSigner, (guardian)));
         }
     }
 
@@ -108,7 +108,7 @@ abstract contract CoreChecks is Verifier {
         _isParamAt("Escrow.maxTtl", escrow, _sig(e.maxTtl.selector));
         _isParamAt("Escrow.disputeWindow", escrow, _sig(e.disputeWindow.selector));
         _isParamAt("Escrow.minLock", escrow, _sig(e.minLock.selector));
-        _isUintAt("Escrow is paused", 0, escrow, _sig(e.paused.selector));
+        _isUintAt("Escrow.paused", 0, escrow, _sig(e.paused.selector));
     }
 
     function _checkRegistry(address registry, address deployer) private {
@@ -119,7 +119,7 @@ abstract contract CoreChecks is Verifier {
         _isAt("OracleRegistry.slashSink", _recordAddress(K.SLASH_SINK), registry, _sig(o.slashSink.selector));
         _isAt("OracleRegistry.settlementAsset", _settlementAsset(), registry, _sig(o.settlementAsset.selector));
         _isAt("OracleRegistry.deployer", deployer, registry, _sig(o.deployer.selector));
-        _isUintAt("OracleRegistry is paused", 0, registry, _sig(o.paused.selector));
+        _isUintAt("OracleRegistry.paused", 0, registry, _sig(o.paused.selector));
 
         (bool ok, bytes memory answer) = _ask("OracleRegistry.config", registry, _sig(o.config.selector), 7);
         if (ok) {
