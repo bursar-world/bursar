@@ -198,7 +198,11 @@ contract AgentRegistry is IAgentRegistry, Pausable, ReentrancyGuard {
 
     /// An active agent has to leave `minStake` behind. Dropping below the floor is a
     /// deregistration, and `deactivate` is the way to ask for one.
-    function requestWithdrawal(uint128 amount) external whenNotPaused onlyRegistered {
+    ///
+    /// Open while paused, like the execution. The delay runs from the request, so a request the
+    /// brake refused would hold the stake for the length of the pause and seven days more. The
+    /// brake stops collateral arriving, never collateral leaving.
+    function requestWithdrawal(uint128 amount) external onlyRegistered {
         if (amount == 0) revert ZeroAmount();
         if (withdrawals[msg.sender].amount != 0) revert WithdrawalPending();
 
