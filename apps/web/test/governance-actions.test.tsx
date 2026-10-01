@@ -10,7 +10,7 @@ import type { AdminAction } from '@/chain/admin-actions';
 import { CallPreview } from '@/app/(app)/governance/builder';
 import { governanceTimelocks, statusOf } from '@/app/(app)/governance/read';
 import { TOKEN_ROLES } from '@/chain';
-import { contractSetOf, deploymentForChain } from '@bursar/core';
+import { contractSetAtLeast, contractSetOf, deploymentForChain } from '@bursar/core';
 import { CUSTODY_LINE, answerInList, answerIs, governanceNotice, permits } from '@/app/(app)/governance/roles';
 import type { Roles } from '@/app/(app)/governance/roles';
 
@@ -172,7 +172,7 @@ describe('the governance delays on this chain', () => {
 
   it('says a brake stops each target on its own only where the delay runs the current build', () => {
     const current = contractSetOf(deploymentForChain(4663));
-    expect(tags[0]?.brake).toBe(current === 'v3' ? 'each-target' : 'all-or-nothing');
+    expect(tags[0]?.brake).toBe(contractSetAtLeast(current, 'v3') ? 'each-target' : 'all-or-nothing');
     expect(tags.slice(1).every((tag) => tag.brake === 'all-or-nothing')).toBe(true);
   });
 });
