@@ -44,9 +44,10 @@ interface IEscrow {
         Resolved
     }
 
-    /// `counted` records that this lock has already moved a reputation counter. One lock is
-    /// worth one counter, and a release contested inside the dispute window has to pick which
-    /// one, and it never writes both.
+    /// `counted` records that this lock has already been written into the payee's history. One
+    /// lock is written once: a release contested inside the dispute window has to pick which
+    /// outcome it reports, and it never reports both. Whether the write moved a counter is the
+    /// reputation contract's call; a lock under its scored minimum moves none.
     struct Lock {
         address payer;
         address payee;

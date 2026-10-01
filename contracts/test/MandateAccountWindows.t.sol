@@ -873,7 +873,9 @@ contract MandateAccountWindowsTest is Test {
 
     function test_theWindowsBindTheSameWayThroughTheRealEscrow() public {
         Reputation reputation = new Reputation(
-            principal, IReputation.CapCurve({baseCap: 1_000_000e6, capPerScore: 0, maxCap: 1_000_000e6})
+            principal,
+            IReputation.CapCurve({baseCap: 1_000_000e6, capPerScore: 0, maxCap: 1_000_000e6}),
+            IReputation.Weights({minScored: 1, edgeCap: 1, fullCredit: 1})
         );
         Escrow escrow = new Escrow(
             address(token), address(reputation), makeAddr("treasury"), 50, 50, 500, 1 minutes, 7 days, 1 hours, 10_000

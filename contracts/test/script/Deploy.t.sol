@@ -92,6 +92,8 @@ contract DeployScriptTest is ScriptHarness {
         _caseZeroTimelockPeriod();
         _casePeriodBelowTheTimelocksOwnFloor();
         _caseZeroBaseCap();
+        _caseAScoredMinimumNoNewPayeeReaches();
+        _caseFullCreditUnderOneEdge();
         _caseResolverSlashOfZero();
         _caseDeployKeyCarriesGovernance();
         _caseGuardianAlsoCarriesAnApproval();
@@ -376,6 +378,28 @@ contract DeployScriptTest is ScriptHarness {
         script.run();
     }
 
+    /// A new payee can lock no more than the base cap, so a scored minimum one unit above it is a
+    /// point nobody ever earns.
+    function _caseAScoredMinimumNoNewPayeeReaches() private {
+        _setBaseEnv();
+        _set("BURSAR_MIN_SCORED", "100000001");
+
+        vm.expectRevert(
+            abi.encodeWithSelector(Deploy.MinScoredAboveBaseCap.selector, uint128(100e6 + 1), uint128(100e6))
+        );
+        script.run();
+    }
+
+    /// Full credit under one edge is a top a single payer clears. The contract refuses it.
+    function _caseFullCreditUnderOneEdge() private {
+        _setBaseEnv();
+        _set("BURSAR_FULL_CREDIT", "249999999");
+
+        vm.expectRevert(IReputation.BadWeights.selector);
+        script.run();
+        vm.stopBroadcast();
+    }
+
     /// A slash of zero would leave the only cost a resolver faces a no-op while the slash event
     /// still fires. The registry constructor reverts on that.
     function _caseResolverSlashOfZero() private {
@@ -507,6 +531,7 @@ contract DeployScriptTest is ScriptHarness {
         assertEq(Escrow(out.escrow).resolver(), out.oracleRegistry);
         assertEq(OracleRegistry(out.oracleRegistry).escrow(), out.escrow);
         assertEq(Reputation(out.reputation).escrow(), out.escrow);
+        assertEq(Reputation(out.reputation).weights().edgeCap, 250e6);
         assertEq(MandateAccountFactory(out.factory).escrow(), out.escrow);
 
         // Governance is the timelock everywhere from the first block, the agent registry and the
@@ -549,6 +574,8 @@ contract DeployScriptTest is ScriptHarness {
         assertEq(_readUint(path, ".parameters.AdminTimelock.timelockPeriod"), 3 days);
         assertEq(_readUint(path, ".parameters.Escrow.minLock"), 10_000);
         assertEq(_readUint(path, ".parameters.Reputation.maxCap"), 1_100e6);
+        assertEq(_readUint(path, ".parameters.Reputation.edgeCap"), 250e6);
+        assertEq(_readUint(path, ".parameters.Reputation.fullCredit"), 1_000e6);
         assertEq(_readUint(path, ".parameters.OracleRegistry.maxVoters"), 64);
         assertEq(_readUint(path, ".parameters.AgentRegistry.minStake"), 100e6);
         // Amounts are strings, so a reader never has to guess whether a figure fit a double.
@@ -803,6 +830,10 @@ contract DeployScriptTest is ScriptHarness {
         _set("BURSAR_CAP_BASE", "100000000");
         _set("BURSAR_CAP_PER_SCORE", "10000000");
         _set("BURSAR_CAP_MAX", "1100000000");
+
+        _set("BURSAR_MIN_SCORED", "1000000");
+        _set("BURSAR_EDGE_CAP", "250000000");
+        _set("BURSAR_FULL_CREDIT", "1000000000");
 
         _set("BURSAR_COMMIT_WINDOW", "3600");
         _set("BURSAR_REVEAL_WINDOW", "3600");

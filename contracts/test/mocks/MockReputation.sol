@@ -8,7 +8,8 @@ import {IReputation} from "../../src/interfaces/IReputation.sol";
 ///
 /// The callbacks, the pairing setter and the cap are all that is implemented. The escrow reads
 /// the cap as a control and reverts the lock when it cannot, so this mock has to answer it; the
-/// score behind it is the thing under test elsewhere and is not reimplemented here.
+/// score behind it is the thing under test elsewhere and is not reimplemented here. Every
+/// amount counts, whatever its size, for the same reason.
 contract MockReputation {
     error AlreadySet();
     error NotEscrow();
@@ -21,25 +22,27 @@ contract MockReputation {
 
     mapping(address payee => IReputation.Counters) public payeeStats;
     mapping(address payer => mapping(address payee => IReputation.Counters)) public edges;
+    mapping(address payer => mapping(address payee => uint128)) public edgeVolume;
 
     function setEscrow(address escrow_) external {
         if (escrow != address(0)) revert AlreadySet();
         escrow = escrow_;
     }
 
-    function onReleased(address payer, address payee) external {
+    function onReleased(address payer, address payee, uint128 amount) external {
         _authorize();
         ++payeeStats[payee].released;
         ++edges[payer][payee].released;
+        edgeVolume[payer][payee] += amount;
     }
 
-    function onTimedOut(address payer, address payee) external {
+    function onTimedOut(address payer, address payee, uint128) external {
         _authorize();
         ++payeeStats[payee].timedOut;
         ++edges[payer][payee].timedOut;
     }
 
-    function onDisputed(address payer, address payee) external {
+    function onDisputed(address payer, address payee, uint128) external {
         _authorize();
         ++payeeStats[payee].disputed;
         ++edges[payer][payee].disputed;

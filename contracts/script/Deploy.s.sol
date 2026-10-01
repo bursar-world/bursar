@@ -35,7 +35,8 @@ import {IStaking} from "../src/token/interfaces/IStaking.sol";
 ///
 /// The invariants asserted here are the ones no single constructor can see. A fee plus a
 /// resolver fee at or above a whole settlement would leave nothing to split; a zero base cap
-/// would reject every payee that has no history, which is every payee on day one.
+/// would reject every payee that has no history, which is every payee on day one; a scored
+/// minimum above the base cap is one no first lock can reach, so nobody would ever earn a point.
 ///
 /// Gas on Robinhood Chain is ETH and settlement is USDG, two different assets held at two
 /// different scales. Nothing in this script reads a native balance.
@@ -71,6 +72,7 @@ contract Deploy is BursarScript {
     error EoaGovernanceNotAcknowledged(string given, string required);
     error RoleCollision(string role, string otherRole, address account);
     error BaseCapZero();
+    error MinScoredAboveBaseCap(uint128 minScored, uint128 baseCap);
 
     address private asset;
     address private treasury;
@@ -93,6 +95,7 @@ contract Deploy is BursarScript {
     uint128 private minLock;
 
     IReputation.CapCurve private curve;
+    IReputation.Weights private weights;
     IOracleRegistry.Config private oracleConfig;
 
     bool private withAgentRegistry;
@@ -175,6 +178,15 @@ contract Deploy is BursarScript {
             baseCap: _envUint128("BURSAR_CAP_BASE"),
             capPerScore: _envUint128("BURSAR_CAP_PER_SCORE"),
             maxCap: _envUint128("BURSAR_CAP_MAX")
+        });
+
+        // How a point on that curve is earned: a lock under the minimum counts for nothing, one
+        // payer's released volume counts up to the edge cap, and full credit is what a full score
+        // takes.
+        weights = IReputation.Weights({
+            minScored: _envUint128("BURSAR_MIN_SCORED"),
+            edgeCap: _envUint128("BURSAR_EDGE_CAP"),
+            fullCredit: _envUint128("BURSAR_FULL_CREDIT")
         });
 
         // Resolver bonds are posted in BRSR and the floor that admits one lives in `Staking`,
@@ -282,6 +294,9 @@ contract Deploy is BursarScript {
         // An unscored payee is capped at `baseCap`. A zero floor rejects every first lock a
         // payee would ever take, and the escrow would look broken.
         if (curve.baseCap == 0) revert BaseCapZero();
+        // The same payee can take no lock above `baseCap`, so a scored minimum above it is a
+        // threshold no first lock reaches and a curve nobody climbs.
+        if (weights.minScored > curve.baseCap) revert MinScoredAboveBaseCap(weights.minScored, curve.baseCap);
 
         // The deploy key signs from a shell with an unlocked keystore. Governance weight on that
         // key would put the delay and the hot key in the same hand.
@@ -351,7 +366,7 @@ contract Deploy is BursarScript {
             ? new AdminTimelock(signers, guardian, timelockPeriod)
             : AdminTimelock(existingTimelock);
 
-        reputation = new Reputation(address(timelock), curve);
+        reputation = new Reputation(address(timelock), curve, weights);
 
         escrow = new Escrow(
             asset,
@@ -464,6 +479,11 @@ contract Deploy is BursarScript {
         _expectUint("reputation.baseCap", curve.baseCap, onChainCurve.baseCap);
         _expectUint("reputation.capPerScore", curve.capPerScore, onChainCurve.capPerScore);
         _expectUint("reputation.maxCap", curve.maxCap, onChainCurve.maxCap);
+
+        IReputation.Weights memory onChainWeights = reputation.weights();
+        _expectUint("reputation.minScored", weights.minScored, onChainWeights.minScored);
+        _expectUint("reputation.edgeCap", weights.edgeCap, onChainWeights.edgeCap);
+        _expectUint("reputation.fullCredit", weights.fullCredit, onChainWeights.fullCredit);
     }
 
     function _record(address deployer) private {
@@ -497,6 +517,9 @@ contract Deploy is BursarScript {
         _writeAmount(".parameters.Reputation.baseCap", curve.baseCap);
         _writeAmount(".parameters.Reputation.capPerScore", curve.capPerScore);
         _writeAmount(".parameters.Reputation.maxCap", curve.maxCap);
+        _writeAmount(".parameters.Reputation.minScored", weights.minScored);
+        _writeAmount(".parameters.Reputation.edgeCap", weights.edgeCap);
+        _writeAmount(".parameters.Reputation.fullCredit", weights.fullCredit);
         _write(".parameters.OracleRegistry.commitWindow", oracleConfig.commitWindow);
         _write(".parameters.OracleRegistry.revealWindow", oracleConfig.revealWindow);
         _write(".parameters.OracleRegistry.unbondingPeriod", oracleConfig.unbondingPeriod);

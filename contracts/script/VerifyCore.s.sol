@@ -77,6 +77,17 @@ abstract contract CoreChecks is Verifier {
             "Reputation.maxCap is above what a perfect score reaches",
             baseCap <= type(uint128).max && capPerScore <= type(uint128).max && baseCap + 100 * capPerScore >= maxCap
         );
+
+        (ok, answer) = _ask("Reputation.weights", reputation, _sig(r.weights.selector), 3);
+        if (!ok) return;
+        (uint256 minScored, uint256 edgeCap, uint256 fullCredit) = abi.decode(answer, (uint256, uint256, uint256));
+        _isParam("Reputation.minScored", minScored);
+        _isParam("Reputation.edgeCap", edgeCap);
+        _isParam("Reputation.fullCredit", fullCredit);
+        // A full score has to be reachable in whole edges, and the first lock a new payee can take
+        // has to be large enough to count, or the curve is decoration again.
+        _isTrue("Reputation.fullCredit is under one edge", fullCredit >= edgeCap);
+        _isTrue("Reputation.minScored is above the cap a new payee starts with", minScored <= baseCap);
     }
 
     function _checkEscrow(address escrow, address deployer) private {

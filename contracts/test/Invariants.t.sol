@@ -190,7 +190,7 @@ contract MandateSystemHandler is CommonBase, StdUtils {
     function lockFromPayer(uint256 payerSeed, uint256 payeeSeed, uint256 amountSeed, uint256 ttlSeed) external {
         address payer = _pick(payers, payerSeed);
         address payee = _pick(payees, payeeSeed);
-        uint128 amount = uint128(bound(amountSeed, escrow.minLock(), MAX_LOCK));
+        uint128 amount = _amount(amountSeed);
         uint64 deadline = _deadline(ttlSeed);
 
         if (!_fund(payer, amount)) return;
@@ -920,6 +920,17 @@ contract MandateSystemHandler is CommonBase, StdUtils {
         return uint64(block.timestamp + bound(ttlSeed, MIN_TTL + 1, MAX_TTL - 1));
     }
 
+    /// A seed inside the range is the amount itself, which is how the fixture tests name one. Of
+    /// the draws outside it, one in four lands under the reputation contract's scored minimum,
+    /// which a wrap across the whole range would almost never do, so the history holds locks that
+    /// settled and counted for nothing.
+    function _amount(uint256 seed) private view returns (uint128) {
+        uint128 floor = escrow.minLock();
+        uint128 scored = reputation.weights().minScored;
+        if (seed > MAX_LOCK && seed % 4 == 0 && scored > floor) return uint128(bound(seed, floor, scored - 1));
+        return uint128(bound(seed, floor, MAX_LOCK));
+    }
+
     function _pick(address[] storage group, uint256 seed) private view returns (address) {
         return group[seed % group.length];
     }
@@ -962,6 +973,13 @@ contract MandateInvariants is Test {
     uint128 internal constant BASE_CAP = 20_000e6;
     uint128 internal constant CAP_PER_SCORE = 500e6;
     uint128 internal constant MAX_CAP = 60_000e6;
+
+    /// A lock under a dollar counts for nothing and one payer counts for a quarter of a full
+    /// score. The handler's locks run from the escrow's floor to well past the edge cap, so
+    /// every regime of the weighting is reached.
+    uint128 internal constant MIN_SCORED = 1e6;
+    uint128 internal constant EDGE_CAP = 15_000e6;
+    uint128 internal constant FULL_CREDIT = 60_000e6;
 
     uint128 internal constant MIN_STAKE = 1_000e6;
 
@@ -1030,7 +1048,9 @@ contract MandateInvariants is Test {
         timelock = new AdminTimelock(signers, guardian, TIMELOCK_PERIOD);
 
         reputation = new Reputation(
-            address(timelock), IReputation.CapCurve({baseCap: BASE_CAP, capPerScore: CAP_PER_SCORE, maxCap: MAX_CAP})
+            address(timelock),
+            IReputation.CapCurve({baseCap: BASE_CAP, capPerScore: CAP_PER_SCORE, maxCap: MAX_CAP}),
+            IReputation.Weights({minScored: MIN_SCORED, edgeCap: EDGE_CAP, fullCredit: FULL_CREDIT})
         );
 
         escrow = new Escrow(
@@ -1348,13 +1368,14 @@ contract MandateInvariants is Test {
         }
     }
 
-    /// Every counted lock moved exactly one of the payee's counters, and no counter moved for a
-    /// lock that was not counted.
+    /// Every counted lock at or above the scored minimum moved exactly one of the payee's
+    /// counters, and no counter moved for a lock that was not counted or was too small to count.
     function invariant_eachLockMovesAtMostOneReputationCounter() public view {
         uint256 counted;
         uint256 count = handler.lockCount();
         for (uint256 i; i < count; ++i) {
-            if (escrow.getLock(handler.lockIds(i)).counted) counted += 1;
+            IEscrow.Lock memory entry = escrow.getLock(handler.lockIds(i));
+            if (entry.counted && entry.amount >= MIN_SCORED) counted += 1;
         }
 
         uint256 moved;
@@ -1364,6 +1385,39 @@ contract MandateInvariants is Test {
         }
 
         assertEq(moved, counted, "a lock moved a second counter, or a counter moved for no lock");
+    }
+
+    /// The credit and the score, recomputed from the escrow and the resolver registry rather than
+    /// from the reputation contract's own books: every lock that ended as a release, by
+    /// finalisation or by a ruling that refunded nothing, at or above the scored minimum, summed per
+    /// payer and counted up to the edge cap.
+    function invariant_creditIsTheReleasedVolumeCappedPerPayer() public view {
+        address[] memory candidates = _payerCandidates();
+
+        for (uint256 p; p < payees.length; ++p) {
+            address payee = payees[p];
+
+            uint256 expected;
+            for (uint256 i; i < candidates.length; ++i) {
+                uint256 volume = _releasedVolume(candidates[i], payee);
+                assertEq(
+                    reputation.edgeVolume(candidates[i], payee),
+                    volume,
+                    "an edge's released volume drifted from the locks that settled on it"
+                );
+                expected += volume > EDGE_CAP ? EDGE_CAP : volume;
+            }
+            assertEq(
+                reputation.creditOf(payee), expected, "a payee's credit drifted from the capped sum over its payers"
+            );
+
+            (uint64 released, uint64 timedOut, uint64 disputed) = reputation.payeeStats(payee);
+            uint256 settled = uint256(released) + timedOut + disputed;
+            uint256 earned = expected > FULL_CREDIT ? FULL_CREDIT : expected;
+            uint256 score = settled == 0 ? 0 : (uint256(released) * 100 * earned) / (settled * FULL_CREDIT);
+            assertEq(reputation.score(payee), score, "the score is not the released share scaled by the credit");
+            assertLe(reputation.score(payee), 100, "a score left its scale");
+        }
     }
 
     /// A spent or revoked approval id stays burned, through any number of handovers.
@@ -1761,6 +1815,37 @@ contract MandateInvariants is Test {
     /// payment assertion.
     function _stakeSurplus(address payee) private view returns (uint256) {
         return 5_000e6 - registry.stakeOf(payee);
+    }
+
+    /// Everyone who opens locks: the plain payers and the mandate accounts.
+    function _payerCandidates() private view returns (address[] memory candidates) {
+        candidates = new address[](payers.length + accounts.length);
+        for (uint256 i; i < payers.length; ++i) {
+            candidates[i] = payers[i];
+        }
+        for (uint256 i; i < accounts.length; ++i) {
+            candidates[payers.length + i] = accounts[i];
+        }
+    }
+
+    /// The principal of every lock from `payer` to `payee` that is large enough to count and ended
+    /// as a release, read off the locks themselves.
+    function _releasedVolume(address payer, address payee) private view returns (uint256 volume) {
+        uint256 count = handler.lockCount();
+        for (uint256 i; i < count; ++i) {
+            uint256 id = handler.lockIds(i);
+            IEscrow.Lock memory entry = escrow.getLock(id);
+            if (entry.payer != payer || entry.payee != payee || entry.amount < MIN_SCORED) continue;
+            if (_endedAsARelease(id, entry)) volume += entry.amount;
+        }
+    }
+
+    /// A release is history once the window has closed on it. A ruling counts as one when it
+    /// refunded nothing, which the dispute record says.
+    function _endedAsARelease(uint256 id, IEscrow.Lock memory entry) private view returns (bool) {
+        if (entry.status == IEscrow.LockStatus.Released) return entry.counted;
+        if (entry.status != IEscrow.LockStatus.Resolved) return false;
+        return oracle.getDispute(oracle.disputeIdOf(id)).refundBps == 0;
     }
 
     /// Walks the runtime as instructions, skipping each PUSH payload. An immutable that happens to

@@ -293,11 +293,14 @@ contract CoreSetTest is Test {
     }
 
     function test_aCurveThatCapsEveryPayeeAtZeroIsRefused() public {
-        vm.expectRevert(IReputation.BadCurve.selector);
-        new Reputation(address(this), IReputation.CapCurve({baseCap: 0, capPerScore: 0, maxCap: 0}));
+        IReputation.Weights memory weights = IReputation.Weights({minScored: 1e6, edgeCap: 62.5e6, fullCredit: 250e6});
 
-        Reputation live =
-            new Reputation(address(this), IReputation.CapCurve({baseCap: 25e6, capPerScore: 2.25e6, maxCap: 250e6}));
+        vm.expectRevert(IReputation.BadCurve.selector);
+        new Reputation(address(this), IReputation.CapCurve({baseCap: 0, capPerScore: 0, maxCap: 0}), weights);
+
+        Reputation live = new Reputation(
+            address(this), IReputation.CapCurve({baseCap: 25e6, capPerScore: 2.25e6, maxCap: 250e6}), weights
+        );
         vm.expectRevert(IReputation.BadCurve.selector);
         live.setCurve(IReputation.CapCurve({baseCap: 0, capPerScore: 5e6, maxCap: 0}));
     }

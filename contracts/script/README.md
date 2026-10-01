@@ -197,6 +197,7 @@ is deployed on a value nobody chose. Each script writes the figures it applied i
 | `BURSAR_DISPUTE_WINDOW` | `3600` | How long after a release the payer can still complain. The payee has been paid, so the complaint opens no dispute on the registry, takes no bond and is never ruled on: it goes on the payee's history, as the [ruling policy](../../docs/RULING-POLICY.md) says. |
 | `BURSAR_MIN_LOCK` | `10000` | The smallest payment, one cent, so the bond on any disputed payment is at least one unit. |
 | `BURSAR_CAP_BASE`, `BURSAR_CAP_PER_SCORE`, `BURSAR_CAP_MAX` | `25000000`, `2250000`, `250000000` | What one payee can be paid: 25 USDG with no history, 2.25 USDG more per point of reputation, up to 250 USDG at a perfect score of 100. |
+| `BURSAR_MIN_SCORED`, `BURSAR_EDGE_CAP`, `BURSAR_FULL_CREDIT` | `1000000`, `62500000`, `250000000` | How a point is earned. A payment under 1 USDG counts for nothing. Each payer's settled payments count toward a payee's credit up to 62.5 USDG, and a full score takes 250 USDG of credit, so four payers at least. The score is the share of counted jobs the payee delivered, scaled by the credit earned. |
 | `BURSAR_COMMIT_WINDOW`, `BURSAR_REVEAL_WINDOW` | `3600`, `3600` | An hour to commit a sealed score and an hour to reveal it. |
 | `BURSAR_UNBONDING_PERIOD` | `604800` | Seven days between a resolver asking for its bond back and collecting it. |
 | `BURSAR_RESOLVER_QUORUM` | `2` | Reveals needed for a ruling to count. |

@@ -48,6 +48,11 @@ contract ReputationTest is Test {
     /// The top of the curve, where a perfect score lands.
     uint128 internal constant MAX_CAP = 600e6;
 
+    /// Every job here is this size, and the weights below make one job at or above a dollar full
+    /// credit, so these tests see the ratio and the curve on their own. The weights have a suite
+    /// of their own.
+    uint128 internal constant JOB = 100e6;
+
     Reputation internal reputation;
 
     address internal admin = makeAddr("admin");
@@ -58,24 +63,25 @@ contract ReputationTest is Test {
 
     function setUp() public {
         reputation = new Reputation(
-            admin, IReputation.CapCurve({baseCap: BASE_CAP, capPerScore: CAP_PER_SCORE, maxCap: MAX_CAP})
+            admin, IReputation.CapCurve({baseCap: BASE_CAP, capPerScore: CAP_PER_SCORE, maxCap: MAX_CAP}), _weights()
         );
         reputation.setEscrow(address(this));
     }
 
     function test_constructorRejectsAZeroAdmin() public {
         vm.expectRevert(IReputation.ZeroAddress.selector);
-        new Reputation(address(0), IReputation.CapCurve({baseCap: 1, capPerScore: 1, maxCap: 2}));
+        new Reputation(address(0), IReputation.CapCurve({baseCap: 1, capPerScore: 1, maxCap: 2}), _weights());
     }
 
     function test_constructorRejectsACeilingBelowTheFloor() public {
         vm.expectRevert(IReputation.BadCurve.selector);
-        new Reputation(admin, IReputation.CapCurve({baseCap: 100, capPerScore: 1, maxCap: 99}));
+        new Reputation(admin, IReputation.CapCurve({baseCap: 100, capPerScore: 1, maxCap: 99}), _weights());
     }
 
     /// A flat curve is a policy, so the constructor has to admit a ceiling equal to the floor.
     function test_constructorAdmitsACeilingEqualToTheFloor() public {
-        Reputation flat = new Reputation(admin, IReputation.CapCurve({baseCap: 100, capPerScore: 7, maxCap: 100}));
+        Reputation flat =
+            new Reputation(admin, IReputation.CapCurve({baseCap: 100, capPerScore: 7, maxCap: 100}), _weights());
         flat.setEscrow(address(this));
 
         _release(flat, payerA, payee);
@@ -93,7 +99,7 @@ contract ReputationTest is Test {
         _release(reputation, payerA, payee);
         _release(reputation, payerA, payee);
         _release(reputation, payerA, payee);
-        reputation.onTimedOut(payerA, payee);
+        reputation.onTimedOut(payerA, payee, JOB);
 
         assertEq(reputation.score(payee), 75);
     }
@@ -103,7 +109,7 @@ contract ReputationTest is Test {
     function test_scoreRoundsDown() public {
         _release(reputation, payerA, payee);
         _release(reputation, payerA, payee);
-        reputation.onDisputed(payerA, payee);
+        reputation.onDisputed(payerA, payee, JOB);
 
         assertEq(reputation.score(payee), 66);
     }
@@ -112,10 +118,10 @@ contract ReputationTest is Test {
         address disputed = makeAddr("disputedPayee");
 
         _release(reputation, payerA, payee);
-        reputation.onTimedOut(payerA, payee);
+        reputation.onTimedOut(payerA, payee, JOB);
 
         _release(reputation, payerA, disputed);
-        reputation.onDisputed(payerA, disputed);
+        reputation.onDisputed(payerA, disputed, JOB);
 
         assertEq(reputation.score(payee), 50);
         assertEq(reputation.score(disputed), reputation.score(payee));
@@ -127,7 +133,7 @@ contract ReputationTest is Test {
         _release(reputation, payerA, payee);
         _release(reputation, payerA, payee);
         _release(reputation, payerA, payee);
-        reputation.onTimedOut(payerA, payee);
+        reputation.onTimedOut(payerA, payee, JOB);
 
         assertEq(reputation.capOf(payee), BASE_CAP + CAP_PER_SCORE * 75);
     }
@@ -163,16 +169,18 @@ contract ReputationTest is Test {
     function test_edgesRecordEachPayerWhileTheAggregateSumsThem() public {
         _release(reputation, payerA, payee);
         _release(reputation, payerA, payee);
-        reputation.onTimedOut(payerB, payee);
+        reputation.onTimedOut(payerB, payee, JOB);
 
         (uint64 releasedA, uint64 timedOutA, uint64 disputedA) = reputation.edges(payerA, payee);
         assertEq(releasedA, 2);
         assertEq(timedOutA, 0);
         assertEq(disputedA, 0);
+        assertEq(reputation.edgeVolume(payerA, payee), 2 * JOB, "the edge carries the released volume too");
 
         (uint64 releasedB, uint64 timedOutB,) = reputation.edges(payerB, payee);
         assertEq(releasedB, 0);
         assertEq(timedOutB, 1);
+        assertEq(reputation.edgeVolume(payerB, payee), 0, "a timeout is not released volume");
 
         (uint64 released, uint64 timedOut, uint64 disputed) = reputation.payeeStats(payee);
         assertEq(released, 2);
@@ -184,13 +192,13 @@ contract ReputationTest is Test {
         vm.startPrank(stranger);
 
         vm.expectRevert(IReputation.NotEscrow.selector);
-        reputation.onReleased(payerA, payee);
+        reputation.onReleased(payerA, payee, JOB);
 
         vm.expectRevert(IReputation.NotEscrow.selector);
-        reputation.onTimedOut(payerA, payee);
+        reputation.onTimedOut(payerA, payee, JOB);
 
         vm.expectRevert(IReputation.NotEscrow.selector);
-        reputation.onDisputed(payerA, payee);
+        reputation.onDisputed(payerA, payee, JOB);
 
         vm.stopPrank();
     }
@@ -199,14 +207,16 @@ contract ReputationTest is Test {
     /// moves, whichever way the self-lock ended.
     function test_aLockAPayeePaidToItselfMovesNoCounter() public {
         vm.recordLogs();
-        reputation.onReleased(payee, payee);
-        reputation.onTimedOut(payee, payee);
-        reputation.onDisputed(payee, payee);
+        reputation.onReleased(payee, payee, JOB);
+        reputation.onTimedOut(payee, payee, JOB);
+        reputation.onDisputed(payee, payee, JOB);
 
         (uint64 released, uint64 timedOut, uint64 disputed) = reputation.payeeStats(payee);
         assertEq(uint256(released) + timedOut + disputed, 0);
         (released, timedOut, disputed) = reputation.edges(payee, payee);
         assertEq(uint256(released) + timedOut + disputed, 0);
+        assertEq(reputation.edgeVolume(payee, payee), 0);
+        assertEq(reputation.creditOf(payee), 0);
         assertEq(vm.getRecordedLogs().length, 0, "a counter event fired for a counter that did not move");
         assertEq(reputation.capOf(payee), BASE_CAP);
     }
@@ -214,15 +224,15 @@ contract ReputationTest is Test {
     function test_everyCounterThatMovesSaysSo() public {
         vm.expectEmit(true, true, false, false, address(reputation));
         emit IReputation.ReleaseCounted(payerA, payee);
-        reputation.onReleased(payerA, payee);
+        reputation.onReleased(payerA, payee, JOB);
 
         vm.expectEmit(true, true, false, false, address(reputation));
         emit IReputation.TimeoutCounted(payerA, payee);
-        reputation.onTimedOut(payerA, payee);
+        reputation.onTimedOut(payerA, payee, JOB);
 
         vm.expectEmit(true, true, false, false, address(reputation));
         emit IReputation.DisputeCounted(payerB, payee);
-        reputation.onDisputed(payerB, payee);
+        reputation.onDisputed(payerB, payee, JOB);
     }
 
     /// The admin holds the curve and cannot touch the counters. A key that could write history
@@ -230,7 +240,7 @@ contract ReputationTest is Test {
     function test_theAdminCannotMoveACounterEither() public {
         vm.prank(admin);
         vm.expectRevert(IReputation.NotEscrow.selector);
-        reputation.onReleased(payerA, payee);
+        reputation.onReleased(payerA, payee, JOB);
     }
 
     function test_setEscrowIsDeployerOnly() public {
@@ -271,7 +281,7 @@ contract ReputationTest is Test {
     /// nothing pays and is refused; 125 is admitted and reached.
     function test_aCeilingNoScoreReachesIsRefused() public {
         vm.expectRevert(IReputation.BadCurve.selector);
-        new Reputation(admin, IReputation.CapCurve({baseCap: 25e6, capPerScore: 1e6, maxCap: 250e6}));
+        new Reputation(admin, IReputation.CapCurve({baseCap: 25e6, capPerScore: 1e6, maxCap: 250e6}), _weights());
 
         vm.prank(admin);
         vm.expectRevert(IReputation.BadCurve.selector);
@@ -354,13 +364,13 @@ contract ReputationTest is Test {
         uint256 d = bound(disputed, 0, 8);
 
         for (uint256 i = 0; i < r; ++i) {
-            reputation.onReleased(payerA, payee);
+            reputation.onReleased(payerA, payee, JOB);
         }
         for (uint256 i = 0; i < t; ++i) {
-            reputation.onTimedOut(payerA, payee);
+            reputation.onTimedOut(payerA, payee, JOB);
         }
         for (uint256 i = 0; i < d; ++i) {
-            reputation.onDisputed(payerA, payee);
+            reputation.onDisputed(payerA, payee, JOB);
         }
 
         uint16 result = reputation.score(payee);
@@ -390,10 +400,10 @@ contract ReputationTest is Test {
         uint256 r = bound(released, 0, 6);
         uint256 f = bound(failures, 0, 6);
         for (uint256 i = 0; i < r; ++i) {
-            reputation.onReleased(payerA, payee);
+            reputation.onReleased(payerA, payee, JOB);
         }
         for (uint256 i = 0; i < f; ++i) {
-            reputation.onTimedOut(payerA, payee);
+            reputation.onTimedOut(payerA, payee, JOB);
         }
 
         uint256 expectedScore = (r + f) == 0 ? 0 : (r * 100) / (r + f);
@@ -408,14 +418,17 @@ contract ReputationTest is Test {
     }
 
     function _freshReputation() private returns (Reputation) {
-        return
-            new Reputation(
-                admin, IReputation.CapCurve({baseCap: BASE_CAP, capPerScore: CAP_PER_SCORE, maxCap: MAX_CAP})
-            );
+        return new Reputation(
+            admin, IReputation.CapCurve({baseCap: BASE_CAP, capPerScore: CAP_PER_SCORE, maxCap: MAX_CAP}), _weights()
+        );
+    }
+
+    function _weights() private pure returns (IReputation.Weights memory) {
+        return IReputation.Weights({minScored: 1e6, edgeCap: 1e6, fullCredit: 1e6});
     }
 
     function _release(Reputation target, address payer, address to) private {
-        target.onReleased(payer, to);
+        target.onReleased(payer, to, JOB);
     }
 
     function _curve(Reputation target) private view returns (uint128, uint128, uint128) {
@@ -449,7 +462,9 @@ contract ReputationEscrowCountingTest is Test {
         vm.warp(1_700_000_000);
 
         asset = new MockUsdg();
-        reputation = new Reputation(admin, IReputation.CapCurve({baseCap: 1_000e6, capPerScore: 10e6, maxCap: 2_000e6}));
+        reputation = new Reputation(
+            admin, IReputation.CapCurve({baseCap: 1_000e6, capPerScore: 10e6, maxCap: 2_000e6}), _openWeights()
+        );
         escrow = new Escrow(
             address(asset), address(reputation), treasury, FEE_BPS, 0, 0, MIN_TTL, MAX_TTL, DISPUTE_WINDOW, MIN_LOCK
         );
@@ -726,13 +741,20 @@ contract ReputationEscrowCountingTest is Test {
     }
 
     function _deployWithWindow(uint64 window) private returns (Reputation, Escrow) {
-        Reputation freshReputation =
-            new Reputation(admin, IReputation.CapCurve({baseCap: 1_000e6, capPerScore: 10e6, maxCap: 2_000e6}));
+        Reputation freshReputation = new Reputation(
+            admin, IReputation.CapCurve({baseCap: 1_000e6, capPerScore: 10e6, maxCap: 2_000e6}), _openWeights()
+        );
         Escrow freshEscrow = new Escrow(
             address(asset), address(freshReputation), treasury, FEE_BPS, 0, 0, MIN_TTL, MAX_TTL, window, MIN_LOCK
         );
         freshReputation.setEscrow(address(freshEscrow));
         return (freshReputation, freshEscrow);
+    }
+
+    /// Every lock counts and one counted release is full credit, so the lifecycle is all these
+    /// tests see.
+    function _openWeights() private pure returns (IReputation.Weights memory) {
+        return IReputation.Weights({minScored: 1, edgeCap: 1, fullCredit: 1});
     }
 }
 
@@ -1851,33 +1873,60 @@ contract AgentRegistryInvariants is Test {
     }
 }
 
-/// Stands in for the escrow so the fuzzer can write outcome histories directly.
+/// Stands in for the escrow so the fuzzer can write outcome histories directly, and keeps its own
+/// account of what it wrote: the released volume on every edge, and how many outcomes of each kind
+/// were large enough to count. The payees pay too, so a payee paying itself is one of the
+/// sequences the run writes.
 contract RepRegReputationHandler is CommonBase, StdCheats, StdUtils {
-    // forge-lint: disable-next-item(screaming-snake-case-immutable)
+    // forge-lint: disable-start(screaming-snake-case-immutable)
     Reputation public immutable reputation;
+    uint128 public immutable minScored;
+    uint128 public immutable largest;
+    // forge-lint: disable-end
 
     address[] public payees;
     address[] public payers;
 
-    constructor(Reputation reputation_) {
+    mapping(address payer => mapping(address payee => uint256 amount)) public volume;
+    mapping(address payee => uint256 count) public releasedCount;
+    mapping(address payee => uint256 count) public failedCount;
+
+    /// Outcomes written that were too small, or a payee's own, and so moved nothing.
+    uint256 public skipped;
+
+    constructor(Reputation reputation_, uint128 minScored_, uint128 largest_) {
         reputation = reputation_;
+        minScored = minScored_;
+        largest = largest_;
 
         for (uint256 i = 0; i < 3; ++i) {
             payees.push(address(uint160(uint256(keccak256(abi.encodePacked("payee", i))))));
             payers.push(address(uint160(uint256(keccak256(abi.encodePacked("payer", i))))));
         }
+        for (uint256 i = 0; i < 3; ++i) {
+            payers.push(payees[i]);
+        }
     }
 
-    function released(uint256 payerSeed, uint256 payeeSeed) external {
-        reputation.onReleased(_payer(payerSeed), _payee(payeeSeed));
+    function released(uint256 payerSeed, uint256 payeeSeed, uint256 amountSeed) external {
+        (address payer, address payee, uint128 amount) = _lock(payerSeed, payeeSeed, amountSeed);
+        reputation.onReleased(payer, payee, amount);
+        if (!_counts(payer, payee, amount)) return;
+
+        volume[payer][payee] += amount;
+        releasedCount[payee] += 1;
     }
 
-    function timedOut(uint256 payerSeed, uint256 payeeSeed) external {
-        reputation.onTimedOut(_payer(payerSeed), _payee(payeeSeed));
+    function timedOut(uint256 payerSeed, uint256 payeeSeed, uint256 amountSeed) external {
+        (address payer, address payee, uint128 amount) = _lock(payerSeed, payeeSeed, amountSeed);
+        reputation.onTimedOut(payer, payee, amount);
+        if (_counts(payer, payee, amount)) failedCount[payee] += 1;
     }
 
-    function disputed(uint256 payerSeed, uint256 payeeSeed) external {
-        reputation.onDisputed(_payer(payerSeed), _payee(payeeSeed));
+    function disputed(uint256 payerSeed, uint256 payeeSeed, uint256 amountSeed) external {
+        (address payer, address payee, uint128 amount) = _lock(payerSeed, payeeSeed, amountSeed);
+        reputation.onDisputed(payer, payee, amount);
+        if (_counts(payer, payee, amount)) failedCount[payee] += 1;
     }
 
     function payeeAt(uint256 index) external view returns (address) {
@@ -1888,12 +1937,28 @@ contract RepRegReputationHandler is CommonBase, StdCheats, StdUtils {
         return payees.length;
     }
 
-    function _payer(uint256 seed) private view returns (address) {
-        return payers[seed % payers.length];
+    function payerCount() external view returns (uint256) {
+        return payers.length;
     }
 
-    function _payee(uint256 seed) private view returns (address) {
-        return payees[seed % payees.length];
+    /// One lock in four sits under the scored minimum, which a draw across the whole range would
+    /// seldom land on.
+    function _lock(uint256 payerSeed, uint256 payeeSeed, uint256 amountSeed)
+        private
+        view
+        returns (address payer, address payee, uint128 amount)
+    {
+        payer = payers[payerSeed % payers.length];
+        payee = payees[payeeSeed % payees.length];
+        amount = amountSeed % 4 == 0
+            ? uint128(bound(amountSeed, 1, minScored - 1))
+            : uint128(bound(amountSeed, minScored, largest));
+    }
+
+    function _counts(address payer, address payee, uint128 amount) private returns (bool) {
+        if (payer != payee && amount >= minScored) return true;
+        skipped += 1;
+        return false;
     }
 }
 
@@ -1902,6 +1967,12 @@ contract ReputationInvariants is Test {
     uint128 internal constant CAP_PER_SCORE = 7e6;
     uint128 internal constant MAX_CAP = 900e6;
 
+    /// Three payers at the edge cap is a full score, and the handler's locks run from one unit to
+    /// three edges' worth.
+    uint128 internal constant MIN_SCORED = 10e6;
+    uint128 internal constant EDGE_CAP = 100e6;
+    uint128 internal constant FULL_CREDIT = 300e6;
+
     Reputation internal reputation;
     RepRegReputationHandler internal handler;
 
@@ -1909,9 +1980,11 @@ contract ReputationInvariants is Test {
 
     function setUp() public {
         reputation = new Reputation(
-            admin, IReputation.CapCurve({baseCap: BASE_CAP, capPerScore: CAP_PER_SCORE, maxCap: MAX_CAP})
+            admin,
+            IReputation.CapCurve({baseCap: BASE_CAP, capPerScore: CAP_PER_SCORE, maxCap: MAX_CAP}),
+            IReputation.Weights({minScored: MIN_SCORED, edgeCap: EDGE_CAP, fullCredit: FULL_CREDIT})
         );
-        handler = new RepRegReputationHandler(reputation);
+        handler = new RepRegReputationHandler(reputation, MIN_SCORED, 3 * EDGE_CAP);
         reputation.setEscrow(address(handler));
 
         targetContract(address(handler));
@@ -1928,13 +2001,50 @@ contract ReputationInvariants is Test {
         }
     }
 
+    /// The contract books credit one release at a time; the handler sums whole edges. The two have
+    /// to agree on every edge and on every payee's total.
+    function invariant_creditIsTheCappedSumOverEveryEdge() public view {
+        for (uint256 i = 0; i < handler.payeeCount(); ++i) {
+            address payee = handler.payeeAt(i);
+
+            uint256 expected;
+            for (uint256 j = 0; j < handler.payerCount(); ++j) {
+                address payer = handler.payers(j);
+                uint256 volume = handler.volume(payer, payee);
+                assertEq(
+                    reputation.edgeVolume(payer, payee), volume, "an edge's volume drifted from what was released on it"
+                );
+                expected += volume > EDGE_CAP ? EDGE_CAP : volume;
+            }
+
+            assertEq(reputation.creditOf(payee), expected, "credit is not the capped sum over the edges");
+        }
+    }
+
+    /// Only outcomes at or above the minimum, between two different addresses, move a counter.
+    function invariant_aLockUnderTheMinimumMovesNoCounter() public view {
+        for (uint256 i = 0; i < handler.payeeCount(); ++i) {
+            address payee = handler.payeeAt(i);
+            (uint64 released, uint64 timedOut, uint64 disputed) = reputation.payeeStats(payee);
+
+            assertEq(
+                released, handler.releasedCount(payee), "a release moved a counter it should not have, or missed one"
+            );
+            assertEq(
+                uint256(timedOut) + disputed, handler.failedCount(payee), "a failure moved a counter it should not have"
+            );
+        }
+    }
+
     function invariant_theCapIsAlwaysTheFormulaAppliedToTheHistory() public view {
         for (uint256 i = 0; i < handler.payeeCount(); ++i) {
             address payee = handler.payeeAt(i);
             (uint64 released, uint64 timedOut, uint64 disputed) = reputation.payeeStats(payee);
 
             uint256 settled = uint256(released) + timedOut + disputed;
-            uint256 expectedScore = settled == 0 ? 0 : (uint256(released) * 100) / settled;
+            uint256 credit = reputation.creditOf(payee);
+            uint256 earned = credit > FULL_CREDIT ? FULL_CREDIT : credit;
+            uint256 expectedScore = settled == 0 ? 0 : (uint256(released) * 100 * earned) / (settled * FULL_CREDIT);
             uint256 expectedCap = BASE_CAP + uint256(CAP_PER_SCORE) * expectedScore;
             if (expectedCap > MAX_CAP) expectedCap = MAX_CAP;
 
@@ -1944,5 +2054,10 @@ contract ReputationInvariants is Test {
             assertEq(reputation.capOf(payee), uint128(expectedCap));
             // forge-lint: disable-end
         }
+    }
+
+    /// A run that wrote nothing too small to count proved nothing about the minimum.
+    function afterInvariant() public view {
+        assertGt(handler.skipped(), 0, "no outcome in this run was too small or self-paid");
     }
 }

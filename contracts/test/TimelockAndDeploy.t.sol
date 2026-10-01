@@ -77,7 +77,9 @@ contract MandateTimelockTest is Test {
 
         timelock = new AdminTimelock([signerA, signerB, signerC], guardian, PERIOD);
         reputation = new Reputation(
-            address(timelock), IReputation.CapCurve({baseCap: 100e6, capPerScore: 10e6, maxCap: 1_100e6})
+            address(timelock),
+            IReputation.CapCurve({baseCap: 100e6, capPerScore: 10e6, maxCap: 1_100e6}),
+            IReputation.Weights({minScored: 1e6, edgeCap: 100e6, fullCredit: 400e6})
         );
     }
 
@@ -850,7 +852,9 @@ contract MandateWiringTest is Test {
 
         timelock = new AdminTimelock([signerA, signerB, signerC], guardian, PERIOD);
         reputation = new Reputation(
-            address(timelock), IReputation.CapCurve({baseCap: 100e6, capPerScore: 10e6, maxCap: 1_100e6})
+            address(timelock),
+            IReputation.CapCurve({baseCap: 100e6, capPerScore: 10e6, maxCap: 1_100e6}),
+            IReputation.Weights({minScored: 1e6, edgeCap: 100e6, fullCredit: 400e6})
         );
         escrow = new Escrow(
             address(settlement),
@@ -938,6 +942,11 @@ contract MandateWiringTest is Test {
         assertEq(curve.baseCap, 100e6);
         assertEq(curve.capPerScore, 10e6);
         assertEq(curve.maxCap, 1_100e6);
+
+        IReputation.Weights memory weights = reputation.weights();
+        assertEq(weights.minScored, 1e6);
+        assertEq(weights.edgeCap, 100e6);
+        assertEq(weights.fullCredit, 400e6);
 
         IOracleRegistry.Config memory cfg = oracleRegistry.config();
         assertEq(cfg.commitWindow, COMMIT_WINDOW);

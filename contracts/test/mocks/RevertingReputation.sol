@@ -10,15 +10,15 @@ pragma solidity ^0.8.24;
 contract RevertingReputation {
     error Rejected();
 
-    function onReleased(address, address) external pure {
+    function onReleased(address, address, uint128) external pure {
         revert Rejected();
     }
 
-    function onTimedOut(address, address) external pure {
+    function onTimedOut(address, address, uint128) external pure {
         revert Rejected();
     }
 
-    function onDisputed(address, address) external pure {
+    function onDisputed(address, address, uint128) external pure {
         revert Rejected();
     }
 

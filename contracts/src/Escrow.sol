@@ -230,7 +230,7 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
         // both a release and a dispute for one job. `finalizeRelease` closes it the other way.
         if (disputeWindow == 0) {
             entry.counted = true;
-            _notifyReputation(id, abi.encodeCall(IReputation.onReleased, (payer, payee)));
+            _notifyReputation(id, abi.encodeCall(IReputation.onReleased, (payer, payee, amount)));
         }
 
         emit Released(id, outputCommit);
@@ -243,7 +243,7 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
 
         entry.counted = true;
 
-        _notifyReputation(id, abi.encodeCall(IReputation.onReleased, (entry.payer, entry.payee)));
+        _notifyReputation(id, abi.encodeCall(IReputation.onReleased, (entry.payer, entry.payee, entry.amount)));
 
         emit ReleaseFinalized(id);
     }
@@ -261,7 +261,7 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
         uint128 amount = entry.amount;
 
         _pay(payer, amount);
-        _notifyReputation(id, abi.encodeCall(IReputation.onTimedOut, (payer, entry.payee)));
+        _notifyReputation(id, abi.encodeCall(IReputation.onTimedOut, (payer, entry.payee, amount)));
 
         emit TimedOut(id);
 
@@ -307,7 +307,7 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
             // The lock ends here, carrying the dispute instead of the release into the payee's
             // history. One lock, one counter.
             entry.counted = true;
-            _notifyReputation(id, abi.encodeCall(IReputation.onDisputed, (payer, payee)));
+            _notifyReputation(id, abi.encodeCall(IReputation.onDisputed, (payer, payee, entry.amount)));
         } else {
             uint128 bond = _bps(entry.amount, disputeBondBps);
             if (bond != 0) {
@@ -388,12 +388,13 @@ contract Escrow is IEscrow, Pausable, ReentrancyGuard {
         }
 
         // A ruling that refunds nothing is a job the payee is judged to have delivered, and
-        // its history should read that way.
+        // its history should read that way. The whole principal was at stake either way, so
+        // that is the amount it is weighed by.
         _notifyReputation(
             id,
             refundBps == 0
-                ? abi.encodeCall(IReputation.onReleased, (entry.payer, entry.payee))
-                : abi.encodeCall(IReputation.onDisputed, (entry.payer, entry.payee))
+                ? abi.encodeCall(IReputation.onReleased, (entry.payer, entry.payee, entry.amount))
+                : abi.encodeCall(IReputation.onDisputed, (entry.payer, entry.payee, entry.amount))
         );
 
         emit Resolved(id, refundBps, split.refunded, split.paid);

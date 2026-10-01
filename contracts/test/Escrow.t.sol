@@ -112,11 +112,11 @@ contract EscrowGateStub is IAgentRegistry {
 contract EscrowCapStub {
     error CapUnavailable();
 
-    function onReleased(address, address) external {}
+    function onReleased(address, address, uint128) external {}
 
-    function onTimedOut(address, address) external {}
+    function onTimedOut(address, address, uint128) external {}
 
-    function onDisputed(address, address) external {}
+    function onDisputed(address, address, uint128) external {}
 
     function capOf(address) external pure returns (uint128) {
         revert CapUnavailable();
@@ -1732,7 +1732,7 @@ contract EscrowTest is Test {
         uint16 bondBps_,
         uint64 disputeWindow_
     ) private returns (Escrow e, Reputation rep, EscrowResolverStub stub) {
-        rep = new Reputation(admin, curve_);
+        rep = new Reputation(admin, curve_, _openWeights());
         e = _escrowWith(address(asset), address(rep), feeBps_, resolverFeeBps_, bondBps_, disputeWindow_);
         rep.setEscrow(address(e));
 
@@ -1740,6 +1740,12 @@ contract EscrowTest is Test {
         e.setResolver(address(stub));
 
         _approveToken(asset, address(e));
+    }
+
+    /// Weights that never bind: every lock the escrow admits counts, and one counted release is
+    /// full credit. The credit dimension has a suite of its own.
+    function _openWeights() private pure returns (IReputation.Weights memory) {
+        return IReputation.Weights({minScored: 1, edgeCap: 1, fullCredit: 1});
     }
 
     function _escrowWith(
@@ -2016,7 +2022,9 @@ contract EscrowSolvencyInvariantTest is Test {
         asset = new MockUsdg();
 
         Reputation rep = new Reputation(
-            address(this), IReputation.CapCurve({baseCap: type(uint128).max, capPerScore: 0, maxCap: type(uint128).max})
+            address(this),
+            IReputation.CapCurve({baseCap: type(uint128).max, capPerScore: 0, maxCap: type(uint128).max}),
+            IReputation.Weights({minScored: 1, edgeCap: 1, fullCredit: 1})
         );
         escrow = new Escrow(
             address(asset), address(rep), makeAddr("invariantTreasury"), 250, 100, 500, 1 hours, 30 days, 1 days, 10_000
