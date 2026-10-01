@@ -43,6 +43,7 @@ bursar-relayer run
 ```
 
 Key: `RELAYER_PRIVATE_KEY`, or `RELAYER_KEYSTORE` with `RELAYER_PASSWORD_FILE`. `PORT` (4321),
+`RELAYER_HOST` (every interface), `RELAYER_ALLOWED_ORIGINS` (`https://app.bursar.world`),
 `RELAYER_FEE_BPS` (50, at most the pool's 500), `RELAYER_FEE_RECIPIENT` (the relayer address),
 `RELAYER_GAS_DROP_ETH` (0.00015), `RELAYER_GAS_DROPS_PER_DAY` (50), `RELAYER_DATA_DIR` (unset),
 `RELAYER_MIN_WITHDRAWAL` (the pool's minimum deposit, from the deployment record).
@@ -51,3 +52,12 @@ Key: `RELAYER_PRIVATE_KEY`, or `RELAYER_KEYSTORE` with `RELAYER_PASSWORD_FILE`. 
 HTTP: `GET /v1/quote`, `POST /v1/relay` with `{ withdrawal, proof, gasDrop? }`, `GET /health`.
 A relay answers `{ transactionHash, gasDropWei }`, with `gasDropTransactionHash` when gas was sent.
 The SDK's `fetchRelayQuote` and `submitRelay` speak it.
+
+Browsers may call it from the origins in `RELAYER_ALLOWED_ORIGINS`, a comma-separated list that
+defaults to the console. A listener on `RELAYER_HOST=127.0.0.1` also answers pages served from
+this machine, such as a console on `http://localhost:4310`. Requests with no `Origin` header, from
+the SDK or the MCP server, are not subject to it.
+
+Every refusal is `{ error, detail }` with a stable `error` code. A fault inside the service answers
+`internal` with one fixed sentence; what went wrong is written to the service's log and nowhere
+else.

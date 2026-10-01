@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 
+import { allowedOrigin, type OriginPolicy } from './cors.js';
 import { RelayRefusal, type Relayer } from './relay.js';
 
 export const MAX_BODY_BYTES = 64 * 1_024;
@@ -44,14 +45,30 @@ function readJson(request: IncomingMessage): Promise<unknown> {
   });
 }
 
-export function serve(relayer: Relayer, port: number, health: () => Promise<unknown>): Server {
+export type ServeOptions = {
+  readonly port: number;
+  /** Unset listens on every interface. */
+  readonly host?: string | undefined;
+  readonly origins: OriginPolicy;
+  readonly health: () => Promise<unknown>;
+  /** Where the detail of a fault goes. The client is told only that there was one. */
+  readonly log: (line: string) => void;
+};
+
+export function serve(relayer: Relayer, options: ServeOptions): Server {
   const server = createServer((request, response) => {
-    const headers = {
+    const origin = allowedOrigin(options.origins, request.headers.origin);
+    const headers: Record<string, string> = {
       'content-type': 'application/json',
-      'access-control-allow-origin': '*',
-      'access-control-allow-methods': 'GET, POST, OPTIONS',
-      'access-control-allow-headers': 'content-type',
       'cache-control': 'no-store',
+      ...(origin === null
+        ? {}
+        : {
+            'access-control-allow-origin': origin,
+            'access-control-allow-methods': 'GET, POST, OPTIONS',
+            'access-control-allow-headers': 'content-type',
+            vary: 'origin',
+          }),
     };
     if (request.method === 'OPTIONS') {
       response.writeHead(204, headers);
@@ -59,17 +76,20 @@ export function serve(relayer: Relayer, port: number, health: () => Promise<unkn
       return;
     }
     const url = new URL(request.url ?? '/', 'http://relayer');
-    handle(relayer, request.method ?? 'GET', url.pathname, () => readJson(request), health)
-      .catch((error: unknown) =>
-        error instanceof RelayRefusal
-          ? { status: error.status, body: { error: error.code, detail: error.message } }
-          : { status: 500, body: { error: 'internal', detail: error instanceof Error ? error.message : String(error) } },
-      )
+    handle(relayer, request.method ?? 'GET', url.pathname, () => readJson(request), options.health)
+      .catch((error: unknown) => {
+        if (error instanceof RelayRefusal) return { status: error.status, body: { error: error.code, detail: error.message } };
+        options.log(`${request.method ?? 'GET'} ${url.pathname} failed: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
+        return {
+          status: 500,
+          body: { error: 'internal', detail: 'The relayer could not finish this request. Check whether the note is still unspent before sending it again.' },
+        };
+      })
       .then(({ status, body }) => {
         response.writeHead(status, headers);
         response.end(JSON.stringify(body));
       });
   });
-  server.listen(port);
+  server.listen(options.port, options.host);
   return server;
 }

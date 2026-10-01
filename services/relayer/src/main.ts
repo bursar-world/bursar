@@ -2,10 +2,11 @@
  *   bursar-relayer run   serve /v1/quote and /v1/relay
  *
  * Environment: RHC_RPC_URL (default the public endpoint); RELAYER_PRIVATE_KEY, or
- * RELAYER_KEYSTORE and RELAYER_PASSWORD_FILE; PORT (default 4321); RELAYER_FEE_BPS (default 50);
- * RELAYER_FEE_RECIPIENT (default the relayer address); RELAYER_GAS_DROP_ETH (default 0.00015);
- * RELAYER_GAS_DROPS_PER_DAY (default 50); RELAYER_DATA_DIR to keep the gas-drop ledger across
- * restarts; RELAYER_MIN_WITHDRAWAL (atomic USDG, default the pool's minimum deposit from the
+ * RELAYER_KEYSTORE and RELAYER_PASSWORD_FILE; PORT (default 4321); RELAYER_HOST (default every
+ * interface); RELAYER_ALLOWED_ORIGINS (default https://app.bursar.world); RELAYER_FEE_BPS
+ * (default 50); RELAYER_FEE_RECIPIENT (default the relayer address); RELAYER_GAS_DROP_ETH (default
+ * 0.00015); RELAYER_GAS_DROPS_PER_DAY (default 50); RELAYER_DATA_DIR to keep the gas-drop ledger
+ * across restarts; RELAYER_MIN_WITHDRAWAL (atomic USDG, default the pool's minimum deposit from the
  * deployment record).
  */
 import { join } from 'node:path';
@@ -14,6 +15,7 @@ import process from 'node:process';
 import { privacyDeployment, rhcChain, viemChain } from '@bursar/core';
 import { createPublicClient, createWalletClient, formatEther, getAddress, http, parseEther } from 'viem';
 
+import { originPolicy } from './cors.js';
 import { GasDropLedger } from './drops.js';
 import { serve } from './http.js';
 import { Relayer } from './relay.js';
@@ -39,6 +41,8 @@ function run() {
   }
   const gasDropsPerDay = Number(env['RELAYER_GAS_DROPS_PER_DAY'] ?? 50);
   if (!Number.isInteger(gasDropsPerDay) || gasDropsPerDay < 0) throw new Error('RELAYER_GAS_DROPS_PER_DAY must be a whole number.');
+  const host = env['RELAYER_HOST'];
+  const origins = originPolicy('RELAYER_ALLOWED_ORIGINS', env['RELAYER_ALLOWED_ORIGINS'], host);
   const dataDir = env['RELAYER_DATA_DIR'];
   const drops = new GasDropLedger(dataDir ? join(dataDir, 'gas-drops.jsonl') : null);
   const log = (line: string) => console.error(line);
@@ -63,12 +67,18 @@ function run() {
     log,
   );
   const port = Number(env['PORT'] ?? 4321);
-  serve(relayer, port, async () => {
-    const balance = await client.getBalance({ address: account.address });
-    return { ok: balance > parseEther('0.0005'), relayer: account.address, relay: deployment.ShieldedRelay, balanceEth: formatEther(balance) };
+  serve(relayer, {
+    port,
+    host,
+    origins,
+    log,
+    health: async () => {
+      const balance = await client.getBalance({ address: account.address });
+      return { ok: balance > parseEther('0.0005'), relayer: account.address, relay: deployment.ShieldedRelay, balanceEth: formatEther(balance) };
+    },
   });
   console.log(
-    `relayer ${account.address} serving on :${port}, relay ${deployment.ShieldedRelay}, fee ${feeBps} bps, ` +
+    `relayer ${account.address} serving on ${host ?? '*'}:${port}, relay ${deployment.ShieldedRelay}, fee ${feeBps} bps, ` +
       `${gasDropsPerDay} gas drops a day${dataDir ? ` recorded under ${dataDir}` : ' kept in memory'}`,
   );
 }
