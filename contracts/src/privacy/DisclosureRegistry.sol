@@ -51,6 +51,10 @@ contract DisclosureRegistry {
         (bool ok, bytes memory data) =
             account.staticcall{gas: PRINCIPAL_GAS}(abi.encodeCall(IPrincipalOf.principal, ()));
         if (!ok || data.length < 32) return address(0);
-        return abi.decode(data, (address));
+        // Read as a word and held to the address range. Decoded as an address, an answer with
+        // dirty high bits reverts, and a payer giving one would revert the payee side's grant.
+        uint256 word = abi.decode(data, (uint256));
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return word > type(uint160).max ? address(0) : address(uint160(word));
     }
 }
