@@ -527,6 +527,36 @@ contract RwaTest is Test {
         assertEq(park.totalBasis(address(sgovAdapter)), 0);
     }
 
+    /// The park's asset is immutable and only its admin can name a successor, so a zero in either
+    /// is there for good. One refusal to a test: a test ends at the first constructor revert it
+    /// expects.
+    function test_park_refusesAZeroAsset() public {
+        vm.expectRevert(TreasuryPark.ZeroAddress.selector);
+        new TreasuryPark(address(0), admin, _factories());
+    }
+
+    function test_park_refusesAZeroAdmin() public {
+        vm.expectRevert(TreasuryPark.ZeroAddress.selector);
+        new TreasuryPark(address(usdg), address(0), _factories());
+    }
+
+    /// With no park nothing can call an adapter. A USDG adapter with no asset would take USDG in
+    /// and have no token to pay it back out in.
+    function test_usdgAdapter_refusesAZeroPark() public {
+        vm.expectRevert(UsdgAdapter.ZeroAddress.selector);
+        new UsdgAdapter(address(0), address(usdg), 100e6, 1_000e6);
+    }
+
+    function test_usdgAdapter_refusesAZeroAsset() public {
+        vm.expectRevert(UsdgAdapter.ZeroAddress.selector);
+        new UsdgAdapter(address(park), address(0), 100e6, 1_000e6);
+    }
+
+    function test_stockAdapter_refusesAZeroPark() public {
+        vm.expectRevert(RobinhoodStockAdapter.ZeroAddress.selector);
+        new RobinhoodStockAdapter(address(0), address(sgov), reg, guard, IPoolManager(address(v4)));
+    }
+
     function test_parkAndAdapterRefuseCallersWithoutTheRole() public {
         vm.expectRevert(TreasuryPark.NotOperator.selector);
         park.park(address(acct), address(sgovAdapter), 1e6, 0);
@@ -624,6 +654,11 @@ contract RwaTest is Test {
         acct.withdraw(address(usdg), park.vaultOf(address(acct)), amount);
         park.park(address(acct), address(usdgAdapter), amount, amount);
         vm.stopPrank();
+    }
+
+    function _factories() internal view returns (IMandateAccountFactory[] memory list) {
+        list = new IMandateAccountFactory[](1);
+        list[0] = IMandateAccountFactory(address(accounts));
     }
 
     function _allow(address asset) internal {

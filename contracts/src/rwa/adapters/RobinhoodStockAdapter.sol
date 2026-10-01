@@ -26,6 +26,7 @@ contract RobinhoodStockAdapter is IParkAsset, V4Swapper {
     address public immutable usdg;
 
     error NotPark();
+    error ZeroAddress();
     error NotTreasuryAsset(address asset);
 
     modifier onlyPark() {
@@ -36,6 +37,8 @@ contract RobinhoodStockAdapter is IParkAsset, V4Swapper {
     constructor(address park_, address asset_, AssetRegistry registry_, PriceGuard guard_, IPoolManager poolManager_)
         V4Swapper(poolManager_)
     {
+        // Immutable, and with no park nothing can call the adapter.
+        if (park_ == address(0)) revert ZeroAddress();
         park = park_;
         asset = asset_;
         registry = registry_;

@@ -91,6 +91,7 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
     error NotPrincipal();
     error NotFactoryAccount(address mandate);
     error UnknownAdapter(address adapter);
+    error ZeroAddress();
     error ZeroAmount();
     error VaultShort(uint256 held, uint256 needed);
     error BelowBuffer(uint256 balance, uint256 buffer);
@@ -105,6 +106,9 @@ contract TreasuryPark is ITreasuryPark, ReentrancyGuard {
     }
 
     constructor(address usdg_, address admin_, IMandateAccountFactory[] memory factories_) {
+        // Neither can be put right afterwards: the asset is immutable, and only the admin can name
+        // its successor.
+        if (usdg_ == address(0) || admin_ == address(0)) revert ZeroAddress();
         usdg = IERC20(usdg_);
         admin = admin_;
         deployer = msg.sender;

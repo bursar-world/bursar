@@ -17,6 +17,7 @@ contract UsdgAdapter is IParkAsset {
     uint128 private immutable _total;
 
     error NotPark();
+    error ZeroAddress();
     error Short(uint256 have, uint256 need);
 
     modifier onlyPark() {
@@ -25,6 +26,9 @@ contract UsdgAdapter is IParkAsset {
     }
 
     constructor(address park_, address usdg_, uint128 perMandate_, uint128 total_) {
+        // Both are immutable. With no park nothing can call the adapter, and with no asset it would
+        // take USDG in and have no token to pay it back out in.
+        if (park_ == address(0) || usdg_ == address(0)) revert ZeroAddress();
         park = park_;
         asset = usdg_;
         _perMandate = perMandate_;
