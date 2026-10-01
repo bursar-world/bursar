@@ -1,6 +1,7 @@
 /**
- * Ruling policy v2, as published in docs/RULING-POLICY.md. Pure: the evidence comes in already
- * collected and checked, and nothing here reads a clock, a chain or a network.
+ * Ruling policy v3, as published in docs/RULING-POLICY.md, and v2 for the disputes that opened
+ * under it. Pure: the evidence comes in already collected and checked, and nothing here reads a
+ * clock, a chain or a network.
  *
  * Every score it emits sits in the middle of one of the registry's refund bands, so no median and
  * no rounding can carry a ruling across a band edge:
@@ -11,15 +12,39 @@
  *   80 and up  no refund        emitted as 90
  */
 
-export const POLICY_VERSION = 'v2';
+export const POLICY_VERSION = 'v3';
+
+/** The versions this service still rules under. Version 2 scored exactly as Version 1 did. */
+export type PolicyVersion = 'v2' | 'v3';
+
+/**
+ * When Version 3 took force: the start of 1 October 2026 UTC, in chain time.
+ *
+ * The published policy rules a dispute under the version in force when it opened. So a dispute
+ * that opened before this is ruled under Version 2 however late its ruling lands, and the
+ * publication names the version it was ruled under.
+ */
+export const V3_IN_FORCE_FROM = 1_790_812_800n;
+
+export function policyVersionAt(openedAt: bigint): PolicyVersion {
+  return openedAt >= V3_IN_FORCE_FROM ? 'v3' : 'v2';
+}
 
 export const RULING_SCORES = [0, 60, 72, 90] as const;
 
 export type RulingScore = (typeof RULING_SCORES)[number];
 
+/** P1 decides under Version 2 only. From Version 3 it carries no score and is never the ruling. */
 export type RuleId = 'P0' | 'P1' | 'P2' | 'P3' | 'P4' | 'P5' | 'P6';
 
-/** Whether the job the payer committed to could be read back and matched to its commitment. */
+/**
+ * Whether the job the payer committed to could be read back and matched to its commitment.
+ *
+ * From Version 3, anything but `verified` leaves the ruling to the delivery evidence. The input is
+ * the payer's to publish, so a lock that names none, or one nobody can read, earns the payer
+ * nothing. Under Version 2 it scored 0, and a payer who had been served could take the provider's
+ * answer and its money back by leaving the input out of the lock.
+ */
 export type InputCheck =
   | { readonly kind: 'verified' }
   | { readonly kind: 'missing' }
@@ -77,11 +102,13 @@ export type Ruling = {
  * P0 is checked first because nothing else means anything on a lock the registry cannot rule on.
  * An allowed override comes next and takes the place of P1 to P5: an override that only applied
  * when no other rule matched would never apply, since P2 matches whenever nothing was delivered.
- * The rest are first match wins, in the order the published policy lists them.
+ * The rest are first match wins, in the order the published policy lists them. From Version 3, P1
+ * records a gap and scores nothing: a lock whose input cannot be read is ruled on what the payee
+ * delivered.
  */
 export function rule(evidence: PolicyEvidence, policyVersion: string = POLICY_VERSION): Ruling {
   // Fail closed. A ruling under a policy nobody published is a ruling nobody can check.
-  if (policyVersion !== POLICY_VERSION) throw new Error(`Ruling policy ${policyVersion} is not implemented here.`);
+  if (policyVersion !== 'v2' && policyVersion !== 'v3') throw new Error(`Ruling policy ${policyVersion} is not implemented here.`);
 
   const ruled = (ruleId: RuleId, score: RulingScore | null, reasons: readonly string[]): Ruling => ({
     policyVersion,
@@ -103,7 +130,10 @@ export function rule(evidence: PolicyEvidence, policyVersion: string = POLICY_VE
   }
 
   if (evidence.input.kind !== 'verified') {
-    return ruled('P1', 0, [...notes, inputReason(evidence.input), 'No verifiable job existed, so nothing was owed.']);
+    if (policyVersion === 'v2') {
+      return ruled('P1', 0, [...notes, inputReason(evidence.input), 'No verifiable job existed, so nothing was owed.']);
+    }
+    notes.push(unreadInput(evidence.input));
   }
 
   if (evidence.deliveries.length === 0) {
@@ -144,6 +174,19 @@ function inputReason(input: Exclude<InputCheck, { kind: 'verified' }>): string {
       return `The input URI could not be fetched: ${input.detail}`;
     case 'mismatch':
       return `The input does not hash to the lock's input commitment: ${input.detail}`;
+  }
+}
+
+/** Why the job could not be checked against its input. Published, so the gap is on the record. */
+function unreadInput(input: Exclude<InputCheck, { kind: 'verified' }>): string {
+  const rest = 'so the job could not be checked against it. The ruling rests on the delivery evidence alone.';
+  switch (input.kind) {
+    case 'missing':
+      return `The lock names no input, ${rest}`;
+    case 'unfetchable':
+      return `The input could not be fetched (${input.detail}), ${rest}`;
+    case 'mismatch':
+      return `The published input does not hash to the lock's commitment (${input.detail}), ${rest}`;
   }
 }
 

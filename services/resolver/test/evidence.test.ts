@@ -10,6 +10,7 @@ import { ESCROW } from './support/fake-chain.js';
 
 const payee = privateKeyToAccount(`0x${'a1'.repeat(32)}`);
 const OUTPUT = { answer: 42 };
+const VERIFIED = { kind: 'verified' } as const;
 
 const LOCK: LockState = {
   payer: '0x877c349EFb5926082C413833E8055F0991185c61',
@@ -100,7 +101,7 @@ describe('delivery checks', () => {
   it('verifies a delivery signed by the payee whose output matches', async () => {
     const submission = await sign();
     if (submission.kind !== 'delivery') throw new Error('delivery');
-    const check = await checkDelivery({ submission, lock: LOCK, inputDocument: null, fetcher: createFetcher({ timeoutMs: 1_000 }), validators: new Map() });
+    const check = await checkDelivery({ submission, lock: LOCK, input: VERIFIED, inputDocument: null, fetcher: createFetcher({ timeoutMs: 1_000 }), validators: new Map() });
 
     expect(check).toMatchObject({ signedByPayee: true, inputMatches: true, output: { kind: 'verified', wellFormed: true }, validator: 'none' });
   });
@@ -108,7 +109,7 @@ describe('delivery checks', () => {
   it('marks an empty output as not well-formed', async () => {
     const submission = await sign(commitCanonical({}), toDataUri('{}'));
     if (submission.kind !== 'delivery') throw new Error('delivery');
-    const check = await checkDelivery({ submission, lock: LOCK, inputDocument: null, fetcher: createFetcher({ timeoutMs: 1_000 }), validators: new Map() });
+    const check = await checkDelivery({ submission, lock: LOCK, input: VERIFIED, inputDocument: null, fetcher: createFetcher({ timeoutMs: 1_000 }), validators: new Map() });
 
     expect(check.output).toEqual({ kind: 'verified', wellFormed: false });
   });
@@ -118,12 +119,13 @@ describe('delivery checks', () => {
     if (submission.kind !== 'delivery') throw new Error('delivery');
     const fetcher = createFetcher({ timeoutMs: 1_000 });
 
-    const partial = await checkDelivery({ submission, lock: LOCK, inputDocument: null, fetcher, validators: new Map([[LOCK.capabilityId, () => 'partial' as const]]) });
+    const partial = await checkDelivery({ submission, lock: LOCK, input: VERIFIED, inputDocument: null, fetcher, validators: new Map([[LOCK.capabilityId, () => 'partial' as const]]) });
     expect(partial.validator).toBe('partial');
 
     const broken = await checkDelivery({
       submission,
       lock: LOCK,
+      input: VERIFIED,
       inputDocument: null,
       fetcher,
       validators: new Map([
@@ -136,6 +138,20 @@ describe('delivery checks', () => {
       ]),
     });
     expect(broken.validator).toBe('fail');
+  });
+
+  it('leaves a published validator unconsulted when the input could not be read', async () => {
+    const submission = await sign();
+    if (submission.kind !== 'delivery') throw new Error('delivery');
+    const validators = new Map([[LOCK.capabilityId, () => 'fail' as const]]);
+
+    // A validator judges the output against the job. With no job in hand its refusal would be a
+    // refund for the payer's own omission, so it is not asked.
+    const unread = await checkDelivery({ submission, lock: LOCK, input: { kind: 'missing' }, inputDocument: null, fetcher: createFetcher({ timeoutMs: 1_000 }), validators });
+    expect(unread).toMatchObject({ output: { kind: 'verified', wellFormed: true }, validator: 'none' });
+
+    const read = await checkDelivery({ submission, lock: LOCK, input: VERIFIED, inputDocument: { frames: 3 }, fetcher: createFetcher({ timeoutMs: 1_000 }), validators });
+    expect(read.validator).toBe('fail');
   });
 });
 

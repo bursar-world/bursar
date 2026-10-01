@@ -97,9 +97,12 @@ describe('disclosure grants', () => {
     expect(reading.notes).toHaveLength(1);
     expect(reading.notes[0]).toContain("does not hash to the lock's input commitment");
 
+    // The input stays unread, which is on the record and scores nothing; with no delivery either,
+    // the absence of one is what decides.
     const ruling = rule({ heldInDispute: true, input: { kind: 'unfetchable', detail: 'sealed' }, deliveries: [], override: null, operatorParty: false, disclosureNotes: reading.notes });
-    expect(ruling.ruleId).toBe('P1');
+    expect(ruling.ruleId).toBe('P2');
     expect(ruling.reasons[0]).toContain('Disclosure');
+    expect(ruling.reasons[1]).toContain('could not be fetched (sealed)');
   });
 
   it('notes a grant sealed to another key and a slice about another lock', async () => {
@@ -168,10 +171,10 @@ describe('disclosure grants', () => {
     if (submission.kind !== 'delivery') throw new Error('delivery');
     const fetcher = createFetcher({ timeoutMs: 1_000, resolve: async () => ['10.0.0.5'] });
 
-    const without = await checkDelivery({ submission, lock: LOCK, inputDocument: INPUT, fetcher, validators: new Map() });
+    const without = await checkDelivery({ submission, lock: LOCK, input: { kind: 'verified' }, inputDocument: INPUT, fetcher, validators: new Map() });
     expect(without.output.kind).toBe('not-public');
 
-    const withGrant = await checkDelivery({ submission, lock: LOCK, inputDocument: INPUT, fetcher, validators: new Map(), disclosedOutputs: reading.outputs });
+    const withGrant = await checkDelivery({ submission, lock: LOCK, input: { kind: 'verified' }, inputDocument: INPUT, fetcher, validators: new Map(), disclosedOutputs: reading.outputs });
     expect(withGrant.output).toEqual({ kind: 'verified', wellFormed: true });
   });
 });

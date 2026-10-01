@@ -16,7 +16,8 @@ export const SERVED_V2: Served = { ...SERVED, name: 'test-v2', contractSet: 'v2'
 export const SERVED_V3: Served = { ...SERVED, name: 'test-v3', contractSet: 'v3' };
 
 export const HOUR = 3_600n;
-export const T0 = 1_790_000_000n;
+/** After Version 3 of the ruling policy took force, so a dispute opened here is ruled under it. */
+export const T0 = 1_800_000_000n;
 
 type Vote = { commitment: Hex; revealed: boolean; score: number };
 

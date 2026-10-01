@@ -13,7 +13,7 @@ import type { DisputeRecord, Journal, Stage, StoredVote } from './journal.js';
 import type { ResolverKey } from './keys.js';
 import { describeError } from './log.js';
 import type { LogFields, Logger } from './log.js';
-import { rule } from './policy.js';
+import { policyVersionAt, rule } from './policy.js';
 import type { DeliveryCheck, PolicyEvidence } from './policy.js';
 import { recoverScore, saltFor } from './salt.js';
 import { WATCHDOG_SECONDS, rotation, timeline } from './schedule.js';
@@ -179,7 +179,7 @@ export function createVoter(options: VoterOptions): Voter {
         },
       }))) ?? record;
 
-    const provisional = rule(await evidenceAt(next, head.timestamp, head.number));
+    const provisional = rule(await evidenceAt(next, head.timestamp, head.number), policyVersionAt(next.openedAt));
     await once(served, next, 'observed', 'INFO', 'dispute_observed', `Dispute ${record.disputeId} is open. Provisional ruling ${provisional.ruleId}.`, {
       escrowId: record.escrowId,
       amount: taken.lock.amount,
@@ -265,6 +265,7 @@ export function createVoter(options: VoterOptions): Voter {
         await checkDelivery({
           submission,
           lock: shot.lock,
+          input,
           inputDocument,
           fetcher: options.fetcher,
           validators: options.validators,
@@ -295,7 +296,7 @@ export function createVoter(options: VoterOptions): Voter {
     const evidence = await evidenceAt(record, tl.evidenceCutoff, head.number);
     if (evidence.transient && head.timestamp < tl.commitAt) return record;
 
-    const ruling = rule(evidence);
+    const ruling = rule(evidence, policyVersionAt(record.openedAt));
     const next =
       (await patch(served, record.disputeId, (r) =>
         r.ruling !== null

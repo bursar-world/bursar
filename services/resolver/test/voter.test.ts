@@ -9,6 +9,7 @@ import { NO_VALIDATORS } from '../src/evidence.js';
 import { createHandler } from '../src/http.js';
 import { openMemoryJournal } from '../src/journal.js';
 import type { Journal } from '../src/journal.js';
+import { V3_IN_FORCE_FROM } from '../src/policy.js';
 import { createVoter } from '../src/voter.js';
 import type { Voter } from '../src/voter.js';
 import { ESCROW, FakeChain, HOUR, REGISTRY, SERVED, SERVED_V2, SERVED_V3, tableFetcher } from './support/fake-chain.js';
@@ -126,7 +127,7 @@ describe('voter', () => {
     expect(r.chain.locks.get(escrowId)?.status).toBe(LockStatus.Resolved);
 
     const published = await ruling(r, disputeId);
-    expect(published.body).toMatchObject({ status: 'published', rule: 'P2', score: 0, policyVersion: 'v2' });
+    expect(published.body).toMatchObject({ status: 'published', rule: 'P2', score: 0, policyVersion: 'v3' });
     expect((await r.journal.get(REGISTRY, disputeId))?.stage).toBe('verified');
   });
 
@@ -199,6 +200,51 @@ describe('voter', () => {
 
     const answer = await r.handle({ method: 'POST', path: '/evidence', query: new URLSearchParams(), body: encodeEvidence(submission), token: null });
     expect(answer.status).toBe(403);
+  });
+
+  it('rules on the delivery when the lock names no input, so the payer is not refunded for leaving it out', async () => {
+    const opened = r.chain.time;
+    const { disputeId, escrowId } = openJob(r.chain, { inputURI: '' });
+    expect((await deliver(r, escrowId)).body).toMatchObject({ counted: true });
+
+    await drive(r, disputeId, opened + 13n * HOUR);
+    expect(r.chain.disputes.get(disputeId)?.refundBps).toBe(0);
+
+    const published = (await ruling(r, disputeId)).body as { rule: string; score: number; reasons: string[]; inputHash: string | null };
+    expect(published).toMatchObject({ rule: 'P5', score: 90, inputHash: null });
+    expect(published.reasons.join(' ')).toMatch(/names no input/);
+  });
+
+  it('checks the input against its commitment when the lock publishes one', async () => {
+    const opened = r.chain.time;
+    const { disputeId, escrowId } = openJob(r.chain);
+    await deliver(r, escrowId);
+    await drive(r, disputeId, opened + 13n * HOUR);
+
+    const published = (await ruling(r, disputeId)).body as { rule: string; reasons: string[]; inputHash: string | null };
+    expect(published).toMatchObject({ rule: 'P5' });
+    expect(published.inputHash).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(published.reasons.join(' ')).not.toMatch(/delivery evidence alone/);
+
+    // Bytes that do not hash to the commitment are said so, and the delivery still decides.
+    const reopened = r.chain.time;
+    const other = openJob(r.chain, { inputURI: toDataUri('{"other":true}') });
+    await deliver(r, other.escrowId);
+    await drive(r, other.disputeId, reopened + 13n * HOUR);
+    const mismatch = (await ruling(r, other.disputeId)).body as { rule: string; score: number; reasons: string[] };
+    expect(mismatch).toMatchObject({ rule: 'P5', score: 90 });
+    expect(mismatch.reasons.join(' ')).toMatch(/does not hash to the lock's commitment/);
+  });
+
+  it('rules a dispute that opened before Version 3 under Version 2, as the policy promises', async () => {
+    r.chain.at(V3_IN_FORCE_FROM - HOUR);
+    const opened = r.chain.time;
+    const { disputeId, escrowId } = openJob(r.chain, { inputURI: '' });
+    await deliver(r, escrowId);
+
+    // Its ruling lands well after Version 3 took force, and is still the one it opened under.
+    await drive(r, disputeId, opened + 13n * HOUR);
+    expect((await ruling(r, disputeId)).body).toMatchObject({ policyVersion: 'v2', rule: 'P1', score: 0 });
   });
 
   it('reveals after a restart with an empty journal, recovering the score from the chain', async () => {

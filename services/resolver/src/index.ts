@@ -19,7 +19,7 @@ export type { DisputeRecord, Journal, Stage } from './journal.js';
 export { loadKeys } from './keys.js';
 export type { KeySource, ResolverKey } from './keys.js';
 
-export { POLICY_VERSION, RULING_SCORES, isRulingScore, rule } from './policy.js';
+export { POLICY_VERSION, RULING_SCORES, V3_IN_FORCE_FROM, isRulingScore, policyVersionAt, rule } from './policy.js';
 export type { DeliveryCheck, InputCheck, OutputCheck, PolicyEvidence, RuleId, Ruling, RulingScore } from './policy.js';
 
 export { recoverScore, saltFor, saltMessage } from './salt.js';

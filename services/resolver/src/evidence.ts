@@ -246,6 +246,12 @@ export function evidenceHash(submission: EvidenceSubmission): Hex {
 export async function checkDelivery(args: {
   readonly submission: Extract<EvidenceSubmission, { kind: 'delivery' }>;
   readonly lock: LockState;
+  /**
+   * The committed input as it was checked. A validator is consulted only against an input that was
+   * read back: one handed nothing would judge the output against a job it never saw, and a refusal
+   * there would be a refund for the payer's own omission.
+   */
+  readonly input: InputCheck;
   readonly inputDocument: unknown;
   readonly fetcher: Fetcher;
   readonly validators: Validators;
@@ -269,7 +275,7 @@ export async function checkDelivery(args: {
 
   let validator: ValidatorVerdict = 'none';
   const validate = args.validators.get(lock.capabilityId.toLowerCase());
-  if (validate !== undefined && outcome.check.kind === 'verified') {
+  if (validate !== undefined && args.input.kind === 'verified' && outcome.check.kind === 'verified') {
     try {
       validator = validate(outcome.output, args.inputDocument);
     } catch {
