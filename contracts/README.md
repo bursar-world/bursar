@@ -26,8 +26,8 @@ and [SECURITY.md](../SECURITY.md) before reporting a problem.
 | `src/rwa/` | Stock purchases and the treasury park, priced by feeds and checked against pinned pools, and the collateral lane: `CreditPool` lends to mandates against stock posted in `CollateralVault`. |
 | `src/privacy/`, `src/zk/` | Committed mandates, whose terms are a commitment and whose spends are proven within them, disclosure grants and the solvency log. |
 | `src/shielded/` | Shielded settlement on Privacy Pools: a USDG pool and a relay that screens recipients. |
-| `script/` | The deploy scripts, each with a verify companion, the scripts that move one deployment into the next, and two rehearsals. Start with [`script/README.md`](script/README.md). |
-| `deployments/` | One record per deployment on 4663: addresses, roles, the parameters applied, and the state read back. `schema.json` describes them. `@bursar/core` generates its address book from these files. |
+| `script/` | The deploy scripts, each with a verify companion, the scripts that move one deployment into the next, two rehearsals, and the check of the live deployment. Start with [`script/README.md`](script/README.md). |
+| `deployments/` | One record per deployment on 4663: addresses, roles, the parameters applied, and the state read back. `schema.json` describes them. `@bursar/core` generates its address book from these files. `checks/` holds the last report `script/check-live.sh` wrote for each record. |
 | `test/` | Unit, fuzz and invariant tests. `test/script/` deploys through the real scripts and runs every lane; `test/script/fork/` does the same on a fork of Robinhood Chain. |
 | `verification/` | The compiler input for each deployed contract, for source verification. |
 
@@ -112,9 +112,9 @@ After changing a contract's interface, regenerate the TypeScript ABIs with
 [`script/README.md`](script/README.md) covers how a deployment is described, every script in
 order, every parameter and each condition under which a script refuses to run.
 [`script/TOKEN-README.md`](script/TOKEN-README.md) covers BRSR, staking, the buyback and the market.
-[`script/MIGRATION.md`](script/MIGRATION.md) is the runbook for moving the current deployment on
-Robinhood Chain to the new contract set. Every key signs from an encrypted keystore; no private key
-is ever passed on the command line.
+[`script/MIGRATION.md`](script/MIGRATION.md) is the runbook for moving the third contract set on
+Robinhood Chain to the fourth, which keeps its timelock and token set. Every key signs from an
+encrypted keystore; no private key is ever passed on the command line.
 
 ## A payment and a dispute, with cast
 
@@ -221,6 +221,33 @@ The median of the two scores is 15. Below 50 the [ruling policy](../docs/RULING-
 the payer in full, less the 0.5% resolver fee, and returns its bond. The mandate ends on 14.975
 USDG: 20 in, two payments of 5 out, 4.975 refunded, and the 0.25 USDG bond back.
 
+## Checking the live deployment
+
+Anyone can check that the deployment live on Robinhood Chain is the one its record describes. It
+takes Foundry, Node and the dependencies installed above, and no key:
+
+```sh
+script/check-live.sh
+```
+
+It finds the record under `deployments/` whose status is `live` and asks the chain every question
+the verify scripts ask, under `BURSAR_VERIFY_STRICT=1`, at one block. It tries `RHC_RPC_URL` when
+that is set, then `https://rpc.mainnet.chain.robinhood.com`, then `https://robinhood.drpc.org`, and
+uses the first that answers as chain 4663. Then it asks Sourcify, which needs no key either, for
+the match status of every contract in `verification/manifest.json` that the record names.
+
+The report lists what the chain answered: every contract address, each admin, owner and role
+holder, the timelock's delay and signers, each quorum, cap and limit, the verifier addresses, and
+the wiring between the contracts. Anything that disagrees with the record, or is still owed to it,
+is at the top. The report is printed and written to `deployments/checks/<network>.md`, with the
+block number and its UTC time. The script exits 0 when nothing disagrees, nothing is owed and
+Sourcify knows every contract, 1 when any of that does not hold, and 2 when it could not run: no
+endpoint answered, or a tool is missing.
+
+[`live-check.yml`](../.github/workflows/live-check.yml) runs the same script every day and on
+demand, with read access to the repository and nothing else, and publishes the report as the job's
+summary.
+
 ## Source verification
 
 `script/verify.mjs` submits each contract in `verification/manifest.json` to Sourcify, to
@@ -238,14 +265,15 @@ its compiler input sits beside the manifest as `<name>.json`. After a deployment
 the deploy scripts left in `broadcast/`:
 
 ```sh
-node script/verification-inputs.mjs --record deployments/rhc-mainnet-v3.json --prefix v3
+node script/verification-inputs.mjs --record deployments/rhc-mainnet-v4.json --prefix v4
 ```
 
 It compiles each input with the solc that built the contract and accepts it only when the result
 is the creation code in the deploy transaction, byte for byte; what follows that code in the
 transaction is the constructor arguments. Contracts a run linked with `--libraries` carry those
-libraries in their metadata, so their inputs and entries carry them too. `--check` reports without
-writing.
+libraries in their metadata, so their inputs and entries carry them too. A contract the record
+carries over from the one it supersedes keeps the entry that set wrote for it, so a run writes only
+what its own record deployed. `--check` reports without writing.
 
 ## License
 

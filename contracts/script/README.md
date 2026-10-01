@@ -9,7 +9,7 @@ the chain the same questions afterwards. You do not need to have read the contra
 |---|---|
 | This page | How a deployment is described, the scripts in order, every parameter, the checks, and what each refusal means. |
 | [`TOKEN-README.md`](TOKEN-README.md) | BRSR, vesting, staking, the buyback and the BRSR/USDG market. |
-| [`MIGRATION.md`](MIGRATION.md) | Moving from the current deployment on Robinhood Chain to the new set, step by step. |
+| [`MIGRATION.md`](MIGRATION.md) | Moving from the third contract set on Robinhood Chain to the fourth, step by step. |
 
 Amounts in USDG are micro-USD: USDG has six decimals, so `1000000` is one dollar. BRSR has
 eighteen, so `1e18` is one token. Durations are seconds and rates are basis points.
@@ -23,7 +23,7 @@ and, as the scripts run, every contract they deploy and every figure they applie
 `BURSAR_RECORD` points the scripts at it.
 
 **The parameter file.** The figures each script applies: fees, windows, caps, bonds, and the few
-operators a script records the first time it needs them. `script/env/rhc-mainnet-v3.env` holds
+operators a script records the first time it needs them. `script/env/rhc-mainnet-v4.env` holds
 the Robinhood Chain values and `script/env/local.env` the local rehearsal's.
 
 Four rules follow from that split.
@@ -57,6 +57,21 @@ deployment answers for its chain, and `superseded` or `retired` once another has
 retired record keeps its history, names its successor in `supersededBy` and says why in `retired`.
 The address book the apps read resolves addresses from live records only.
 
+**A record on top of another.** A deployment that keeps part of the one before it names that
+record in `supersedes` and carries the kept contracts' addresses over, under the keys the scripts
+would have written them at. A deploy script that finds its contracts in the record, with code behind
+them, joins them: `Deploy.s.sol` joins a recorded timelock and names a recorded staking pool on the
+new resolver registry, and `DeployStaking.s.sol` joins a recorded staking pool, buyback and seeder.
+The shell names the superseded record's file in `BURSAR_PREVIOUS_RECORD`. The migration scripts move
+its money, the wiring batch winds its shielded pool down, and the verify scripts read it to tell a
+carried contract still wired to the previous set, which is owed, from one wired wrong. A file whose
+`network` is not the record's `supersedes` stops the run with `PreviousRecordMismatch`.
+
+**Blocks.** Each section records the block it started at, for readers that scan logs from it. That
+is the chain's own height. On Robinhood Chain, an Arbitrum chain, `block.number` is Ethereum's
+block, tens of millions behind, so the scripts ask the ArbSys precompile at address 100, and fall
+back to `block.number` on a chain that has none.
+
 **Namespaces.** Every variable can carry a prefix. Set `BURSAR_ENV_PREFIX` and each script reads
 `<prefix>BURSAR_RECORD` and so on, which is how two deployments share one shell.
 
@@ -83,7 +98,7 @@ acknowledges a signer set of three plain keys (section 5).
 |---|---|---|
 | `Deploy.s.sol` | `AdminTimelock`, `Reputation`, `Escrow`, `OracleRegistry`, `AgentRegistry`, `MandateAccountFactory` | `VerifyCore.s.sol` |
 | `DeployToken.s.sol` | `BRSR` and `Vesting`, on a chain that has neither | `VerifyToken.s.sol` |
-| `DeployStaking.s.sol` | `Staking`, `Buyback`, and a `V4LiquiditySeeder` when the BRSR/USDG pool is open | `VerifyStaking.s.sol` |
+| `DeployStaking.s.sol` | `Staking`, `Buyback`, and a `V4LiquiditySeeder` when the BRSR/USDG pool is open; nothing when the record carries all three over | `VerifyStaking.s.sol` |
 | `SeedPool.s.sol` | opens the BRSR/USDG market on a chain where it is not open, or adds to it | `VerifyStaking.s.sol` |
 | `DeployRwa.s.sol` | `AssetRegistry`, `PriceGuard`, `StockSpendRouter`, `TreasuryPark` and its two adapters | `VerifyRwa.s.sol` |
 | `DeployCollateral.s.sol` | `CreditPool` and `CollateralVault`, bound to each other | `VerifyCollateral.s.sol` |
@@ -91,9 +106,9 @@ acknowledges a signer set of three plain keys (section 5).
 | `DeployShielded.s.sol` | the Privacy Pools verifiers and `Entrypoint`, `ShieldedPool` and `ShieldedRelay` | `VerifyShielded.s.sol` |
 | `ProposeWiring.s.sol` | nothing: puts governance's wiring to the signers | `VerifyWiring.s.sol` |
 
-`Verify.s.sol` runs every check in one pass. The `Migrate*.s.sol` scripts and
-`RetireRecords.s.sol` move an earlier deployment into this one; [`MIGRATION.md`](MIGRATION.md)
-gives their order.
+`Verify.s.sol` runs every check in one pass, and `check-live.sh` runs it over the live record
+and writes a report. The `Migrate*.s.sol` scripts and `RetireRecords.s.sol` move the previous
+deployment into this one; [`MIGRATION.md`](MIGRATION.md) gives their order.
 
 Every contract answers to the timelock from its constructor, so no part of the set is ever
 administered by the deploy key. What the deploy key keeps is the one-shot calls no constructor can
@@ -111,7 +126,11 @@ make, and each script spends them in its own run:
 What is left is governance's, and `ProposeWiring.s.sol` puts all of it to the signers in one
 batch: the buyback's keeper, each vetted resolver's bond floor, the staking rebate table, the
 credit pool's two roles on the staking pool, credit manager and slasher, and, where
-`SeedPool.s.sol` opened the market, the seeder it offered to the timelock.
+`SeedPool.s.sol` opened the market, the seeder it offered to the timelock. A call whose effect is
+already on chain is left out, so on a record that carries its staking pool over the batch comes
+down to the credit pool's two roles. With a previous record in the shell it also winds that
+record's shielded pool down, through the Entrypoint the timelock owns: the pool takes no new
+deposit, and every note in it stays withdrawable.
 
 ## 4. Running a script
 
@@ -119,7 +138,7 @@ Simulate first. Without `--broadcast` nothing is sent and nothing is written, an
 runs against the live chain.
 
 ```sh
-source script/env/rhc-mainnet-v3.env   # the figures, BURSAR_RECORD and RHC_RPC_URL
+source script/env/rhc-mainnet-v4.env   # the figures, BURSAR_RECORD and RHC_RPC_URL
 export ETH_PASSWORD=...                # the path of the file holding the keystore password
 export KEYS="$HOME/.config/bursar/keystore"
 export BURSAR_ALLOW_EOA_GOVERNANCE=i-accept-eoa-governance   # the signer set is three plain keys
@@ -171,7 +190,7 @@ another. A run that executes some calls and finds others still waiting succeeds.
 
 ## 5. Parameters
 
-Every figure below is in `script/env/rhc-mainnet-v3.env`, with the value the Robinhood Chain
+Every figure below is in `script/env/rhc-mainnet-v4.env`, with the value the Robinhood Chain
 deployment uses. Where the value says `record`, the Robinhood Chain record already names the address
 under `roles`, and the variable is read only on a chain whose record does not. A variable a script
 needs and cannot find stops it with `MissingEnv`, and one it cannot read, such as `1%` for a figure
@@ -211,6 +230,9 @@ A payment that is disputed leaves through the resolver registry, which always ha
 the reveal window closes, so there is no dispute timeout to set.
 
 ### `DeployStaking.s.sol`
+
+On a record that carries the staking pool, the buyback and the seeder over, none of these is read:
+the run records the figures the three hold on chain.
 
 | Variable | Value | Meaning |
 |---|---|---|
@@ -253,6 +275,15 @@ simulation, and sends nothing. Every question has one of three answers:
 - **mismatch**: anything else, including a governed value set to something other than what the
   record intends. A proposal that named the wrong address is worse than none.
 
+Every value a check reads is printed as it is read, as `fact      <what> = <value>`: each
+address, admin, role holder, figure and wiring. A run's output is the deployment as the chain
+describes it, and `check-live.sh` turns it into a report, as
+[`../README.md`](../README.md#checking-the-live-deployment) describes.
+
+With `BURSAR_PREVIOUS_RECORD` set, a role a carried contract still gives the previous set is owed,
+as in `Staking.creditManager still names the previous deployment`. Without it the same value is a
+mismatch, because nothing says where it came from.
+
 A run asks every question before it fails, so one run names every problem, and ends with a line such
 as `staking: 0 mismatched, 6 owed`. Any mismatch, or anything owed under strict, fails it with
 `VerificationFailed(mismatches, owed)`. `VerifyCore.s.sol` asks each read so that a contract unable
@@ -283,7 +314,10 @@ that runs before anything is broadcast.
 | `FeeSplitTooLarge`, `DisputeBondTooLarge`, `BaseCapZero` | The escrow's figures leave nothing to pay a payee, cannot be posted, or cap every new payee at zero. |
 | `DeployerIsTimelockSigner`, `RoleCollision` | One address holds two roles that have to be apart. |
 | `GovernanceHasNoMultisig`, `EoaGovernanceNotAcknowledged` | No signer is a contract and the phrase is missing or wrong. |
-| `NotBrsr`, `OracleRegistryNotReady` | The recorded token is not BRSR, or the resolver registry was deployed by another key, is already wired, or settles in another asset. |
+| `NotBrsr`, `OracleRegistryNotReady` | The recorded token is not BRSR, or the resolver registry was deployed by another key, is already wired to another pool, or settles in another asset. |
+| `PreviousRecordMismatch` | `BURSAR_PREVIOUS_RECORD` names a record other than the one this record supersedes. |
+| `BondFloorNotSet`, `BondFloorsDiffer` | A carried staking pool holds no floor for a recorded resolver, or the recorded resolvers hold different ones, so there is no one figure to record. |
+| `EntrypointNotGoverned` | The timelock does not hold the owner role on the previous set's Entrypoint, so the wiring batch cannot wind its pool down. |
 | `PoolHookNotContract`, `DynamicFeePoolRejected`, `PoolFeeTooLarge`, `TickSpacingOutOfRange` | The buyback's pool key describes a pool v4 would not accept, or one whose hook could set its fee. |
 | `PriceCeilingNotAPrice`, `BondFloorZero` | The ceiling is a figure in some other unit, or the resolvers' floor is zero. |
 | `AssetKindMismatch`, `PoolIdMismatch`, `PoolNotOpen`, `OneTreasuryAsset` | An RWA asset's record disagrees with its terms, its pool is not the one measured, or not open. |
@@ -313,14 +347,20 @@ script/local/rehearse-mainnet.sh     # a fork of Robinhood Chain as it stands, o
 `rehearse.sh` builds the contracts, starts anvil answering as chain 4663, places stand-ins for the
 outside contracts with `script/local/LocalFixtures.s.sol`, which also writes a local record, and
 runs every deploy script with its check. It opens the BRSR/USDG market with `SeedPool.s.sol`, runs
-the wiring batch through the timelock from the signers' own accounts, funds the credit pool, runs
-the full check under `BURSAR_VERIFY_STRICT=1`, which has to find nothing owed, and runs one flow
-per lane. The last line it prints says it passed, or names the step it stopped at. The build, the
-record and the transaction logs live in a directory of the run's own under `cache/bursar`, and go
-when it exits, with the chain they describe. `BURSAR_ANVIL_PORT` moves it off 8546.
+the wiring batch through the timelock from the signers' own accounts, funds the credit pool, seats
+a payee and the three resolvers, creates the examples, and checks the set under
+`BURSAR_VERIFY_STRICT=1`. Then it plans a second record on top of the first, with the timelock and
+the token set carried over, and runs every step of [`MIGRATION.md`](MIGRATION.md) between the two:
+the staking run joins what it finds, the wiring batch proposes only what differs, the first record
+retires and the second goes live. It ends on a strict check of the second set, which has to find
+nothing owed, and one flow per lane against it. The last line it prints says it passed, or names
+the step it stopped at. The build, the records and the transaction logs live in a directory of the
+run's own under `cache/bursar`, and go when it exits, with the chain they describe.
+`BURSAR_ANVIL_PORT` moves it off 8546.
 
 `rehearse-mainnet.sh` forks mainnet and runs the move in [`MIGRATION.md`](MIGRATION.md), step by
-step, as each real key.
+step, as each real key, on top of the live set. It ends with the previous record retired, the new
+one live, and the gas each key used.
 
 ### By hand on anvil
 

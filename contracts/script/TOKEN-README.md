@@ -9,13 +9,14 @@ reads the deployment record, and the parameters and checks they share.
 | Script | What it does |
 |---|---|
 | `DeployToken.s.sol` | Mints BRSR and writes the team's vesting schedule. Once per chain. |
-| `DeployStaking.s.sol` | Deploys the staking pool and the buyback, and a seeder for the BRSR/USDG position when the pool is open. |
+| `DeployStaking.s.sol` | Deploys the staking pool and the buyback, and a seeder for the BRSR/USDG position when the pool is open. Joins all three when the record carries them over. |
 | `SeedPool.s.sol` | Opens the BRSR/USDG market at a price you name, or adds to it at the price it stands at. |
 | `ProposeWiring.s.sol` | Puts the keeper, the resolvers' bond floors, the rebate table and the credit pool's roles to the signers. |
 
-On Robinhood Chain, BRSR, its vesting contract and the open BRSR/USDG pool already exist. The record
-names BRSR and `Vesting` under `token`, `DeployToken.s.sol` refuses to mint a second supply, and the
-new staking pool and buyback are built on the token and the pool that are there.
+On Robinhood Chain the whole token set already exists: BRSR, its vesting contract, the staking pool,
+the buyback, and the seeder that holds the BRSR/USDG position. The planned record names all five
+under `token`, so `DeployToken.s.sol` refuses to mint a second supply and `DeployStaking.s.sol`
+joins the three it finds.
 
 ## 1. The token: `DeployToken.s.sol`
 
@@ -67,6 +68,17 @@ All three answer to the timelock from their constructors. The same run names the
 the resolver registry, the last one-shot call of the core set, which puts every resolver bond in
 BRSR.
 
+**A carried set is joined.** When the record already names the staking pool, the buyback and the
+seeder, with code behind each, the run deploys nothing. It checks the three are the contracts the
+record implies: the pool stakes the recorded BRSR, pays the settlement asset and answers to the
+recorded timelock, the buyback compounds into that pool and trades the recorded market, and the
+seeder holds that market's position for that buyback and belongs to the timelock. It names the pool
+on the new resolver registry unless the core run already did, and it writes the figures the three
+hold into the record's `parameters`, read off the chain, so `VerifyStaking.s.sol` checks a carried
+set against the same record a fresh one gets. The parameter file's staking and buyback figures are
+not read. Two of the three is not a carried set: the run then deploys afresh and refuses what the
+record holds.
+
 **Nobody can bond until governance says who.** The bond floor for everyone is
 `BURSAR_STAKING_MIN_BOND`, 1e27 wei, which is more BRSR than exists. The wiring batch then names a
 floor of 30,000 BRSR for each resolver the record lists. That is the allowlist, closed from the
@@ -97,9 +109,8 @@ A ceiling is trusted for seven days after governance sets it. After that every b
 `PriceCeilingStale` until governance restates it with `Buyback.setParams`, so a price nobody has
 looked at in a week never fills.
 
-**When the pool is open,** as it is on Robinhood Chain, the run deploys the seeder, and the move to
-the new set shifts the existing position into it. When it is not, there is no position yet:
-`SeedPool.s.sol` opens the market.
+**When the pool is open,** a fresh run deploys the seeder with the pool and the buyback. When it is
+not, there is no position yet: `SeedPool.s.sol` opens the market.
 
 | Error | What it means |
 |---|---|
@@ -107,6 +118,8 @@ the new set shifts the existing position into it. When it is not, there is no po
 | `OracleRegistryNotReady` | The resolver registry was deployed by another key, already has a staking pool, or settles in another asset. |
 | `PoolHookNotContract`, `DynamicFeePoolRejected`, `PoolFeeTooLarge`, `TickSpacingOutOfRange` | The pool key is not one v4 would accept, or its fee could move per swap. |
 | `PriceCeilingNotAPrice`, `BondFloorZero` | The ceiling is in the wrong unit, or the resolvers' floor is zero. |
+| `BondFloorNotSet`, `BondFloorsDiffer` | A carried staking pool holds no floor for a recorded resolver, or the recorded resolvers hold different ones, so there is no one figure to record. |
+| `PoolIdMismatch`, `WiringFailed` | A carried contract is not the one the record implies. `WiringFailed` names the read, the value expected and the value found. |
 | `RoleCollision` | The treasury, the slash sink, the keeper and the deploy key are not four different addresses. |
 | `AddressFrozen` | USDG has frozen the pool manager or the treasury. Every buyback pays the manager. |
 
@@ -127,7 +140,7 @@ works every figure out for the side BRSR is on and prints which side that is.
 | `BURSAR_SEED_USDG_MICRO` | The USDG side of the position, in micro-USD. The BRSR side is what that is worth at the price. |
 | `BURSAR_SEED_PRICE_MICRO_USD` | `run()`: the opening price of one whole BRSR. `seedExisting()`: optional, the price you expect the pool to be at. |
 | `BURSAR_SEED_MAX_DEVIATION_BPS` | `seedExisting()`: how far from that price the pool may be, 100 unless set. |
-| `BURSAR_ALLOW_MAINNET_SEED` | Required on Robinhood Chain, and a different phrase for each way of changing the market: `i-am-opening-the-market` for `run()`, `i-am-adding-to-the-market` for `seedExisting()`, and `i-am-moving-the-market` for `MigrateLiquidity.s.sol`, which moves the existing position into governance's seeder in the move to the new set. Without it the run prints the plan and sends nothing. |
+| `BURSAR_ALLOW_MAINNET_SEED` | Required on Robinhood Chain, and a different phrase for each way of changing the market: `i-am-opening-the-market` for `run()` and `i-am-adding-to-the-market` for `seedExisting()`. Without it the run prints the plan and sends nothing. |
 
 The script never takes a raw `sqrtPriceX96`. It derives the opening price twice, by two routes,
 and refuses when they disagree by more than a fifth of a tick. Before anything is sent it prints
@@ -155,6 +168,10 @@ BURSAR_SEED_USDG_MICRO=5000000 BURSAR_ALLOW_MAINNET_SEED=i-am-adding-to-the-mark
 - `V4LiquiditySeeder.acceptOwnership`, where `SeedPool.s.sol` opened the market and offered its
   seeder to the timelock.
 
+A call whose effect is already on chain is left out. On a carried set the keeper, the floors and
+the rebate table are in place, so the batch comes down to the credit pool's two roles, which move
+from the previous deployment's pool to the new one.
+
 `VerifyWiring.s.sol` checks that every call in the batch took effect. Then, before the buyback does
 anything:
 
@@ -181,7 +198,7 @@ Nothing is claimable in the first year. At the cliff a quarter of the grant beco
 once, and the rest accrues every second until the fourth year ends.
 
 ```sh
-source script/env/rhc-mainnet-v3.env
+source script/env/rhc-mainnet-v4.env
 KEYS="$HOME/.config/bursar/keystore"
 VESTING="$(jq -r .token.Vesting "$BURSAR_RECORD")"
 ME="$(jq -r '.roles.vestingBeneficiaries[0]' deployments/rhc-mainnet-token.json)"   # the team grant's beneficiary
