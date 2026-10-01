@@ -102,6 +102,14 @@ later() {
   cast rpc evm_mine --rpc-url "$rpc" >/dev/null
 }
 
+observe() {
+  local guard
+  guard="$(jq -r .rwa.PriceGuard "$BURSAR_RECORD")"
+  for symbol in SGOV SPY NVDA AAPL; do
+    tx "$deployer" "$guard" "observe(address)" "$(jq -r ".rwa.assets.$symbol.address" "$BURSAR_RECORD")"
+  done
+}
+
 # Executes the newest open proposal on a timelock that carries this target and calldata, as the
 # first signer, once its delay has passed on the fork's clock.
 land() {
@@ -172,6 +180,11 @@ for resolver in "${resolvers[@]}"; do
   send script/MigrateResolvers.s.sol "$resolver" --sig "bond()"
 done
 send script/MigrateExamples.s.sol "$payer" --sig "create()"
+# The keeper's first two observations of each collateral asset's pool, five minutes apart, so the
+# new lane can draw.
+observe
+later 301
+observe
 
 step "4. The wiring lands; the new record goes live"
 later "$((BURSAR_TIMELOCK_PERIOD + 1))"
@@ -190,6 +203,7 @@ tx "$payee" "$usdg" "transfer(address,uint256)" "$deployer" 5000000
 send script/MigrateCredit.s.sol "$deployer" --sig "fund(uint256)" 5000000
 send script/RetireRecords.s.sol "$deployer" --sig "settle()"
 send script/MigrateExamples.s.sol "$payer" --sig "drain()"
+send script/MigrateCredit.s.sol "$deployer" --sig "claimSeized()"
 send script/RetireRecords.s.sol "$deployer"
 
 # The buyback's ceiling is trusted for seven days after it is set, and the week above has used them

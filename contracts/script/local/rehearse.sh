@@ -99,6 +99,14 @@ later() {
   cast rpc evm_mine --rpc-url "$rpc" >/dev/null
 }
 
+observe() {
+  local guard
+  guard="$(jq -r .rwa.PriceGuard "$BURSAR_RECORD")"
+  for symbol in SGOV SPY NVDA AAPL; do
+    tx "$BURSAR_DEPLOYER" "$guard" "observe(address)" "$(jq -r ".rwa.assets.$symbol.address" "$BURSAR_RECORD")"
+  done
+}
+
 deploy_shielded() {
   send script/DeployShielded.s.sol "$BURSAR_DEPLOYER" \
     --libraries "vendor/poseidon-solidity/PoseidonT3.sol:PoseidonT3:$(jq -r .external.PoseidonT3 "$BURSAR_RECORD")" \
@@ -239,6 +247,11 @@ for resolver in "${resolvers[@]}"; do
   send script/MigrateResolvers.s.sol "$resolver" --sig "bond()"
 done
 send script/MigrateExamples.s.sol "$payer" --sig "create()"
+# The keeper's first two observations of each collateral asset's pool, five minutes apart, so the
+# new lane can draw.
+observe
+later 301
+observe
 
 step "4. The wiring lands; the new record goes live"
 later "$((BURSAR_TIMELOCK_PERIOD + 1))"
@@ -257,6 +270,7 @@ tx "$payee" "$usdg" "transfer(address,uint256)" "$BURSAR_LENDER" 5000000
 send script/MigrateCredit.s.sol "$BURSAR_LENDER" --sig "fund(uint256)" 5000000
 send script/RetireRecords.s.sol "$BURSAR_DEPLOYER" --sig "settle()"
 send script/MigrateExamples.s.sol "$payer" --sig "drain()"
+send script/MigrateCredit.s.sol "$BURSAR_LENDER" --sig "claimSeized()"
 send script/RetireRecords.s.sol "$BURSAR_DEPLOYER"
 
 # The buyback's ceiling is trusted for seven days, and the week above has used them up. Governance

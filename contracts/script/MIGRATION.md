@@ -242,6 +242,16 @@ send script/MigrateResolvers.s.sol resolver-3 --sig "bond()"
 signature="$(cast wallet sign --keystore "$KEYS/payer" "$(node script/committed-example.mjs message "$PAYER")")"
 eval "$(node script/committed-example.mjs terms "$PAYER" "$signature")"
 send script/MigrateExamples.s.sol payer --sig "create()"
+
+# The first observations of each collateral asset's pool on the new price guard, from any key.
+# A draw needs one at least five minutes old, so the same loop runs again five minutes later.
+observe() {
+  for symbol in SGOV SPY NVDA AAPL; do
+    cast send "$(next .rwa.PriceGuard)" "observe(address)" "$(next ".rwa.assets.$symbol.address")" \
+      --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/rh-deployer"
+  done
+}
+observe
 ```
 
 Then read each move back. The comment on each line says what it has to print.
@@ -260,6 +270,7 @@ readback "$(next .contracts.OracleRegistry)" "totalBonded()(uint128)"           
 readback "$(previous .contracts.OracleRegistry)" "getResolver(address)((uint128,uint64,uint32,uint32,uint8))" \
   "$(next '.roles.resolvers[0]')"                                                                     # status 2, unbonding, with the time it began
 readback "$usdg" "balanceOf(address)(uint256)" "$(next .exampleMandate.address)"                      # 200000
+readback "$(next .rwa.PriceGuard)" "aged(address)((uint48,uint64,uint64))" "$(next .rwa.assets.SPY.address)"   # a reading, once observe has run twice
 ```
 
 `drain()` withdraws only what the key is the principal of, and names any example it skips. A
@@ -273,6 +284,14 @@ previous registry for the payee's stake back.
 
 Resolvers bond without waiting for step 4. The floor each one bonds at lives on the staking pool,
 which is carried over with the floors governance already named.
+
+The collateral example draws nothing when it is created, and nothing on the new lane can draw
+until the new price guard holds an aged observation of each asset's pool: a reading
+`observe(asset)` took at least five minutes earlier and at most an hour earlier. The keeper that
+observes every five minutes has to be pointed at the new guard before the apps move, as its own
+runbook describes. Until it is, the loop above stands in for it: run `observe` a second time five
+minutes after the first, and a draw is possible for the hour that follows. `observe` refuses
+`ObservationTooSoon` when the second call comes early.
 
 The committed example keeps its terms behind a commitment, so they are written and sealed before
 `create()` sees them. `script/committed-example.mjs` does it with the SDK, the way the console does
@@ -333,6 +352,10 @@ send script/MigrateCredit.s.sol rh-deployer --sig "fund(uint256)" 5000000
 send script/RetireRecords.s.sol rh-deployer --sig "settle()"
 send script/MigrateExamples.s.sol payer --sig "drain()"
 
+# Stock a write-off seized in the previous vault, to the lender who carried the loss. Sends
+# nothing when nothing was seized.
+send script/MigrateCredit.s.sol rh-deployer --sig "claimSeized()"
+
 # Checks that nothing is left open, then marks the third record retired.
 send script/RetireRecords.s.sol rh-deployer
 BURSAR_VERIFY_STRICT=1 verify script/Verify.s.sol
@@ -341,6 +364,7 @@ BURSAR_VERIFY_STRICT=1 verify script/Verify.s.sol
 ```sh
 readback "$(previous .contracts.OracleRegistry)" "totalBonded()(uint128)"   # 0
 readback "$(previous .contracts.AgentRegistry)" "totalStaked()(uint128)"    # 0
+readback "$(previous .rwa.collateral.CollateralVault)" "seized(address)(uint256)" "$(previous .rwa.assets.SPY.address)"   # 0
 readback "$(next .rwa.collateral.CreditPool)" "cash()(uint256)"             # 25000000
 jq -r .status "$BURSAR_RECORD" "$BURSAR_PREVIOUS_RECORD"                    # live, retired
 ```
@@ -350,10 +374,11 @@ Each resolver's `reclaim()` returns its old bond to the treasury, which paid for
 `RetireRecords.s.sol` sends no transaction. It stops, naming each item, while anything is still
 open on the third set: a payment on its escrow that is locked, disputed or still inside its
 dispute window, USDG left in its escrow, cash or debt in its credit pool, any balance in its
-collateral vault, notes in its shielded pool, a stake on its agent registry, or a bond or an
-unclaimed reward on its resolver registry. `BURSAR_FORCE=1` retires the record anyway and lists
-what was left, which is the way past a balance nobody can move: tokens sent straight to the old
-escrow or vault belong to no payment and no line, and stay there.
+collateral vault, seized by a write-off and not yet claimed or otherwise, notes in its shielded
+pool, a stake on its agent registry, or a bond or an unclaimed reward on its resolver registry.
+`BURSAR_FORCE=1` retires the record anyway and lists what was left, which is the way past a
+balance nobody can move: tokens sent straight to the old escrow or vault belong to no payment and
+no line, and stay there.
 
 The buyback's price ceiling is trusted for seven days after it is set, and it was last set on
 2026-09-29. Once it has aged out, the strict check lists it as owed. Restate it through the timelock
@@ -425,6 +450,7 @@ addresses the record already names. The rehearsals and local runs keep their log
 | `EntrypointNotGoverned` | The timelock does not hold the owner role on the previous Entrypoint, so it cannot wind that pool down. |
 | `NotSigner` | The keystore is not one of the timelock's signers. |
 | `NotTheKey` | The step has to be signed by the key it names: the lender, or the treasury. |
+| `ObservationTooSoon` | The second `observe` came under five minutes after the first. Run it again at the time the error gives. |
 | `not executable yet`, `DelayNotPassed` | The call cannot run yet. The line says why: the delay, with the UTC date it ends and the time left, or an approval still missing. When the delay held every call back, `execute()` sent nothing and fails with `DelayNotPassed`, which names when the delay ends. Run `execute()` again then. |
 | `not matured yet` | An old bond or stake is still unbonding. Run the same step again on the date it prints. |
 | `MissingEnv`, `InvalidEnv` | A variable is unset, or holds something that does not read as its type. The error names the variable, and `InvalidEnv` the value. |

@@ -256,6 +256,9 @@ the run records the figures the three hold on chain.
 | `BURSAR_SOLVENCY_POSTER` | the deploy key | `DeployPrivacy.s.sol`. The key the solvency service posts with. |
 | `BURSAR_ASP_POSTMAN` | `0x731F…4bbe` | `DeployShielded.s.sol`. The key the association-set service posts roots with. Never the deploy key or the timelock. |
 | `BURSAR_SHIELDED_RELAYER` | `0xc8FB…9630` | `DeployShielded.s.sol`. The relayer the apps send withdrawals through. |
+| `BURSAR_SHIELDED_MAX_PER_DEPOSITOR`, `BURSAR_SHIELDED_DEPOSITOR_WINDOW` | `250000000`, `604800` | `DeployShielded.s.sol`. What one address may put into the pool in any seven days: a quarter of the pool's 1,000 USDG. |
+| `BURSAR_MIN_OBSERVATION_AGE`, `BURSAR_MAX_OBSERVATION_AGE` | `300`, `3600` | `DeployRwa.s.sol`. A draw on the collateral lane counts a holding only against an observation of its pool, taken by anyone calling `PriceGuard.observe(asset)`, at least five minutes old and at most an hour old. A keeper calls it per asset every five minutes. |
+| `BURSAR_MAX_FEED_JUMP_BPS` | `1500` | `DeployRwa.s.sol`. How far the feed may move from that observation, 15%, before draws halt. |
 
 The RWA assets come from the record's `external.assets`, and the terms each trades under from
 `script/lib/RwaConfig.sol`: the treasury fund SGOV with a 0.5% band, and SPY, NVDA and AAPL as
