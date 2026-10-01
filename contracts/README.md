@@ -241,8 +241,10 @@ holder, the timelock's delay and signers, each quorum, cap and limit, the verifi
 the wiring between the contracts. Anything that disagrees with the record, or is still owed to it,
 is at the top. The report is printed and written to `deployments/checks/<network>.md`, with the
 block number and its UTC time. The script exits 0 when nothing disagrees, nothing is owed and
-Sourcify knows every contract, 1 when any of that does not hold, and 2 when it could not run: no
-endpoint answered, or a tool is missing.
+Sourcify knows every contract, 1 when any of that does not hold, and 2 when it could not run, or
+when a verify script stopped partway: a record written before a read the scripts now make, as the
+third set's is while the fourth is planned, stops the run with `NotRecorded`, and the report holds
+what was read up to there.
 
 [`live-check.yml`](../.github/workflows/live-check.yml) runs the same script every day and on
 demand, with read access to the repository and nothing else, and publishes the report as the job's

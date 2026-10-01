@@ -14,7 +14,9 @@
 #
 # The report goes to stdout and to deployments/checks/<network>.md, with the block and its time.
 # The exit status is 0 when the chain matches the record with nothing owed and Sourcify knows every
-# contract, 1 when anything disagrees, and 2 when the check could not run.
+# contract, 1 when anything disagrees, and 2 when the check could not run or a verify script
+# stopped partway, which a record from before a read it makes does; the report then holds what was
+# read up to there.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -81,13 +83,23 @@ output="$(BURSAR_RECORD="$record" BURSAR_VERIFY_STRICT=1 forge script script/Ver
   --rpc-url "$rpc" --fork-block-number "$block" 2>&1)"
 set -e
 summary="$(sed -n 's/^ *\(deployment: [0-9]* mismatched, [0-9]* owed\)$/\1/p' <<<"$output" | tail -1)"
+# A verify script that reverts, on a record from before a read it makes, leaves no summary. The
+# report then carries what was read up to there and the refusal.
+stopped=""
 if [ -z "$summary" ]; then
-  tail -n 25 <<<"$output" >&2
-  stop "the verify run did not reach its summary"
+  stopped="$(sed -n 's/^Error: script failed: //p' <<<"$output" | tail -1)"
+  if [ -z "$stopped" ]; then
+    tail -n 25 <<<"$output" >&2
+    stop "the verify run did not reach its summary"
+  fi
+  summary="stopped: $stopped"
 fi
 # The wiring check reads some of what the staking check read; each value is listed once.
 facts="$(sed -n 's/^ *fact      \(.*\) = \(.*\)$/| \1 | \2 |/p' <<<"$output" | awk '!seen[$0]++')"
 findings="$(sed -n -e 's/^ *MISMATCH  /- mismatch: /p' -e 's/^ *owed      /- owed: /p' <<<"$output")"
+if [ -n "$stopped" ]; then
+  findings="- the verify run stopped before its summary: $stopped${findings:+$'\n'$findings}"
+fi
 
 # Every manifest entry whose address the record names, in the manifest's order.
 sourcify="$(node - "$record" verification/manifest.json "$chain" <<'EOF'
@@ -129,6 +141,7 @@ fi
 
 result=PASS
 if [ "$summary" != "deployment: 0 mismatched, 0 owed" ] || [ "$unverified" -ne 0 ]; then result=FAIL; fi
+if [ -n "$stopped" ]; then result=STOPPED; fi
 
 report="deployments/checks/$network.md"
 mkdir -p deployments/checks
@@ -152,7 +165,7 @@ mkdir -p deployments/checks
   echo
   echo "## What the chain answers"
   echo
-  echo "Every value the verify scripts read at block $block, in the order they read it."
+  echo "Every value the verify scripts read at block $block, in the order they read it${stopped:+, up to where the run stopped}."
   echo
   echo "| Read | Value |"
   echo "|---|---|"
@@ -170,4 +183,5 @@ mkdir -p deployments/checks
 } >"$report"
 cat "$report"
 
+[ -z "$stopped" ] || exit 2
 [ "$result" = PASS ]

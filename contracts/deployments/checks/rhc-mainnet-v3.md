@@ -2,23 +2,27 @@
 
 | | |
 |---|---|
-| Result | FAIL |
+| Result | STOPPED |
 | Record | `deployments/rhc-mainnet-v3.json` |
 | Chain | 4663 |
-| Block | 77647394 |
-| Time | 2026-10-01 20:05:16 UTC |
+| Block | 77664830 |
+| Time | 2026-10-01 20:34:30 UTC |
 | Endpoint | https://rpc.mainnet.chain.robinhood.com |
-| Strict verify | deployment: 0 mismatched, 1 owed |
-| Sourcify | 32 contracts asked, 1 not verified, 0 unanswered |
+| Strict verify | stopped: NotRecorded(".privacy.shielded.maxPerDepositor") |
+| Sourcify | 32 contracts asked, 0 not verified, 0 unanswered |
 
 ## Findings
 
+- the verify run stopped before its summary: NotRecorded(".privacy.shielded.maxPerDepositor")
+- mismatch: Reputation.weights: 0xF2510fB02BaE866fD307CE5f48BBe1B1C2E17238 does not answer
 - owed: Vesting.admin is 0x5a32Eab02454f97a39857E85b536F83EE0f844Bf: its handover to the timelock is owed
-- not verified on Sourcify: v3-WithdrawalVerifier 0xD9869A7a4b8C878558D09aF705D9F81da0f864FE
+- mismatch: PriceGuard.minObservationAge: 0xEcCDd1cBb5474cBe98f3038A864182F2766dFd8b does not answer
+- mismatch: PriceGuard.maxObservationAge: 0xEcCDd1cBb5474cBe98f3038A864182F2766dFd8b does not answer
+- mismatch: PriceGuard.maxFeedJumpBps: 0xEcCDd1cBb5474cBe98f3038A864182F2766dFd8b does not answer
 
 ## What the chain answers
 
-Every value the verify scripts read at block 77647394, in the order they read it.
+Every value the verify scripts read at block 77664830, in the order they read it, up to where the run stopped.
 
 | Read | Value |
 |---|---|
@@ -102,6 +106,7 @@ Every value the verify scripts read at block 77647394, in the order they read it
 | Staking.treasury | 0x7f2D3be9597fb538BDBA3Dbcb9BEcECCD9056d21 |
 | Staking.unbondingPeriod | 604800 |
 | Staking.minBond | 1000000000000000000000000000 |
+| Staking.paused | false |
 | Staking.bondFloorOf(0xD8D90e4c8f3419B1b8305dF2905eb31d3fBBf599) | 30000000000000000000000 |
 | Staking.bondFloorOf(0xC284CdA6c6982447f202830f4e969F13cBcB0b94) | 30000000000000000000000 |
 | Staking.bondFloorOf(0x7062A480732EC7B0F00a3D0c968356e1671dd356) | 30000000000000000000000 |
@@ -245,13 +250,6 @@ Every value the verify scripts read at block 77647394, in the order they read it
 | ShieldedPool.RAGEQUIT_VERIFIER | 0x0A36E95bAc3C354E27223c4033842Eec786690e3 |
 | ShieldedPool.MAX_DEPOSIT | 100000000 |
 | ShieldedPool.MAX_TOTAL | 1000000000 |
-| ShieldedPool.SCOPE | 2404886527165639353443500877983435423007157874463436661676521647649117545010 |
-| ShieldedPool.dead | false |
-| ShieldedRelay.POOL | 0x91F91bD9584D5fB57e9d2761728452c95b7b11A4 |
-| ShieldedRelay.ENTRYPOINT | 0x8baf2B9fB7D779651c2Dfd59C71ba0D2de3135F0 |
-| ShieldedRelay.ACCESS_REGISTRY | 0xe10b6f6B275de231345c20D14Ab812db62151b00 |
-| ShieldedRelay.MAX_FEE_BPS | 500 |
-| previous ShieldedPool.dead | true |
 
 ## Source verification on Sourcify
 
@@ -280,7 +278,7 @@ Every value the verify scripts read at block 77647394, in the order they read it
 | v3-CommittedMandateFactory | 0xBF48A1e16203401432caE992F3355A4Cc3a0D9cd | exact_match |
 | v3-DisclosureRegistry | 0x3F805111312Eed1076278f515D3fD2cA9370345a | exact_match |
 | v3-SolvencyLog | 0x21811Ce7994fB6E49D71502b8ad13c22771B1aF3 | exact_match |
-| v3-WithdrawalVerifier | 0xD9869A7a4b8C878558D09aF705D9F81da0f864FE | not verified |
+| v3-WithdrawalVerifier | 0xD9869A7a4b8C878558D09aF705D9F81da0f864FE | exact_match |
 | v3-CommitmentVerifier | 0x0A36E95bAc3C354E27223c4033842Eec786690e3 | exact_match |
 | v3-EntrypointImplementation | 0xe3d710744971B17bBC05228d66579338D4d0B12b | exact_match |
 | v3-Entrypoint | 0x8baf2B9fB7D779651c2Dfd59C71ba0D2de3135F0 | exact_match |
