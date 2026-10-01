@@ -51,7 +51,7 @@ Nothing in it is needed to reveal, and the backup runner does not have one.
 | `POST /evidence` | A `DeliveryEvidence` signed by the lock's payee, or a `PayerStatement` signed by its payer (EIP-712, domain `Bursar Evidence` v1, verifying contract the escrow). Built with `@bursar/sdk` `signDeliveryEvidence`. |
 | `POST /override` | `{ disputeId, score, reason }` with `Authorization: Bearer <RESOLVER_OPERATOR_TOKEN>`. Scores 0, 60, 72 or 90, before the cutoff only, and refused when an operator address is the payer or payee. |
 | `GET /rulings/:disputeId` | The published ruling. Until this service's reveals land it answers `sealed` and nothing more. |
-| `GET /health` | 200 while polling, 503 once three polls are missed. `served` lists each registry with its name, contract set, escrow, the last block its log scan covered and its open disputes. |
+| `GET /health` | 200 while polling, 503 once three polls are missed. `served` lists each registry with its name, contract set, escrow, the last block its log scan covered and its open disputes. `lastError` is `poll_failed` or null; the reason is in the log. |
 
 The service has no public address. The console forwards `https://app.bursar.world/api/evidence`,
 `/api/rulings?dispute=<id>` and `/api/rulings/health` to it.

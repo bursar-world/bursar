@@ -7,7 +7,7 @@ import { createVoter } from '../src/voter.js';
 import { FakeChain, SERVED, tableFetcher } from './support/fake-chain.js';
 import { captureAlerts, silentLogger, testKeys } from './support/keys.js';
 
-async function handler(lastPollAt: number | null) {
+async function handler(lastPollAt: number | null, lastError: string | null = null) {
   const chain = new FakeChain();
   const journal = await openMemoryJournal();
   const logger = silentLogger();
@@ -22,7 +22,7 @@ async function handler(lastPollAt: number | null) {
     operatorAddresses: [],
     health: () => ({
       lastPollAt,
-      lastError: null,
+      lastError,
       consecutiveFailures: 0,
       open: 0,
       served: [{ name: SERVED.name, contractSet: SERVED.contractSet, registry: SERVED.registry, escrow: SERVED.escrow, lastScannedBlock: 1_234n, open: 0 }],
@@ -47,6 +47,13 @@ describe('http', () => {
     expect(body.served).toEqual([
       { name: 'test', contractSet: 'v1', registry: SERVED.registry, escrow: SERVED.escrow, lastScannedBlock: '1234', openDisputes: 0 },
     ]);
+  });
+
+  it('reports a failed poll as a code, never as the error text, because the console publishes health', async () => {
+    const body = (await (await handler(90_000, 'HTTP request failed. URL: https://rpc.example/v2/secret-key'))(get('/health'))).body as { lastError: unknown };
+    expect(body.lastError).toBe('poll_failed');
+    expect(JSON.stringify(body)).not.toContain('secret-key');
+    expect(((await (await handler(90_000))(get('/health'))).body as { lastError: unknown }).lastError).toBeNull();
   });
 
   it('answers 404 for a dispute it holds no record of', async () => {

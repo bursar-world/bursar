@@ -185,10 +185,12 @@ export function createHandler(options: HttpOptions): (request: { method: string;
   function health(): Reply {
     const state = options.health();
     const stale = state.lastPollAt === null || now() - state.lastPollAt > options.pollMs * 3;
+    // The console republishes this answer, and a poll's error text names the endpoint it failed
+    // against. The log has the reason; the probe says only that there was one.
     return reply(stale ? 503 : 200, {
       status: stale ? 'stale' : 'ok',
       lastPollAt: state.lastPollAt === null ? null : new Date(state.lastPollAt).toISOString(),
-      lastError: state.lastError,
+      lastError: state.lastError === null ? null : 'poll_failed',
       openDisputes: state.open,
       served: state.served.map((entry) => ({
         name: entry.name,
