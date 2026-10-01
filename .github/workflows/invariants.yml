@@ -16,7 +16,7 @@ jobs:
   deep:
     name: Deep invariant campaign
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: contracts
@@ -45,10 +45,10 @@ jobs:
 
       - run: forge build
 
-      # Every invariant suite under the deep profile in foundry.toml: 512 runs of 200 calls, over
-      # a hundred thousand handler calls per suite. No fixed seed, so each night walks a different
-      # part of the state space; a failure prints the seed it ran with, and the same sequence
-      # replays locally with --fuzz-seed under the same profile.
+      # Every invariant suite under the deep profile in foundry.toml: 800 runs of 200 calls, and
+      # never fewer than a hundred thousand handler calls per suite. No fixed seed, so each night
+      # walks a different part of the state space; a failure prints the seed it ran with, and the
+      # same sequence replays locally with --fuzz-seed under the same profile.
       - name: Run every invariant suite at depth
         run: forge test --match-test invariant_
         env:

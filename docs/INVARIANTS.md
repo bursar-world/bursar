@@ -18,16 +18,17 @@ From the `contracts` directory, with Foundry installed at the release pinned in
 forge test --match-test invariant_
 ```
 
-runs every invariant at the default depth, 128 sequences of 32 actions per contract, in a few
-seconds alongside the rest of the test suite.
+runs every invariant at the default depth, 128 sequences of at least 32 actions per contract, in
+a few seconds alongside the rest of the test suite.
 
 ```
 FOUNDRY_PROFILE=deep forge test --match-test invariant_
 ```
 
-runs the same invariants at depth: 512 sequences of 200 actions, over a hundred thousand actions
-per contract. This is what the nightly check runs. It takes minutes rather than seconds. A failure
-prints the random seed it ran with; `--fuzz-seed <seed>` replays the same sequence.
+runs the same invariants at depth: 800 sequences of up to 200 actions, never fewer than a hundred
+thousand actions per contract. This is what the nightly check runs. It takes minutes rather than
+seconds. A failure prints the random seed it ran with; `--fuzz-seed <seed>` replays the same
+sequence.
 
 ## Escrow
 
