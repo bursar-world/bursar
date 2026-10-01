@@ -29,6 +29,7 @@ export { RwaClient, RwaUnavailableError, UnknownAssetError, rwa } from './rwa.js
 export type { BuyReceipt, FeedPrice, Holding, ParkedPosition, RwaAsset, RwaLane } from './rwa.js';
 export {
   CollateralClient,
+  CollateralSetError,
   CollateralUnavailableError,
   NoDebtError,
   NotCollateralLaneError,
@@ -40,8 +41,12 @@ export type {
   CollateralLane,
   CollateralPosition,
   CollateralTiers,
+  DrawStanding,
   HaircutTier,
+  SeizedCollateral,
 } from './collateral.js';
+export { boundCredit, boundDraw, drawHaltRefusal, laneRefusal, observationBounds } from './lane-refusals.js';
+export type { HaltedPosition, LaneCall, LaneContext, ObservationBounds } from './lane-refusals.js';
 
 export { EscrowClient, escrow } from './escrow.js';
 export type { EscrowTerms, OwedClaimReceipt, ReleaseArgs } from './escrow.js';
@@ -95,6 +100,15 @@ export type {
 
 export { ProviderClient, provider } from './provider.js';
 export type { PendingWithdrawal, ProviderReputation, ProviderStatus } from './provider.js';
+export { capAtScore, creditFromRelease, projectReputation, reputationScore } from './reputation.js';
+export type {
+  CapCurve,
+  ReputationCounters,
+  ReputationProjection,
+  ReputationWeighing,
+  ReputationWeights,
+  ScoredRelease,
+} from './reputation.js';
 
 export { issuerRefusal, providerRefusal, resolverRefusal } from './refusals.js';
 export type { Refusal, RefusalOwner } from './refusals.js';

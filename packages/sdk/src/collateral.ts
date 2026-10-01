@@ -3,22 +3,28 @@ import type { Address } from 'viem';
 import {
   BursarError,
   COLLATERAL_LANE,
+  CURRENT_CONTRACT_SET,
   collateralVaultAbi,
+  contractSetAtLeast,
+  contractSetOfEscrow,
   creditPoolAbi,
+  drawHaltOf,
   healthRatio,
   mandateAccountAbi,
   parseCollateralDeployment,
   parseRwaDeployment,
 } from '@bursar/core';
-import type { CollateralDeployment, Deployment, Micro, RwaDeployment } from '@bursar/core';
+import type { CollateralDeployment, Deployment, DrawHalt, Micro, RwaDeployment } from '@bursar/core';
 
 import { approveIfShort } from './allowance.js';
-import { InvalidArgumentError } from './errors.js';
+import { CallRefusedError, InvalidArgumentError } from './errors.js';
 import { checkAddress, checkPositiveAmount } from './guards.js';
-import type { LaneContext } from './lane-refusals.js';
+import { boundDraw, drawHaltRefusal, laneRefusal, observationBounds } from './lane-refusals.js';
+import type { LaneContext, ObservationBounds } from './lane-refusals.js';
 import { micro } from './money.js';
 import { logsFrom } from './receipt.js';
-import { sendCall, type Sent } from './send.js';
+import type { Refusal } from './refusals.js';
+import { sendCall, type ExplainRevert, type Sent } from './send.js';
 import type { MandateAccountClient } from './mandate.js';
 import { UnknownAssetError, explainLane, laneContext, laneOf, type RwaLane } from './rwa.js';
 
@@ -51,6 +57,27 @@ export type CollateralTiers = {
   readonly assets: CollateralAsset[];
   /** Inside the US equities 24/5 session by the vault's clock. */
   readonly inSession: boolean;
+};
+
+/**
+ * Whether a draw would count a position in one asset right now, and the first condition it fails
+ * when it would not. The same answer for every line, because the conditions are the asset's: its
+ * feed, its pool and the price guard's reading of the two.
+ */
+export type DrawStanding = {
+  readonly symbol: string;
+  readonly asset: Address;
+  /** `None` while a draw counts the position. */
+  readonly halt: DrawHalt;
+  /** The condition in a sentence, with what clears it. Null while the position counts. */
+  readonly refusal: Refusal | null;
+};
+
+/** Collateral a write-off took from a line, waiting for the pool's lender to claim it. */
+export type SeizedCollateral = {
+  readonly symbol: string;
+  readonly asset: Address;
+  readonly raw: bigint;
 };
 
 export type CollateralPosition = {
@@ -132,6 +159,18 @@ export class NoDebtError extends BursarError {
   }
 }
 
+/** The lane runs a build from before v4, which does not hold draws to an observation or seize collateral. */
+export class CollateralSetError extends BursarError {
+  constructor(what: string, record: Pick<Deployment, 'network'>) {
+    super(
+      'collateral_set_too_early',
+      `${what} is not something the collateral lane of ${record.network} does: it runs a build from before v4. ` +
+        'Connect with a record whose lane runs v4 or later.',
+      { network: record.network },
+    );
+  }
+}
+
 /**
  * The lane and the asset list its symbols resolve through.
  *
@@ -188,6 +227,20 @@ export class CollateralClient {
 
   get #client() {
     return this.mandate.connection.publicClient;
+  }
+
+  /**
+   * Whether the lane's vault is a v4 build: one that holds a draw to the price guard's reading of
+   * the pool and seizes what a written-off line still holds. A lane handed over directly is read
+   * as the build of the connection it was handed to.
+   */
+  get #observes(): boolean {
+    const set = contractSetOfEscrow(this.mandate.connection.addresses.escrow) ?? CURRENT_CONTRACT_SET;
+    return contractSetAtLeast(set, 'v4');
+  }
+
+  #requireObserves(what: string): void {
+    if (!this.#observes) throw new CollateralSetError(what, this.mandate.connection.deployment);
   }
 
   /** The published haircut tiers and which tier each accepted asset sits in, read from chain. */
@@ -278,6 +331,88 @@ export class CollateralClient {
         args: [this.mandate.address],
       }),
     );
+  }
+
+  /**
+   * Why `headroom` can read zero with collateral posted: for each asset the vault accepts, whether
+   * a draw would count a position in it right now, and the first condition it fails when not. Empty
+   * on a lane from before v4, whose vault counts a position on its valuation alone.
+   */
+  async drawStanding(): Promise<DrawStanding[]> {
+    if (!this.#observes) return [];
+    const vault = this.lane.CollateralVault;
+    const [assets, bounds] = await Promise.all([
+      this.#client.readContract({ address: vault, abi: collateralVaultAbi, functionName: 'collateralAssets' }),
+      this.observationBounds(),
+    ]);
+    const halts = await Promise.all(
+      assets.map((asset) =>
+        this.#client.readContract({ address: vault, abi: collateralVaultAbi, functionName: 'drawHalt', args: [asset] }),
+      ),
+    );
+    return assets.map((asset, index) => {
+      const halt = drawHaltOf(halts[index] ?? 0) ?? 'None';
+      return {
+        symbol: this.#context.symbolOf(asset),
+        asset,
+        halt,
+        refusal: drawHaltRefusal(halt, asset, this.#context, bounds),
+      };
+    });
+  }
+
+  /** The price guard's bounds on a reading of a pool. Undefined on a lane from before v4. */
+  async observationBounds(): Promise<ObservationBounds | undefined> {
+    if (!this.#observes) return undefined;
+    return observationBounds(this.#client, this.lane.CollateralVault);
+  }
+
+  /**
+   * Collateral that write-offs have taken from lines and not yet paid to the pool's lender, per
+   * asset the vault accepts, with the empty ones left out. Empty on a lane from before v4, which
+   * left a written-off line holding what could not be sold.
+   */
+  async seized(): Promise<SeizedCollateral[]> {
+    if (!this.#observes) return [];
+    const vault = this.lane.CollateralVault;
+    const assets = await this.#client.readContract({ address: vault, abi: collateralVaultAbi, functionName: 'collateralAssets' });
+    const raws = await Promise.all(
+      assets.map((asset) =>
+        this.#client.readContract({ address: vault, abi: collateralVaultAbi, functionName: 'seized', args: [asset] }),
+      ),
+    );
+    return assets
+      .map((asset, index) => ({ symbol: this.#context.symbolOf(asset), asset, raw: raws[index] ?? 0n }))
+      .filter((entry) => entry.raw > 0n);
+  }
+
+  /**
+   * Anyone. Pays what write-offs seized in one asset to the pool's lender, who carried the loss;
+   * the caller is paid nothing. Refused before anything is sent when nothing in that asset waits.
+   */
+  async claimSeized(assetOrSymbol: string): Promise<Sent> {
+    this.#requireObserves('Claiming seized collateral');
+    const asset = this.resolve(assetOrSymbol);
+    const waiting = await this.#client.readContract({
+      address: this.lane.CollateralVault,
+      abi: collateralVaultAbi,
+      functionName: 'seized',
+      args: [asset],
+    });
+    if (waiting === 0n) {
+      const refusal = laneRefusal({ errorName: 'NothingSeized', args: [asset] }, 'vault', this.#context);
+      throw new CallRefusedError('NothingSeized', refusal?.message ?? 'NothingSeized', {
+        vault: this.lane.CollateralVault,
+        asset,
+        owner: refusal?.owner,
+      });
+    }
+    return sendCall(this.mandate.connection, {
+      to: this.lane.CollateralVault,
+      data: encodeFunctionData({ abi: collateralVaultAbi, functionName: 'claimSeized', args: [asset] }),
+      action: 'claimSeized',
+      explain: this.#explain('vault'),
+    });
   }
 
   /**
@@ -434,12 +569,21 @@ export class CollateralClient {
     return found.address;
   }
 
-  #explain(call: 'vault' | 'repay') {
-    return explainLane(call, this.#context, {
-      mandate: this.mandate.address,
-      vault: this.lane.CollateralVault,
-      pool: this.lane.CreditPool,
-    });
+  /**
+   * A vault call refused on health is read against the vault's draw rule first, so a withdrawal
+   * the vault refused because a position counted for nothing names that position and the condition
+   * it fails, rather than the general rule.
+   */
+  #explain(call: 'vault' | 'repay'): ExplainRevert {
+    const details = { mandate: this.mandate.address, vault: this.lane.CollateralVault, pool: this.lane.CreditPool };
+    const lane = explainLane(call, this.#context, details);
+    if (call !== 'vault' || !this.#observes) return lane;
+
+    return async (revert, error) => {
+      if (!revert) return undefined;
+      const bound = await boundDraw(revert, { client: this.#client, vault: this.lane.CollateralVault, mandate: this.mandate.address });
+      return lane(bound, error);
+    };
   }
 
   async #lane(): Promise<number> {

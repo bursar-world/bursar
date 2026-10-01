@@ -13,8 +13,16 @@
 
 import { encodeFunctionData, getContract } from 'viem';
 import type { Address, Chain, GetContractReturnType, Hex, PublicClient, Transport } from 'viem';
-import { agentRegistryAbi, escrowAbi, micro, reputationAbi } from '@bursar/core';
-import type { Micro } from '@bursar/core';
+import {
+  CURRENT_CONTRACT_SET,
+  agentRegistryAbi,
+  contractSetAtLeast,
+  contractSetOfEscrow,
+  escrowAbi,
+  micro,
+  reputationAbi,
+} from '@bursar/core';
+import type { ContractSet, Micro } from '@bursar/core';
 
 import { approveIfShort } from './allowance.js';
 import { openConnection, requireSigner, type Connection, type ConnectOptions } from './connection.js';
@@ -22,6 +30,8 @@ import { CallRefusedError, InvalidArgumentError } from './errors.js';
 import { formatDuration, toDate, usd } from './format.js';
 import { checkAddress, checkPositiveAmount } from './guards.js';
 import { providerRefusal } from './refusals.js';
+import { projectReputation } from './reputation.js';
+import type { ReputationProjection, ReputationWeights, ScoredRelease } from './reputation.js';
 import { sendCall, type ExplainRevert, type Sent } from './send.js';
 
 const NAME_PATTERN = /^[A-Za-z0-9_]{3,32}$/u;
@@ -49,7 +59,10 @@ export type ProviderStatus = {
   readonly withdrawal: PendingWithdrawal | null;
   /** Seconds between asking to withdraw and being able to take it. */
   readonly withdrawalDelay: bigint;
-  /** True while the registry admits nothing new. A matured withdrawal is unaffected. */
+  /**
+   * True while the registry admits nothing new. A matured withdrawal is unaffected, and from v4 a
+   * withdrawal can still be asked for, so a pause does not add its own length to the delay.
+   */
   readonly registryPaused: boolean;
   readonly next: string;
 };
@@ -57,7 +70,10 @@ export type ProviderStatus = {
 /** Settlement history, and the per-job ceiling the escrow derives from it. */
 export type ProviderReputation = {
   readonly provider: Address;
-  /** Percentage of settled jobs that were released to this provider. Zero until the first settles. */
+  /**
+   * 0 to 100. From v4, the released share of settled jobs scaled by the credit earned toward
+   * `weights.fullCredit`; before it, the released share alone. Zero until the first job settles.
+   */
   readonly score: number;
   /** Counts as the contract holds them, in uint64. */
   readonly released: bigint;
@@ -68,6 +84,13 @@ export type ProviderReputation = {
   readonly cap: Micro;
   /** The ceiling the curve tends to. A provider with a perfect record is still held to it. */
   readonly maxCap: Micro;
+  /**
+   * What the released work has earned toward a full score: its volume, with each payer counted up
+   * to `weights.edgeCap`. Null on a deployment from before v4, which weighs nothing.
+   */
+  readonly credit: Micro | null;
+  /** What a point costs on this deployment. Null where `credit` is. */
+  readonly weights: ReputationWeights | null;
   readonly next: string;
 };
 
@@ -85,6 +108,8 @@ export class ProviderClient {
   readonly stakeAsset: Address;
   /** The contract that keeps the settlement history and publishes the per-job ceiling. */
   readonly reputation: Address;
+  /** The build the escrow behind this registry runs, which says what the reputation contract answers. */
+  readonly contractSet: ContractSet;
 
   readonly #registry: RegistryContract;
 
@@ -93,11 +118,13 @@ export class ProviderClient {
     connection: Connection;
     stakeAsset: Address;
     reputation: Address;
+    contractSet?: ContractSet;
   }) {
     this.address = init.address;
     this.connection = init.connection;
     this.stakeAsset = init.stakeAsset;
     this.reputation = init.reputation;
+    this.contractSet = init.contractSet ?? CURRENT_CONTRACT_SET;
     this.#registry = getContract({
       address: init.address,
       abi: agentRegistryAbi,
@@ -157,26 +184,32 @@ export class ProviderClient {
     return { ...status, next: providerNote(status, agent.active) };
   }
 
+  /** A reputation contract before v4 counts how locks ended and weighs none of them. */
+  get #weighs(): boolean {
+    return contractSetAtLeast(this.contractSet, 'v4');
+  }
+
+  get #reputation() {
+    return getContract({ address: this.reputation, abi: reputationAbi, client: this.connection.publicClient }).read;
+  }
+
   /** Settlement history and the ceiling it earns. Public: anyone can read it about anyone. */
   async reputationOf(who?: Address): Promise<ProviderReputation> {
     const provider = who === undefined ? this.provider : checkAddress('provider', who);
-    const contract = getContract({
-      address: this.reputation,
-      abi: reputationAbi,
-      client: this.connection.publicClient,
-    });
+    const read = this.#reputation;
 
-    const [stats, score, cap, curve] = await Promise.all([
-      contract.read.payeeStats([provider]),
-      contract.read.score([provider]),
-      contract.read.capOf([provider]),
-      contract.read.curve(),
+    const [stats, score, cap, curve, weights, credit] = await Promise.all([
+      read.payeeStats([provider]),
+      read.score([provider]),
+      read.capOf([provider]),
+      read.curve(),
+      this.#weighs ? read.weights().then(toWeights) : null,
+      this.#weighs ? read.creditOf([provider]).then(micro) : null,
     ]);
 
     const [released, timedOut, disputed] = stats;
     const settled = released + timedOut + disputed;
-
-    return {
+    const standing = {
       provider,
       score,
       released,
@@ -185,8 +218,60 @@ export class ProviderClient {
       settled,
       cap: micro(cap),
       maxCap: micro(curve.maxCap),
-      next: reputationNote(settled, score, micro(cap), micro(curve.maxCap)),
+      credit,
+      weights,
     };
+
+    return { ...standing, next: reputationNote(standing) };
+  }
+
+  /**
+   * The principal of every counted release from `payer` to a provider, with no cap applied. Only
+   * the first `weights.edgeCap` of it counts toward the provider's credit. Null on a deployment
+   * from before v4, which keeps counts per payer and no volume.
+   */
+  async edgeVolume(payer: Address, who?: Address): Promise<Micro | null> {
+    const provider = who === undefined ? this.provider : checkAddress('provider', who);
+    if (!this.#weighs) return null;
+
+    return micro(await this.#reputation.edgeVolume([checkAddress('payer', payer), provider]));
+  }
+
+  /**
+   * Where the score and the ceiling land once `releases` are recorded, worked the way the contract
+   * works them. What a provider reads before it pays to finalise: a release from a payer already at
+   * its edge cap is recorded and adds no credit, and one under the scored minimum moves nothing.
+   */
+  async projectReleases(releases: readonly ScoredRelease[], who?: Address): Promise<ReputationProjection> {
+    const payee = who === undefined ? this.provider : checkAddress('provider', who);
+    const read = this.#reputation;
+    const payers = [...new Map(releases.map((release) => [release.payer.toLowerCase(), release.payer])).values()];
+
+    const [stats, curve, weights, credit, volumes] = await Promise.all([
+      read.payeeStats([payee]),
+      read.curve(),
+      this.#weighs ? read.weights().then(toWeights) : null,
+      this.#weighs ? read.creditOf([payee]).then(micro) : null,
+      this.#weighs ? Promise.all(payers.map((payer) => read.edgeVolume([payer, payee]))) : [],
+    ]);
+
+    const [released, timedOut, disputed] = stats;
+
+    return projectReputation({
+      payee,
+      counters: { released, timedOut, disputed },
+      curve: { baseCap: micro(curve.baseCap), capPerScore: micro(curve.capPerScore), maxCap: micro(curve.maxCap) },
+      ...(weights === null || credit === null
+        ? {}
+        : {
+            weighing: {
+              weights,
+              credit,
+              edges: payers.map((payer, index) => ({ payer, volume: micro(volumes[index] ?? 0n) })),
+            },
+          }),
+      releases,
+    });
   }
 
   /**
@@ -386,20 +471,50 @@ function providerNote(status: ProviderStatus, listed: boolean): string {
   );
 }
 
-function reputationNote(settled: bigint, score: number, cap: Micro, maxCap: Micro): string {
+function toWeights(raw: { minScored: bigint; edgeCap: bigint; fullCredit: bigint }): ReputationWeights {
+  return { minScored: micro(raw.minScored), edgeCap: micro(raw.edgeCap), fullCredit: micro(raw.fullCredit) };
+}
+
+const FINALISE =
+  'Finalising a release is what records it, so a provider that never finalises holds its own ceiling down.';
+
+function reputationNote(standing: Omit<ProviderReputation, 'next'>): string {
+  const { settled, released, score, cap, maxCap, credit, weights } = standing;
+  const ceiling = `The escrow will open a lock of at most ${usd(cap)} for it right now, against a ceiling of ${usd(maxCap)}.`;
+
+  if (credit === null || weights === null) {
+    if (settled === 0n) {
+      return (
+        `No jobs have settled for this provider yet, so the escrow will open a lock of at most ` +
+        `${usd(cap)}. The ceiling rises with released jobs and falls with jobs that time out or are ` +
+        'disputed.'
+      );
+    }
+
+    return `${score} of every 100 settled jobs were released to this provider, across ${settled} of them. ${ceiling} ${FINALISE}`;
+  }
+
+  // Why a clean record is not a full score: a point is paid for in settled volume, from more
+  // than one payer.
+  const price =
+    `A job of ${usd(weights.minScored)} or more counts, each payer for up to ${usd(weights.edgeCap)} of ` +
+    `credit, and a full score takes ${usd(weights.fullCredit)} of it.`;
+
   if (settled === 0n) {
     return (
-      `No jobs have settled for this provider yet, so the escrow will open a lock of at most ` +
-      `${usd(cap)}. The ceiling rises with released jobs and falls with jobs that time out or are ` +
-      'disputed.'
+      `No jobs have settled for this provider yet, so the escrow will open a lock of at most ${usd(cap)}. ` +
+      `The ceiling rises as released work earns credit. ${price}`
     );
   }
 
+  const earned = credit < weights.fullCredit ? credit : weights.fullCredit;
+  const short = earned < weights.fullCredit;
+
   return (
-    `${score} of every 100 settled jobs were released to this provider, across ${settled} of them. ` +
-    `The escrow will open a lock of at most ${usd(cap)} for it right now, against a ceiling of ` +
-    `${usd(maxCap)}. Finalising a release is what records it, so a provider that never finalises ` +
-    'holds its own ceiling down.'
+    `${released} of ${settled} counted jobs were released to this provider, and that work has earned ` +
+    `${usd(earned)} of the ${usd(weights.fullCredit)} of credit a full score takes, so it scores ${score} of 100. ` +
+    (short ? `${price} ` : '') +
+    `${ceiling} ${FINALISE}`
   );
 }
 
@@ -429,5 +544,11 @@ export async function provider(options: Connection | ConnectOptions = {}): Promi
     client: connection.publicClient,
   }).read.settlementAsset();
 
-  return new ProviderClient({ address, connection, stakeAsset, reputation });
+  return new ProviderClient({
+    address,
+    connection,
+    stakeAsset,
+    reputation,
+    contractSet: contractSetOfEscrow(connection.addresses.escrow) ?? CURRENT_CONTRACT_SET,
+  });
 }

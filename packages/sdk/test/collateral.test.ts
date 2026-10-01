@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { NO_DEBT_HEALTH, collateralDeployment } from '@bursar/core';
 
 import { connect } from '../src/connection.js';
-import { CollateralClient, NoDebtError, NotCollateralLaneError, collateral } from '../src/collateral.js';
+import { CollateralClient, CollateralSetError, NoDebtError, NotCollateralLaneError, collateral } from '../src/collateral.js';
+import { CallRefusedError } from '../src/errors.js';
 import { mandateAccount } from '../src/mandate.js';
 import { UnknownAssetError } from '../src/rwa.js';
 import type { MandateAccountClient } from '../src/mandate.js';
@@ -14,7 +15,12 @@ const live = process.env['BURSAR_LIVE_RHC'] === '1';
 
 type Read = { functionName: string; args?: readonly unknown[] };
 
-function withReads(reads: Record<string, (args?: readonly unknown[]) => unknown>): MandateAccountClient {
+/**
+ * A mandate on the recorded chain with every read answered from a table. The record that answers
+ * for the chain today runs v3, so its vault has no draw rule and seizes nothing; `onV4` reads the
+ * same lane through an escrow no record names, which is the current build.
+ */
+function withReads(reads: Record<string, (args?: readonly unknown[]) => unknown>, onV4 = false): MandateAccountClient {
   const base = connect({ chainId: 4663 });
   const publicClient = {
     readContract: async ({ functionName, args }: Read) => {
@@ -24,9 +30,10 @@ function withReads(reads: Record<string, (args?: readonly unknown[]) => unknown>
     },
     getBlock: async () => ({ timestamp: 1_790_686_194n }),
   };
+  const addresses = onV4 ? { ...base.addresses, escrow: '0x4444444444444444444444444444444444444444' } : base.addresses;
   return {
     address: MANDATE,
-    connection: { ...base, publicClient },
+    connection: { ...base, addresses, publicClient },
   } as unknown as MandateAccountClient;
 }
 
@@ -113,6 +120,59 @@ describe('collateral client', () => {
   it('refuses a repayment with nothing owed', async () => {
     const client = collateral(withReads({ debtOf: () => 0n }));
     await expect(client.repay()).rejects.toBeInstanceOf(NoDebtError);
+  });
+
+  it('says per asset whether a draw counts it, and why not when it does not', async () => {
+    const client = collateral(
+      withReads(
+        {
+          collateralAssets: () => [SGOV, SPY],
+          drawHalt: (args) => (args?.[0] === SPY ? 4 : 0),
+          guard: () => '0x9999999999999999999999999999999999999999',
+          MIN_OBSERVATION_AGE: () => 300n,
+          MAX_OBSERVATION_AGE: () => 3_600n,
+          MAX_FEED_JUMP_BPS: () => 1_500n,
+        },
+        true,
+      ),
+    );
+    const standing = await client.drawStanding();
+
+    expect(standing.map((s) => [s.symbol, s.halt])).toEqual([
+      ['SGOV', 'None'],
+      ['SPY', 'NoObservation'],
+    ]);
+    expect(standing[0]?.refusal).toBeNull();
+    expect(standing[1]?.refusal?.message).toContain('SPY counts for nothing toward a draw yet');
+    expect(standing[1]?.refusal?.message).toContain('at least 5m earlier');
+    expect(await client.observationBounds()).toEqual({ minAge: 300n, maxAge: 3_600n, maxFeedJumpBps: 1_500n });
+  });
+
+  it('lists the collateral write-offs have seized, per asset, leaving out the empty ones', async () => {
+    const client = collateral(
+      withReads({ collateralAssets: () => [SGOV, SPY], seized: (args) => (args?.[0] === SPY ? 7n : 0n) }, true),
+    );
+
+    expect(await client.seized()).toEqual([{ symbol: 'SPY', asset: SPY, raw: 7n }]);
+  });
+
+  it('refuses to claim seized collateral in an asset where none waits, before anything is sent', async () => {
+    const client = collateral(withReads({ seized: () => 0n }, true));
+
+    const failure = await client.claimSeized('SPY').catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(CallRefusedError);
+    expect((failure as CallRefusedError).errorName).toBe('NothingSeized');
+    expect((failure as Error).message).toContain('holds no seized SPY');
+  });
+
+  it('answers no standing and nothing seized on a lane from before v4, and refuses a claim on it', async () => {
+    const client = collateral(withReads({}));
+
+    expect(await client.drawStanding()).toEqual([]);
+    expect(await client.seized()).toEqual([]);
+    expect(await client.observationBounds()).toBeUndefined();
+    await expect(client.claimSeized('SPY')).rejects.toBeInstanceOf(CollateralSetError);
   });
 
   it.skipIf(!live)('reads the live collateral-lane mandate on 4663', async () => {
