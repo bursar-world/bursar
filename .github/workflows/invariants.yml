@@ -1,0 +1,55 @@
+name: Invariants
+
+on:
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: invariants-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deep:
+    name: Deep invariant campaign
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # contracts/.foundry-version pins the release; the contracts README installs from it too.
+      - name: Read the pinned Foundry release
+        id: foundry
+        run: echo "version=$(cat .foundry-version)" >> "$GITHUB_OUTPUT"
+
+      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
+        with:
+          version: ${{ steps.foundry.outputs.version }}
+
+      # contracts/lib is not committed. The same pinned commits CI builds from; the contracts
+      # README gives the same command.
+      - name: Install Solidity dependencies
+        run: |
+          forge install --no-git --shallow \
+            foundry-rs/forge-std@1eea5bae12ae557d589f9f0f0edae2faa47cb262 \
+            OpenZeppelin/openzeppelin-contracts@69c8def5f222ff96f2b5beff05dfba996368aa79 \
+            OpenZeppelin/openzeppelin-contracts-upgradeable@723f8cab09cdae1aca9ec9cc1cfa040c2d4b06c1
+
+      - run: forge build
+
+      # Every invariant suite under the deep profile in foundry.toml: 512 runs of 200 calls, over
+      # a hundred thousand handler calls per suite. No fixed seed, so each night walks a different
+      # part of the state space; a failure prints the seed it ran with, and the same sequence
+      # replays locally with --fuzz-seed under the same profile.
+      - name: Run every invariant suite at depth
+        run: forge test --match-test invariant_
+        env:
+          FOUNDRY_PROFILE: deep
