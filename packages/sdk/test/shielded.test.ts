@@ -12,6 +12,7 @@ import {
   buildAssociationSet,
   changeSecrets,
   decodeRelayData,
+  depositRefusal,
   depositSecrets,
   deriveLegacyShieldedKeys,
   deriveShieldedKeys,
@@ -28,6 +29,7 @@ import {
   proofFromWire,
   proofToWire,
   randomShieldedKeys,
+  readDepositRoom,
   recoverNotes,
   relayWithFreshProof,
   scopeOf,
@@ -273,6 +275,85 @@ describe('proofs with the official artifacts', () => {
   });
 });
 
+/**
+ * From v4 the pool holds each depositor to a cap per window. A pool from before it has none of the
+ * functions, and viem reports a function the contract does not have as a call that returned no
+ * data, the same way it reports an address with no code.
+ */
+describe('what the pool will take from one depositor', () => {
+  const DEPOSITOR: Address = '0x00000000000000000000000000000000000000d1';
+  const LIMITS = { minimumDeposit: 1_000_000n, maxDeposit: 100_000_000n, maxTotal: 1_000_000_000n };
+  const WEEK = 604_800n;
+
+  function pool(answers: Record<string, unknown>, missing = false): Parameters<typeof readDepositRoom>[0] {
+    return {
+      readContract: async ({ functionName }: { functionName: string }) => {
+        if (missing) {
+          const error = new Error(`The contract function "${functionName}" returned no data ("0x").`);
+          error.name = 'ContractFunctionZeroDataError';
+          throw error;
+        }
+        if (!(functionName in answers)) throw new Error(`unexpected read ${functionName}`);
+        return answers[functionName];
+      },
+    } as unknown as Parameters<typeof readDepositRoom>[0];
+  }
+
+  it('reads the room, the cap, the window and when it resets', async () => {
+    const room = await readDepositRoom(
+      pool({ depositRoom: 150_000_000n, MAX_PER_DEPOSITOR: 250_000_000n, DEPOSITOR_WINDOW: WEEK, windowResetsAt: 1_800_604_800n }),
+      POOL,
+      DEPOSITOR,
+    );
+
+    expect(room).toEqual({ room: 150_000_000n, cap: 250_000_000n, window: WEEK, resetsAt: new Date(1_800_604_800_000) });
+  });
+
+  it('reads no reset while no window is open', async () => {
+    const room = await readDepositRoom(
+      pool({ depositRoom: 250_000_000n, MAX_PER_DEPOSITOR: 250_000_000n, DEPOSITOR_WINDOW: WEEK, windowResetsAt: 0n }),
+      POOL,
+      DEPOSITOR,
+    );
+
+    expect(room?.resetsAt).toBeNull();
+    expect(room?.room).toBe(250_000_000n);
+  });
+
+  it('answers nothing on a pool from before v4, and raises anything else', async () => {
+    expect(await readDepositRoom(pool({}, true), POOL, DEPOSITOR)).toBeUndefined();
+    await expect(readDepositRoom(pool({}), POOL, DEPOSITOR)).rejects.toThrow(/unexpected read/);
+  });
+
+  it('refuses in the order the pool checks: the floor, one deposit, the depositor, then the pool', () => {
+    const room = { room: 50_000_000n, cap: 250_000_000n, window: WEEK, resetsAt: new Date('2026-10-08T12:00:00Z') };
+
+    expect(depositRefusal({ amount: 500_000n, limits: LIMITS, poolValue: 0n, room })?.code).toBe('MinimumDepositAmount');
+    expect(depositRefusal({ amount: 200_000_000n, limits: LIMITS, poolValue: 0n, room })?.code).toBe('DepositAboveCap');
+    expect(depositRefusal({ amount: 60_000_000n, limits: LIMITS, poolValue: 990_000_000n, room })?.code).toBe('DepositorCapReached');
+    expect(depositRefusal({ amount: 40_000_000n, limits: LIMITS, poolValue: 990_000_000n, room })?.code).toBe('PoolCapReached');
+    expect(depositRefusal({ amount: 40_000_000n, limits: LIMITS, poolValue: 900_000_000n, room })).toBeNull();
+  });
+
+  it('says what the address may still put in, the cap, the window and when it resets', () => {
+    const room = { room: 50_000_000n, cap: 250_000_000n, window: WEEK, resetsAt: new Date('2026-10-08T12:00:00Z') };
+
+    expect(depositRefusal({ amount: 60_000_000n, limits: LIMITS, poolValue: 0n, room })?.message).toBe(
+      'This address may put in 50 USDG more in its current window: one address may put in at most 250 USDG in 7 days. ' +
+        'Its window resets at 2026-10-08T12:00:00.000Z.',
+    );
+    expect(depositRefusal({ amount: 1_000_000n, limits: LIMITS, poolValue: 0n, room: { ...room, room: 0n } })?.message).toBe(
+      'This address has put in 250 USDG in its current window, the most one address may in 7 days. ' +
+        'Its window resets at 2026-10-08T12:00:00.000Z.',
+    );
+  });
+
+  it('skips the depositor check for a pool that has none', () => {
+    expect(depositRefusal({ amount: 100_000_000n, limits: LIMITS, poolValue: 0n })).toBeNull();
+    expect(depositRefusal({ amount: 100_000_000n, limits: LIMITS, poolValue: 950_000_000n })?.message).toContain('can take 50 USDG more');
+  });
+});
+
 describe('shielded key files', () => {
   it('writes the file the MCP server reads, with fresh keys each time', () => {
     const a = randomShieldedKeys();
@@ -321,6 +402,7 @@ describe('relaying against a moving association set', () => {
       attempts: 4,
     });
     expect(result.transactionHash).toBe(`0x${'cc'.repeat(32)}`);
+    expect(result.gasDropTransactionHash).toBeUndefined();
     expect(attempts).toEqual([1, 2, 3, 4]);
     expect(sent.map((body) => (body as { proof: { pubSignals: string[] } }).proof.pubSignals[5])).toEqual(['1', '2', '3', '4']);
   });

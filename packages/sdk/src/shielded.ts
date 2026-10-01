@@ -37,6 +37,7 @@ import {
   type PublicClient,
 } from 'viem';
 
+import { contractSaidNo } from './revert.js';
 import { FUNDS_SALT, fundsKeyMaterial, type FundsKeyContext } from './viewing-key.js';
 
 export const SNARK_SCALAR_FIELD = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
@@ -176,6 +177,37 @@ export const shieldedPoolAbi = [
   { type: 'function', name: 'ENTRYPOINT', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
   { type: 'function', name: 'MAX_DEPOSIT', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'MAX_TOTAL', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  // From v4: one depositor's cap per window, and what each address has put in and been paid.
+  { type: 'function', name: 'MAX_PER_DEPOSITOR', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint128' }] },
+  { type: 'function', name: 'DEPOSITOR_WINDOW', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint64' }] },
+  {
+    type: 'function',
+    name: 'depositRoom',
+    stateMutability: 'view',
+    inputs: [{ name: 'depositor', type: 'address' }],
+    outputs: [{ type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'windowResetsAt',
+    stateMutability: 'view',
+    inputs: [{ name: 'depositor', type: 'address' }],
+    outputs: [{ type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'depositedBy',
+    stateMutability: 'view',
+    inputs: [{ name: 'depositor', type: 'address' }],
+    outputs: [{ type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'paidTo',
+    stateMutability: 'view',
+    inputs: [{ name: 'recipient', type: 'address' }],
+    outputs: [{ type: 'uint256' }],
+  },
   { type: 'function', name: 'ACCESS_REGISTRY', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
   { type: 'function', name: 'poolValue', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'currentRoot', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
@@ -251,7 +283,18 @@ export const shieldedPoolAbi = [
     ],
   },
   { type: 'error', name: 'DepositAboveCap', inputs: [{ type: 'uint256' }, { type: 'uint256' }] },
+  {
+    type: 'error',
+    name: 'DepositorCapReached',
+    inputs: [
+      { name: 'depositor', type: 'address' },
+      { name: 'depositedAfter', type: 'uint256' },
+      { name: 'cap', type: 'uint256' },
+    ],
+  },
   { type: 'error', name: 'PoolCapReached', inputs: [{ type: 'uint256' }, { type: 'uint256' }] },
+  { type: 'error', name: 'BadWindow', inputs: [] },
+  { type: 'error', name: 'DepositorBlocked', inputs: [{ name: 'depositor', type: 'address' }] },
   { type: 'error', name: 'RecipientBlocked', inputs: [{ name: 'recipient', type: 'address' }] },
   { type: 'error', name: 'RelayThroughShieldedRelay', inputs: [] },
   { type: 'error', name: 'InvalidProof', inputs: [] },
@@ -615,6 +658,120 @@ export function withdrawSignals(p: SolidityProof) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// What the pool will take from one depositor
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * One depositor's standing against the pool's per-depositor cap, as the pool answers it. From v4
+ * the pool holds each address to `MAX_PER_DEPOSITOR` in any one window of `DEPOSITOR_WINDOW`
+ * seconds; the window opens at the first deposit after the previous one ran out.
+ */
+export type DepositRoom = {
+  /** Atomic USDG the address may still put in before its window fills, after the vetting fee. */
+  readonly room: bigint;
+  /** The cap one window holds an address to. */
+  readonly cap: bigint;
+  /** How long a window runs, in seconds. */
+  readonly window: bigint;
+  /** When the open window runs out and the room is back to the cap. Null while no window is open. */
+  readonly resetsAt: Date | null;
+};
+
+/**
+ * What the pool will still take from `depositor` in its current window, or undefined on a pool
+ * from before v4, which holds nobody to a window and has none of these functions. Any other
+ * failure to read is the caller's to see.
+ */
+export async function readDepositRoom(
+  client: Pick<PublicClient, 'readContract'>,
+  pool: Address,
+  depositor: Address,
+): Promise<DepositRoom | undefined> {
+  const read = { address: pool, abi: shieldedPoolAbi } as const;
+  try {
+    const [room, cap, window, resetsAt] = await Promise.all([
+      client.readContract({ ...read, functionName: 'depositRoom', args: [depositor] }),
+      client.readContract({ ...read, functionName: 'MAX_PER_DEPOSITOR' }),
+      client.readContract({ ...read, functionName: 'DEPOSITOR_WINDOW' }),
+      client.readContract({ ...read, functionName: 'windowResetsAt', args: [depositor] }),
+    ]);
+    return { room, cap, window, resetsAt: resetsAt === 0n ? null : new Date(Number(resetsAt) * 1000) };
+  } catch (error) {
+    if (contractSaidNo(error)) return undefined;
+    throw error;
+  }
+}
+
+/** The pool's deposit limits, read once per pool. */
+export type DepositLimits = {
+  readonly minimumDeposit: bigint;
+  readonly maxDeposit: bigint;
+  readonly maxTotal: bigint;
+};
+
+/** A deposit the pool would refuse, named with the pool's own error and the figures it would raise. */
+export type DepositRefusal = {
+  readonly code: 'MinimumDepositAmount' | 'DepositAboveCap' | 'DepositorCapReached' | 'PoolCapReached';
+  readonly message: string;
+};
+
+/**
+ * Why the pool would refuse a deposit of `amount`, in the order the pool checks, or null when it
+ * would take it. `room` is what `readDepositRoom` answered: left undefined for a pool from before
+ * v4, the per-depositor check is skipped, which is what that pool does.
+ */
+export function depositRefusal(args: {
+  readonly amount: bigint;
+  readonly limits: DepositLimits;
+  readonly poolValue: bigint;
+  readonly room?: DepositRoom | undefined;
+}): DepositRefusal | null {
+  const { amount, limits, poolValue, room } = args;
+  if (amount < limits.minimumDeposit) {
+    return { code: 'MinimumDepositAmount', message: `The smallest deposit is ${usdgOf(limits.minimumDeposit)} USDG.` };
+  }
+  if (amount > limits.maxDeposit) {
+    return { code: 'DepositAboveCap', message: `One deposit can be at most ${usdgOf(limits.maxDeposit)} USDG.` };
+  }
+  if (room !== undefined && amount > room.room) {
+    const until = room.resetsAt === null ? '' : ` Its window resets at ${room.resetsAt.toISOString()}.`;
+    return {
+      code: 'DepositorCapReached',
+      message:
+        room.room === 0n
+          ? `This address has put in ${usdgOf(room.cap)} USDG in its current window, the most one address may in ` +
+            `${durationOf(room.window)}.${until}`
+          : `This address may put in ${usdgOf(room.room)} USDG more in its current window: one address may put in ` +
+            `at most ${usdgOf(room.cap)} USDG in ${durationOf(room.window)}.${until}`,
+    };
+  }
+  if (poolValue + amount > limits.maxTotal) {
+    const left = limits.maxTotal > poolValue ? limits.maxTotal - poolValue : 0n;
+    return {
+      code: 'PoolCapReached',
+      message:
+        left === 0n
+          ? `The pool is full at ${usdgOf(limits.maxTotal)} USDG.`
+          : `The pool holds at most ${usdgOf(limits.maxTotal)} USDG, so it can take ${usdgOf(left)} USDG more.`,
+    };
+  }
+  return null;
+}
+
+function usdgOf(atomic: bigint): string {
+  const whole = atomic / 1_000_000n;
+  const fraction = (atomic % 1_000_000n).toString().padStart(6, '0').replace(/0+$/u, '');
+  return fraction === '' ? whole.toString() : `${whole.toString()}.${fraction}`;
+}
+
+/** Whole days, hours or minutes, which is what a window is set in. */
+function durationOf(seconds: bigint): string {
+  if (seconds % 86_400n === 0n) return `${seconds / 86_400n} day${seconds === 86_400n ? '' : 's'}`;
+  if (seconds % 3_600n === 0n) return `${seconds / 3_600n} hour${seconds === 3_600n ? '' : 's'}`;
+  return `${seconds / 60n} minute${seconds === 60n ? '' : 's'}`;
+}
+
+// ---------------------------------------------------------------------------------------------
 // Chain data
 // ---------------------------------------------------------------------------------------------
 
@@ -905,7 +1062,15 @@ export type RelayRequest = {
   readonly gasDrop?: boolean;
 };
 
-export type RelayResult = { readonly transactionHash: Hex; readonly gasDropWei: string };
+export type RelayResult = {
+  readonly transactionHash: Hex;
+  readonly gasDropWei: string;
+  /**
+   * The transfer that carried the gas, when the recipient asked for it and the relayer sent it. Gas
+   * is a second transaction, sent once the withdrawal has landed, so it has a hash of its own.
+   */
+  readonly gasDropTransactionHash?: Hex;
+};
 
 /** A refusal from the relayer or the association-set provider, with the code it answered with. */
 export class ShieldedServiceError extends Error {

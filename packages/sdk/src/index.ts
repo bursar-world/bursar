@@ -360,6 +360,7 @@ export {
   changeSecrets,
   commitmentOf,
   decodeRelayData,
+  depositRefusal,
   deriveLegacyShieldedKeys,
   deriveShieldedKeys,
   depositSecrets,
@@ -379,6 +380,7 @@ export {
   proofToWire,
   ragequitInput,
   randomShieldedKeys,
+  readDepositRoom,
   recoverNotes,
   relayWithFreshProof,
   scopeOf,
@@ -395,6 +397,9 @@ export {
 } from './shielded.js';
 export type {
   AssociationSet,
+  DepositLimits,
+  DepositRefusal,
+  DepositRoom,
   LeanProof,
   Note,
   NoteSecrets,
