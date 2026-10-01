@@ -1,4 +1,4 @@
-import { canonicalStringify, commitCanonical, toDataUri } from '@bursar/core';
+import { canonicalStringify, commitCanonical, hashRequest, requestDocument, requestURI, toDataUri } from '@bursar/core';
 import { signDeliveryEvidence } from '@bursar/sdk';
 import { describe, expect, it } from 'vitest';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -39,6 +39,13 @@ describe('fetcher', () => {
   it('reads a base64 data URI in place', async () => {
     const fetcher = createFetcher({ timeoutMs: 1_000 });
     expect(await fetcher(toDataUri('{"a":1}'))).toEqual({ kind: 'ok', text: '{"a":1}' });
+  });
+
+  it('reads a request document published under its own media type', async () => {
+    const binding = { requestHash: hashRequest('{}'), salt: `0x${'5a'.repeat(32)}` as const };
+    const document = requestDocument({ method: 'GET', url: 'https://api.provider.dev/quote', binding });
+    const fetcher = createFetcher({ timeoutMs: 1_000 });
+    expect(await fetcher(requestURI(document))).toEqual({ kind: 'ok', text: canonicalStringify(document) });
   });
 
   it('reads a percent-encoded data URI', async () => {

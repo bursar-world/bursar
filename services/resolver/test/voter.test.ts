@@ -1,6 +1,7 @@
-import { canonicalStringify, commitCanonical, toDataUri } from '@bursar/core';
+import { canonicalStringify, commitCanonical, hashRequest, requestCommit, requestDocument, requestURI, toDataUri } from '@bursar/core';
 import { encodeEvidence, signDeliveryEvidence, signPayerStatement } from '@bursar/sdk';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { keccak256, toBytes } from 'viem';
 import type { Address } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
@@ -234,6 +235,31 @@ describe('voter', () => {
     const mismatch = (await ruling(r, other.disputeId)).body as { rule: string; score: number; reasons: string[] };
     expect(mismatch).toMatchObject({ rule: 'P5', score: 90 });
     expect(mismatch.reasons.join(' ')).toMatch(/does not hash to the lock's commitment/);
+  });
+
+  it('reads the call an x402 payment was opened for as the job it committed to', async () => {
+    // The lock as the SDK opens one on the mandate lane: the request document inline, and the
+    // commitment over its canonical bytes.
+    const binding = { requestHash: hashRequest('{"prompt":"a koi"}'), salt: `0x${'5a'.repeat(32)}` as const };
+    const document = requestDocument({ method: 'POST', url: 'https://api.provider.dev/render', binding });
+    const inputCommit = requestCommit(document);
+
+    const opened = r.chain.time;
+    const { disputeId, escrowId } = r.chain.openDispute({ payer: PAYER, payee: payee.address, inputCommit, inputURI: requestURI(document) });
+    const submission = await signDeliveryEvidence(payee, ESCROW, 4663, {
+      escrowId,
+      inputCommit,
+      outputCommit: commitCanonical(OUTPUT),
+      outputURI: toDataUri(canonicalStringify(OUTPUT)),
+      deliveredAt: r.chain.time,
+    });
+    await r.handle({ method: 'POST', path: '/evidence', query: new URLSearchParams(), body: encodeEvidence(submission), token: null });
+
+    await drive(r, disputeId, opened + 13n * HOUR);
+    const published = (await ruling(r, disputeId)).body as { rule: string; score: number; reasons: string[]; inputHash: string | null };
+    expect(published).toMatchObject({ rule: 'P5', score: 90 });
+    expect(published.inputHash).toBe(keccak256(toBytes(canonicalStringify(document))));
+    expect(published.reasons.join(' ')).not.toMatch(/delivery evidence alone/);
   });
 
   it('rules a dispute that opened before Version 3 under Version 2, as the policy promises', async () => {
