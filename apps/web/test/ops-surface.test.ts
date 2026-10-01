@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Address } from 'viem';
 
-import { NEEDS, TREASURY_WARNING, answerWord, canSweep, needFor, opsAccess, sweepLine } from '@/app/(app)/ops/gate';
+import { NEEDS, TREASURY_WARNING, answerWord, canSweep, needFor, opsAccess, seizedLine, sweepLine } from '@/app/(app)/ops/gate';
 import type { OpsRoles } from '@/app/(app)/ops/gate';
 
 const SIGNER = '0xb51c63568324848DfC88A09f91F06fA86771aB69' as Address;
@@ -112,6 +112,7 @@ describe('every action names the key it needs and whether it waits', () => {
       'sweep-fees',
       'transfer-treasury',
       'accept-treasury',
+      'claim-seized',
       'staking-tiers',
       'staking-slasher',
       'buyback-ceiling',
@@ -123,6 +124,7 @@ describe('every action names the key it needs and whether it waits', () => {
     expect(needFor('sweep-fees').call).toBe('Escrow.sweepFees');
     expect(needFor('transfer-treasury').call).toBe('Escrow.transferTreasury');
     expect(needFor('accept-treasury').call).toBe('Escrow.acceptTreasury');
+    expect(needFor('claim-seized').call).toBe('CollateralVault.claimSeized');
     expect(needFor('staking-tiers').call).toBe('Staking.setTiers');
     expect(needFor('staking-slasher').call).toBe('Staking.setSlasher');
     expect(needFor('buyback-ceiling').call).toBe('Buyback.setParams');
@@ -134,6 +136,11 @@ describe('every action names the key it needs and whether it waits', () => {
     expect(needFor('sweep-fees').route).toBe('direct');
   });
 
+  it('says the claim is permissionless and pays the lender whoever sends it', () => {
+    expect(needFor('claim-seized').needs).toContain('pays the pool’s lender whoever sends it');
+    expect(needFor('claim-seized').route).toBe('direct');
+  });
+
   it('says the timelock cannot make the treasury call', () => {
     expect(needFor('transfer-treasury').needs).toContain('timelock cannot make this call');
   });
@@ -142,6 +149,37 @@ describe('every action names the key it needs and whether it waits', () => {
     for (const id of ['staking-tiers', 'staking-slasher', 'buyback-ceiling', 'buyback-keeper'] as const) {
       expect(needFor(id).route).toBe('proposal');
     }
+  });
+});
+
+/**
+ * Seized collateral has four readings and none of them is a zero: a reading in flight, a lane whose
+ * vault seizes nothing, a reading that failed part way, and nothing waiting.
+ */
+describe('what has been seized', () => {
+  it('renders a different sentence for each condition', () => {
+    const shown = [
+      seizedLine(undefined, false),
+      seizedLine(undefined, true),
+      seizedLine({ assets: [], complete: false }, true),
+      seizedLine({ assets: [], complete: true }, true),
+      seizedLine({ assets: [{}], complete: true }, true),
+    ];
+
+    expect(new Set(shown).size).toBe(5);
+  });
+
+  it('says a lane whose vault does not seize has nothing here, rather than nothing waiting', () => {
+    expect(seizedLine(undefined, true)).toContain('leaves a written-off line holding what could not be sold');
+    expect(seizedLine(undefined, true)).not.toContain('Nothing is waiting');
+  });
+
+  it('does not report a partial reading as nothing', () => {
+    expect(seizedLine({ assets: [], complete: false }, true)).toContain('unknown, not zero');
+  });
+
+  it('names where a claim pays when something waits', () => {
+    expect(seizedLine({ assets: [{}], complete: true }, true)).toContain('to the lender below and to nowhere else');
   });
 });
 

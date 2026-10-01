@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { erc20Abi } from 'viem';
 import type { Abi, Address } from 'viem';
 
-import { collateralLane, creditWired, formatHealth, formatRatio, liquidatable } from '@/chain/collateral';
+import { collateralLane, creditWired, drawHaltLine, formatHealth, formatRatio, haltedPositions, liquidatable } from '@/chain/collateral';
 import { onCurrentSet } from '@/chain/deployments';
 import type { CollateralAccount, CollateralPosition } from '@/chain/collateral';
 import { ADDRESSES } from '@/chain/rhc';
@@ -50,6 +50,7 @@ function CollateralBody({ state, onChange }: { readonly state: CollateralAccount
   const { isOwner } = useMandateScope();
   const now = state.chainTime ?? new Date();
   const floor = state.terms === undefined ? undefined : formatRatio(state.terms.minBorrowHealth);
+  const halted = haltedPositions(state);
 
   return (
     <Section
@@ -90,6 +91,27 @@ function CollateralBody({ state, onChange }: { readonly state: CollateralAccount
             </LevelBadge>
           )}
 
+          {halted.length > 0 && (
+            <div className="space-y-2">
+              <LevelBadge level="attention">
+                {state.headroom === 0n
+                  ? 'Nothing can be borrowed right now'
+                  : `${halted.length === 1 ? 'One position counts' : `${halted.length} positions count`} for nothing toward borrowing right now`}
+              </LevelBadge>
+              <ul className="space-y-1 text-detail text-[color:var(--color-muted)]">
+                {halted.map((entry) => (
+                  <li key={entry.symbol}>
+                    <span className="font-medium text-[color:var(--color-ink)]">{entry.symbol}</span> {entry.line}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-detail text-[color:var(--color-muted)]">
+                Nothing posted is lost. Health still counts these positions at their price, and borrowing against them resumes on
+                its own once the condition clears.
+              </p>
+            </div>
+          )}
+
           <Table<CollateralPosition>
             caption="Posted collateral"
             rows={state.positions.filter((p) => p.raw > 0n)}
@@ -118,6 +140,11 @@ function CollateralBody({ state, onChange }: { readonly state: CollateralAccount
                 cell: (row) =>
                   !row.fresh ? (
                     <LevelBadge level="attention">Not counted: stale price, a pause, or its pool out of line</LevelBadge>
+                  ) : row.halt !== undefined && row.halt !== 'None' ? (
+                    <span className="space-y-1">
+                      <LevelBadge level="attention">Not counted toward borrowing</LevelBadge>
+                      <span className="block text-note text-[color:var(--color-muted)]">{drawHaltLine(row.halt, state.observation)}</span>
+                    </span>
                   ) : (
                     <LevelBadge level={row.afterHours ? 'attention' : 'ok'}>
                       {bps(row.haircutBps)}

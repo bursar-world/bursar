@@ -2,7 +2,7 @@ import type { Micro } from '@bursar/core';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
-import { formatRatio, readHaircutSchedule } from '@/chain/collateral';
+import { drawHaltLine, formatRatio, readHaircutSchedule } from '@/chain/collateral';
 import type { HaircutSchedule, HaircutTier } from '@/chain/collateral';
 import { Address } from '@/components/address';
 import { Card, Field, FieldGrid, Section } from '@/components/layout';
@@ -65,7 +65,7 @@ function Tiers({ schedule }: { readonly schedule: HaircutSchedule }) {
           </thead>
           <tbody>
             {schedule.tiers.map((tier) => (
-              <TierRow key={tier.index} tier={tier} />
+              <TierRow key={tier.index} tier={tier} observation={schedule.observation} />
             ))}
           </tbody>
         </table>
@@ -78,7 +78,7 @@ function Tiers({ schedule }: { readonly schedule: HaircutSchedule }) {
   );
 }
 
-function TierRow({ tier }: { readonly tier: HaircutTier }) {
+function TierRow({ tier, observation }: { readonly tier: HaircutTier; readonly observation: HaircutSchedule['observation'] }) {
   return (
     <tr className="border-b border-[color:var(--color-line)] align-top">
       <td className="py-3 pr-4 font-medium">
@@ -99,6 +99,11 @@ function TierRow({ tier }: { readonly tier: HaircutTier }) {
                     {' '}
                     now {bps(asset.haircutBps)}
                     {asset.afterHours ? ', after hours' : ''}
+                  </span>
+                )}
+                {asset.halt !== undefined && asset.halt !== 'None' && (
+                  <span className="block text-note" style={{ color: 'var(--color-state-attention)' }}>
+                    Not counted toward borrowing right now. {drawHaltLine(asset.halt, observation)}
                   </span>
                 )}
               </li>
@@ -129,6 +134,15 @@ function Terms({ schedule }: { readonly schedule: HaircutSchedule }) {
             After hours means outside the US equities 24/5 session (Monday 01:00 UTC to Saturday 00:00 UTC), or any time a price has not
             updated for {sessionHours ?? 'a day'}, which covers exchange holidays. The after-hours haircut then applies and health drops.
           </li>
+          {schedule.observation !== undefined && (
+            <li>
+              Borrowing against a position also needs the price check&rsquo;s reading of the token&rsquo;s pool: a reading taken between{' '}
+              {hoursOrMinutes(schedule.observation.minAge)} and {hoursOrMinutes(schedule.observation.maxAge)} earlier in which the pool
+              agreed with the price. A pool pushed off its price has to stay there that long before it counts, and a price that has moved
+              more than {Number(schedule.observation.maxFeedJumpBps) / 100}% since the reading halts borrowing until a new reading stands
+              behind it. Sales and health are unaffected. Anyone may take a reading, and one is taken every few minutes.
+            </li>
+          )}
           {terms !== undefined && (
             <>
               <li>
@@ -146,7 +160,8 @@ function Terms({ schedule }: { readonly schedule: HaircutSchedule }) {
             </>
           )}
           <li>
-            A line left with nothing that can be sold has its remaining debt written off. The lender carries that loss in USDG.
+            A line left with nothing that can be sold has its remaining debt written off. The lender carries that loss in USDG
+            {schedule.observation === undefined ? '.' : ', and whatever the line still held is seized for the lender to claim.'}
             {schedule.pool.slashLive === true &&
               ' BRSR stakers cover part of it as well: the loss is converted to BRSR at the buyback’s price ceiling and taken from the staking pool, never more than the pool’s slash allowance at a time.'}
           </li>
@@ -202,4 +217,10 @@ function Terms({ schedule }: { readonly schedule: HaircutSchedule }) {
 function hoursOf(seconds: number | undefined): string | undefined {
   if (seconds === undefined || seconds === 0) return undefined;
   return `${Math.round(seconds / 3600)} hours`;
+}
+
+function hoursOrMinutes(seconds: bigint): string {
+  const value = Number(seconds);
+  if (value % 3600 === 0) return `${value / 3600} hour${value === 3600 ? '' : 's'}`;
+  return `${Math.round(value / 60)} minutes`;
 }

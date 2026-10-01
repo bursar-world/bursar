@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { useState } from 'react';
 import type { Address } from 'viem';
 
+import { collateralVaultAbi } from '@bursar/core';
+
 import { ADDRESSES, escrowAbi, isZeroAddress, sameAddress } from '@/chain';
 import { formatBps, formatBrsrAmount, formatUsdg, parseField } from '@/chain/admin-actions';
 import { Address as AddressLabel } from '@/components/address';
@@ -16,13 +18,14 @@ import { Card, EmptyState, Field, FieldGrid, Section } from '@/components/layout
 import { Table } from '@/components/table';
 import { TxButton } from '@/components/tx-button';
 import { formatDuration } from '@/lib';
+import { tokenAmountText } from '@/money';
 import { useSystemState } from '@/state';
 import type { AnyState } from '@/state';
 
 import { ProposePanel } from '../governance/actions-panel';
 import { CUSTODY_LINE, permits } from '../governance/roles';
 import type { Roles } from '../governance/roles';
-import { NEEDS, TREASURY_WARNING, answerWord, canSweep, needFor, opsAccess, sweepLine } from './gate';
+import { NEEDS, TREASURY_WARNING, answerWord, canSweep, needFor, opsAccess, seizedLine, sweepLine } from './gate';
 import type { OpsRead, StakingTier } from './read';
 import { useOps } from './use-ops';
 import { useWriteContract } from '@/wallet/write';
@@ -101,7 +104,7 @@ export function OpsView() {
           <p className="mt-5 max-w-3xl text-detail text-[color:var(--color-muted)]">{CUSTODY_LINE}</p>
         </Card>
 
-        <Card title="What each action needs" description="Three of these go straight to the contract. The rest wait out the governance delay.">
+        <Card title="What each action needs" description="Four of these go straight to the contract. The rest wait out the governance delay.">
           <Table
             rows={[...NEEDS]}
             rowKey={(row) => row.id}
@@ -145,8 +148,88 @@ export function OpsView() {
         blockedBy={blockedBy}
         onDone={ops.refresh}
       />
+      <SeizedSection data={data} connected={ops.roles.address} blockedBy={blockedBy} onDone={ops.refresh} />
       <ParameterSections data={data} roles={ops.roles} admitted={access.admitted} blockedBy={blockedBy} onDone={ops.refresh} />
     </div>
+  );
+}
+
+/**
+ * Collateral a write-off took from a line, waiting for the credit pool's lender.
+ *
+ * The vault seizes what a written-off line still holds and keeps it until somebody claims it, and
+ * the claim pays the lender whoever sends it. So the control is offered to any connected wallet,
+ * and the lender's address is on the card so the sender knows where the money goes.
+ */
+function SeizedSection({
+  data,
+  connected,
+  blockedBy,
+  onDone,
+}: {
+  readonly data: OpsRead | undefined;
+  readonly connected: Address | undefined;
+  readonly blockedBy: readonly AnyState[];
+  readonly onDone: () => void;
+}) {
+  const { writeContractAsync } = useWriteContract();
+  const seized = data?.seized;
+  const need = needFor('claim-seized');
+  const isLender = seized?.lender !== undefined && connected !== undefined && sameAddress(seized.lender, connected);
+
+  return (
+    <Section title="Seized collateral" description="What the vault took from written-off lines, and who it goes to.">
+      <Card>
+        <p className="max-w-3xl text-sm">{seizedLine(seized, data !== undefined)}</p>
+
+        {seized !== undefined && (
+          <div className="mt-5">
+            <FieldGrid columns={2}>
+              <Field label="Paid to" hint="The credit pool's lender, who carried the loss the write-off booked.">
+                {seized.lender === undefined ? NOT_READ : <AddressLabel value={seized.lender} />}
+                {isLender && <span className="ml-2 text-detail text-[color:var(--color-muted)]">This wallet.</span>}
+              </Field>
+              <Field label="Who may call it" hint={need.needs}>
+                Anyone
+              </Field>
+            </FieldGrid>
+          </div>
+        )}
+
+        {seized !== undefined && seized.assets.length > 0 && (
+          <div className="mt-5">
+            <Table
+              rows={[...seized.assets]}
+              rowKey={(row) => row.asset}
+              caption="Seized collateral waiting to be claimed"
+              columns={[
+                { key: 'asset', header: 'Asset', cell: (row) => <span className="font-medium">{row.symbol}</span> },
+                { key: 'raw', header: 'Waiting', align: 'right', cell: (row) => <span className="tabular">{tokenAmountText(row.raw, row.asset)}</span> },
+                {
+                  key: 'claim',
+                  header: '',
+                  align: 'right',
+                  cell: (row) =>
+                    connected === undefined ? (
+                      <span className="text-detail text-[color:var(--color-muted)]">Connect a wallet to claim</span>
+                    ) : (
+                      <TxButton
+                        label={`Pay ${row.symbol} to the lender`}
+                        tone="secondary"
+                        blockedBy={blockedBy}
+                        send={() =>
+                          writeContractAsync({ address: seized.lane.CollateralVault, abi: collateralVaultAbi, functionName: 'claimSeized', args: [row.asset] })
+                        }
+                        onConfirmed={onDone}
+                      />
+                    ),
+                },
+              ]}
+            />
+          </div>
+        )}
+      </Card>
+    </Section>
   );
 }
 

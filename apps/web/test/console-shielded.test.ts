@@ -9,6 +9,7 @@ import { SHIELDED_TIMING_LINE, STEALTH_LIMIT_LINE } from '@/chain/stealth';
 import {
   PURPOSES,
   depositProblem,
+  depositRoomLine,
   intentFromQuery,
   labelInSet,
   poolLimits,
@@ -50,6 +51,48 @@ describe('deposit limits', () => {
     );
     expect(depositProblem({ amount: 10_000n, limits, poolBalance: 1_000_000_000n, walletBalance: undefined })).toBe('The pool is full at 1000 USDG.');
     expect(depositProblem({ amount: 200_000n, limits, poolBalance: 0n, walletBalance: 170_000n })).toBe('This wallet holds 0.17 USDG.');
+  });
+});
+
+/**
+ * From v4 the pool holds each wallet to a cap per window. The form refuses above it before the
+ * wallet opens, in the pool's own order, and says what the wallet may still put in and when the
+ * window resets. A pool with no window answers no room, and the form checks what that pool checks.
+ */
+describe('what one wallet may still deposit', () => {
+  const NOW = new Date('2026-10-01T12:00:00Z');
+  const WEEK = 604_800n;
+  const room = { room: 50_000_000n, cap: 250_000_000n, window: WEEK, resetsAt: new Date('2026-10-04T12:00:00Z') };
+
+  it('refuses above the room, after the per-deposit cap and before the pool cap', () => {
+    expect(depositProblem({ amount: 60_000_000n, limits, poolBalance: 990_000_000n, walletBalance: undefined, room, now: NOW })).toBe(
+      'This wallet can put in 50 USDG more: one wallet can put in at most 250 USDG in 7 days. Its window resets in 3d.',
+    );
+    expect(depositProblem({ amount: 200_000_000n, limits, poolBalance: 0n, walletBalance: undefined, room, now: NOW })).toBe(
+      'One deposit can be at most 100 USDG.',
+    );
+    expect(depositProblem({ amount: 40_000_000n, limits, poolBalance: 990_000_000n, walletBalance: undefined, room, now: NOW })).toBe(
+      'The pool holds at most 1000 USDG, so it can take 10 more.',
+    );
+    expect(depositProblem({ amount: 40_000_000n, limits, poolBalance: 0n, walletBalance: 50_000_000n, room, now: NOW })).toBeUndefined();
+  });
+
+  it('says a wallet at its cap has to wait for the window', () => {
+    expect(depositProblem({ amount: 1_000_000n, limits, poolBalance: 0n, walletBalance: undefined, room: { ...room, room: 0n }, now: NOW })).toBe(
+      'This wallet has put in 250 USDG, the most one wallet can in 7 days. Its window resets in 3d.',
+    );
+  });
+
+  it('skips the check on a pool that holds nobody to a window', () => {
+    expect(depositProblem({ amount: 100_000_000n, limits, poolBalance: 0n, walletBalance: undefined, room: undefined })).toBeUndefined();
+  });
+
+  it('tells the wallet its room under the field, and nothing on a pool with no window', () => {
+    expect(depositRoomLine(room, NOW)).toBe('This wallet can put in 50 USDG more this window, of 250 USDG in 7 days. Its window resets in 3d.');
+    expect(depositRoomLine({ ...room, room: 250_000_000n, resetsAt: null }, NOW)).toBe('This wallet can put in up to 250 USDG in any 7 days.');
+    expect(depositRoomLine({ ...room, room: 0n }, NOW)).toBe('This wallet has put in its 250 USDG for this window. Its window resets in 3d.');
+    expect(depositRoomLine({ ...room, resetsAt: new Date('2026-10-01T11:00:00Z') }, NOW)).toContain('Its window has just reset.');
+    expect(depositRoomLine(undefined)).toBeUndefined();
   });
 });
 

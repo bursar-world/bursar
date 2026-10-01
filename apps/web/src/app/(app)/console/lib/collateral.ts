@@ -23,7 +23,8 @@ export const COLLATERAL_REFUSALS: Readonly<Record<string, string>> = {
   NoLine: 'The collateral line is not open for this mandate yet.',
   NotCollateral: 'This asset is not accepted as collateral.',
   NotEligible: 'This asset is not eligible right now.',
-  HealthTooLow: 'This would leave health below the borrowing floor.',
+  HealthTooLow:
+    'This would leave health below the borrowing floor. A position counts toward borrowing only while its price is current, its pool is in line with it, and the price check holds a recent reading of the pool.',
   Healthy: 'The position is healthy, so nothing can be sold.',
   PositionEmpty: 'The position holds less than that.',
   ZeroAmount: 'Enter an amount above zero.',
@@ -39,6 +40,8 @@ export const COLLATERAL_REFUSALS: Readonly<Record<string, string>> = {
   PoolPriceDeviation: 'The pool price for this asset is too far from the feed, so the sale waits until the two agree again.',
   Blocked: 'The issuer blocks this account from trading these assets.',
   NothingToSell: 'Nothing left in this position can be sold for anything, so there is nothing to liquidate.',
+  NothingSeized: 'Nothing has been seized in this asset, so there is nothing to claim.',
+  ObservationTooSoon: 'The price check took a reading of this pool too recently to take another. Wait for it to age.',
   ERC20InsufficientBalance: 'The wallet holds less than the amount.',
   ERC20InsufficientAllowance: 'Approve the amount first.',
 };

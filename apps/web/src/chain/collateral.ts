@@ -1,16 +1,44 @@
-import { NO_DEBT_HEALTH, collateralDeployment, collateralVaultAbi, creditPoolAbi, healthRatio, rwaDeployment } from '@bursar/core';
-import type { CollateralDeployment } from '@bursar/core';
+import {
+  NO_DEBT_HEALTH,
+  collateralDeployment,
+  collateralVaultAbi,
+  contractSetAtLeast,
+  contractSetOf,
+  creditPoolAbi,
+  drawHaltOf,
+  healthRatio,
+  priceGuardAbi,
+  rwaDeployment,
+} from '@bursar/core';
+import type { CollateralDeployment, DrawHalt } from '@bursar/core';
 import type { Abi, Address } from 'viem';
 
 import { ReadBatch, addChainTime, runBatch } from './batch';
 import type { Slot } from './batch';
 import { rhcClient } from './client';
-import { ADDRESSES, CHAIN_ID } from './rhc';
+import { formatDuration } from '../lib/time';
+import { ADDRESSES, CHAIN_ID, deployment } from './rhc';
 
 /**
  * Reads for the collateral lane. No hooks here: the public haircut page renders on the server and
  * a module that imports the query client cannot be.
  */
+
+/**
+ * From v4 the vault counts a position toward a draw only on the price guard's draw rule, seizes
+ * what a written-off line still holds, and answers `drawHalt` and `seized`. The lane before it has
+ * none of those functions and asking reverts, so each read is conditional on the set.
+ */
+export function observes(): boolean {
+  return contractSetAtLeast(contractSetOf(deployment()), 'v4');
+}
+
+/** The price guard's bounds on a reading of a pool, read off the lane's guard. */
+export type ObservationBounds = {
+  readonly minAge: bigint;
+  readonly maxAge: bigint;
+  readonly maxFeedJumpBps: bigint;
+};
 
 const stakingAbi = [
   { type: 'function', name: 'creditManager', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
@@ -57,6 +85,8 @@ export type TierAsset = {
   /** The haircut that applies right now, and whether it is the after-hours one. */
   readonly haircutBps: number | undefined;
   readonly afterHours: boolean | undefined;
+  /** Why a draw counts nothing for this asset right now. `None` while it counts; undefined where unread or not a v4 lane. */
+  readonly halt: DrawHalt | undefined;
 };
 
 export type LaneTerms = {
@@ -86,6 +116,8 @@ export type HaircutSchedule = {
   readonly tiers: readonly HaircutTier[];
   readonly terms: LaneTerms | undefined;
   readonly pool: PoolState;
+  /** The guard's bounds on a reading of a pool. Undefined on a lane from before v4, or where unread. */
+  readonly observation: ObservationBounds | undefined;
   readonly chainTime: Date | undefined;
   readonly complete: boolean;
 };
@@ -105,6 +137,8 @@ export type CollateralPosition = {
   /** Held by the caller's wallet, for the deposit form. */
   readonly walletHeld: bigint | undefined;
   readonly allowance: bigint | undefined;
+  /** Why a draw counts nothing for this position right now. `None` while it counts; undefined where unread or not a v4 lane. */
+  readonly halt: DrawHalt | undefined;
 };
 
 export type CollateralAccount = {
@@ -120,7 +154,18 @@ export type CollateralAccount = {
   readonly healthE18: bigint | undefined;
   readonly terms: LaneTerms | undefined;
   readonly usdgAllowance: bigint | undefined;
+  /** The guard's bounds on a reading of a pool. Undefined on a lane from before v4, or where unread. */
+  readonly observation: ObservationBounds | undefined;
   readonly chainTime: Date | undefined;
+};
+
+/** Collateral a write-off took from a line, waiting for the pool's lender to claim it. */
+export type SeizedCollateral = {
+  readonly lane: CollateralDeployment;
+  /** The address the vault pays a claim to, whoever sends it. */
+  readonly lender: Address | undefined;
+  readonly assets: readonly { readonly asset: Address; readonly symbol: string; readonly raw: bigint }[];
+  readonly complete: boolean;
 };
 
 export function collateralLane(): CollateralDeployment | undefined {
@@ -134,6 +179,30 @@ export function symbolOf(asset: Address): string {
 
 const call = (address: Address, abi: Abi, functionName: string, args?: readonly unknown[]) =>
   ({ address, abi, functionName, ...(args === undefined ? {} : { args }) }) as const;
+
+type BoundSlots = { minAge: Slot<bigint>; maxAge: Slot<bigint>; jump: Slot<bigint> };
+
+/** The guard's bounds go into a batch, on a v4 lane whose record names the guard. */
+function addBounds(batch: ReadBatch): BoundSlots | undefined {
+  const guard = rwaDeployment(CHAIN_ID)?.PriceGuard;
+  if (guard === undefined || !observes()) return undefined;
+  const read = (fn: string) => call(guard, priceGuardAbi as Abi, fn);
+  return {
+    minAge: batch.add<bigint>('guard.MIN_OBSERVATION_AGE', read('MIN_OBSERVATION_AGE')),
+    maxAge: batch.add<bigint>('guard.MAX_OBSERVATION_AGE', read('MAX_OBSERVATION_AGE')),
+    jump: batch.add<bigint>('guard.MAX_FEED_JUMP_BPS', read('MAX_FEED_JUMP_BPS')),
+  };
+}
+
+function boundsFrom(results: { get<T>(slot: Slot<T> | undefined): T | undefined }, slots: BoundSlots | undefined): ObservationBounds | undefined {
+  if (slots === undefined) return undefined;
+  const [minAge, maxAge, maxFeedJumpBps] = [results.get(slots.minAge), results.get(slots.maxAge), results.get(slots.jump)];
+  return minAge === undefined || maxAge === undefined || maxFeedJumpBps === undefined ? undefined : { minAge, maxAge, maxFeedJumpBps };
+}
+
+function haltOf(value: number | undefined): DrawHalt | undefined {
+  return value === undefined ? undefined : drawHaltOf(value);
+}
 
 export async function readHaircutSchedule(): Promise<HaircutSchedule | undefined> {
   const lane = collateralLane();
@@ -157,6 +226,7 @@ export async function readHaircutSchedule(): Promise<HaircutSchedule | undefined
   };
   const managerSlot = batch.add<Address>('staking.creditManager', call(lane.Staking, stakingAbi, 'creditManager'));
   const slasherSlot = batch.add<Address>('staking.slasher', call(lane.Staking, stakingAbi, 'slasher'));
+  const boundSlots = addBounds(batch);
   const timeSlot = addChainTime(batch);
   const first = await runBatch(rhcClient(), batch);
 
@@ -166,6 +236,7 @@ export async function readHaircutSchedule(): Promise<HaircutSchedule | undefined
     asset,
     tier: second.add<number>(`vault.tierOf:${asset}`, vault('tierOf', [asset])),
     haircut: second.add<readonly [number, boolean]>(`vault.haircutOf:${asset}`, vault('haircutOf', [asset])),
+    halt: observes() ? second.add<number>(`vault.drawHalt:${asset}`, vault('drawHalt', [asset])) : undefined,
   }));
   const rest = assets.length === 0 ? undefined : await runBatch(rhcClient(), second);
 
@@ -180,7 +251,13 @@ export async function readHaircutSchedule(): Promise<HaircutSchedule | undefined
       .filter((a) => Number(rest?.get(a.tier) ?? 0) === i + 1)
       .map((a) => {
         const h = rest?.get(a.haircut);
-        return { address: a.asset, symbol: symbolOf(a.asset), haircutBps: h === undefined ? undefined : Number(h[0]), afterHours: h?.[1] };
+        return {
+          address: a.asset,
+          symbol: symbolOf(a.asset),
+          haircutBps: h === undefined ? undefined : Number(h[0]),
+          afterHours: h?.[1],
+          halt: haltOf(rest?.get(a.halt)),
+        };
       }),
   }));
 
@@ -203,8 +280,38 @@ export async function readHaircutSchedule(): Promise<HaircutSchedule | undefined
       spreadLive: manager === undefined ? undefined : manager.toLowerCase() === lane.CreditPool.toLowerCase(),
       slashLive: slasher === undefined ? undefined : slasher.toLowerCase() === lane.CreditPool.toLowerCase(),
     },
+    observation: boundsFrom(first, boundSlots),
     chainTime: time === undefined ? undefined : new Date(Number(time) * 1000),
     complete: first.failures === 0 && (rest?.failures ?? 0) === 0,
+  };
+}
+
+/**
+ * What write-offs have seized and not yet paid to the pool's lender. Undefined on a chain with no
+ * lane and on a lane from before v4, which left a written-off line holding what could not be sold.
+ */
+export async function readSeizedCollateral(): Promise<SeizedCollateral | undefined> {
+  const lane = collateralLane();
+  if (lane === undefined || !observes()) return undefined;
+  const vault = (fn: string, args?: readonly unknown[]) => call(lane.CollateralVault, collateralVaultAbi as Abi, fn, args);
+
+  const first = new ReadBatch();
+  const assetsSlot = first.add<readonly Address[]>('vault.collateralAssets', vault('collateralAssets'));
+  const lenderSlot = first.add<Address>('pool.lender', call(lane.CreditPool, creditPoolAbi as Abi, 'lender'));
+  const head = await runBatch(rhcClient(), first);
+
+  const assets = head.get(assetsSlot) ?? [];
+  const second = new ReadBatch();
+  const slots = assets.map((asset) => ({ asset, raw: second.add<bigint>(`vault.seized:${asset}`, vault('seized', [asset])) }));
+  const rest = assets.length === 0 ? undefined : await runBatch(rhcClient(), second);
+
+  return {
+    lane,
+    lender: head.get(lenderSlot),
+    assets: slots
+      .map((entry) => ({ asset: entry.asset, symbol: symbolOf(entry.asset), raw: rest?.get(entry.raw) ?? 0n }))
+      .filter((entry) => entry.raw > 0n),
+    complete: head.failures === 0 && (rest?.failures ?? 0) === 0,
   };
 }
 
@@ -221,6 +328,7 @@ export async function readCollateralAccount(mandate: Address, wallet: Address | 
   const paramsSlot = batch.add<RawParams>('vault.params', vault('params'));
   const allowanceSlot: Slot<bigint> | undefined =
     wallet === undefined ? undefined : batch.add<bigint>('usdg.allowance', call(ADDRESSES.usdg, erc20Abi, 'allowance', [wallet, lane.CreditPool]));
+  const boundSlots = addBounds(batch);
   const timeSlot = addChainTime(batch);
   const first = await runBatch(rhcClient(), batch);
 
@@ -228,6 +336,7 @@ export async function readCollateralAccount(mandate: Address, wallet: Address | 
   const second = new ReadBatch();
   const extra = raw.map((p) => ({
     haircut: second.add<readonly [number, boolean]>(`vault.haircutOf:${p.asset}`, vault('haircutOf', [p.asset])),
+    halt: observes() ? second.add<number>(`vault.drawHalt:${p.asset}`, vault('drawHalt', [p.asset])) : undefined,
     held: wallet === undefined ? undefined : second.add<bigint>(`balanceOf:${p.asset}`, call(p.asset, erc20Abi, 'balanceOf', [wallet])),
     allowance:
       wallet === undefined
@@ -259,6 +368,7 @@ export async function readCollateralAccount(mandate: Address, wallet: Address | 
         adjusted: p.adjusted,
         walletHeld: e?.held === undefined ? undefined : rest?.get(e.held),
         allowance: e?.allowance === undefined ? undefined : rest?.get(e.allowance),
+        halt: haltOf(rest?.get(e?.halt)),
       };
     }),
     value: acct?.[0],
@@ -268,8 +378,47 @@ export async function readCollateralAccount(mandate: Address, wallet: Address | 
     healthE18: acct?.[4],
     terms: termsFrom(first.get(paramsSlot)),
     usdgAllowance: first.get(allowanceSlot),
+    observation: boundsFrom(first, boundSlots),
     chainTime: time === undefined ? undefined : new Date(Number(time) * 1000),
   };
+}
+
+/**
+ * Why a draw counts nothing for a position, for a person, with what changes it. Undefined while the
+ * position counts. Written without the guard's names: a reader needs the condition and the next
+ * thing that moves it.
+ */
+export function drawHaltLine(halt: DrawHalt, bounds?: ObservationBounds): string | undefined {
+  const minAge = bounds === undefined ? 'once it has aged' : `${formatDuration(Number(bounds.minAge))} after it is taken`;
+  switch (halt) {
+    case 'None':
+      return undefined;
+    case 'NoPrice':
+      return 'Its price feed has no usable price.';
+    case 'Paused':
+      return 'The token, its price feed or the access registry is paused.';
+    case 'FeedStale':
+      return 'Its price is too old to borrow against during market hours.';
+    case 'NoObservation':
+      return `The price check holds no reading of its pool old enough to count. A reading counts ${minAge}.`;
+    case 'ObservationExpired':
+      return `The price check’s last reading of its pool is ${bounds === undefined ? 'too old to count' : `more than ${formatDuration(Number(bounds.maxAge))} old`}. A new reading counts ${minAge}.`;
+    case 'ObservationOffBand':
+      return `At the price check’s last reading its pool was out of line with its price. A reading taken with the two in line counts ${minAge}.`;
+    case 'FeedJump':
+      return `Its price has moved ${bounds === undefined ? 'further' : `more than ${Number(bounds.maxFeedJumpBps) / 100}%`} since the price check’s last reading of its pool${bounds === undefined ? ' than a draw allows' : ''}. A new reading counts ${minAge}.`;
+    case 'SpotOffBand':
+      return 'Its pool is out of line with its price right now.';
+  }
+}
+
+/** The posted positions a draw counts nothing for, each with the line that says why. */
+export function haltedPositions(account: Pick<CollateralAccount, 'positions' | 'observation'>): readonly { readonly symbol: string; readonly line: string }[] {
+  return account.positions.flatMap((position) => {
+    if (position.raw === 0n || position.halt === undefined) return [];
+    const line = drawHaltLine(position.halt, account.observation);
+    return line === undefined ? [] : [{ symbol: position.symbol, line }];
+  });
 }
 
 function termsFrom(p: RawParams | undefined): LaneTerms | undefined {

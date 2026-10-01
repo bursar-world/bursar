@@ -1,9 +1,10 @@
 import type { ShieldedDeployment } from '@bursar/core';
-import type { AssociationSet, FundsKeyContext, OwnedNote, PoolEvents, RelayQuote, ShieldedKeys } from '@bursar/sdk';
+import type { AssociationSet, DepositRoom, FundsKeyContext, OwnedNote, PoolEvents, RelayQuote, ShieldedKeys } from '@bursar/sdk';
 import { getAddress, isAddress } from 'viem';
 import type { Address, Hex } from 'viem';
 
 import { rhcClient } from './client';
+import { formatDuration } from '../lib/time';
 import { privateContracts } from './private';
 import { CHAIN_ID } from './rhc';
 
@@ -63,17 +64,30 @@ export function poolLimits(contracts: ShieldedDeployment): PoolLimits {
   };
 }
 
-/** Why a deposit of `amount` would be refused, before the wallet opens. Undefined when it would go through. */
+/**
+ * Why a deposit of `amount` would be refused, before the wallet opens, in the order the pool checks.
+ * Undefined when it would go through. `room` is what the pool will still take from this wallet in
+ * its current window; a pool from before v4 holds nobody to a window and answers none, and the check
+ * is skipped the way that pool skips it.
+ */
 export function depositProblem(args: {
   amount: bigint | undefined;
   limits: PoolLimits;
   poolBalance: bigint | undefined;
   walletBalance: bigint | undefined;
+  room?: DepositRoom | undefined;
+  now?: Date;
 }): string | undefined {
-  const { amount, limits, poolBalance, walletBalance } = args;
+  const { amount, limits, poolBalance, walletBalance, room } = args;
   if (amount === undefined || amount === 0n) return undefined;
   if (amount < limits.minimumDeposit) return `The smallest deposit is ${usdgText(limits.minimumDeposit)} USDG.`;
   if (amount > limits.maxDeposit) return `One deposit can be at most ${usdgText(limits.maxDeposit)} USDG.`;
+  if (room !== undefined && amount > room.room) {
+    const resets = room.resetsAt === null ? '' : ` ${resetLine(room.resetsAt, args.now ?? new Date())}`;
+    return room.room === 0n
+      ? `This wallet has put in ${usdgText(room.cap)} USDG, the most one wallet can in ${windowText(room.window)}.${resets}`
+      : `This wallet can put in ${usdgText(room.room)} USDG more: one wallet can put in at most ${usdgText(room.cap)} USDG in ${windowText(room.window)}.${resets}`;
+  }
   if (poolBalance !== undefined && poolBalance + amount > limits.maxTotal) {
     const room = limits.maxTotal > poolBalance ? limits.maxTotal - poolBalance : 0n;
     return room === 0n
@@ -82,6 +96,28 @@ export function depositProblem(args: {
   }
   if (walletBalance !== undefined && amount > walletBalance) return `This wallet holds ${usdgText(walletBalance)} USDG.`;
   return undefined;
+}
+
+/** What this wallet may still put in, for the line under the deposit field. Undefined on a pool with no window. */
+export function depositRoomLine(room: DepositRoom | undefined, now: Date = new Date()): string | undefined {
+  if (room === undefined) return undefined;
+  const window = windowText(room.window);
+  if (room.resetsAt === null) return `This wallet can put in up to ${usdgText(room.cap)} USDG in any ${window}.`;
+  if (room.room === 0n) return `This wallet has put in its ${usdgText(room.cap)} USDG for this window. ${resetLine(room.resetsAt, now)}`;
+  return `This wallet can put in ${usdgText(room.room)} USDG more this window, of ${usdgText(room.cap)} USDG in ${window}. ${resetLine(room.resetsAt, now)}`;
+}
+
+function resetLine(resetsAt: Date, now: Date): string {
+  const seconds = Math.floor((resetsAt.getTime() - now.getTime()) / 1000);
+  return seconds <= 0 ? 'Its window has just reset.' : `Its window resets in ${formatDuration(seconds)}.`;
+}
+
+/** A window is set in whole days, hours or minutes. */
+function windowText(seconds: bigint): string {
+  const value = Number(seconds);
+  if (value % 86_400 === 0) return value === 86_400 ? 'a day' : `${value / 86_400} days`;
+  if (value % 3_600 === 0) return value === 3_600 ? 'an hour' : `${value / 3_600} hours`;
+  return `${Math.round(value / 60)} minutes`;
 }
 
 /** Why a withdrawal of `amount` from `note` cannot be sent. */
@@ -172,6 +208,12 @@ const balanceOf = [
     outputs: [{ type: 'uint256' }],
   },
 ] as const;
+
+/** What the pool will still take from `wallet`, or undefined on a pool that holds nobody to a window. */
+export async function readRoom(contracts: ShieldedDeployment, wallet: Address): Promise<DepositRoom | undefined> {
+  const { readDepositRoom } = await import('@bursar/sdk');
+  return readDepositRoom(rhcClient(), contracts.ShieldedPool, wallet);
+}
 
 export async function readPool(contracts: ShieldedDeployment): Promise<PoolReading> {
   const { fetchPoolEvents } = await import('@bursar/sdk');

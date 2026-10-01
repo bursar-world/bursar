@@ -16,6 +16,8 @@ import {
   settlementAssetAbi,
   stakingAbi,
 } from '@/chain';
+import { readSeizedCollateral } from '@/chain/collateral';
+import type { SeizedCollateral } from '@/chain/collateral';
 import { brsr } from '@/money';
 import type { Brsr } from '@/money';
 
@@ -78,6 +80,11 @@ export type OpsRead = {
     readonly ceilingStaleAt: Date | undefined;
     readonly paused: boolean | undefined;
   };
+  /**
+   * Collateral that write-offs seized and the lender has not claimed. Undefined on a chain with no
+   * lane, on a lane whose vault does not seize, and when the reading failed.
+   */
+  readonly seized: SeizedCollateral | undefined;
 };
 
 type RawTier = { minStake: bigint; rebateBps: number };
@@ -171,7 +178,8 @@ export async function readOps(): Promise<OpsRead> {
     }),
   };
 
-  const first = await runBatch(client, batch);
+  // The seized reading has its own two requests, so it runs beside the aggregate rather than in it.
+  const [first, seized] = await Promise.all([runBatch(client, batch), readSeizedCollateral().catch(() => undefined)]);
   const readAt = new Date();
   const blockNumber = first.get(slots.blockNumber);
   const treasury = first.get(slots.treasury);
@@ -239,6 +247,7 @@ export async function readOps(): Promise<OpsRead> {
         ceilingSetAt === undefined || maxCeilingAge === undefined ? undefined : new Date(Number(ceilingSetAt + maxCeilingAge) * 1000),
       paused: first.get(slots.buybackPaused),
     },
+    seized,
   };
 }
 

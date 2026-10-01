@@ -15,6 +15,7 @@ import {
   PURPOSES,
   depositPrecommitment,
   depositProblem,
+  depositRoomLine,
   fundsKeyContext,
   intentFromQuery,
   labelInSet,
@@ -23,6 +24,7 @@ import {
   ragequitProof,
   readAssociationSet,
   readPool,
+  readRoom,
   relayFee,
   setMatchesChain,
   shieldedContracts,
@@ -283,14 +285,22 @@ function DepositForm({
     queryKey: ['shielded', 'wallet', wallet],
     queryFn: async () => {
       const client = rhcClient();
-      const [balance, allowance] = await Promise.all([
+      const [balance, allowance, room] = await Promise.all([
         client.readContract({ address: contracts.asset, abi: erc20, functionName: 'balanceOf', args: [wallet] }),
         client.readContract({ address: contracts.asset, abi: erc20, functionName: 'allowance', args: [wallet, contracts.Entrypoint] }),
+        readRoom(contracts, wallet),
       ]);
-      return { balance, allowance };
+      return { balance, allowance, room };
     },
   });
-  const problem = depositProblem({ amount, limits: poolLimits(contracts), poolBalance, walletBalance: holdings.data?.balance });
+  const problem = depositProblem({
+    amount,
+    limits: poolLimits(contracts),
+    poolBalance,
+    walletBalance: holdings.data?.balance,
+    room: holdings.data?.room,
+  });
+  const roomLine = depositRoomLine(holdings.data?.room);
   const ready = amount !== undefined && amount > 0n && problem === undefined && holdings.data !== undefined;
   const needsAllowance = ready && (holdings.data?.allowance ?? 0n) < amount;
 
@@ -305,7 +315,7 @@ function DepositForm({
           setAmount(atomic);
         }}
         {...(problem ? { problem } : {})}
-        hint="The deposit itself is public: the pool shows this wallet put the amount in. What you take out later is not tied to it."
+        hint={`The deposit itself is public: the pool shows this wallet put the amount in. What you take out later is not tied to it.${roomLine === undefined ? '' : ` ${roomLine}`}`}
       />
       <div className="flex flex-wrap gap-3">
         {/* Keyed apart: the two buttons share a slot, and a confirmed allowance would otherwise leave its

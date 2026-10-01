@@ -101,6 +101,7 @@ export type ActionNeed = {
     | 'sweep-fees'
     | 'transfer-treasury'
     | 'accept-treasury'
+    | 'claim-seized'
     | 'staking-tiers'
     | 'staking-slasher'
     | 'buyback-ceiling'
@@ -134,6 +135,13 @@ export const NEEDS: readonly ActionNeed[] = [
     title: 'Accept the escrow treasury',
     call: 'Escrow.acceptTreasury',
     needs: 'the incoming address itself. Until it accepts, the current treasury keeps receiving.',
+    route: 'direct',
+  },
+  {
+    id: 'claim-seized',
+    title: 'Pay seized collateral to the credit pool’s lender',
+    call: 'CollateralVault.claimSeized',
+    needs: 'any funded key. The call is permissionless and the vault pays the pool’s lender whoever sends it.',
     route: 'direct',
   },
   {
@@ -199,6 +207,22 @@ export function sweepLine(accrued: bigint | undefined, treasury: string | undefi
 /** Whether the sweep can succeed right now. Unread is not zero, so the control stays offered. */
 export function canSweep(accrued: bigint | undefined): boolean {
   return accrued === undefined || accrued > 0n;
+}
+
+/**
+ * What a reader needs to know about seized collateral before pressing claim. A lane whose vault
+ * does not seize is told so, and an empty list is told apart from a reading that failed.
+ */
+export function seizedLine(seized: { readonly assets: readonly unknown[]; readonly complete: boolean } | undefined, read: boolean): string {
+  if (!read) return 'Reading what has been seized.';
+  if (seized === undefined) {
+    return 'Nothing is seized on this lane. Its vault leaves a written-off line holding what could not be sold, so there is nothing here to claim.';
+  }
+  if (!seized.complete) {
+    return 'What has been seized could not be read in full. Anything listed is real; anything missing is unknown, not zero.';
+  }
+  if (seized.assets.length === 0) return 'Nothing is waiting to be claimed. Collateral lands here when a line is written off with some of it still posted.';
+  return 'Collateral taken from written-off lines is waiting. Each claim pays the whole amount in that asset to the lender below and to nowhere else.';
 }
 
 export function answerWord(answer: Answer): string {
