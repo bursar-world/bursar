@@ -419,7 +419,8 @@ contract RecordTest is ScriptHarness {
     /// The records in `deployments/`: every one on Robinhood Chain, none a rehearsal, each with a
     /// status, and the history between them written in both directions where it is complete.
     function test_record_committedRecordsSitOn4663AndNameWhatEachReplaced() public view {
-        string[4] memory names = ["rhc-mainnet", "rhc-mainnet-token", "rhc-mainnet-v2", "rhc-mainnet-v3"];
+        string[5] memory names =
+            ["rhc-mainnet", "rhc-mainnet-token", "rhc-mainnet-v2", "rhc-mainnet-v3", "rhc-mainnet-v4"];
         for (uint256 i; i < names.length; ++i) {
             string memory json = vm.readFile(string.concat("deployments/", names[i], ".json"));
             assertEq(vm.parseJsonUint(json, K.CHAIN_ID), 4663, names[i]);
@@ -437,6 +438,7 @@ contract RecordTest is ScriptHarness {
         string memory token = vm.readFile("deployments/rhc-mainnet-token.json");
         string memory v2 = vm.readFile("deployments/rhc-mainnet-v2.json");
         string memory v3 = vm.readFile("deployments/rhc-mainnet-v3.json");
+        string memory v4 = vm.readFile("deployments/rhc-mainnet-v4.json");
 
         // The third set answers for the chain. The second set and the token record stay readable for
         // what they still hold until the last migration step retires them.
@@ -478,5 +480,24 @@ contract RecordTest is ScriptHarness {
         assertEq(resolvers[1], 0xC284CdA6c6982447f202830f4e969F13cBcB0b94);
         assertEq(resolvers[2], 0x7062A480732EC7B0F00a3D0c968356e1671dd356);
         assertEq(vm.parseJsonAddressArray(v3, K.SIGNERS).length, 3);
+
+        // The fourth set is planned on top of the third: same governance, token set, roles and
+        // outside contracts, nothing of its own deployed yet.
+        assertEq(vm.parseJsonString(v4, K.STATUS), "planned");
+        assertEq(vm.parseJsonString(v4, K.SUPERSEDES), "rhc-mainnet-v3");
+        assertEq(vm.parseJsonAddress(v4, K.DEPLOYER), vm.parseJsonAddress(v3, K.DEPLOYER));
+        assertEq(vm.parseJsonKeys(v4, ".contracts").length, 1);
+        assertEq(vm.parseJsonAddress(v4, K.ADMIN_TIMELOCK), vm.parseJsonAddress(v3, K.ADMIN_TIMELOCK));
+        string[7] memory carried = [K.BRSR, K.VESTING, K.STAKING, K.BUYBACK, K.SEEDER, K.KEEPER, K.TOKEN_FROM_BLOCK];
+        for (uint256 i; i < carried.length; ++i) {
+            assertEq(vm.parseJson(v4, carried[i]), vm.parseJson(v3, carried[i]), carried[i]);
+        }
+        assertEq(vm.parseJsonBytes32(v4, ".token.poolId"), vm.parseJsonBytes32(v3, ".token.poolId"));
+        assertEq(vm.parseJson(v4, ".external"), vm.parseJson(v3, ".external"));
+        assertEq(vm.parseJson(v4, ".roles"), vm.parseJson(v3, ".roles"));
+        assertFalse(vm.keyExistsJson(v4, K.ESCROW));
+        assertFalse(vm.keyExistsJson(v4, K.CREDIT_POOL));
+        assertFalse(vm.keyExistsJson(v4, K.SHIELDED_POOL));
+        assertFalse(vm.keyExistsJson(v4, ".exampleMandate"));
     }
 }

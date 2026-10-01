@@ -44,7 +44,7 @@ abstract contract World is ScriptHarness {
     function _world(string memory name) internal {
         vm.chainId(4663);
         vm.warp(T0);
-        _source("script/env/rhc-mainnet-v3.env");
+        _source("script/env/rhc-mainnet-v4.env");
         _source("script/env/local.env");
         _set("BURSAR_VESTING_START", vm.toString(block.timestamp));
         path = string.concat(RECORDS, "/", name, ".json");

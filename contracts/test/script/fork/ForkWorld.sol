@@ -9,9 +9,11 @@ import {AssetRegistry} from "../../../src/rwa/AssetRegistry.sol";
 import {IAggregatorV3} from "../../../src/rwa/interfaces/IRwaExternal.sol";
 import {World} from "../World.sol";
 
-/// The new contract set, deployed by the real scripts from the mainnet record, by the record's own
-/// deploy key, onto a fork of Robinhood Chain as it stands. What the lanes then touch is live: the
-/// feeds, the pinned pools, the access registry, USDG and its issuer controls. Nothing is mocked.
+/// The planned contract set, deployed by the real scripts from its mainnet record, by the record's
+/// own deploy key, onto a fork of Robinhood Chain as it stands. The record carries the timelock and
+/// the token set over from the live deployment, so those scripts join rather than deploy. What the
+/// lanes then touch is live: the feeds, the pinned pools, the access registry, USDG and its issuer
+/// controls. Nothing is mocked.
 ///
 ///   BURSAR_RHC_FORK_RPC=https://rpc.mainnet.chain.robinhood.com forge test --match-path 'test/script/fork/*'
 ///
@@ -38,12 +40,12 @@ abstract contract ForkWorld is World {
         vm.createSelectFork(rpc);
         require(block.chainid == 4663, "the fork is not Robinhood Chain");
 
-        _source("script/env/rhc-mainnet-v3.env");
+        _source("script/env/rhc-mainnet-v4.env");
         _set("BURSAR_LOCAL", "0");
         _set("BURSAR_ALLOW_EOA_GOVERNANCE", "i-accept-eoa-governance");
         vm.createDir(RECORDS, true);
         path = string.concat(RECORDS, "/", name, ".json");
-        vm.writeFile(path, vm.readFile("deployments/rhc-mainnet-v3.json"));
+        vm.writeFile(path, vm.readFile("deployments/rhc-mainnet-v4.json"));
         _set("BURSAR_RECORD", path);
         deployKey = _readAddress(path, K.DEPLOYER);
     }
