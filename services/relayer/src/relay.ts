@@ -20,12 +20,17 @@ import {
   isAddress,
   isAddressEqual,
   isHex,
+  parseEventLogs,
   type Account,
   type Address,
   type Chain,
+  type Hex,
   type PublicClient,
+  type TransactionReceipt,
   type WalletClient,
 } from 'viem';
+
+import type { GasDropLedger } from './drops.js';
 
 export type RelayerConfig = {
   readonly chainId: number;
@@ -38,10 +43,10 @@ export type RelayerConfig = {
   readonly feeRecipient: Address;
   /** The fee this relayer asks for, in basis points of the withdrawal. */
   readonly feeBps: number;
-  /** Wei sent to a fresh recipient that asks for gas. Zero turns gas drops off. */
+  /** Wei sent to a fresh recipient that asks for gas, once its withdrawal has landed. Zero turns gas drops off. */
   readonly gasDropWei: bigint;
-  /** Gas drops allowed per rolling hour, across all requests. */
-  readonly gasDropsPerHour: number;
+  /** Gas drops allowed per rolling day, across all recipients. */
+  readonly gasDropsPerDay: number;
   /** Smallest withdrawal relayed, in USDG atomic units. */
   readonly minWithdrawal: bigint;
 };
@@ -56,7 +61,13 @@ export class RelayRefusal extends Error {
   }
 }
 
-type Client = Pick<PublicClient, 'readContract' | 'simulateContract' | 'waitForTransactionReceipt' | 'getBalance' | 'getCode'>;
+type Client = Pick<
+  PublicClient,
+  'readContract' | 'simulateContract' | 'waitForTransactionReceipt' | 'getBalance' | 'getCode' | 'getTransactionCount'
+>;
+
+/** What the relayer answers. The SDK's `RelayResult`, plus the hash of the gas transfer when one was made. */
+export type RelayOutcome = RelayResult & { readonly gasDropTransactionHash?: Hex };
 
 type Parsed = { withdrawal: Withdrawal; proof: SolidityProof; gasDrop: boolean };
 
@@ -70,8 +81,8 @@ function parse(body: unknown): Parsed {
   let proof: SolidityProof;
   try {
     proof = proofFromWire(b['proof'] as WireProof);
-  } catch (error) {
-    throw new RelayRefusal(400, 'bad_proof', error instanceof Error ? error.message : 'The proof is malformed.');
+  } catch {
+    throw new RelayRefusal(400, 'bad_proof', 'The proof is malformed: pA and pC hold two decimal field elements, pB is two by two, and pubSignals is a list.');
   }
   if (proof.pubSignals.length !== 8) throw new RelayRefusal(400, 'bad_proof', 'A withdrawal proof has eight public signals.');
   if (b['gasDrop'] !== undefined && typeof b['gasDrop'] !== 'boolean') {
@@ -94,9 +105,13 @@ function revertName(error: unknown): string | null {
  * Checks a withdrawal request against everything the chain will check, and a few things only a
  * relayer cares about, then submits it. Every refusal happens before a transaction is sent, so a
  * refused request never spends the note's nullifier.
+ *
+ * Gas is a second transaction, sent only once the withdrawal has landed: the receipt says success
+ * and carries the pool's Withdrawn event for the note the proof spent. A note gets gas once, a
+ * recipient gets gas once, and the day has a budget, so the float is spent on first gas for fresh
+ * addresses and on nothing else.
  */
 export class Relayer {
-  private readonly drops: number[] = [];
   private queue: Promise<unknown> = Promise.resolve();
 
   constructor(
@@ -104,7 +119,8 @@ export class Relayer {
     private readonly wallet: WalletClient & { account: Account },
     private readonly chain: Chain,
     readonly config: RelayerConfig,
-    private readonly now: () => number = Date.now,
+    private readonly drops: GasDropLedger,
+    private readonly log: (line: string) => void = () => undefined,
   ) {}
 
   quote(): RelayQuote {
@@ -117,23 +133,8 @@ export class Relayer {
     };
   }
 
-  private dropsLeft(): number {
-    const hourAgo = this.now() - 3_600_000;
-    while (this.drops.length > 0 && this.drops[0]! < hourAgo) this.drops.shift();
-    return this.config.gasDropsPerHour - this.drops.length;
-  }
-
-  /** Gas goes only to a recipient that looks fresh: no code and less than one drop already. */
-  private async gasDropFor(recipient: Address, asked: boolean): Promise<bigint> {
-    if (!asked || this.config.gasDropWei === 0n) return 0n;
-    const [code, balance] = await Promise.all([
-      this.client.getCode({ address: recipient }),
-      this.client.getBalance({ address: recipient }),
-    ]);
-    if (code !== undefined && code !== '0x') return 0n;
-    if (balance >= this.config.gasDropWei) return 0n;
-    if (this.dropsLeft() <= 0) throw new RelayRefusal(429, 'gas_drops_exhausted', 'No gas drops left this hour. Retry without gas, or later.');
-    return this.config.gasDropWei;
+  private budgetSpent(): boolean {
+    return this.drops.countToday() >= this.config.gasDropsPerDay;
   }
 
   async check(body: unknown): Promise<Parsed & { recipient: Address }> {
@@ -185,18 +186,21 @@ export class Relayer {
     if (signals.ASPRoot !== aspRoot) {
       throw new RelayRefusal(409, 'stale_association_set', 'The association set changed since this proof was made. Prove again against the latest set.');
     }
+    // Said before anything is sent, so a client that wanted gas can choose to withdraw without it.
+    if (parsed.gasDrop && c.gasDropWei > 0n && this.budgetSpent()) {
+      throw new RelayRefusal(429, 'gas_drops_exhausted', 'No gas drops left today. Retry without gas, or tomorrow.');
+    }
     return { ...parsed, recipient: data.recipient };
   }
 
-  async relay(body: unknown): Promise<RelayResult> {
+  async relay(body: unknown): Promise<RelayOutcome> {
     const checked = await this.check(body);
     const run = this.queue.then(() => this.submit(checked));
     this.queue = run.catch(() => undefined);
     return run;
   }
 
-  private async submit(checked: Parsed & { recipient: Address }): Promise<RelayResult> {
-    const value = await this.gasDropFor(checked.recipient, checked.gasDrop);
+  private async submit(checked: Parsed & { recipient: Address }): Promise<RelayOutcome> {
     const p = checked.proof;
     let request;
     try {
@@ -218,16 +222,69 @@ export class Relayer {
             pubSignals: p.pubSignals as unknown as readonly [bigint, bigint, bigint, bigint, bigint, bigint, bigint, bigint],
           },
         ],
-        value,
       }));
     } catch (error) {
       const name = revertName(error);
       throw new RelayRefusal(400, 'would_revert', name ? `The pool would refuse this withdrawal: ${name}.` : 'The pool would refuse this withdrawal.');
     }
     const hash = await this.wallet.writeContract(request);
-    if (value > 0n) this.drops.push(this.now());
     const receipt = await this.client.waitForTransactionReceipt({ hash });
     if (receipt.status !== 'success') throw new RelayRefusal(502, 'reverted', `The relay transaction ${hash} reverted.`);
-    return { transactionHash: hash, gasDropWei: value.toString() };
+    const drop = checked.gasDrop ? await this.dropGas(checked, hash, receipt) : null;
+    return {
+      transactionHash: hash,
+      gasDropWei: (drop?.wei ?? 0n).toString(),
+      ...(drop ? { gasDropTransactionHash: drop.hash } : {}),
+    };
+  }
+
+  /**
+   * First gas for the recipient, after its withdrawal landed. Null when nothing was sent: the
+   * receipt does not show the note being spent, the note or the recipient already had gas, the
+   * day's budget is gone, or the recipient is not fresh (code, a nonce, or a balance of its own).
+   * A transfer that cannot be made is logged and costs the withdrawal nothing.
+   */
+  private async dropGas(checked: Parsed & { recipient: Address }, relayHash: Hex, receipt: TransactionReceipt): Promise<{ wei: bigint; hash: Hex } | null> {
+    const c = this.config;
+    if (c.gasDropWei === 0n) return null;
+    const note = withdrawSignals(checked.proof).existingNullifierHash;
+    const { recipient } = checked;
+    if (!this.withdrew(receipt, note)) {
+      this.log(`relay ${relayHash} landed without a Withdrawn event for nullifier ${note}; no gas sent to ${recipient}`);
+      return null;
+    }
+    if (this.drops.hasNote(note) || this.drops.hasRecipient(recipient) || this.budgetSpent()) return null;
+    const [code, balance, nonce] = await Promise.all([
+      this.client.getCode({ address: recipient }),
+      this.client.getBalance({ address: recipient }),
+      this.client.getTransactionCount({ address: recipient }),
+    ]);
+    if ((code !== undefined && code !== '0x') || nonce > 0 || balance >= c.gasDropWei) return null;
+
+    let hash: Hex;
+    try {
+      hash = await this.wallet.sendTransaction({ account: this.wallet.account, chain: this.chain, to: recipient, value: c.gasDropWei });
+    } catch (error) {
+      this.log(`gas drop to ${recipient} after relay ${relayHash} was not sent: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+    this.drops.record({ note, recipient, wei: c.gasDropWei, hash });
+    try {
+      const sent = await this.client.waitForTransactionReceipt({ hash });
+      if (sent.status !== 'success') {
+        this.log(`gas drop ${hash} to ${recipient} reverted`);
+        return null;
+      }
+    } catch (error) {
+      this.log(`gas drop ${hash} to ${recipient} has no receipt yet: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+    return { wei: c.gasDropWei, hash };
+  }
+
+  /** Whether the receipt carries the pool's Withdrawn event for the note the proof spent. */
+  private withdrew(receipt: TransactionReceipt, note: bigint): boolean {
+    const logs = parseEventLogs({ abi: shieldedPoolAbi, eventName: 'Withdrawn', logs: receipt.logs ?? [], strict: true });
+    return logs.some((log) => isAddressEqual(log.address, this.config.pool) && log.args._spentNullifier === note);
   }
 }

@@ -1,15 +1,28 @@
-import { encodeRelayData, withdrawalContext, type WireProof } from '@bursar/sdk';
-import { BaseError, ContractFunctionRevertedError, parseEther, toFunctionSelector, type Address, type Hex } from 'viem';
+import { encodeRelayData, shieldedPoolAbi, withdrawalContext, type WireProof } from '@bursar/sdk';
+import {
+  BaseError,
+  ContractFunctionRevertedError,
+  encodeAbiParameters,
+  encodeEventTopics,
+  parseEther,
+  toFunctionSelector,
+  type Address,
+  type Hex,
+} from 'viem';
 import { describe, expect, it, vi } from 'vitest';
 
-import { handle, Relayer, RelayRefusal, type RelayerConfig } from '../src/index.js';
+import { GAS_DROP_WINDOW_MS, GasDropLedger, handle, Relayer, RelayRefusal, type RelayerConfig } from '../src/index.js';
 
 const RELAY: Address = '0xEb4978Cab69FF3B958f6Fd1B852C1Ae3d4Ba84f2';
 const RELAYER: Address = '0xc8FB46218bA6750EBF8cE7Cc8f7a56D7C7F99630';
 const RECIPIENT: Address = '0x88466ccD4688ddb6413DBBA420Af2B0696892388';
+const OTHER: Address = '0x1111111111111111111111111111111111111111';
 const BLOCKED: Address = '0x000000000000000000000000000000000000dEaD';
 const ASP_ROOT = 777n;
 const NULLIFIER = 555n;
+const RELAY_HASH = `0x${'ab'.repeat(32)}` as Hex;
+const DROP_HASH = `0x${'cd'.repeat(32)}` as Hex;
+const DROP = parseEther('0.00015');
 
 const config: RelayerConfig = {
   chainId: 4663,
@@ -20,12 +33,24 @@ const config: RelayerConfig = {
   scope: 869543705072628544128504902837391379516070938188476514926978342993992889566n,
   feeRecipient: RELAYER,
   feeBps: 50,
-  gasDropWei: parseEther('0.00015'),
-  gasDropsPerHour: 1,
+  gasDropWei: DROP,
+  gasDropsPerDay: 2,
   minWithdrawal: 10_000n,
 };
 
-function request(overrides: { recipient?: Address; feeBps?: bigint; feeRecipient?: Address; amount?: bigint; processooor?: Address; aspRoot?: bigint; context?: bigint; gasDrop?: boolean } = {}) {
+type Overrides = {
+  recipient?: Address;
+  feeBps?: bigint;
+  feeRecipient?: Address;
+  amount?: bigint;
+  processooor?: Address;
+  aspRoot?: bigint;
+  context?: bigint;
+  gasDrop?: boolean;
+  nullifier?: bigint;
+};
+
+function request(overrides: Overrides = {}) {
   const withdrawal = {
     processooor: overrides.processooor ?? RELAY,
     data: encodeRelayData({
@@ -35,12 +60,43 @@ function request(overrides: { recipient?: Address; feeBps?: bigint; feeRecipient
     }),
   };
   const context = overrides.context ?? withdrawalContext(withdrawal, config.scope);
-  const signals = [1n, NULLIFIER, overrides.amount ?? 50_000n, 2n, 1n, overrides.aspRoot ?? ASP_ROOT, 1n, context];
+  const signals = [1n, overrides.nullifier ?? NULLIFIER, overrides.amount ?? 50_000n, 2n, 1n, overrides.aspRoot ?? ASP_ROOT, 1n, context];
   const proof: WireProof = { pA: ['1', '2'], pB: [['3', '4'], ['5', '6']], pC: ['7', '8'], pubSignals: signals.map(String) };
   return { withdrawal, proof, ...(overrides.gasDrop === undefined ? {} : { gasDrop: overrides.gasDrop }) };
 }
 
-function setup(state: { spent?: boolean; blocked?: Address[]; code?: Hex; balance?: bigint; revert?: string } = {}) {
+/** The pool's Withdrawn event for one spent note, as it sits in a receipt. */
+function withdrawn(nullifier: bigint, address: Address = config.pool) {
+  return {
+    address,
+    topics: encodeEventTopics({ abi: shieldedPoolAbi, eventName: 'Withdrawn', args: { _processooor: RELAY } }),
+    data: encodeAbiParameters([{ type: 'uint256' }, { type: 'uint256' }, { type: 'uint256' }], [50_000n, nullifier, 1n]),
+    blockNumber: 1n,
+    blockHash: `0x${'bb'.repeat(32)}` as Hex,
+    transactionHash: RELAY_HASH,
+    transactionIndex: 0,
+    logIndex: 0,
+    removed: false,
+  };
+}
+
+type State = {
+  spent?: boolean;
+  blocked?: Address[];
+  code?: Hex;
+  balance?: bigint;
+  nonce?: number;
+  revert?: string;
+  /** What the relay receipt shows. `event` is the Withdrawn log for the note the request spent. */
+  receipt?: 'event' | 'no-event' | 'other-contract' | 'reverted';
+  dropFails?: boolean;
+  ledger?: GasDropLedger;
+};
+
+function setup(state: State = {}) {
+  let now = 1_000_000;
+  const drops = state.ledger ?? new GasDropLedger(null, () => now);
+  let spentNullifier = 0n;
   const client = {
     readContract: vi.fn(async ({ functionName, args }: { functionName: string; args?: readonly unknown[] }) => {
       if (functionName === 'isBlocked') return (state.blocked ?? []).includes(args![0] as Address);
@@ -48,7 +104,7 @@ function setup(state: { spent?: boolean; blocked?: Address[]; code?: Hex; balanc
       if (functionName === 'latestRoot') return ASP_ROOT;
       throw new Error(functionName);
     }),
-    simulateContract: vi.fn(async (req: { value: bigint }) => {
+    simulateContract: vi.fn(async (req: { args: readonly [unknown, { pubSignals: readonly bigint[] }] }) => {
       if (state.revert) {
         const cause = new ContractFunctionRevertedError({
           abi: [{ type: 'error', name: state.revert, inputs: [] }],
@@ -57,16 +113,31 @@ function setup(state: { spent?: boolean; blocked?: Address[]; code?: Hex; balanc
         });
         throw new BaseError('reverted', { cause });
       }
+      spentNullifier = req.args[1].pubSignals[1]!;
       return { request: req };
     }),
-    waitForTransactionReceipt: vi.fn(async () => ({ status: 'success' })),
+    waitForTransactionReceipt: vi.fn(async ({ hash }: { hash: Hex }) => {
+      if (hash !== RELAY_HASH) return { status: 'success', logs: [] };
+      const shows = state.receipt ?? 'event';
+      if (shows === 'reverted') return { status: 'reverted', logs: [] };
+      if (shows === 'no-event') return { status: 'success', logs: [] };
+      return { status: 'success', logs: [withdrawn(spentNullifier, shows === 'other-contract' ? OTHER : config.pool)] };
+    }),
     getCode: vi.fn(async () => state.code),
     getBalance: vi.fn(async () => state.balance ?? 0n),
+    getTransactionCount: vi.fn(async () => state.nonce ?? 0),
   };
-  const wallet = { account: { address: RELAYER, type: 'local' }, writeContract: vi.fn(async () => `0x${'ab'.repeat(32)}` as Hex) };
-  let now = 1_000_000;
-  const relayer = new Relayer(client as never, wallet as never, {} as never, config, () => now);
-  return { client, wallet, relayer, advance: (ms: number) => (now += ms) };
+  const wallet = {
+    account: { address: RELAYER, type: 'local' },
+    writeContract: vi.fn(async () => RELAY_HASH),
+    sendTransaction: vi.fn(async (_transfer: { to: Address; value: bigint }) => {
+      if (state.dropFails) throw new Error('insufficient funds for gas * price + value');
+      return DROP_HASH;
+    }),
+  };
+  const logged: string[] = [];
+  const relayer = new Relayer(client as never, wallet as never, {} as never, config, drops, (line) => logged.push(line));
+  return { client, wallet, relayer, drops, logged, advance: (ms: number) => (now += ms) };
 }
 
 async function refusal(promise: Promise<unknown>): Promise<RelayRefusal> {
@@ -84,28 +155,13 @@ describe('relayer', () => {
     expect(setup().relayer.quote()).toEqual({ relay: RELAY, feeRecipient: RELAYER, feeBps: 50, gasDropWei: '150000000000000', chainId: 4663 });
   });
 
-  it('relays a valid withdrawal and sends gas to a fresh recipient', async () => {
+  it('relays a valid withdrawal without sending value along with it', async () => {
     const { relayer, client, wallet } = setup();
-    const result = await relayer.relay(request({ gasDrop: true }));
-    expect(result).toEqual({ transactionHash: `0x${'ab'.repeat(32)}`, gasDropWei: '150000000000000' });
-    expect(client.simulateContract.mock.calls[0]![0].value).toBe(parseEther('0.00015'));
+    const result = await relayer.relay(request());
+    expect(result).toEqual({ transactionHash: RELAY_HASH, gasDropWei: '0' });
+    expect(client.simulateContract.mock.calls[0]![0]).not.toHaveProperty('value');
     expect(wallet.writeContract).toHaveBeenCalledTimes(1);
-  });
-
-  it('sends no gas to a contract, a funded address, or when not asked', async () => {
-    for (const state of [{ code: '0x6080' as Hex }, { balance: parseEther('0.001') }, {}]) {
-      const { relayer } = setup(state);
-      const asked = Object.keys(state).length > 0;
-      expect((await relayer.relay(request({ gasDrop: asked }))).gasDropWei).toBe('0');
-    }
-  });
-
-  it('rate-limits gas drops', async () => {
-    const { relayer, advance } = setup();
-    await relayer.relay(request({ gasDrop: true }));
-    expect((await refusal(relayer.relay(request({ gasDrop: true })))).code).toBe('gas_drops_exhausted');
-    advance(3_600_001);
-    expect((await relayer.relay(request({ gasDrop: true }))).gasDropWei).toBe('150000000000000');
+    expect(wallet.sendTransaction).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -139,10 +195,12 @@ describe('relayer', () => {
     expect(r.message).toMatch(/InvalidProof/);
   });
 
-  it('rejects malformed bodies', async () => {
+  it('rejects malformed bodies with fixed wording', async () => {
     const { relayer } = setup();
     expect((await refusal(relayer.relay(null))).code).toBe('bad_request');
-    expect((await refusal(relayer.relay({ withdrawal: { processooor: RELAY, data: '0x' }, proof: { pA: [] } }))).code).toBe('bad_proof');
+    const proof = await refusal(relayer.relay({ withdrawal: { processooor: RELAY, data: '0x' }, proof: { pA: [] } }));
+    expect(proof.code).toBe('bad_proof');
+    expect(proof.message).toBe('The proof is malformed: pA and pC hold two decimal field elements, pB is two by two, and pubSignals is a list.');
     expect((await refusal(relayer.relay({ ...request(), gasDrop: 'yes' }))).code).toBe('bad_request');
   });
 
@@ -152,5 +210,94 @@ describe('relayer', () => {
     expect(await handle(relayer, 'POST', '/v1/relay', async () => request(), health)).toMatchObject({ status: 409, body: { error: 'already_spent' } });
     expect((await handle(relayer, 'GET', '/v1/quote', async () => null, health)).status).toBe(200);
     expect((await handle(relayer, 'GET', '/nope', async () => null, health)).status).toBe(404);
+  });
+});
+
+describe('gas drops', () => {
+  it('sends a fresh recipient gas once its withdrawal has landed, as a second transaction', async () => {
+    const { relayer, client, wallet, drops } = setup();
+    const result = await relayer.relay(request({ gasDrop: true }));
+    expect(result).toEqual({ transactionHash: RELAY_HASH, gasDropWei: DROP.toString(), gasDropTransactionHash: DROP_HASH });
+    expect(client.simulateContract.mock.calls[0]![0]).not.toHaveProperty('value');
+    expect(wallet.sendTransaction).toHaveBeenCalledTimes(1);
+    expect(wallet.sendTransaction.mock.calls[0]![0]).toMatchObject({ to: RECIPIENT, value: DROP });
+    // The relay landed before the gas went out.
+    expect(wallet.writeContract.mock.invocationCallOrder[0]).toBeLessThan(wallet.sendTransaction.mock.invocationCallOrder[0]!);
+    expect(client.waitForTransactionReceipt.mock.invocationCallOrder[0]).toBeLessThan(wallet.sendTransaction.mock.invocationCallOrder[0]!);
+    expect(drops.hasNote(NULLIFIER)).toBe(true);
+    expect(drops.hasRecipient(RECIPIENT)).toBe(true);
+    expect(drops.countToday()).toBe(1);
+  });
+
+  it('sends nothing when the receipt shows no withdrawal of that note', async () => {
+    for (const receipt of ['no-event', 'other-contract'] as const) {
+      const { relayer, wallet, logged } = setup({ receipt });
+      expect((await relayer.relay(request({ gasDrop: true }))).gasDropWei).toBe('0');
+      expect(wallet.sendTransaction).not.toHaveBeenCalled();
+      expect(logged[0]).toMatch(/without a Withdrawn event/);
+    }
+  });
+
+  it('sends nothing when the relay reverted', async () => {
+    const { relayer, wallet } = setup({ receipt: 'reverted' });
+    expect((await refusal(relayer.relay(request({ gasDrop: true })))).code).toBe('reverted');
+    expect(wallet.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('sends no gas to a contract, a funded address, an address that has transacted, or when not asked', async () => {
+    for (const state of [{ code: '0x6080' as Hex }, { balance: DROP }, { nonce: 1 }, {}]) {
+      const { relayer, wallet } = setup(state);
+      const asked = Object.keys(state).length > 0;
+      expect((await relayer.relay(request({ gasDrop: asked }))).gasDropWei).toBe('0');
+      expect(wallet.sendTransaction).not.toHaveBeenCalled();
+    }
+  });
+
+  it('gives one note gas once, however many times its withdrawal is presented', async () => {
+    const { relayer, wallet } = setup();
+    await relayer.relay(request({ gasDrop: true }));
+    // The chain double never marks the nullifier spent, so this is the ledger alone refusing.
+    expect((await relayer.relay(request({ gasDrop: true, recipient: OTHER }))).gasDropWei).toBe('0');
+    expect(wallet.sendTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives one recipient gas once', async () => {
+    const { relayer, wallet } = setup();
+    await relayer.relay(request({ gasDrop: true }));
+    expect((await relayer.relay(request({ gasDrop: true, nullifier: 556n }))).gasDropWei).toBe('0');
+    expect(wallet.sendTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops at the daily budget, then refuses up front, and opens again a day later', async () => {
+    const { relayer, wallet, advance } = setup();
+    await relayer.relay(request({ gasDrop: true }));
+    await relayer.relay(request({ gasDrop: true, nullifier: 556n, recipient: OTHER }));
+    const third = await refusal(relayer.relay(request({ gasDrop: true, nullifier: 557n, recipient: BLOCKED })));
+    expect([third.status, third.code]).toEqual([429, 'gas_drops_exhausted']);
+    expect(wallet.writeContract).toHaveBeenCalledTimes(2);
+    // Without gas the withdrawal still goes through.
+    expect((await relayer.relay(request({ nullifier: 557n, recipient: BLOCKED }))).gasDropWei).toBe('0');
+    advance(GAS_DROP_WINDOW_MS + 1);
+    expect((await relayer.relay(request({ gasDrop: true, nullifier: 558n, recipient: BLOCKED }))).gasDropWei).toBe(DROP.toString());
+  });
+
+  it('keeps the budget when the ledger is shared across restarts', async () => {
+    let now = 1_000_000;
+    const ledger = new GasDropLedger(null, () => now);
+    const first = setup({ ledger });
+    await first.relayer.relay(request({ gasDrop: true }));
+    await first.relayer.relay(request({ gasDrop: true, nullifier: 556n, recipient: OTHER }));
+    const second = setup({ ledger });
+    expect((await refusal(second.relayer.relay(request({ gasDrop: true, nullifier: 557n, recipient: BLOCKED })))).code).toBe('gas_drops_exhausted');
+    now += GAS_DROP_WINDOW_MS + 1;
+    expect((await second.relayer.relay(request({ gasDrop: true, nullifier: 557n, recipient: BLOCKED }))).gasDropWei).toBe(DROP.toString());
+  });
+
+  it('reports a transfer that could not be made as no gas, and keeps the withdrawal', async () => {
+    const { relayer, logged, drops } = setup({ dropFails: true });
+    const result = await relayer.relay(request({ gasDrop: true }));
+    expect(result).toEqual({ transactionHash: RELAY_HASH, gasDropWei: '0' });
+    expect(logged[0]).toMatch(/was not sent/);
+    expect(drops.countToday()).toBe(0);
   });
 });
