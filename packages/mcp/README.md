@@ -337,7 +337,7 @@ POST {BURSAR_RELAY_URL}/v1/spends
   "merchantProof":  [],
   "approval":       null,
   "spendClass":     0,
-  "contractSet":    "v3"
+  "contractSet":    "v4"
 }
 → 200 { "escrowId": "42", "txHash": "0x…" }
 ```

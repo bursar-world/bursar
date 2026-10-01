@@ -62,7 +62,7 @@ import { connect } from '@bursar/sdk';
 
 const connection = connect();
 
-connection.addresses.escrow;           // 0x68D4aD683b5519C785Dde9F0ee0eE09dB2D40919
+connection.addresses.escrow;           // 0x11e73B5632837355e250fC236cFC2Be03aD0845A
 connection.addresses.settlementAsset;  // 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168
 ```
 
@@ -854,7 +854,8 @@ without bonding again.
   signature that recovers to nobody, so this package refuses to sign until the domain matches.
 - Fees are ETH and payments settle in USDG. A signer can hold every USDG it needs and still be
   unable to send a transaction, and the gas errors say which balance to top up.
-- The contracts are unaudited. Size mandates accordingly.
+- The caps on mainnet are deliberately low, and [SECURITY.md](../../SECURITY.md) has the review
+  status and the trust assumptions behind them. Size mandates accordingly.
 
 ## License
 
