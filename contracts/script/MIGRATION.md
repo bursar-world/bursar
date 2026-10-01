@@ -89,6 +89,11 @@ simulate() { local script="$1" key="$2"; shift 2; forge script "$script" --rpc-u
 send() { simulate "$@" --broadcast --slow; }
 # Reads the chain against the record. Needs no key.
 verify() { forge script "$@" --rpc-url "$RHC_RPC_URL"; }
+# One value from either record, and one from the chain, for the readbacks after each step.
+previous() { jq -r "$1" "$BURSAR_PREVIOUS_RECORD"; }
+next() { jq -r "$1" "$BURSAR_RECORD"; }
+readback() { cast call --rpc-url "$RHC_RPC_URL" "$@"; }
+usdg="$(next .settlementAsset)"
 ```
 
 `RHC_RPC_URL` is Robinhood Chain's public endpoint unless the shell already names another.
@@ -220,7 +225,7 @@ send script/MigrateExamples.s.sol payer --sig "drain()"
 # to the payee for its new stake.
 send script/MigrateCredit.s.sol rh-deployer
 send script/MigrateCredit.s.sol rh-deployer --sig "fund(uint256)" 20000000
-cast send "$(jq -r .settlementAsset "$BURSAR_RECORD")" "transfer(address,uint256)" "$BURSAR_EXAMPLE_PAYEE" 5000000 \
+cast send "$usdg" "transfer(address,uint256)" "$BURSAR_EXAMPLE_PAYEE" 5000000 \
   --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/rh-deployer"
 send script/MigratePayee.s.sol payee
 
@@ -242,11 +247,6 @@ send script/MigrateExamples.s.sol payer --sig "create()"
 Then read each move back. The comment on each line says what it has to print.
 
 ```sh
-readback() { cast call --rpc-url "$RHC_RPC_URL" "$@"; }
-previous() { jq -r "$1" "$BURSAR_PREVIOUS_RECORD"; }
-next() { jq -r "$1" "$BURSAR_RECORD"; }
-usdg="$(next .settlementAsset)"
-
 readback "$(previous .contracts.Escrow)" "feesAccrued()(uint128)"                                     # 0
 readback "$usdg" "balanceOf(address)(uint256)" "$(previous .exampleMandate.address)"                  # 0
 readback "$usdg" "balanceOf(address)(uint256)" "$(previous .exampleCommittedMandate.address)"         # 0
