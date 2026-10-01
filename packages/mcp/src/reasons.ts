@@ -756,8 +756,9 @@ const COLLATERAL_REFUSALS: Readonly<Record<string, Omit<Refusal, 'code'>>> = {
     message:
       'This would leave the collateral health under the vault’s minimum of 1.25. A draw or a withdrawal is ' +
       'checked with every position at its after-hours haircut, whatever the time, and a position counts ' +
-      'for nothing while its price is stale, its token, its oracle or the access registry is paused, or its ' +
-      'trading pool is out of line with its reference price. Post more collateral, repay some debt, or spend less.',
+      'for nothing while its price is stale, its token, its oracle or the access registry is paused, its ' +
+      'trading pool is out of line with its reference price, or the price guard holds no recent reading of ' +
+      'its pool in which the two agreed. Post more collateral, repay some debt, or spend less.',
   },
   NotCollateralLane: {
     subject: 'mandate',

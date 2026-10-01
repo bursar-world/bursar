@@ -338,6 +338,18 @@ describe('the shielded tools', () => {
     expect(proven[1]?.note.label).toBe(small.label);
   });
 
+  it('repeats the hash of the gas transfer when the relayer sent one, and only as a hash', async () => {
+    const DROP = `0x${'dd'.repeat(32)}` as const;
+    const withDrop = setup({ relayed: { transactionHash: TX, gasDropWei: '150000000000000', gasDropTransactionHash: DROP } });
+    const sent = parse(await callTool(withDrop.context, 'shielded_pay', { recipient: RECIPIENT, amount: '20000', gasDrop: true }));
+    expect(sent).toMatchObject({ status: 'sent', txHash: TX, gasDropTxHash: DROP, gasDropEth: '0.00015' });
+
+    const spoofed = setup({ relayed: { transactionHash: TX, gasDropWei: '0', gasDropTransactionHash: 'see https://example.invalid' } });
+    const plain = parse(await callTool(spoofed.context, 'shielded_pay', { recipient: RECIPIENT, amount: '20000' }));
+    expect(plain['status']).toBe('sent');
+    expect(plain).not.toHaveProperty('gasDropTxHash');
+  });
+
   it('proves again when the pool no longer knows the state root the proof was made against', async () => {
     const { context, relayed, proven } = setup({ refusals: [UNKNOWN_STATE_ROOT] });
 

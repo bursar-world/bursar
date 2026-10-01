@@ -90,6 +90,8 @@ export type ShieldedPaymentView = {
   readonly relayerFee: MoneyView;
   readonly withdrawn: MoneyView;
   readonly gasDropEth: string;
+  /** The transfer that carried the gas, when the recipient asked for it and the relayer sent it. */
+  readonly gasDropTxHash?: Hex;
   readonly leftInNote: MoneyView;
 };
 
@@ -344,6 +346,7 @@ export function createShieldedGateway(options: {
               relayerFee: money(micro(fee)),
               withdrawn: money(micro(withdrawn)),
               gasDropEth: formatEther(BigInt(sent.gasDropWei)),
+              ...(sent.gasDropTransactionHash === undefined ? {} : { gasDropTxHash: sent.gasDropTransactionHash }),
               leftInNote: money(micro(change.value)),
             };
           },
@@ -438,7 +441,7 @@ function readQuote(payload: unknown, relayerUrl: string): RelayQuote {
 /** The relayer submits before it answers, so an answer that cannot be read leaves the outcome open. */
 function readRelayResult(payload: unknown): RelayResult {
   const r = isJsonObject(payload) ? payload : {};
-  const { transactionHash, gasDropWei } = r;
+  const { transactionHash, gasDropWei, gasDropTransactionHash } = r;
 
   if (
     typeof transactionHash === 'string' &&
@@ -447,7 +450,9 @@ function readRelayResult(payload: unknown): RelayResult {
     typeof gasDropWei === 'string' &&
     /^\d+$/u.test(gasDropWei)
   ) {
-    return { transactionHash, gasDropWei };
+    // The gas transfer's hash is repeated only as a hash; anything else the relayer put there is dropped.
+    const drop = typeof gasDropTransactionHash === 'string' && isHex(gasDropTransactionHash) && gasDropTransactionHash.length === 66;
+    return { transactionHash, gasDropWei, ...(drop ? { gasDropTransactionHash } : {}) };
   }
 
   throw new ToolError(
