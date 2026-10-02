@@ -96,6 +96,10 @@
       "type": "object",
       "properties": {
         "AdminTimelock": { "$ref": "#/$defs/address" },
+        "escrowPauser": {
+          "description": "Present once governance has moved to a later timelock. The escrow names its pauser once, through a one-shot setter the deploy key spent on the first timelock, so that timelock keeps the escrow's brake: pause and unpause, and nothing else. Every other contract answers to AdminTimelock.",
+          "$ref": "#/$defs/address"
+        },
         "Reputation": { "$ref": "#/$defs/address" },
         "Escrow": { "$ref": "#/$defs/address" },
         "OracleRegistry": { "$ref": "#/$defs/address" },
@@ -241,6 +245,24 @@
           },
           { "type": ["string", "number"] }
         ]
+      }
+    },
+    "governance48": {
+      "description": "The 48-hour timelock that replaces the one the set was deployed with, written by HandoverGovernance.s.sol: deployed and recorded here first, handed everything the previous timelock administered, and named in contracts.AdminTimelock by the last step. previous is the timelock it replaced, which keeps the escrow's brake.",
+      "type": "object",
+      "required": ["AdminTimelock", "signers", "guardian", "timelockPeriod", "previous", "fromBlock"],
+      "properties": {
+        "AdminTimelock": { "$ref": "#/$defs/address" },
+        "signers": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/address" },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "guardian": { "$ref": "#/$defs/address" },
+        "timelockPeriod": { "type": "integer", "minimum": 3600 },
+        "previous": { "$ref": "#/$defs/address" },
+        "fromBlock": { "$ref": "#/$defs/block" }
       }
     },
     "verifiedOnChain": {

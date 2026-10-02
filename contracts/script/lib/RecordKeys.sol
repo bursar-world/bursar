@@ -38,6 +38,9 @@ library RecordKeys {
     string internal constant RESOLVERS = ".roles.resolvers";
 
     string internal constant ADMIN_TIMELOCK = ".contracts.AdminTimelock";
+    /// The escrow's pauser, when it is not the timelock: the one-shot setter named the first
+    /// governance, and a later one administers everything else.
+    string internal constant ESCROW_PAUSER = ".contracts.escrowPauser";
     string internal constant REPUTATION = ".contracts.Reputation";
     string internal constant ESCROW = ".contracts.Escrow";
     string internal constant ORACLE_REGISTRY = ".contracts.OracleRegistry";
@@ -95,6 +98,16 @@ library RecordKeys {
     string internal constant ASP_POSTMAN = ".privacy.shielded.aspPostman";
     string internal constant SHIELDED_RELAYER = ".privacy.shielded.relayer";
     string internal constant SHIELDED_FROM_BLOCK = ".privacy.shielded.fromBlock";
+
+    /// The 48-hour governance that replaces the first timelock: deployed first, handed everything,
+    /// then written into `contracts.AdminTimelock` by the last step. `previous` is the timelock it
+    /// replaced, which keeps the escrow's brake.
+    string internal constant GOVERNANCE48_TIMELOCK = ".governance48.AdminTimelock";
+    string internal constant GOVERNANCE48_SIGNERS = ".governance48.signers";
+    string internal constant GOVERNANCE48_GUARDIAN = ".governance48.guardian";
+    string internal constant GOVERNANCE48_PERIOD = ".governance48.timelockPeriod";
+    string internal constant GOVERNANCE48_PREVIOUS = ".governance48.previous";
+    string internal constant GOVERNANCE48_FROM_BLOCK = ".governance48.fromBlock";
 
     /// What each contract was deployed with, as applied. The verify scripts read these back.
     string internal constant PARAMETERS = ".parameters";

@@ -181,6 +181,8 @@ contract RecordTest is ScriptHarness {
         probe.writeUint(K.SHIELDED_DEPOSITOR_WINDOW, 7 days);
         probe.writeAmount(".parameters.Reputation.fullCredit", 250e6);
         probe.writeUint(".parameters.PriceGuard.maxFeedJumpBps", 1500);
+        probe.writeAddress(K.ESCROW_PAUSER, makeAddr("firstTimelock"));
+        probe.writeUint(K.GOVERNANCE48_PERIOD, 48 hours);
 
         // Sections that did not exist are created, and what the record held stays.
         assertEq(probe.recordAddress(K.CREDIT_POOL), pool);
@@ -197,6 +199,8 @@ contract RecordTest is ScriptHarness {
         assertEq(probe.recordUint(K.SHIELDED_DEPOSITOR_WINDOW), 7 days);
         assertEq(probe.recordUint(".parameters.Reputation.fullCredit"), 250e6);
         assertEq(probe.recordUint(".parameters.PriceGuard.maxFeedJumpBps"), 1500);
+        assertEq(probe.recordAddress(K.ESCROW_PAUSER), makeAddr("firstTimelock"));
+        assertEq(probe.recordUint(K.GOVERNANCE48_PERIOD), 48 hours);
         assertEq(probe.recordString(".network"), "record");
         assertEq(probe.settlementAsset(), USDG);
 
@@ -490,13 +494,26 @@ contract RecordTest is ScriptHarness {
         assertEq(resolvers[2], 0x7062A480732EC7B0F00a3D0c968356e1671dd356);
         assertEq(vm.parseJsonAddressArray(v3, K.SIGNERS).length, 3);
 
-        // The fourth set is live on top of the third: same governance, token set, roles and outside
-        // contracts, everything else deployed by its own scripts.
+        // The fourth set is live on top of the third: same token set, roles and outside contracts,
+        // everything else deployed by its own scripts. Its governance is the third set's one-hour
+        // timelock until the 48-hour one takes over; from then on the first timelock keeps only the
+        // escrow's brake, and the record says which.
         assertEq(vm.parseJsonString(v4, K.STATUS), "live");
         assertEq(vm.parseJsonString(v4, K.SUPERSEDES), "rhc-mainnet-v3");
         assertEq(vm.parseJsonAddress(v4, K.DEPLOYER), vm.parseJsonAddress(v3, K.DEPLOYER));
-        assertEq(vm.parseJsonKeys(v4, ".contracts").length, 6);
-        assertEq(vm.parseJsonAddress(v4, K.ADMIN_TIMELOCK), vm.parseJsonAddress(v3, K.ADMIN_TIMELOCK));
+        if (vm.keyExistsJson(v4, K.ESCROW_PAUSER)) {
+            assertEq(vm.parseJsonKeys(v4, ".contracts").length, 7);
+            assertEq(vm.parseJsonAddress(v4, K.ESCROW_PAUSER), vm.parseJsonAddress(v3, K.ADMIN_TIMELOCK));
+            assertEq(vm.parseJsonAddress(v4, K.ESCROW_PAUSER), vm.parseJsonAddress(v4, K.GOVERNANCE48_PREVIOUS));
+            assertEq(vm.parseJsonAddress(v4, K.ADMIN_TIMELOCK), vm.parseJsonAddress(v4, K.GOVERNANCE48_TIMELOCK));
+            assertEq(vm.parseJsonAddressArray(v4, K.SIGNERS), vm.parseJsonAddressArray(v4, K.GOVERNANCE48_SIGNERS));
+            assertEq(vm.parseJsonUint(v4, ".parameters.AdminTimelock.timelockPeriod"), 48 hours);
+            assertFalse(vm.parseJsonBool(v4, ".dev"));
+        } else {
+            assertEq(vm.parseJsonKeys(v4, ".contracts").length, 6);
+            assertEq(vm.parseJsonAddress(v4, K.ADMIN_TIMELOCK), vm.parseJsonAddress(v3, K.ADMIN_TIMELOCK));
+            assertEq(vm.parseJson(v4, ".roles"), vm.parseJson(v3, ".roles"));
+        }
         string[6] memory carried = [K.BRSR, K.VESTING, K.STAKING, K.BUYBACK, K.SEEDER, K.KEEPER];
         for (uint256 i; i < carried.length; ++i) {
             assertEq(vm.parseJson(v4, carried[i]), vm.parseJson(v3, carried[i]), carried[i]);
@@ -507,7 +524,6 @@ contract RecordTest is ScriptHarness {
         assertEq(vm.parseJsonUint(v4, K.TOKEN_FROM_BLOCK), 76_462_774);
         assertLt(vm.parseJsonUint(v3, K.TOKEN_FROM_BLOCK), vm.parseJsonUint(v4, K.TOKEN_FROM_BLOCK));
         assertEq(vm.parseJson(v4, ".external"), vm.parseJson(v3, ".external"));
-        assertEq(vm.parseJson(v4, ".roles"), vm.parseJson(v3, ".roles"));
         assertTrue(vm.keyExistsJson(v4, K.ESCROW));
         assertTrue(vm.keyExistsJson(v4, K.CREDIT_POOL));
         assertTrue(vm.keyExistsJson(v4, K.SHIELDED_POOL));

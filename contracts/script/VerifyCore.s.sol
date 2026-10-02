@@ -97,7 +97,11 @@ abstract contract CoreChecks is Verifier {
         _isAt("Escrow.reputation", _recordAddress(K.REPUTATION), escrow, _sig(e.reputation.selector));
         _isAt("Escrow.resolver", _recordAddress(K.ORACLE_REGISTRY), escrow, _sig(e.resolver.selector));
         _isAt("Escrow.registry", _recordAddress(K.AGENT_REGISTRY), escrow, _sig(e.registry.selector));
-        _isAt("Escrow.pauser", _recordAddress(K.ADMIN_TIMELOCK), escrow, _sig(e.pauser.selector));
+        // The pauser was named once, by the deploy key. A governance that replaced the timelock
+        // afterwards leaves it with the first one, which the record then names as the pauser.
+        address pauser = _recordAddress(K.ESCROW_PAUSER);
+        if (pauser == address(0)) pauser = _recordAddress(K.ADMIN_TIMELOCK);
+        _isAt("Escrow.pauser", pauser, escrow, _sig(e.pauser.selector));
         _isAt("Escrow.treasury", _recordAddress(K.TREASURY), escrow, _sig(e.treasury.selector));
         _isAt("Escrow.pendingTreasury", address(0), escrow, _sig(e.pendingTreasury.selector));
         _isAt("Escrow.deployer", deployer, escrow, _sig(e.deployer.selector));
