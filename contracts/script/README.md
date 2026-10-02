@@ -10,6 +10,7 @@ the chain the same questions afterwards. You do not need to have read the contra
 | This page | How a deployment is described, the scripts in order, every parameter, the checks, and what each refusal means. |
 | [`TOKEN-README.md`](TOKEN-README.md) | BRSR, vesting, staking, the buyback and the BRSR/USDG market. |
 | [`MIGRATION.md`](MIGRATION.md) | Moving from the third contract set on Robinhood Chain to the fourth, step by step. |
+| [`GOVERNANCE-48H.md`](GOVERNANCE-48H.md) | Moving the fourth set from its one-hour timelock to a 48-hour one with hardware signers. |
 
 Amounts in USDG are micro-USD: USDG has six decimals, so `1000000` is one dollar. BRSR has
 eighteen, so `1e18` is one token. Durations are seconds and rates are basis points.
@@ -90,7 +91,10 @@ record's settlement asset is the one the system will settle in. It spends none.
 
 **Governance.** Three timelock signers and a guardian. The deploy key may not be a signer, the
 guardian may not be one either, and at least one signer has to be a contract unless the run
-acknowledges a signer set of three plain keys (section 5).
+acknowledges a signer set of three plain keys (section 5). A deployment that later moves to a
+second timelock records it under `governance48` while the two hand over, and names the first one
+as `contracts.escrowPauser` afterwards: the escrow's pauser is a one-shot the deploy key spent on
+the first timelock, which keeps the escrow's brake and nothing else.
 
 ## 3. The scripts, in order
 
@@ -105,6 +109,8 @@ acknowledges a signer set of three plain keys (section 5).
 | `DeployPrivacy.s.sol` | `WithinMandateVerifier`, `CommittedMandateFactory`, `DisclosureRegistry`, `SolvencyLog` | `VerifyPrivacy.s.sol` |
 | `DeployShielded.s.sol` | the Privacy Pools verifiers and `Entrypoint`, `ShieldedPool` and `ShieldedRelay` | `VerifyShielded.s.sol` |
 | `ProposeWiring.s.sol` | nothing: puts governance's wiring to the signers | `VerifyWiring.s.sol` |
+| `HandoverGovernance.s.sol` | a 48-hour `AdminTimelock`, then the old timelock's batch handing it everything, then the record, once the chain says the handover is whole | `VerifyCore.s.sol` |
+| `AcceptGovernance.s.sol` | nothing: the new timelock's acceptances, as a script for a rehearsal; on the chain its hardware signers send the lines `HandoverGovernance.s.sol handover()` prints | `Verify.s.sol` |
 
 `Verify.s.sol` runs every check in one pass, and `check-live.sh` runs it over the live record
 and writes a report. The `Migrate*.s.sol` scripts and `RetireRecords.s.sol` move the previous
@@ -316,6 +322,8 @@ that runs before anything is broadcast.
 | `AssetPaused`, `AddressFrozen`, `SettlementBalanceTooLow` | USDG is paused, has frozen an address the deployment pays, or the deploy key holds under 1 USDG. |
 | `FeeSplitTooLarge`, `DisputeBondTooLarge`, `BaseCapZero` | The escrow's figures leave nothing to pay a payee, cannot be posted, or cap every new payee at zero. |
 | `DeployerIsTimelockSigner`, `RoleCollision` | One address holds two roles that have to be apart. |
+| `SignerCountMismatch`, `DuplicateSigner` | `BURSAR_SIGNERS_48H` does not name exactly three distinct keys. |
+| `NotHandedOver`, `StillHeld` | The record cannot follow the governance handover yet: a contract still answers to the old timelock, the old timelock still holds the Entrypoint's owner role, or it still holds BRSR. The error names which. |
 | `GovernanceHasNoMultisig`, `EoaGovernanceNotAcknowledged` | No signer is a contract and the phrase is missing or wrong. |
 | `NotBrsr`, `OracleRegistryNotReady` | The recorded token is not BRSR, or the resolver registry was deployed by another key, is already wired to another pool, or settles in another asset. |
 | `PreviousRecordMismatch` | `BURSAR_PREVIOUS_RECORD` names a record other than the one this record supersedes. |
@@ -363,7 +371,9 @@ run's own under `cache/bursar`, and go when it exits, with the chain they descri
 
 `rehearse-mainnet.sh` forks mainnet and runs the move in [`MIGRATION.md`](MIGRATION.md), step by
 step, as each real key, on top of the live set. It ends with the previous record retired, the new
-one live, and the gas each key used.
+one live, and the gas each key used. `rehearse-governance.sh` does the same for
+[`GOVERNANCE-48H.md`](GOVERNANCE-48H.md), with three placeholder addresses standing in for the
+hardware keys.
 
 ### By hand on anvil
 
