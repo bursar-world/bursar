@@ -91,8 +91,8 @@ script/local/rehearse-governance.sh
 
 It forks mainnet as it stands and runs the steps below in order, with the same scripts and
 arguments. The deploy key and the old signers sign as themselves through the fork's impersonation,
-and three placeholder addresses stand in for the hardware keys, whose side runs as the script
-`AcceptGovernance.s.sol` instead of the `cast` lines; the delays are skipped on the fork's clock.
+and three placeholder addresses stand in for the hardware keys, whose side the script
+`AcceptGovernance.s.sol` runs for them; the delays are skipped on the fork's clock.
 It writes a copy of the record under `cache/bursar/governance`, and builds and logs its
 transactions there too, never in `out/`, `broadcast/` or `cache/`, where the real run keeps the
 logs `--resume` reads. It ends by printing the gas each key used and one line saying it passed.
