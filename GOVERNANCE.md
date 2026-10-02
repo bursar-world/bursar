@@ -32,10 +32,10 @@ add a fourth timelock:
   together with the `Staking` pool and `Buyback` they share, and is the pauser of both escrows.
 - `AdminTimelock` v2 at `0x135eF562ac57845AeA1Bb650fc0E74D67A4a866B` administers the same three
   contracts of the second set and is the v2 escrow's pauser.
-- `AdminTimelock` v1 at `0x5a32Eab02454f97a39857E85b536F83EE0f844Bf` administers the v1 set, the
-  earlier `Staking` pool and `Buyback` that the v1 and v2 registries read, and `Vesting`, which
-  every set shares. It also holds the community allocation of BRSR. `Vesting` and that allocation
-  pass to the current timelock through a proposal on the v1 timelock, with its 48-hour delay.
+- `AdminTimelock` v1 at `0x5a32Eab02454f97a39857E85b536F83EE0f844Bf` administers the v1 set and the
+  earlier `Staking` pool and `Buyback` that the v1 and v2 registries read. `Vesting`, which every
+  set shares, and the community allocation of BRSR moved from it to the current timelock on
+  2 October 2026, through proposals that waited out its 48-hour delay.
 
 All three have the same signers and the same guardian. What that means in practice:
 
@@ -133,7 +133,7 @@ one-hour delay. On Bursar's own contracts the admin role moves in two steps (`tr
 | `CollateralVault` (`rwa.collateral.CollateralVault`) | `setParams` (minimum borrow health, liquidation target, bounty at most 10%), `setTier`, `setAssetTier`, `transferAdmin`. | Take or sell collateral outside a liquidation anyone can trigger below health 1.0. |
 | `SolvencyLog` (`privacy.SolvencyLog`) | `setPoster`, `transferAdmin`. | Rewrite or remove a posted epoch. |
 | `Entrypoint` (`privacy.shielded.Entrypoint`), as `OWNER_ROLE` | Upgrade the UUPS proxy's implementation, `registerPool`, `removePool`, `updatePoolConfiguration` (minimum deposit, vetting fee, maximum relay fee), `windDownPool` (irreversible; stops deposits, never withdrawals), `withdrawFees` (the vetting fees the Entrypoint holds), grant and revoke `OWNER_ROLE` and `ASP_POSTMAN`. | Change the pool's own caps (immutable in `ShieldedPool`), spend a note, or stop a depositor's ragequit, which never reads the Entrypoint. An upgrade waits out the same one-hour delay as any proposal. |
-| `Vesting` (`token.Vesting`) | `revoke` (stops a grant's clock; what has vested stays claimable, the rest returns to the treasury), `sweep` (tokens above live grants), `transferAdmin`. | Shorten the schedule, move a grant, or take vested tokens. Today the admin is the first set's timelock at `0x5a32Eab02454f97a39857E85b536F83EE0f844Bf` (48-hour delay); its handover to the current timelock is a pending proposal there. |
+| `Vesting` (`token.Vesting`) | `revoke` (stops a grant's clock; what has vested stays claimable, the rest returns to the treasury), `sweep` (tokens above live grants), `transferAdmin`. | Shorten the schedule, move a grant, or take vested tokens. The admin is the current timelock, since 2 October 2026. |
 | `Escrow` (`contracts.Escrow`), as pauser | `pause`, `unpause`. | Anything else: fees, deadline bounds and dispute windows are immutable, and the fee recipient moves only on the current recipient's own two-step call. |
 | `AdminTimelock` itself | `updateSigner` (one seat at a time), `setGuardian`. | Change its delay, which is immutable. |
 
