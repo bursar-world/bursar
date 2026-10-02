@@ -186,6 +186,10 @@ process.exit(alerts.length === 0 ? 0 : 1);
 async function checkTimelocks() {
   const live = record.contracts.AdminTimelock;
   await checkTimelock(live, 'timelock');
+  // A 48-hour timelock deployed to take over is governance from the moment the old one offers it
+  // anything, so its proposals count from the start.
+  const next = record.governance48?.AdminTimelock;
+  if (next && !same(next, live)) await checkTimelock(next, `48-hour timelock ${short(next)}`);
   // Vesting and the community allocation answer to the first set's timelock until the handover
   // lands, so a proposal there is part of this deployment's governance too.
   const vestingAdmin = await client.readContract({ address: record.token.Vesting, abi: vestingAbi, functionName: 'admin' });
@@ -312,6 +316,15 @@ async function checkBalances() {
     await balance(`signer ${i + 1}`, signer, GOVERNANCE_KEY_MIN_ETH, GOVERNANCE_KEY_MIN_ETH / 2);
   }
   await balance('guardian', record.roles.guardian, GOVERNANCE_KEY_MIN_ETH, GOVERNANCE_KEY_MIN_ETH / 2);
+  const incoming = record.governance48;
+  if (incoming && !same(incoming.AdminTimelock, record.contracts.AdminTimelock)) {
+    for (const [i, signer] of incoming.signers.entries()) {
+      await balance(`48-hour signer ${i + 1}`, signer, GOVERNANCE_KEY_MIN_ETH, GOVERNANCE_KEY_MIN_ETH / 2);
+    }
+    if (!same(incoming.guardian, record.roles.guardian)) {
+      await balance('48-hour guardian', incoming.guardian, GOVERNANCE_KEY_MIN_ETH, GOVERNANCE_KEY_MIN_ETH / 2);
+    }
+  }
 }
 
 async function balance(label, address, warnBelowEth, alertBelowEth) {
@@ -566,6 +579,8 @@ function contractNames(r) {
     if (typeof address === 'string' && /^0x[0-9a-fA-F]{40}$/.test(address) && !map.has(address.toLowerCase())) map.set(address.toLowerCase(), name);
   };
   for (const [name, address] of Object.entries(r.contracts ?? {})) add(name, address);
+  if (r.governance48?.AdminTimelock) add('AdminTimelock48', r.governance48.AdminTimelock);
+  if (r.governance48?.previous) add('previous AdminTimelock', r.governance48.previous);
   for (const [name, address] of Object.entries(r.token ?? {})) add(name, address);
   for (const [name, address] of Object.entries(r.rwa ?? {})) add(name, address);
   for (const [name, address] of Object.entries(r.rwa?.collateral ?? {})) add(name, address);
