@@ -175,7 +175,7 @@ reach another party's funds.
 | Escrow fee recipient | `roles.treasury`: `0x7f2D3be9597fb538BDBA3Dbcb9BEcECCD9056d21` | Receive swept fees (anyone can sweep), and name its successor in two steps (`transferTreasury`, `acceptTreasury`). Also the treasury `Staking`, `Buyback` and `Vesting` send to. | Change a fee or reach a lock. The timelock cannot move this role. |
 | Slash sink | `roles.slashSink`: `0xb4A7D77a710f6b1fF4cDDd9D3c9b66E3f917A4FF` | Receive slashed bonds and stakes and orphaned resolver rewards. | Anything else; it receives and holds no power. |
 | Liquidity key | `roles.liquidity`: `0x0DF776dBD1Ce5A8F38993Bc98bc3D81661FA51B2` | Holds what is left of the 5% liquidity allocation of BRSR and owned the first seeder, now empty. | Take liquidity out of the current seeder, which the timelock owns. |
-| Community allocation holder | The first set's timelock at `0x5a32Eab02454f97a39857E85b536F83EE0f844Bf`, until its pending proposal transfers the 800,000,000 BRSR to the current timelock. | Release community BRSR by two-of-three proposal, 48 hours after it is made. | Mint: the supply is fixed. |
+| Community allocation holder | The current timelock, which holds the 800,000,000 BRSR since 2 October 2026. | Release community BRSR by two-of-three proposal, 48 hours after it is made. | Mint: the supply is fixed. |
 
 ### No privileged party
 
