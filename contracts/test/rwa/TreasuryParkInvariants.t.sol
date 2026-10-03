@@ -686,7 +686,7 @@ contract TreasuryParkInvariantTest is Test {
         });
         registry = new AssetRegistry(admin, address(usdg), assets, configs);
         guard = new PriceGuard(
-            registry, IAccessRegistry(address(access)), IStateView(address(manager)), 5 minutes, 1 hours, 1_500
+            registry, IAccessRegistry(address(access)), IStateView(address(manager)), 5 minutes, 1 hours, 1_500, admin
         );
 
         factory = new MandateAccountFactory(address(escrow), address(usdg));

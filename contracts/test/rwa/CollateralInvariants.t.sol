@@ -56,11 +56,19 @@ contract CollateralHandler is CommonBase, StdUtils {
     mapping(address asset => uint256) public claimed;
     uint256 public writeOffs;
     uint256 public draws;
-    /// A write-off that left the line collateral or debt.
+    /// A write-off that left the line any debt. Collateral may remain: the equity a write-off
+    /// returns above the debt is the borrower's, withdrawable against a line that now owes nothing.
     uint256 public writeOffBreaks;
     /// A draw that landed with no position counted by the draw rule, or a position the rule
     /// counted without a valid aged sample behind it.
     uint256 public drawBreaks;
+    /// A non-keeper that managed to plant a reading.
+    uint256 public keeperGateBreaks;
+    /// A sale that completed while the guard reported a halt on the asset.
+    uint256 public saleBreaks;
+    /// A write-off that seized more than the debt was worth at the feed, every seized feed
+    /// readable.
+    uint256 public seizeBreaks;
 
     constructor(
         CollateralVault vault_,
@@ -239,25 +247,74 @@ contract CollateralHandler is CommonBase, StdUtils {
         vault.setAssetTier(address(token), drop ? 0 : tiers[which % tokens.length]);
     }
 
-    /// A write-off is recognised by the pool's bad debt growing. It has to leave the line with
-    /// no collateral and no debt, and everything it took has to show up in the seized pots.
+    /// A write-off is recognised by the pool's bad debt growing. It has to leave the line with no
+    /// debt, no more collateral than the debt was worth at the feed, and everything it took in the
+    /// seized pots. A sale, recognised by collateral moving for proceeds, has to have found the
+    /// guard in its OK state.
     function liquidate(uint256 who, uint256 which) external {
         address line = address(_line(who));
+        address asset = address(_token(which));
         uint256 bad = pool.badDebt();
+        PriceGuard.DrawHalt halt = vault.drawHalt(asset);
         uint256[] memory before = new uint256[](tokens.length);
         for (uint256 i; i < tokens.length; ++i) {
             before[i] = vault.seized(address(tokens[i]));
         }
-        try vault.liquidate(line, address(_token(which))) {} catch {}
+        uint256 sold;
+        try vault.liquidate(line, asset) returns (uint256 raw) {
+            sold = raw;
+        } catch {}
         for (uint256 i; i < tokens.length; ++i) {
             seizedEver[address(tokens[i])] += vault.seized(address(tokens[i])) - before[i];
         }
+        if (sold > 0 && halt != PriceGuard.DrawHalt.None) ++saleBreaks;
         if (pool.badDebt() == bad) return;
         ++writeOffs;
         if (pool.debtOf(line) != 0) ++writeOffBreaks;
+        _checkSeize(pool.badDebt() - bad, before);
+    }
+
+    /// A write-off values each seized position at the feed, as `health` does, and takes no more
+    /// than the written-off debt while every seized position has a feed to price it. Every tier
+    /// here shares the registry's valuation bound, so the registry's stands in for the tier's.
+    function _checkSeize(uint256 writtenOff, uint256[] memory before) internal {
+        uint256 seizedFeedValue;
+        bool allReadable = true;
         for (uint256 i; i < tokens.length; ++i) {
-            if (vault.collateralOf(line, address(tokens[i])) != 0) ++writeOffBreaks;
+            address token = address(tokens[i]);
+            uint256 took = vault.seized(token) - before[i];
+            // slither-disable-next-line incorrect-equality
+            if (took == 0) continue;
+            (uint256 priceE8, uint256 updatedAt, bool unpaused,) = guard.valuation(token);
+            AssetRegistry.Asset memory a = registry.get(token);
+            bool counted = priceE8 != 0 && block.timestamp - updatedAt <= a.valuationStaleness && unpaused;
+            if (!counted) {
+                allReadable = false;
+                continue;
+            }
+            seizedFeedValue += Math.mulDiv(took, priceE8, 10 ** (uint256(a.decimals) + 2));
         }
+        if (allReadable && seizedFeedValue > writtenOff + tokens.length) ++seizeBreaks;
+    }
+
+    /// Pushes one asset's pool off its band, has a non-keeper try to observe (which must be
+    /// refused), lets the keeper observe the pushed pool, then puts the pool back, all in one
+    /// step. The draw and sale rules have to catch the pushed reading, and the keeper gate has to
+    /// turn the outsider away.
+    function pushObserveUnwind(uint256 which, uint256 bps, bool keeperToo) external {
+        MockStock token = _token(which);
+        uint256 price = _feedPrice(which);
+        bps = bound(bps, 200, 2_000);
+        _setPool(which, price * (BPS - bps) / BPS);
+        address outsider = address(uint160(uint256(keccak256(abi.encode("outsider", which)))));
+        vm.prank(outsider);
+        try guard.observe(address(token)) {
+            ++keeperGateBreaks;
+        } catch {}
+        if (keeperToo) {
+            try guard.observe(address(token)) {} catch {}
+        }
+        _setPool(which, price);
     }
 
     function claim(uint256 which) external {
@@ -361,8 +418,12 @@ contract CollateralInvariantTest is Test {
 
         (address[] memory list, uint8[] memory assetTiers) = _registerAssets();
         guard = new PriceGuard(
-            reg, IAccessRegistry(address(new MockAccess())), IStateView(address(v4)), MIN_AGE, MAX_AGE, 1_500
+            reg, IAccessRegistry(address(new MockAccess())), IStateView(address(v4)), MIN_AGE, MAX_AGE, 1_500, admin
         );
+        // This contract takes the keeper's first rounds in `setUp`; the handler takes every round
+        // and the adversarial action after it.
+        vm.prank(admin);
+        guard.setKeeper(address(this), true);
         pool = _creditPool();
         vault = new CollateralVault(
             reg,
@@ -392,6 +453,8 @@ contract CollateralInvariantTest is Test {
         vm.warp(T0);
 
         handler = new CollateralHandler(vault, lines, tokens, feeds, principal, agent, admin, merchant);
+        vm.prank(admin);
+        guard.setKeeper(address(handler), true);
         _target();
     }
 
@@ -472,7 +535,7 @@ contract CollateralInvariantTest is Test {
     }
 
     function _target() private {
-        bytes4[] memory selectors = new bytes4[](18);
+        bytes4[] memory selectors = new bytes4[](20);
         selectors[0] = CollateralHandler.deposit.selector;
         selectors[1] = CollateralHandler.deposit.selector;
         selectors[2] = CollateralHandler.withdraw.selector;
@@ -491,6 +554,8 @@ contract CollateralInvariantTest is Test {
         selectors[15] = CollateralHandler.warp.selector;
         selectors[16] = CollateralHandler.crash.selector;
         selectors[17] = CollateralHandler.breakFeed.selector;
+        selectors[18] = CollateralHandler.pushObserveUnwind.selector;
+        selectors[19] = CollateralHandler.pushObserveUnwind.selector;
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
         targetContract(address(handler));
     }
@@ -559,12 +624,24 @@ contract CollateralInvariantTest is Test {
         assertApproxEqAbs(debt, pool.totalDebt(), lines.length, "the lines' debts do not sum to the pool's");
     }
 
-    function invariant_aWriteOffLeavesNoCollateralAndNoDebt() public view {
-        assertEq(handler.writeOffBreaks(), 0, "a write-off left the line collateral or debt");
+    function invariant_aWriteOffLeavesNoDebt() public view {
+        assertEq(handler.writeOffBreaks(), 0, "a write-off left the line debt");
     }
 
     function invariant_noDrawWithoutAValidAgedObservation() public view {
         assertEq(handler.drawBreaks(), 0, "a draw landed without the draw rule behind it");
+    }
+
+    function invariant_aNonKeeperNeverPlantsAReading() public view {
+        assertEq(handler.keeperGateBreaks(), 0, "a non-keeper planted a price-guard reading");
+    }
+
+    function invariant_noSaleCompletesWhileTheGuardHalts() public view {
+        assertEq(handler.saleBreaks(), 0, "a sale completed while the guard reported a halt");
+    }
+
+    function invariant_aWriteOffNeverSeizesMoreThanTheDebtAtTheFeed() public view {
+        assertEq(handler.seizeBreaks(), 0, "a write-off seized more than the debt was worth at the feed");
     }
 
     /// Tried against a snapshot, so the check moves nothing: whatever the feeds, pools and

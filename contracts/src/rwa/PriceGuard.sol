@@ -30,13 +30,22 @@ import {IAccessRegistry, IAggregatorV3, IRobinhoodStock, IStateView} from "./int
 ///
 /// A draw against a holding asks more than a trade or a valuation, because the pool's spot is one
 /// swap away from wherever a borrower wants it inside a transaction. The pool has to have agreed
-/// with the feed at an aged observation as well: a reading `observe` took at least
-/// `MIN_OBSERVATION_AGE` earlier, which nobody can replace in the same block, so a manipulated
-/// price has to be held open to arbitrage for that long before it counts. Two breakers sit on the
-/// feed itself for draws. An answer more than `MAX_FEED_JUMP_BPS` away from the aged sample's is
-/// a gap or a mis-scaled round, and the caller's own age bound halts a feed that has gone quiet
-/// in session. Neither reads the feed's round history, so neither depends on the feed keeping
-/// one.
+/// with the feed at two readings a keeper took across the window: an aged one at least
+/// `MIN_OBSERVATION_AGE` old, and the pending one waiting to replace it once it too is that old,
+/// both inside the asset's band of their own feed sample. One push held open for a single reading
+/// no longer counts; the price has to have stood through a keeper's whole cycle. Two breakers sit
+/// on the feed itself for draws. An answer more than `MAX_FEED_JUMP_BPS` away from the aged
+/// sample's is a gap or a mis-scaled round, and the caller's own age bound halts a feed that has
+/// gone quiet in session. Neither reads the feed's round history, so neither depends on the feed
+/// keeping one.
+///
+/// Only a keeper may `observe`, and it is trusted for timing alone. A keeper that recorded a
+/// pushed pool would be caught the same block it mattered: the spot-versus-feed and feed-jump
+/// checks run on every draw against the live pool, not the sample. A keeper that stops leaves the
+/// aged sample to expire past `MAX_OBSERVATION_AGE`, which halts draws, the same outcome as a
+/// keeper that never ran. What a keeper cannot do is age a reading faster or plant one a draw
+/// reads in the same block: a sample is promoted to `aged` only once it has sat as `pending` for
+/// `MIN_OBSERVATION_AGE`, and overwriting a younger pending resets that clock.
 contract PriceGuard {
     /// A reading of the pool's mid against the feed's answer, taken by `observe`.
     struct Sample {
@@ -48,7 +57,10 @@ contract PriceGuard {
     /// The first condition a draw against a holding fails, `None` when it fails none. An asset
     /// whose feed, token, access registry or pool could not be read is `Unreadable` before
     /// anything else. Then current state is checked before history, and the pool's spot last, so
-    /// a caller that sees the spot disagree knows the aged observation stood.
+    /// a caller that sees the spot disagree knows the aged observation stood. `Unreadable` and
+    /// `PendingOffBand` are checked out of their declared order, first and between the two
+    /// observation checks: the enum keeps its earlier members at their numbers so a reader of a
+    /// stored value does not shift.
     enum DrawHalt {
         None,
         NoPrice,
@@ -59,7 +71,8 @@ contract PriceGuard {
         ObservationOffBand,
         FeedJump,
         SpotOffBand,
-        Unreadable
+        Unreadable,
+        PendingOffBand
     }
 
     AssetRegistry public immutable registry;
@@ -82,7 +95,19 @@ contract PriceGuard {
     mapping(address asset => Sample) public aged;
     mapping(address asset => Sample) public pending;
 
+    /// Governance, and the keeper service it trusts to take readings on schedule.
+    address public admin;
+    address public pendingAdmin;
+    mapping(address keeper => bool) public isKeeper;
+
+    /// Names the first keeper once, so the lane can draw before the timelock's first proposal.
+    address public immutable deployer;
+    bool private _keeperInitialised;
+
     event Observed(address indexed asset, uint256 poolE8, uint256 feedE8, bool promoted);
+    event KeeperSet(address indexed keeper, bool enabled);
+    event AdminTransferStarted(address indexed from, address indexed to);
+    event AdminTransferred(address indexed from, address indexed to);
 
     error NotEligible(address asset);
     error StalePrice(address asset, uint256 age, uint256 bound);
@@ -94,7 +119,15 @@ contract PriceGuard {
     error PoolPriceDeviation(address asset, uint256 poolPriceE8, uint256 feedPriceE8);
     error PriceOutsideBand(address asset, uint256 quotedPriceE8, uint256 feedPriceE8);
     error BadObservationBounds();
-    error ObservationTooSoon(address asset, uint256 age, uint256 bound);
+    error NotAdmin();
+    error NotPendingAdmin();
+    error NotDeployer();
+    error NotKeeper();
+
+    modifier onlyAdmin() {
+        if (msg.sender != admin) revert NotAdmin();
+        _;
+    }
 
     constructor(
         AssetRegistry registry_,
@@ -102,7 +135,8 @@ contract PriceGuard {
         IStateView stateView_,
         uint256 minObservationAge,
         uint256 maxObservationAge,
-        uint256 maxFeedJumpBps
+        uint256 maxFeedJumpBps,
+        address admin_
     ) {
         // A keeper observing every `minObservationAge` leaves the aged sample up to twice that
         // old between promotions, so a tighter maximum would halt draws on schedule.
@@ -110,33 +144,66 @@ contract PriceGuard {
             minObservationAge == 0 || maxObservationAge < 2 * minObservationAge
                 || maxObservationAge > MAX_OBSERVATION_AGE_BOUND || maxFeedJumpBps == 0 || maxFeedJumpBps >= BPS
         ) revert BadObservationBounds();
+        if (admin_ == address(0)) revert NotAdmin();
         registry = registry_;
         accessRegistry = accessRegistry_;
         stateView = stateView_;
         MIN_OBSERVATION_AGE = minObservationAge;
         MAX_OBSERVATION_AGE = maxObservationAge;
         MAX_FEED_JUMP_BPS = maxFeedJumpBps;
+        admin = admin_;
+        deployer = msg.sender;
+        emit AdminTransferred(address(0), admin_);
     }
 
-    /// Records the pool's mid and the feed's answer for `asset`. Anyone may call it. The reading
-    /// lands as `pending`; once it is `MIN_OBSERVATION_AGE` old the next call promotes it to
-    /// `aged` and takes its place. A younger pending sample stays, so the aged slot can never
-    /// hold a reading taken in the block that uses it. A feed or pool that cannot be read is
-    /// recorded as no price, which agrees with nothing.
+    /// Records the pool's mid and the feed's answer for `asset`. Only a keeper may call it. The
+    /// reading lands as `pending`; once it is `MIN_OBSERVATION_AGE` old the next call promotes it
+    /// to `aged` and takes its place. A pending sample younger than that is overwritten in place
+    /// and not promoted, so the aged slot never holds a reading from the block that uses it and a
+    /// keeper cannot age one faster. A feed or pool that cannot be read is recorded as no price,
+    /// which agrees with nothing.
     function observe(address asset) external {
+        if (!isKeeper[msg.sender]) revert NotKeeper();
         AssetRegistry.Asset memory a = registry.get(asset);
         Sample storage p = pending[asset];
-        bool promoted = p.at != 0;
-        if (promoted) {
-            uint256 age = block.timestamp - p.at;
-            if (age < MIN_OBSERVATION_AGE) revert ObservationTooSoon(asset, age, MIN_OBSERVATION_AGE);
-            aged[asset] = p;
-        }
+        bool promoted = p.at != 0 && block.timestamp - p.at >= MIN_OBSERVATION_AGE;
+        if (promoted) aged[asset] = p;
         (uint256 feedE8,,) = _answer(a.feed);
         (uint256 poolE8,) = _poolPrice(asset, a);
         // forge-lint: disable-next-line(unsafe-typecast)
         pending[asset] = Sample({at: uint48(block.timestamp), poolE8: _clip(poolE8), feedE8: _clip(feedE8)});
         emit Observed(asset, poolE8, feedE8, promoted);
+    }
+
+    /// Governance adds or removes a keeper. Zero stays off; a keeper removed can no longer take
+    /// readings, which halts draws once the aged sample expires, as a stopped keeper does.
+    function setKeeper(address keeper, bool enabled) external onlyAdmin {
+        isKeeper[keeper] = enabled;
+        emit KeeperSet(keeper, enabled);
+    }
+
+    /// The deployer names the first keeper once, the way it binds the vault and lists the park's
+    /// adapters: the keeper service's key is known at deployment, and the admin is the timelock,
+    /// so without this the lane could not draw until governance's first proposal landed.
+    function initKeeper(address keeper) external {
+        if (msg.sender != deployer || _keeperInitialised) revert NotDeployer();
+        _keeperInitialised = true;
+        isKeeper[keeper] = true;
+        emit KeeperSet(keeper, true);
+    }
+
+    /// Two steps: nobody can accept as the zero address, and naming it withdraws an offer.
+    function transferAdmin(address to) external onlyAdmin {
+        // slither-disable-next-line missing-zero-check
+        pendingAdmin = to;
+        emit AdminTransferStarted(admin, to);
+    }
+
+    function acceptAdmin() external {
+        if (msg.sender != pendingAdmin) revert NotPendingAdmin();
+        emit AdminTransferred(admin, msg.sender);
+        admin = msg.sender;
+        pendingAdmin = address(0);
     }
 
     /// The feed price a trade in `asset` may use for `account`, or a named revert.
@@ -260,7 +327,9 @@ contract PriceGuard {
 
     /// The aged sample is promoted only once it is `MIN_OBSERVATION_AGE` old, so its lower age
     /// bound holds without a check here. A sample taken while the feed had no answer agrees with
-    /// nothing.
+    /// nothing. The pending sample is judged too, once it is old enough to be promoted, so a draw
+    /// needs the pool to have agreed with the feed across the keeper's window and not at one
+    /// reading a push was held open for. A pending sample younger than that says nothing yet.
     function _drawHalt(
         address asset,
         uint16 bandBps,
@@ -279,6 +348,10 @@ contract PriceGuard {
         if (s.at == 0) return DrawHalt.NoObservation;
         if (block.timestamp - s.at > MAX_OBSERVATION_AGE) return DrawHalt.ObservationExpired;
         if (s.feedE8 == 0 || !_agrees(s.poolE8, s.feedE8, bandBps)) return DrawHalt.ObservationOffBand;
+        Sample memory q = pending[asset];
+        if (q.at != 0 && block.timestamp - q.at >= MIN_OBSERVATION_AGE) {
+            if (q.feedE8 == 0 || !_agrees(q.poolE8, q.feedE8, bandBps)) return DrawHalt.PendingOffBand;
+        }
         if (_deviationBps(priceE8, s.feedE8) > MAX_FEED_JUMP_BPS) return DrawHalt.FeedJump;
         if (!inBand) return DrawHalt.SpotOffBand;
         return DrawHalt.None;

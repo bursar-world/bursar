@@ -33,8 +33,8 @@ contract HandoverGovernanceTest is World {
     uint64 internal constant PERIOD = 48 hours;
     uint256 internal constant COMMUNITY = 1_000e18;
     /// The old timelock's batch and the new one's.
-    uint256 internal constant OFFERS = 14;
-    uint256 internal constant ACCEPTANCES = 13;
+    uint256 internal constant OFFERS = 15;
+    uint256 internal constant ACCEPTANCES = 14;
 
     address internal constant HW_1 = address(0x4801);
     address internal constant HW_2 = address(0x4802);
@@ -201,7 +201,7 @@ contract HandoverGovernanceTest is World {
         _unset("BURSAR_GUARDIAN_48H");
     }
 
-    /// Fourteen proposals: eleven admins, the seeder, the Entrypoint's owner role and the BRSR. A
+    /// Fifteen proposals: twelve admins, the seeder, the Entrypoint's owner role and the BRSR. A
     /// second run proposes nothing, and a token sent to the old timelock after the transfer landed
     /// puts no second transfer up.
     function _theOldTimelockOffersEverythingInOneBatch() private {
@@ -265,7 +265,7 @@ contract HandoverGovernanceTest is World {
         assertEq(_readAddress(path, K.ADMIN_TIMELOCK), previous);
     }
 
-    /// Thirteen proposals on the new timelock, the revoke last, from the hardware keys; then the
+    /// Fourteen proposals on the new timelock, the revoke last, from the hardware keys; then the
     /// record is rewritten and the strict check finds nothing owed.
     function _theNewTimelockAcceptsEverythingAndTheRecordFollows() private {
         _restore();

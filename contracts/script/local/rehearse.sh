@@ -100,10 +100,12 @@ later() {
 }
 
 observe() {
-  local guard
+  local guard keeper
   guard="$(jq -r .rwa.PriceGuard "$BURSAR_RECORD")"
+  # Only the keeper may observe; locally it is the deploy key, which anvil has unlocked.
+  keeper="$(jq -r .rwa.guardKeeper "$BURSAR_RECORD")"
   for symbol in SGOV SPY NVDA AAPL; do
-    tx "$BURSAR_DEPLOYER" "$guard" "observe(address)" "$(jq -r ".rwa.assets.$symbol.address" "$BURSAR_RECORD")"
+    tx "$keeper" "$guard" "observe(address)" "$(jq -r ".rwa.assets.$symbol.address" "$BURSAR_RECORD")"
   done
 }
 

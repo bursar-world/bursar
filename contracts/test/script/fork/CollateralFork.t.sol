@@ -170,8 +170,11 @@ contract CollateralForkTest is ForkWorld {
     /// case restores.
     function _observe(address asset) private {
         PriceGuard guard = PriceGuard(_readAddress(path, K.PRICE_GUARD));
+        address guardKeeper = _readAddress(path, ".rwa.guardKeeper");
+        vm.prank(guardKeeper);
         guard.observe(asset);
         vm.warp(block.timestamp + guard.MIN_OBSERVATION_AGE());
+        vm.prank(guardKeeper);
         guard.observe(asset);
         _save();
     }

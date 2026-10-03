@@ -38,26 +38,28 @@ abstract contract Handover is Governance {
     /// name them. The escrow and the mandate factory have no admin, and the escrow's pauser is a
     /// one-shot that stays with the first governance.
     function _administered() internal view returns (address[] memory targets, string[] memory names) {
-        string[11] memory keys = [
+        string[12] memory keys = [
             K.REPUTATION,
             K.ORACLE_REGISTRY,
             K.AGENT_REGISTRY,
             K.STAKING,
             K.BUYBACK,
             K.ASSET_REGISTRY,
+            K.PRICE_GUARD,
             K.TREASURY_PARK,
             K.CREDIT_POOL,
             K.COLLATERAL_VAULT,
             K.SOLVENCY_LOG,
             K.VESTING
         ];
-        string[11] memory labels = [
+        string[12] memory labels = [
             "Reputation",
             "OracleRegistry",
             "AgentRegistry",
             "Staking",
             "Buyback",
             "AssetRegistry",
+            "PriceGuard",
             "TreasuryPark",
             "CreditPool",
             "CollateralVault",

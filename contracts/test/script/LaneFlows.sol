@@ -232,9 +232,12 @@ abstract contract LaneFlows is Test {
     /// keeper's two calls are made first, five minutes apart.
     function _observe(address asset) internal {
         PriceGuard guard = PriceGuard(_at(K.PRICE_GUARD));
+        address keeper = _at(".rwa.guardKeeper");
+        vm.prank(keeper);
         guard.observe(asset);
         vm.warp(block.timestamp + guard.MIN_OBSERVATION_AGE());
         _freshFeeds();
+        vm.prank(keeper);
         guard.observe(asset);
     }
 

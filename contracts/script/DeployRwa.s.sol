@@ -44,6 +44,10 @@ contract DeployRwa is BursarScript {
     error PoolNotOpen(string symbol, bytes32 poolId);
     error OneTreasuryAsset(uint256 found);
 
+    /// The keeper service's key, recorded next to the guard it observes for. RecordKeys names the
+    /// shared paths; this one is local to the RWA scripts.
+    string private constant GUARD_KEEPER = ".rwa.guardKeeper";
+
     address private asset;
     address private timelock;
     address private escrow;
@@ -55,6 +59,7 @@ contract DeployRwa is BursarScript {
     uint256 private minObservationAge;
     uint256 private maxObservationAge;
     uint256 private maxFeedJumpBps;
+    address private guardKeeper;
 
     RwaConfig.Term[] private terms;
     address[] private tokens;
@@ -92,6 +97,7 @@ contract DeployRwa is BursarScript {
         minObservationAge = _envUint("BURSAR_MIN_OBSERVATION_AGE");
         maxObservationAge = _envUint("BURSAR_MAX_OBSERVATION_AGE");
         maxFeedJumpBps = _envUint16("BURSAR_MAX_FEED_JUMP_BPS");
+        guardKeeper = _role(GUARD_KEEPER, "BURSAR_GUARD_KEEPER");
 
         RwaConfig.Term[] memory all = RwaConfig.terms();
         uint256 treasuries;
@@ -166,8 +172,13 @@ contract DeployRwa is BursarScript {
             IStateView(stateView),
             minObservationAge,
             maxObservationAge,
-            maxFeedJumpBps
+            maxFeedJumpBps,
+            timelock
         );
+        // The guard answers to the timelock, but the keeper service's key is known now and the
+        // lane cannot draw until a keeper exists, so the deployer names the first one here, the
+        // way it binds the vault and lists the park's adapters.
+        d.guard.initKeeper(guardKeeper);
         IPoolManager pm = IPoolManager(poolManager);
         d.router = new StockSpendRouter(d.registry, d.guard, pm);
 
@@ -195,6 +206,9 @@ contract DeployRwa is BursarScript {
         _expectUint("guard.minObservationAge", minObservationAge, d.guard.MIN_OBSERVATION_AGE());
         _expectUint("guard.maxObservationAge", maxObservationAge, d.guard.MAX_OBSERVATION_AGE());
         _expectUint("guard.maxFeedJumpBps", maxFeedJumpBps, d.guard.MAX_FEED_JUMP_BPS());
+        _expect("guard.admin", timelock, d.guard.admin());
+        _expect("guard.pendingAdmin", address(0), d.guard.pendingAdmin());
+        _expectUint("guard.keeper", 1, d.guard.isKeeper(guardKeeper) ? 1 : 0);
         _expect("router.registry", address(d.registry), address(d.router.registry()));
         _expect("router.guard", address(d.guard), address(d.router.guard()));
         _expect("park.admin", timelock, d.park.admin());
@@ -224,6 +238,7 @@ contract DeployRwa is BursarScript {
         _write(K.USDG_ADAPTER, address(d.usdgAdapter));
         _write(K.RWA_FROM_BLOCK, _chainBlock());
 
+        _write(GUARD_KEEPER, guardKeeper);
         _write(".parameters.PriceGuard.minObservationAge", minObservationAge);
         _write(".parameters.PriceGuard.maxObservationAge", maxObservationAge);
         _write(".parameters.PriceGuard.maxFeedJumpBps", maxFeedJumpBps);
@@ -234,7 +249,8 @@ contract DeployRwa is BursarScript {
         console2.log("deployer", deployer);
         console2.log("AssetRegistry", address(d.registry));
         console2.log("PriceGuard", address(d.guard));
-        console2.log("  observe(asset) every", minObservationAge);
+        console2.log("  keeper observes every", minObservationAge);
+        console2.log("  keeper", guardKeeper);
         console2.log("StockSpendRouter", address(d.router));
         console2.log("TreasuryPark", address(d.park));
         console2.log("  mandates from", factory);

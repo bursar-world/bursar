@@ -33,6 +33,11 @@ abstract contract RwaChecks is Verifier {
         _is("PriceGuard.registry", registry, address(g.registry()));
         _is("PriceGuard.accessRegistry", _recordAddress(K.ACCESS_REGISTRY), address(g.accessRegistry()));
         _is("PriceGuard.stateView", _recordAddress(K.STATE_VIEW), address(g.stateView()));
+        _is("PriceGuard.admin", timelock, g.admin());
+        _is("PriceGuard.pendingAdmin", address(0), g.pendingAdmin());
+        address guardKeeper = _recordAddress(".rwa.guardKeeper");
+        _fact("PriceGuard.keeper", guardKeeper);
+        _isTrue("PriceGuard does not list the recorded keeper", guardKeeper != address(0) && g.isKeeper(guardKeeper));
         _isParamAt("PriceGuard.minObservationAge", guard, abi.encodeCall(g.MIN_OBSERVATION_AGE, ()));
         _isParamAt("PriceGuard.maxObservationAge", guard, abi.encodeCall(g.MAX_OBSERVATION_AGE, ()));
         _isParamAt("PriceGuard.maxFeedJumpBps", guard, abi.encodeCall(g.MAX_FEED_JUMP_BPS, ()));

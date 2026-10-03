@@ -36,16 +36,21 @@ import {ITreasuryPark} from "./interfaces/ITreasuryPark.sol";
 /// Health. `health = Σ(value × (1 − haircut)) / debt` at the haircut that applies now, 1e18 =
 /// 1.0. Below 1.0 anyone can call `liquidate`, which sells only the slice of one asset that
 /// brings health back to `liquidationTarget`, through the asset's pinned v4 pool, and pays the
-/// caller a bounty out of the proceeds. A sale needs a fresh, unpaused trade price inside the
-/// pool band, so a stale or paused price defers liquidation rather than selling blind. The
-/// trigger leaves the pool test out and counts a fresh position at its feed: a pool can be
-/// pushed past its band inside one transaction, and a trigger that read it would let anyone
-/// zero one position and sell the others for the bounty.
+/// caller a bounty out of the proceeds. A sale needs the same reading a draw needs: a fresh,
+/// unpaused trade price inside the pool band, the guard's aged reading in band, and no feed jump.
+/// A stale or paused price, a pushed pool or a feed mid-jump defers the sale rather than selling
+/// blind on a price nobody has held open to arbitrage. The trigger leaves the pool test out and
+/// counts a fresh position at its feed: a pool can be pushed past its band inside one transaction,
+/// and a trigger that read it would let anyone zero one position and sell the others for the
+/// bounty.
 ///
-/// Write-off. Once nothing is left that a sale could turn into USDG, the debt is written off and
-/// everything the line still holds is seized, every asset and tier alike, into a per-asset pot
-/// that only the pool's lender can be paid from. The decision is `_exhausted`, and it never rests
-/// on the pool's spot alone.
+/// Write-off. Once nothing is left that a sale could turn into USDG, the debt is written off. The
+/// line keeps its collateral, less the share the written-off debt was worth at the feed: each
+/// position gives up the same fraction of its raw amount, rounded up so the lender is covered, and
+/// the rest is the borrower's to withdraw against a line that now owes nothing. A line worth no
+/// more than its debt at the feed, or one no feed can price, gives up everything, as before. The
+/// seized share goes to a per-asset pot that only the pool's lender can be paid from. The decision
+/// to write off is `_exhausted`, and it never rests on the pool's spot alone.
 ///
 /// A draw or a collateral withdrawal must leave health at or above `minBorrowHealth` with every
 /// position at its after-hours haircut, whatever the clock says. Checked at the session haircut,
@@ -176,6 +181,7 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
     error PositionEmpty(address mandate, address asset);
     error NothingToSell();
     error NothingSeized(address asset);
+    error SaleHalted(address asset, PriceGuard.DrawHalt reason);
 
     modifier onlyAdmin() {
         if (msg.sender != admin) revert NotAdmin();
@@ -285,6 +291,9 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
 
         // Fresh, unpaused, inside the pool band; reverts otherwise, which defers the sale.
         uint256 priceE8 = guard.exitPrice(asset, address(this));
+        // And the guard's whole draw rule: an aged reading in band and no feed jump, so a sale
+        // never runs on a spot a push held open or on a round that has not settled.
+        _requireSaleOk(asset);
 
         rawSold = _sliceToSell(mandate, asset, held, priceE8);
         // Zero is `_sliceToSell` finding nothing that needs selling.
@@ -534,7 +543,19 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         return Math.mulDiv(need - adjusted, WAD, gross - kept);
     }
 
+    /// Reverts unless a draw would count the asset right now: the guard's aged reading in band,
+    /// its pending reading in band once it is old enough, no feed jump, and the spot in band. A
+    /// liquidation sells on the same reading a draw lends on.
+    function _requireSaleOk(address asset) private view {
+        // The same reading `drawHalt` reports, at the asset's own draw bound.
+        // slither-disable-next-line unused-return
+        (,,,, PriceGuard.DrawHalt halt) =
+            guard.drawValuation(asset, _drawBound(_tierOf[asset], registry.get(asset).valuationStaleness));
+        if (halt != PriceGuard.DrawHalt.None) revert SaleHalted(asset, halt);
+    }
+
     function _sell(address asset, uint256 raw, uint256 priceE8) private returns (uint256 proceeds) {
+        _requireSaleOk(asset);
         AssetRegistry.Asset memory a = registry.get(asset);
         uint256 minOut = Math.mulDiv(Math.mulDiv(raw, priceE8, 10 ** (uint256(a.decimals) + 2)), BPS - a.bandBps, BPS);
         (, proceeds) = _swap(
@@ -573,22 +594,36 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         if (pool.debtOf(mandate) > 0 && _exhausted(mandate)) _writeOff(mandate);
     }
 
-    /// Clears the debt and seizes what the line still holds, every asset and tier alike, into
-    /// `seized`. The tokens stay put: a transfer that fails must not hold up the write-off, so
-    /// the lender is paid through `claimSeized` once the token lets them move.
+    /// Clears the debt and seizes the collateral the written-off debt was worth, valued at the
+    /// feed the way `health` values it, into `seized`. Each position gives up the same fraction of
+    /// its raw amount, rounded up so the lender is never short, and the line keeps the rest as
+    /// collateral against a debt that is now zero. When the line's collateral is worth no more than
+    /// the debt at the feed, or no position has a feed price to value, the whole of it is seized,
+    /// as it was before. The tokens stay put: a transfer that fails must not hold up the write-off,
+    /// so the lender is paid through `claimSeized` once the token lets them move.
     function _writeOff(address mandate) private {
         // The pool is this lane's own, and every way into the vault that moves collateral is under
-        // the reentrancy guard. The amount written off is in the pool's event.
-        // slither-disable-next-line unused-return,reentrancy-benign
-        pool.writeOff(mandate);
+        // the reentrancy guard.
+        // slither-disable-next-line reentrancy-benign
+        uint256 writtenOff = pool.writeOff(mandate);
         uint256 n = _assets.length;
+        uint256 total;
+        // The feed value of each position, the way `health` counts it, over the lane's own assets.
+        // slither-disable-next-line calls-loop
+        for (uint256 i; i < n; ++i) {
+            total += _position(mandate, _assets[i]).atFeed;
+        }
         for (uint256 i; i < n; ++i) {
             address asset = _assets[i];
             uint256 raw = collateralOf[mandate][asset];
+            // slither-disable-next-line incorrect-equality
             if (raw == 0) continue;
-            collateralOf[mandate][asset] = 0;
-            seized[asset] += raw;
-            emit Seized(mandate, asset, raw);
+            uint256 take = total == 0 ? raw : Math.min(raw, Math.mulDiv(raw, writtenOff, total, Math.Rounding.Ceil));
+            collateralOf[mandate][asset] = raw - take;
+            // slither-disable-next-line incorrect-equality
+            if (take == 0) continue;
+            seized[asset] += take;
+            emit Seized(mandate, asset, take);
         }
     }
 
@@ -602,9 +637,10 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
     /// again, so a feed that is stale or paused ends it. Its pool disagreeing does not, on its
     /// own: a pool can be pushed out of its band and back inside one transaction, and a write-off
     /// that read the spot would let the borrower force one on a saleable line. The pool has to
-    /// have disagreed at the guard's aged observation as well, a reading at least
-    /// `MIN_OBSERVATION_AGE` old that nobody could have placed in the same block. Without a
-    /// valid aged observation the write-off waits for one.
+    /// have disagreed at the guard's aged observation as well, a reading only a keeper writes and
+    /// only once it is `MIN_OBSERVATION_AGE` old, so the borrower cannot place it. A spot or
+    /// pending reading off band while the aged one stood is not enough; the write-off waits for
+    /// the aged observation to disagree or expire.
     function _exhausted(address mandate) private view returns (bool) {
         uint256 n = _assets.length;
         for (uint256 i; i < n; ++i) {

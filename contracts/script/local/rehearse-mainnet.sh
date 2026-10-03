@@ -103,10 +103,12 @@ later() {
 }
 
 observe() {
-  local guard
+  local guard keeper
   guard="$(jq -r .rwa.PriceGuard "$BURSAR_RECORD")"
+  # Only the keeper may observe. anvil impersonates it like any other account.
+  keeper="$(jq -r .rwa.guardKeeper "$BURSAR_RECORD")"
   for symbol in SGOV SPY NVDA AAPL; do
-    tx "$deployer" "$guard" "observe(address)" "$(jq -r ".rwa.assets.$symbol.address" "$BURSAR_RECORD")"
+    tx "$keeper" "$guard" "observe(address)" "$(jq -r ".rwa.assets.$symbol.address" "$BURSAR_RECORD")"
   done
 }
 

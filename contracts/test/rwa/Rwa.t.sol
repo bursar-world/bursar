@@ -81,8 +81,9 @@ contract RwaTest is Test {
         configs[1] = _cfg(address(sgovFeed), sgovPool, false, true, H100, 50, 50);
         reg = new AssetRegistry(admin, address(usdg), assets, configs);
 
-        guard =
-            new PriceGuard(reg, IAccessRegistry(address(access)), IStateView(address(v4)), 5 minutes, 1 hours, 1_500);
+        guard = new PriceGuard(
+            reg, IAccessRegistry(address(access)), IStateView(address(v4)), 5 minutes, 1 hours, 1_500, admin
+        );
         router = new StockSpendRouter(reg, guard, IPoolManager(address(v4)));
         accounts = new MockAccounts();
         IMandateAccountFactory[] memory factories = new IMandateAccountFactory[](1);
