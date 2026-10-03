@@ -42,6 +42,8 @@ jobs:
       - run: pnpm -r build
       - run: pnpm -r typecheck
       - run: pnpm -r test
+      # Every invariant the docs state links to the test that checks it, by file and line.
+      - run: node contracts/script/check-invariant-links.mjs
 
   contracts:
     name: Contracts
