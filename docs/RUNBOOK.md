@@ -72,10 +72,14 @@ node contracts/script/monitor.mjs
 | Shielded pool fill against its 1,000 USDG cap, and whether a root has been posted since the last deposit | At the cap, deposits refuse, as does a deposit that would take one address past 250 USDG in seven days. Without a current root, no note can be withdrawn. |
 | Each price feed's age against the 26-hour trade bound and the 100-hour collateral bound | Past 26 hours trades refuse; past 100 hours collateral counts as zero and liquidation defers. |
 | Credit pool: cash, debt, utilisation, bad debt | Debt above cash means draws refuse; bad debt means a line was written off and the lender carries it. |
+| The balance of every contract that holds funds (escrow USDG, credit pool cash, shielded pool, buyback USDG, staking and timelock BRSR, each asset in the vault), against the previous run's | A balance that fell by more than a quarter and more than 100 units in an hour is an outflow to account for. |
 | Open disputes on the escrow and their reveal window | A dispute nobody finalises leaves a payment frozen. |
 | Buyback price ceiling age, and solvency log age | A stale ceiling stops buybacks; a missed day on the solvency log means the poster is down. |
 
-Thresholds are constants at the top of the script, each with a comment.
+Thresholds are constants at the top of the script and of `monitor-state.mjs` beside it, each with a
+comment. `BURSAR_MONITOR_STATE` names the file where a run keeps the balances the next run compares
+against, one in the OS temp directory by default; the workflow carries it from one hourly run to the
+next in the actions cache. A first run with no file reports `ok` and records the figures.
 
 The collateral keeper is a separate job, run every five minutes, that takes the price guard's
 reading of each asset's pool. A draw counts a position only against a reading between five minutes
@@ -97,6 +101,7 @@ are in [`services/facilitator/README.md`](../services/facilitator/README.md#the-
 | Root behind deposits | A deposit after the last posted root for longer than the ten-minute posting cadence, or deposits with no root at all | Association-set root, below. |
 | Feed stale | Age over 26 hours inside the equities session (Monday 01:00 UTC to Saturday 00:00 UTC); over 100 hours at any time | Stale feed, below. Over 26 hours at a weekend is expected and reported `ok`. |
 | Credit pool | Utilisation over 90%, cash under one full line (10 USDG), or bad debt above zero | Liquidation, below. Bad debt is the lender's loss and never a staker's or a mandate's. |
+| Large outflow | A fund-holding balance fell by more than 25% of the previous run's figure and by more than 100 units (USDG, BRSR or shares) since that run | Find the transaction that moved it on the explorer. A withdrawal, release, buyback or liquidation the team knows about ends it. Anything else is an incident: pause what still holds funds with the guardian, below, and read the timelock's proposals. |
 | Dispute window | Reveal window ends within 20 minutes with fewer than two reveals, or closed over an hour ago with the dispute still open | Resolver, below. |
 | Buyback ceiling stale | Now past `ceilingSetAt + maxCeilingAge` (seven days) | Restate it with `Buyback.setParams`, as [`MIGRATION.md`](../contracts/script/MIGRATION.md#5-the-handover-lands) shows. Buybacks refuse until it lands. |
 | Solvency log stale | Latest epoch older than two days, or none | Check the solvency service; `bursar-solvency post --dry-run` shows what it would post. |
