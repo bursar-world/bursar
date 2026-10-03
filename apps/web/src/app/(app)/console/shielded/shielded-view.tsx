@@ -16,7 +16,9 @@ import {
   depositPrecommitment,
   depositProblem,
   depositRoomLine,
+  feeLine,
   fundsKeyContext,
+  gasDropProblem,
   intentFromQuery,
   labelInSet,
   ownNotes,
@@ -25,7 +27,6 @@ import {
   readAssociationSet,
   readPool,
   readRoom,
-  relayFee,
   setMatchesChain,
   shieldedContracts,
   shieldedKeysFrom,
@@ -535,8 +536,9 @@ function WithdrawForm({
     enabled: relayer !== undefined,
   });
   const recipient = readAddress(recipientText);
-  const amountProblem = withdrawProblem({ amount, note, inSet });
-  const fee = amount !== undefined && quote.data ? relayFee(amount, quote.data.feeBps) : undefined;
+  const gasDrop = PURPOSES[purpose].gasDrop;
+  const amountProblem =
+    withdrawProblem({ amount, note, inSet }) ?? (gasDrop ? gasDropProblem({ amount, quote: quote.data, maxRelayFeeBps: contracts.maxRelayFeeBps }) : undefined);
   const ready = relayer !== undefined && quote.data !== undefined && set !== undefined && recipient.value !== undefined && amount !== undefined && amount > 0n && amountProblem === undefined && phase === 'idle';
 
   const send = async () => {
@@ -550,7 +552,7 @@ function WithdrawForm({
         note,
         amount,
         recipient: recipient.value,
-        gasDrop: PURPOSES[purpose].gasDrop,
+        gasDrop,
         relayerUrl: relayer,
         aspUrl: asp,
         quote: quote.data,
@@ -591,7 +593,7 @@ function WithdrawForm({
           setAmount(atomic);
         }}
         {...(amountProblem ? { problem: amountProblem } : {})}
-        hint={fee !== undefined && quote.data ? `The relayer keeps ${usdgText(fee)} USDG (${quote.data.feeBps / 100}%). What stays behind remains yours in the pool.` : 'What stays behind remains yours in the pool.'}
+        hint={feeLine(amount, quote.data, gasDrop)}
       />
       {relayer === undefined ? (
         <p className="text-detail">Withdrawals are sent by the relayer, and this console has none configured, so withdrawing is off here.</p>

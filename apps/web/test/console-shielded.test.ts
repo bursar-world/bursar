@@ -10,6 +10,8 @@ import {
   PURPOSES,
   depositProblem,
   depositRoomLine,
+  feeLine,
+  gasDropProblem,
   intentFromQuery,
   labelInSet,
   poolLimits,
@@ -122,6 +124,34 @@ describe('withdrawals', () => {
     expect(PURPOSES['stealth-owner'].gasDrop).toBe(true);
     expect(PURPOSES.mandate.gasDrop).toBe(false);
     expect(PURPOSES.provider.gasDrop).toBe(false);
+  });
+
+  /** A relayer asking 1%, which prices a gas drop at 0.3 USDG. */
+  const quote = { relay: MANDATE, feeRecipient: MANDATE, feeBps: 100, gasDropWei: '150000000000000', gasDropFee: '300000', chainId: 4663 } as const;
+
+  it('tells the wallet what the relayer keeps, with the gas drop on top only when gas goes along', () => {
+    expect(feeLine(20_000_000n, quote, false)).toBe('The relayer keeps 0.2 USDG (1%). What stays behind remains yours in the pool.');
+    expect(feeLine(20_000_000n, quote, true)).toBe(
+      'The relayer keeps 0.5 USDG (1%, plus 0.3 USDG for the gas it sends along). What stays behind remains yours in the pool.',
+    );
+    // A relayer that does not charge for drops, and no amount yet.
+    expect(feeLine(20_000_000n, { ...quote, gasDropFee: undefined }, true)).toBe('The relayer keeps 0.2 USDG (1%). What stays behind remains yours in the pool.');
+    expect(feeLine(undefined, quote, true)).toBe('What stays behind remains yours in the pool.');
+    expect(feeLine(20_000_000n, undefined, true)).toBe('What stays behind remains yours in the pool.');
+  });
+
+  it('refuses a withdrawal too small to carry the gas drop under the relay cap, naming the least that can', () => {
+    // 0.3 USDG has to fit in the 4% left under the relay's 5%: 7.5 USDG.
+    expect(gasDropProblem({ amount: 7_499_999n, quote, maxRelayFeeBps: 500 })).toBe(
+      'A gas drop costs 0.3 USDG at the moment, and the relayer may keep at most 5% of a withdrawal, so a withdrawal with gas has to be at least 7.5 USDG.',
+    );
+    expect(gasDropProblem({ amount: 7_500_000n, quote, maxRelayFeeBps: 500 })).toBeUndefined();
+    expect(gasDropProblem({ amount: 1n, quote: { ...quote, gasDropFee: undefined }, maxRelayFeeBps: 500 })).toBeUndefined();
+    expect(gasDropProblem({ amount: undefined, quote, maxRelayFeeBps: 500 })).toBeUndefined();
+    expect(gasDropProblem({ amount: 1_000_000n, quote: undefined, maxRelayFeeBps: 500 })).toBeUndefined();
+    expect(gasDropProblem({ amount: 100_000_000n, quote: { ...quote, feeBps: 500 }, maxRelayFeeBps: 500 })).toBe(
+      'A gas drop costs 0.3 USDG at the moment, and the relayer’s fee is already the 5% the relay allows, so no withdrawal can carry one. Fund the owner without gas, or try again later.',
+    );
   });
 });
 

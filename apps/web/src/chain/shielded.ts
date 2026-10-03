@@ -1,4 +1,5 @@
 import type { ShieldedDeployment } from '@bursar/core';
+import { relayFeeBpsFor, smallestWithGas } from '@bursar/sdk';
 import type { AssociationSet, DepositRoom, FundsKeyContext, OwnedNote, PoolEvents, RelayQuote, ShieldedKeys } from '@bursar/sdk';
 import { getAddress, isAddress } from 'viem';
 import type { Address, Hex } from 'viem';
@@ -185,8 +186,33 @@ export function labelInSet(set: Pick<AssociationSet, 'labels'> | undefined, labe
 }
 
 /** The relayer's fee on an amount, as the relay contract computes it. */
-export function relayFee(amount: bigint, feeBps: number): bigint {
+export function relayFee(amount: bigint, feeBps: number | bigint): bigint {
   return (amount * BigInt(feeBps)) / 10_000n;
+}
+
+/** What the amount field says the relayer keeps, with the gas drop's price on top when gas goes along. */
+export function feeLine(amount: bigint | undefined, quote: RelayQuote | undefined, gasDrop: boolean): string {
+  const rest = 'What stays behind remains yours in the pool.';
+  if (amount === undefined || quote === undefined) return rest;
+  const drop = gasDrop && quote.gasDropFee !== undefined ? BigInt(quote.gasDropFee) : 0n;
+  const fee = relayFee(amount, relayFeeBpsFor(quote, amount, gasDrop));
+  const rate = `${quote.feeBps / 100}%${drop > 0n ? `, plus ${usdgText(drop)} USDG for the gas it sends along` : ''}`;
+  return `The relayer keeps ${usdgText(fee)} USDG (${rate}). ${rest}`;
+}
+
+/**
+ * Why a withdrawal that asks for gas cannot be sent: the relay contract caps the fee, and the drop's
+ * price has to fit under that cap together with the relayer's own rate.
+ */
+export function gasDropProblem(args: { amount: bigint | undefined; quote: RelayQuote | undefined; maxRelayFeeBps: number }): string | undefined {
+  const { amount, quote, maxRelayFeeBps } = args;
+  if (amount === undefined || amount === 0n || quote?.gasDropFee === undefined) return undefined;
+  if (relayFeeBpsFor(quote, amount, true) <= BigInt(maxRelayFeeBps)) return undefined;
+  const cost = `A gas drop costs ${usdgText(BigInt(quote.gasDropFee))} USDG at the moment, and the relayer`;
+  const cap = `${maxRelayFeeBps / 100}%`;
+  const least = smallestWithGas(quote, maxRelayFeeBps);
+  if (least === null) return `${cost}’s fee is already the ${cap} the relay allows, so no withdrawal can carry one. Fund the owner without gas, or try again later.`;
+  return `${cost} may keep at most ${cap} of a withdrawal, so a withdrawal with gas has to be at least ${usdgText(least)} USDG.`;
 }
 
 export type PoolReading = {
@@ -287,10 +313,17 @@ export async function withdrawThroughRelayer(args: {
   if (getAddress(quote.relay) !== getAddress(contracts.ShieldedRelay)) {
     throw new Error('The relayer named a different relay contract from this deployment. Nothing was sent.');
   }
+  // The page refuses this before the button is live; here it is the last check before a proof is made.
+  const problem = args.gasDrop ? gasDropProblem({ amount: args.amount, quote, maxRelayFeeBps: contracts.maxRelayFeeBps }) : undefined;
+  if (problem !== undefined) throw new Error(problem);
   const scope = BigInt(contracts.scope);
   const withdrawal = {
     processooor: contracts.ShieldedRelay,
-    data: sdk.encodeRelayData({ recipient: args.recipient, feeRecipient: quote.feeRecipient, relayFeeBPS: BigInt(quote.feeBps) }),
+    data: sdk.encodeRelayData({
+      recipient: args.recipient,
+      feeRecipient: quote.feeRecipient,
+      relayFeeBPS: relayFeeBpsFor(quote, args.amount, args.gasDrop),
+    }),
   };
   const fresh = async (attempt: number): Promise<{ events: PoolEvents; set: AssociationSet }> => {
     if (attempt === 1) return { events: args.events, set: args.set };
