@@ -597,7 +597,9 @@ export const TOOLS: readonly ToolDefinition[] = [
       'deposit and hands it to the relayer, which submits it from its own wallet, so the payment carries no ' +
       'trace of whoever funded the balance. The recipient receives the full amount; the relayer\u2019s fee is ' +
       'drawn on top, and the rest of the deposit stays in the pool. With gasDrop the relayer also sends the ' +
-      'recipient a little ETH, which is how a fresh address gets its first network fee. One payment draws on ' +
+      'recipient a little ETH, which is how a fresh address gets its first network fee, and the fee rises by ' +
+      'what that ETH is worth (shielded_pool_status reports it as gasDropFee); a payment too small to carry ' +
+      'it under the relay’s fee cap is refused before anything is proven. One payment draws on ' +
       'one deposit. The pool caps deposits and not withdrawals, so this server holds every payment under two ' +
       'caps of its own, one per payment and one per rolling day; shielded_balance reports them, and a payment ' +
       'over either is refused before anything is proven, with the cap named. Proving takes a few seconds. The ' +
@@ -615,7 +617,9 @@ export const TOOLS: readonly ToolDefinition[] = [
         amount: amountProperty('amount', `What the recipient should receive. ${AMOUNT_HELP}`),
         gasDrop: {
           type: 'boolean',
-          description: 'Ask the relayer to send the recipient ETH for its first network fee. Only for an address with none.',
+          description:
+            'Ask the relayer to send the recipient ETH for its first network fee, paid for out of this payment’s fee. ' +
+            'Only for an address with none.',
         },
       },
     },

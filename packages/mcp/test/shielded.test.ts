@@ -321,6 +321,44 @@ describe('the shielded tools', () => {
     expect(proven[0]?.context).toBe(withdrawalContext(request.withdrawal, scope));
   });
 
+  it('pays for the gas drop in the fee when the relayer prices it, and only when gas is asked for', async () => {
+    const quote = { relay: D.ShieldedRelay, feeRecipient: D.relayer, feeBps: 100, gasDropWei: '150000000000000', chainId: 4663, gasDropFee: '100' };
+    const withGas = setup({ quote });
+    const paid = parse(await callTool(withGas.context, 'shielded_pay', { recipient: RECIPIENT, amount: '20000', gasDrop: true }));
+
+    // 100 atomic USDG on a payment of 20,000 is 50 basis points, on top of the relayer's 100.
+    expect(paid).toMatchObject({ status: 'sent', received: { micro: '20000' }, relayerFee: { micro: '304' }, withdrawn: { micro: '20304' } });
+    expect(decodeRelayData(withGas.relayed[0]!.withdrawal.data).relayFeeBPS).toBe(150n);
+
+    const withoutGas = setup({ quote });
+    const plain = parse(await callTool(withoutGas.context, 'shielded_pay', { recipient: RECIPIENT, amount: '20000' }));
+    expect(plain).toMatchObject({ relayerFee: { micro: '202' }, withdrawn: { micro: '20202' } });
+    expect(decodeRelayData(withoutGas.relayed[0]!.withdrawal.data).relayFeeBPS).toBe(100n);
+
+    const status = parse(await callTool(setup({ quote }).context, 'shielded_pool_status', {}));
+    expect(status).toMatchObject({ relayer: { feeBps: 100, gasDropEth: '0.00015', gasDropFee: { micro: '100' } } });
+    expect(parse(await callTool(setup().context, 'shielded_pool_status', {}))).toMatchObject({ relayer: { gasDropFee: null } });
+
+    const unreadable = setup({ quote: { ...quote, gasDropFee: 'lots' } });
+    expect(parse(await callTool(unreadable.context, 'shielded_pay', { recipient: RECIPIENT, amount: '20000', gasDrop: true }))['error']).toBe('relayer_bad_quote');
+    expect(unreadable.relayed).toHaveLength(0);
+  });
+
+  it('refuses to ask for gas when the drop does not fit under the relay fee cap, before anything is proven', async () => {
+    const quote = { relay: D.ShieldedRelay, feeRecipient: D.relayer, feeBps: 100, gasDropWei: '150000000000000', chainId: 4663, gasDropFee: '2000' };
+    const { context, relayed, proven } = setup({ quote });
+
+    const refused = parse(await callTool(context, 'shielded_pay', { recipient: RECIPIENT, amount: '20000', gasDrop: true }));
+
+    expect(refused['error']).toBe('shielded_gas_drop_unaffordable');
+    // 2,000 atomic USDG fits in the 400 basis points left under the relay's 500 from a payment of 50,000 up.
+    expect(refused['message']).toContain('0.05 USDG');
+    expect(proven).toHaveLength(0);
+    expect(relayed).toHaveLength(0);
+    // The same payment without gas goes through at the relayer's own fee.
+    expect(parse(await callTool(context, 'shielded_pay', { recipient: RECIPIENT, amount: '20000' }))).toMatchObject({ status: 'sent', relayerFee: { micro: '202' } });
+  });
+
   it('proves again against the new association set when the provider posts one mid-payment', async () => {
     // The first proof is made while only the large deposit is approved; the provider approves the
     // small one before the relayer submits, and the pool refuses a proof against the older root.

@@ -90,7 +90,7 @@ BURSAR_ASP_URL=https://asp.example        # optional
 | --- | --- |
 | `shielded_pool_status` | Whether the pool takes deposits, what it holds, the per-deposit and pool caps and the room left, the association-set root in force, and the relayer's fee. Offered on every server on Robinhood Chain. |
 | `shielded_balance` | Each deposit the key file can spend from, what is left in it, and whether the association-set service has approved it. Also the caps below, with what the last 24 hours have drawn against them. |
-| `shielded_pay` | Proves a withdrawal from the smallest approved deposit that covers the amount and hands it to the relayer. The recipient receives the full amount; the relayer's fee is drawn on top. `gasDrop` asks the relayer to send a fresh recipient its first ETH. Refused over either cap below, before anything is proven. |
+| `shielded_pay` | Proves a withdrawal from the smallest approved deposit that covers the amount and hands it to the relayer. The recipient receives the full amount; the relayer's fee is drawn on top. `gasDrop` asks the relayer to send a fresh recipient its first ETH, and the fee rises by what that ETH is worth, which `shielded_pool_status` reports as `gasDropFee`; a payment too small to carry it under the relay's 5% fee cap is refused. Refused over either cap below, before anything is proven. |
 
 One payment draws on one deposit, so an amount above the largest approved deposit is refused with
 the figure that would fit. Without `BURSAR_RELAYER_URL` the payment tool is not offered: a
