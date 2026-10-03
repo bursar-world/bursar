@@ -35,6 +35,14 @@ jobs:
       # The monitor needs viem alone, which @bursar/core declares.
       - run: pnpm install --frozen-lockfile --filter @bursar/core
 
+      # The previous run's balances, which this run's are compared against. A cache entry is never
+      # rewritten, so each run saves under its own key and the next restores the newest one by prefix.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/monitor-state.json
+          key: monitor-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: monitor-state-
+
       # RHC_RPC_URL is tried before the public endpoints when set. The webhook receives warnings
       # and alerts. FACILITATOR_GAS_FLOAT is the facilitator relayer's address, which the record
       # does not carry; unset, that one check is skipped.
@@ -43,3 +51,11 @@ jobs:
           RHC_RPC_URL: ${{ secrets.RHC_RPC_URL }}
           BURSAR_ALERT_WEBHOOK: ${{ secrets.BURSAR_ALERT_WEBHOOK }}
           FACILITATOR_GAS_FLOAT: ${{ vars.FACILITATOR_GAS_FLOAT }}
+          BURSAR_MONITOR_STATE: ${{ runner.temp }}/monitor-state.json
+
+      # Saved whether or not the run alerted, so the next run compares against this one.
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: always()
+        with:
+          path: ${{ runner.temp }}/monitor-state.json
+          key: monitor-state-${{ github.run_id }}-${{ github.run_attempt }}

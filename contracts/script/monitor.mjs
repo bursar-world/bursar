@@ -8,7 +8,9 @@
 // is tried first; the chain's public endpoint and dRPC follow. BURSAR_ALERT_WEBHOOK, when set,
 // receives the warnings and alerts. FACILITATOR_GAS_FLOAT names the facilitator's relayer address,
 // which the record does not carry; without it that check is skipped. BURSAR_RECORD points at a
-// record other than the live one.
+// record other than the live one. BURSAR_MONITOR_STATE is where the balances of the contracts that
+// hold funds are kept from one run to the next (a file in the OS temp directory by default), so a
+// balance that fell between two runs is an alert; the workflow carries it across runs in its cache.
 //
 // viem is resolved from packages/core, so `pnpm install --frozen-lockfile --filter @bursar/core`
 // from the repository root is all a bare checkout needs. docs/RUNBOOK.md says what to do about
@@ -16,8 +18,11 @@
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+
+import { OUTFLOW_ALERT_BPS, OUTFLOW_ALERT_FLOOR_UNITS, STATE_VERSION, outflow, readState, writeState } from './monitor-state.mjs';
 
 // Two hourly runs overlap, so nothing that happened between runs is missed.
 const EVENT_LOOKBACK_SECONDS = 2 * 3600;
@@ -52,6 +57,7 @@ const SOLVENCY_MAX_AGE_SECONDS = 2 * 86_400;
 const CHAIN_ID = 4663;
 const RPCS = [process.env.RHC_RPC_URL, 'https://rpc.mainnet.chain.robinhood.com', 'https://robinhood.drpc.org'].filter(Boolean);
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const STATE_PATH = process.env.BURSAR_MONITOR_STATE?.trim() || join(tmpdir(), 'bursar-monitor-state.json');
 
 const viem = await loadViem();
 const { createPublicClient, fallback, http, parseAbi, formatEther, decodeEventLog, toFunctionSelector, getAddress } = viem;
@@ -127,6 +133,7 @@ const buybackAbi = parseAbi([
   'function params() view returns ((uint128 spendPerCallMicroUsd, uint128 maxSpendPerWindowMicroUsd, uint128 minSpendMicroUsd, uint128 maxPriceMicroUsdPerBrsr, uint64 window, uint64 minInterval))',
 ]);
 const vestingAbi = parseAbi(['function admin() view returns (address)']);
+const erc20Abi = parseAbi(['function balanceOf(address) view returns (uint256)', 'function decimals() view returns (uint8)']);
 
 // Every setter a proposal can carry, so a pending proposal prints as a call and not as calldata.
 const SETTERS = [
@@ -154,11 +161,15 @@ const report = (level, check, detail) => {
   lines.push({ level, check, detail });
   console.log(`${level.padEnd(5)} ${check}: ${detail}`);
 };
+// Every fund-holding balance read this run, for compareWithLastRun.
+const observed = new Map();
+const observe = (label, value, decimals, symbol) => observed.set(label, { value, decimals, symbol });
 
 const head = await client.getBlock();
 const now = Number(head.timestamp);
 const names = contractNames(record);
 
+// compareWithLastRun goes last: it needs every balance the other checks read.
 for (const [name, check] of Object.entries({
   timelock: checkTimelocks,
   pauses: checkPauses,
@@ -166,9 +177,11 @@ for (const [name, check] of Object.entries({
   'shielded pool': checkShieldedPool,
   'price feeds': checkFeeds,
   'credit pool': checkCreditPool,
+  holdings: checkHoldings,
   disputes: checkDisputes,
   buyback: checkBuyback,
   'solvency log': checkSolvency,
+  outflows: compareWithLastRun,
 })) {
   try {
     await check();
@@ -252,7 +265,9 @@ async function checkTimelock(address, label) {
     const at = `block ${log.blockNumber}`;
     switch (event.eventName) {
       case 'ProposalCreated':
-        report('warn', `${label} event`, `ProposalCreated #${a.id} for ${names.get(a.target.toLowerCase()) ?? short(a.target)} at ${at}`);
+        // A proposal nobody on the team made is the first sign of a lost signer key, and it can be
+        // vetoed only before its delay runs out, so this one pages.
+        report('alert', `${label} event`, `ProposalCreated #${a.id} for ${names.get(a.target.toLowerCase()) ?? short(a.target)} at ${at}: read it, and veto it if nobody on the team made it`);
         break;
       case 'ProposalExecuted':
         report('warn', `${label} event`, `ProposalExecuted #${a.id} at ${at}: run the post-deploy check`);
@@ -348,6 +363,7 @@ async function checkShieldedPool() {
     client.readContract({ ...pool, functionName: 'MAX_TOTAL' }),
     client.readContract({ ...pool, functionName: 'nonce' }),
   ]);
+  observe('shielded pool', value, 6, 'USDG');
   const fillBps = cap === 0n ? 0n : (value * 10_000n) / cap;
   const fill = `${usdg(value)} of ${usdg(cap)} USDG (${Number(fillBps) / 100}%) over ${deposits} deposit(s)`;
   report(fillBps >= POOL_FILL_WARN_BPS ? 'warn' : 'ok', 'shielded pool fill', fill);
@@ -443,11 +459,72 @@ async function checkCreditPool() {
   const [cash, debt, utilisation, badDebt, totalCap, perMandateCap] = await Promise.all(
     ['cash', 'totalDebt', 'utilisationBps', 'badDebt', 'totalDebtCap', 'perMandateCap'].map((functionName) => client.readContract({ ...pool, functionName })),
   );
+  observe('credit pool cash', cash, 6, 'USDG');
   const figure = `cash ${usdg(cash)} USDG, debt ${usdg(debt)} of ${usdg(totalCap)} USDG cap, utilisation ${Number(utilisation) / 100}%, bad debt ${usdg(badDebt)} USDG`;
   if (badDebt > 0n) report('alert', 'credit pool', `${figure}: a line was written off and the lender carries the loss`);
   else if (utilisation >= CREDIT_UTILISATION_WARN_BPS) report('warn', 'credit pool', `${figure}: draws refuse once debt reaches cash`);
   else if (cash < perMandateCap) report('warn', 'credit pool', `${figure}: less cash than one full line of ${usdg(perMandateCap)} USDG`);
   else report('ok', 'credit pool', figure);
+}
+
+// The other contracts that hold funds, as their tokens see them. The credit pool's cash and the
+// shielded pool's value come from their own checks; together these are what compareWithLastRun
+// holds against the previous run.
+async function checkHoldings() {
+  const holdings = [
+    ['escrow USDG', record.settlementAsset, record.contracts.Escrow],
+    ['buyback USDG', record.settlementAsset, record.token.Buyback],
+    ['staking BRSR', record.token.BRSR, record.token.Staking],
+    ['timelock BRSR', record.token.BRSR, record.contracts.AdminTimelock],
+  ];
+  const vault = record.rwa?.collateral?.CollateralVault;
+  if (vault) for (const [symbol, asset] of Object.entries(record.rwa.assets ?? {})) holdings.push([`vault ${symbol}`, asset.address, vault]);
+
+  const decimalsOf = new Map();
+  const figures = [];
+  for (const [label, token, holder] of holdings) {
+    if (!decimalsOf.has(token)) decimalsOf.set(token, Number(await client.readContract({ address: token, abi: erc20Abi, functionName: 'decimals' })));
+    const decimals = decimalsOf.get(token);
+    const value = await client.readContract({ address: token, abi: erc20Abi, functionName: 'balanceOf', args: [holder] });
+    observe(label, value, decimals, label.slice(label.lastIndexOf(' ') + 1));
+    figures.push(`${label} ${units(value, decimals)}`);
+  }
+  report('ok', 'holdings', figures.join(', '));
+}
+
+// Every balance read this run against the previous run's. A fall over OUTFLOW_ALERT_BPS of the
+// previous figure and over OUTFLOW_ALERT_FLOOR_UNITS of the asset is an alert. Balances a run
+// could not read are carried over, so one failed read does not lose the baseline.
+async function compareWithLastRun() {
+  let previous = null;
+  let unreadable = false;
+  try {
+    previous = readState(STATE_PATH);
+  } catch (error) {
+    unreadable = true;
+    report('warn', 'outflows', `the previous run's figures could not be read (${error.message}); this run's are recorded and the next run compares against them`);
+  }
+
+  let fallen = 0;
+  for (const [label, reading] of observed) {
+    const before = previous?.balances[label];
+    const fall = before === undefined ? null : outflow(BigInt(before.value), reading.value, reading.decimals);
+    if (fall === null) continue;
+    fallen += 1;
+    report(
+      'alert',
+      `outflow ${label}`,
+      `fell from ${units(before.value, reading.decimals)} to ${units(reading.value, reading.decimals)} ${reading.symbol} since the run at ${previous.at} (block ${previous.block}): find what moved it`,
+    );
+  }
+  if (previous === null && !unreadable) report('ok', 'outflows', `first run, nothing to compare against; ${observed.size} balances recorded at ${STATE_PATH}`);
+  else if (previous !== null && fallen === 0) {
+    report('ok', 'outflows', `none of ${observed.size} balances fell by over ${Number(OUTFLOW_ALERT_BPS) / 100}% or ${OUTFLOW_ALERT_FLOOR_UNITS} units since the run at ${previous.at}`);
+  }
+
+  const balances = { ...(previous?.balances ?? {}) };
+  for (const [label, reading] of observed) balances[label] = { value: reading.value.toString(), decimals: reading.decimals, symbol: reading.symbol };
+  writeState(STATE_PATH, { version: STATE_VERSION, at: iso(now), block: head.number.toString(), balances });
 }
 
 async function checkDisputes() {
@@ -626,6 +703,10 @@ async function loadViem() {
 
 function usdg(micro) {
   return (Number(micro) / 1e6).toFixed(2);
+}
+
+function units(value, decimals) {
+  return (Number(value) / 10 ** decimals).toFixed(2);
 }
 
 function iso(seconds) {
