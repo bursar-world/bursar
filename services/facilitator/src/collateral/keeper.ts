@@ -321,11 +321,11 @@ async function observeAssets(
       await chain.simulateObserve(asset);
     } catch (error) {
       const reason = revertName(error);
-      // The clock moved between the read and the simulation, or another keeper got there first.
-      // Either way the reading now waiting is young, which is what the next pass will find.
+      // Only a keeper the guard's governance named may record a reading; a key that is not one
+      // cannot take readings at all, so every asset halts once the reading in force ages out.
       actions.push(
-        reason.includes('ObservationTooSoon')
-          ? { kind: 'observe', asset, outcome: 'waiting', reason: 'too-soon', detail: 'the guard holds a reading younger than its minimum age; another sender landed one' }
+        reason.includes('NotKeeper')
+          ? { kind: 'observe', asset, outcome: 'failed', reason: 'not-keeper', detail: 'the guard does not name this key as a keeper; governance names one with setKeeper' }
           : { kind: 'observe', asset, outcome: 'failed', reason },
       );
       continue;

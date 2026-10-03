@@ -308,14 +308,14 @@ describe('keeping the guard’s readings', () => {
     expect(chain.sent).toEqual([]);
   });
 
-  it('tolerates the guard refusing a reading as too soon, which another sender explains', async () => {
+  it('names a key the guard does not hold as a keeper, which no retry mends', async () => {
     const chain = v4();
     chain.observations = { [SPY]: { ...SETTLED, poolE8: 78_000_000_000n } };
-    chain.observeRevert = new BaseError('execution reverted: ObservationTooSoon(address,uint256,uint256)');
+    chain.observeRevert = new BaseError('execution reverted: NotKeeper()');
 
     const report = await run(chain, true);
 
-    expect(report.actions[0]).toMatchObject({ kind: 'observe', outcome: 'waiting', reason: 'too-soon' });
+    expect(report.actions[0]).toMatchObject({ kind: 'observe', outcome: 'failed', reason: 'not-keeper' });
     expect(chain.sent).toEqual([]);
   });
 
@@ -431,8 +431,8 @@ describe('reading a liquidation the guard refuses', () => {
     expect(revertName(error)).toBe('PoolPriceDeviation');
   });
 
-  it.skipIf(lane === undefined)('names a reading the guard refuses as too soon, which is a wait', async () => {
-    const data = encodeErrorResult({ abi: priceGuardAbi, errorName: 'ObservationTooSoon', args: [SPY, 120n, 300n] });
+  it.skipIf(lane === undefined)('names the keeper gate when the guard refuses a reading', async () => {
+    const data = encodeErrorResult({ abi: priceGuardAbi, errorName: 'NotKeeper', args: [] });
     const node = createPublicClient({
       chain: viemChain(RHC_MAINNET),
       transport: custom(
@@ -452,7 +452,7 @@ describe('reading a liquidation the guard refuses', () => {
     const chain = createKeeperChain({ publicClient: node, lane: lane! });
 
     const error = await chain.simulateObserve(SPY).catch((failure: unknown) => failure);
-    expect(revertName(error)).toBe('ObservationTooSoon');
+    expect(revertName(error)).toBe('NotKeeper');
   });
 
   /** A v3 guard has no observation bounds, and an unknown selector on it answers nothing. */
