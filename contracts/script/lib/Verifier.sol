@@ -117,6 +117,10 @@ abstract contract Verifier is BursarScript {
         console2.log(string.concat("fact      ", what, " = ", value ? "true" : "false"));
     }
 
+    function _fact(string memory what, string memory value) internal pure {
+        console2.log(string.concat("fact      ", what, " = ", value));
+    }
+
     /// A record key as a reader writes it: `contracts.Escrow`, without the leading dot.
     function _unkeyed(string memory key) private pure returns (string memory) {
         bytes memory raw = bytes(key);

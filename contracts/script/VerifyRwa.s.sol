@@ -34,11 +34,7 @@ abstract contract RwaChecks is Verifier {
         _is("PriceGuard.registry", registry, address(g.registry()));
         _is("PriceGuard.accessRegistry", _recordAddress(K.ACCESS_REGISTRY), address(g.accessRegistry()));
         _is("PriceGuard.stateView", _recordAddress(K.STATE_VIEW), address(g.stateView()));
-        _is("PriceGuard.admin", timelock, g.admin());
-        _pendingAdmin("PriceGuard.pendingAdmin", g.pendingAdmin());
-        address guardKeeper = _recordAddress(".rwa.guardKeeper");
-        _fact("PriceGuard.keeper", guardKeeper);
-        _isTrue("PriceGuard does not list the recorded keeper", guardKeeper != address(0) && g.isKeeper(guardKeeper));
+        _checkGuardGovernance(g, timelock);
         _isParamAt("PriceGuard.minObservationAge", guard, abi.encodeCall(g.MIN_OBSERVATION_AGE, ()));
         _isParamAt("PriceGuard.maxObservationAge", guard, abi.encodeCall(g.MAX_OBSERVATION_AGE, ()));
         _isParamAt("PriceGuard.maxFeedJumpBps", guard, abi.encodeCall(g.MAX_FEED_JUMP_BPS, ()));
@@ -83,6 +79,22 @@ abstract contract RwaChecks is Verifier {
         }
         _isTrue("TreasuryPark does not list the treasury adapter", listed);
         if (switching) _isTrue("TreasuryPark still lists the previous treasury adapter", !p.isAdapter(previous));
+    }
+
+    /// The guard answers to the timelock and takes observations from the recorded keeper alone. A
+    /// guard built before it had an admin, the fourth set's, answers neither read: the check says
+    /// so and asks nothing else of its governance, since the fifth set's guard replaces it.
+    function _checkGuardGovernance(PriceGuard g, address timelock) private {
+        (bool ok, bytes memory answer) = address(g).staticcall(abi.encodeCall(g.admin, ()));
+        if (!ok || answer.length != 32) {
+            _fact("PriceGuard.admin", "none: built before the guard had an admin or a keeper");
+            return;
+        }
+        _is("PriceGuard.admin", timelock, abi.decode(answer, (address)));
+        _pendingAdmin("PriceGuard.pendingAdmin", g.pendingAdmin());
+        address guardKeeper = _recordAddress(".rwa.guardKeeper");
+        _fact("PriceGuard.keeper", guardKeeper);
+        _isTrue("PriceGuard does not list the recorded keeper", guardKeeper != address(0) && g.isKeeper(guardKeeper));
     }
 
     function _checkRegistry(AssetRegistry registry, address timelock) private {
