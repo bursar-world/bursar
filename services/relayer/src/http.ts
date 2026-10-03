@@ -9,7 +9,7 @@ type Reply = { readonly status: number; readonly body: unknown };
 
 export async function handle(relayer: Relayer, method: string, path: string, body: () => Promise<unknown>, health: () => Promise<unknown>): Promise<Reply> {
   if (method === 'GET' && path === '/health') return { status: 200, body: await health() };
-  if (method === 'GET' && path === '/v1/quote') return { status: 200, body: relayer.quote() };
+  if (method === 'GET' && path === '/v1/quote') return { status: 200, body: await relayer.quote() };
   if (method === 'POST' && path === '/v1/relay') {
     try {
       return { status: 200, body: await relayer.relay(await body()) };

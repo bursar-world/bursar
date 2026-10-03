@@ -5,5 +5,5 @@ export type { GasDrop } from './drops.js';
 export { MAX_BODY_BYTES, handle, serve } from './http.js';
 export type { ServeOptions } from './http.js';
 export { RelayRefusal, Relayer } from './relay.js';
-export type { RelayOutcome, RelayerConfig } from './relay.js';
+export type { RelayOutcome, RelayerConfig, RelayerQuote } from './relay.js';
 export { signerFromEnv } from './signer.js';

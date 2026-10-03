@@ -1,3 +1,7 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { encodeRelayData, shieldedPoolAbi, withdrawalContext, type WireProof } from '@bursar/sdk';
 import {
   BaseError,
@@ -5,6 +9,7 @@ import {
   encodeAbiParameters,
   encodeEventTopics,
   parseEther,
+  parseUnits,
   toFunctionSelector,
   type Address,
   type Hex,
@@ -23,6 +28,15 @@ const NULLIFIER = 555n;
 const RELAY_HASH = `0x${'ab'.repeat(32)}` as Hex;
 const DROP_HASH = `0x${'cd'.repeat(32)}` as Hex;
 const DROP = parseEther('0.00015');
+/** 50 USDG: large enough for a drop to fit under the relay's fee cap. */
+const AMOUNT = 50_000_000n;
+/** Robinhood Chain's base fee on an ordinary day, 0.031 gwei. */
+const GAS_PRICE = 31_362_000n;
+/** At 2,000 USDG per ETH the drop is 0.3 USDG; with the transfer that carries it at GAS_PRICE, 0.301318. */
+const DROP_FEE = 300_000n;
+const QUOTED_DROP_FEE = '301318';
+/** 50 bps of AMOUNT is 0.25 USDG; the drop on top is 0.55 USDG, which is 110 bps of AMOUNT. */
+const GAS_FEE_BPS = 110n;
 
 const config: RelayerConfig = {
   chainId: 4663,
@@ -35,8 +49,11 @@ const config: RelayerConfig = {
   feeBps: 50,
   gasDropWei: DROP,
   gasDropsPerDay: 2,
+  ethPrice: parseUnits('2000', 6),
   minWithdrawal: 10_000n,
 };
+
+const fileLedger = (now: () => number) => new GasDropLedger(join(mkdtempSync(join(tmpdir(), 'relayer-')), 'gas-drops.jsonl'), now);
 
 type Overrides = {
   recipient?: Address;
@@ -50,17 +67,18 @@ type Overrides = {
   nullifier?: bigint;
 };
 
+/** A withdrawal of AMOUNT at the relayer's fee, or at the fee that also pays for a drop when it asks for gas. */
 function request(overrides: Overrides = {}) {
   const withdrawal = {
     processooor: overrides.processooor ?? RELAY,
     data: encodeRelayData({
       recipient: overrides.recipient ?? RECIPIENT,
       feeRecipient: overrides.feeRecipient ?? RELAYER,
-      relayFeeBPS: overrides.feeBps ?? 50n,
+      relayFeeBPS: overrides.feeBps ?? (overrides.gasDrop ? GAS_FEE_BPS : 50n),
     }),
   };
   const context = overrides.context ?? withdrawalContext(withdrawal, config.scope);
-  const signals = [1n, overrides.nullifier ?? NULLIFIER, overrides.amount ?? 50_000n, 2n, 1n, overrides.aspRoot ?? ASP_ROOT, 1n, context];
+  const signals = [1n, overrides.nullifier ?? NULLIFIER, overrides.amount ?? AMOUNT, 2n, 1n, overrides.aspRoot ?? ASP_ROOT, 1n, context];
   const proof: WireProof = { pA: ['1', '2'], pB: [['3', '4'], ['5', '6']], pC: ['7', '8'], pubSignals: signals.map(String) };
   return { withdrawal, proof, ...(overrides.gasDrop === undefined ? {} : { gasDrop: overrides.gasDrop }) };
 }
@@ -70,7 +88,7 @@ function withdrawn(nullifier: bigint, address: Address = config.pool) {
   return {
     address,
     topics: encodeEventTopics({ abi: shieldedPoolAbi, eventName: 'Withdrawn', args: { _processooor: RELAY } }),
-    data: encodeAbiParameters([{ type: 'uint256' }, { type: 'uint256' }, { type: 'uint256' }], [50_000n, nullifier, 1n]),
+    data: encodeAbiParameters([{ type: 'uint256' }, { type: 'uint256' }, { type: 'uint256' }], [AMOUNT, nullifier, 1n]),
     blockNumber: 1n,
     blockHash: `0x${'bb'.repeat(32)}` as Hex,
     transactionHash: RELAY_HASH,
@@ -91,13 +109,16 @@ type State = {
   receipt?: 'event' | 'no-event' | 'other-contract' | 'reverted';
   dropFails?: boolean;
   ledger?: GasDropLedger;
+  gasPrice?: bigint;
+  config?: Partial<RelayerConfig>;
 };
 
 function setup(state: State = {}) {
   let now = 1_000_000;
-  const drops = state.ledger ?? new GasDropLedger(null, () => now);
+  const drops = state.ledger ?? fileLedger(() => now);
   let spentNullifier = 0n;
   const client = {
+    getGasPrice: vi.fn(async () => state.gasPrice ?? GAS_PRICE),
     readContract: vi.fn(async ({ functionName, args }: { functionName: string; args?: readonly unknown[] }) => {
       if (functionName === 'isBlocked') return (state.blocked ?? []).includes(args![0] as Address);
       if (functionName === 'nullifierHashes') return state.spent ?? false;
@@ -136,7 +157,7 @@ function setup(state: State = {}) {
     }),
   };
   const logged: string[] = [];
-  const relayer = new Relayer(client as never, wallet as never, {} as never, config, drops, (line) => logged.push(line));
+  const relayer = new Relayer(client as never, wallet as never, {} as never, { ...config, ...state.config }, drops, (line) => logged.push(line));
   return { client, wallet, relayer, drops, logged, advance: (ms: number) => (now += ms) };
 }
 
@@ -151,8 +172,32 @@ async function refusal(promise: Promise<unknown>): Promise<RelayRefusal> {
 }
 
 describe('relayer', () => {
-  it('quotes its fee, fee recipient and gas drop', () => {
-    expect(setup().relayer.quote()).toEqual({ relay: RELAY, feeRecipient: RELAYER, feeBps: 50, gasDropWei: '150000000000000', chainId: 4663 });
+  it('quotes its fee, fee recipient, gas drop, and what a drop adds to the fee at the current gas price', async () => {
+    expect(await setup().relayer.quote()).toEqual({
+      relay: RELAY,
+      feeRecipient: RELAYER,
+      feeBps: 50,
+      gasDropWei: '150000000000000',
+      chainId: 4663,
+      gasDropFee: QUOTED_DROP_FEE,
+    });
+    // Twice the gas price: the 0.3 USDG drop is the same, the transfer that carries it costs twice as much.
+    expect((await setup({ gasPrice: GAS_PRICE * 2n }).relayer.quote()).gasDropFee).toBe('302635');
+
+    const off = setup({ config: { gasDropWei: 0n } });
+    expect(await off.relayer.quote()).toMatchObject({ gasDropWei: '0', gasDropFee: '0' });
+    expect(off.client.getGasPrice).not.toHaveBeenCalled();
+  });
+
+  it('refuses to start with gas drops on but nothing to keep the budget or price the drop', () => {
+    const start = (overrides: Partial<RelayerConfig>, ledger: GasDropLedger) =>
+      new Relayer({} as never, {} as never, {} as never, { ...config, ...overrides }, ledger);
+
+    expect(() => start({}, new GasDropLedger(null))).toThrow(/RELAYER_DATA_DIR/);
+    expect(() => start({ ethPrice: 0n }, fileLedger(Date.now))).toThrow(/RELAYER_ETH_PRICE_USDG/);
+    // With drops off, neither is needed.
+    expect(start({ gasDropWei: 0n, ethPrice: 0n }, new GasDropLedger(null))).toBeInstanceOf(Relayer);
+    expect(start({ gasDropsPerDay: 0, ethPrice: 0n }, new GasDropLedger(null))).toBeInstanceOf(Relayer);
   });
 
   it('relays a valid withdrawal without sending value along with it', async () => {
@@ -229,6 +274,20 @@ describe('gas drops', () => {
     expect(drops.countToday()).toBe(1);
   });
 
+  it('makes the withdrawal pay for its drop: the plain fee is refused with gas, before anything is sent', async () => {
+    const { relayer, wallet } = setup();
+    const refused = await refusal(relayer.relay(request({ gasDrop: true, feeBps: 50n })));
+    expect([refused.status, refused.code]).toEqual([400, 'fee_too_low']);
+    expect(refused.message).toContain(`50 basis points plus ${DROP_FEE} atomic USDG, which is ${GAS_FEE_BPS} basis points`);
+    expect((await refusal(relayer.relay(request({ gasDrop: true, feeBps: GAS_FEE_BPS - 1n })))).code).toBe('fee_too_low');
+    expect(wallet.writeContract).not.toHaveBeenCalled();
+
+    // The same fee without gas is enough, and the fee that covers the drop buys it.
+    expect((await relayer.relay(request({ feeBps: 50n }))).gasDropWei).toBe('0');
+    expect((await relayer.relay(request({ gasDrop: true, feeBps: GAS_FEE_BPS, nullifier: 556n, recipient: OTHER }))).gasDropWei).toBe(DROP.toString());
+    expect(wallet.sendTransaction).toHaveBeenCalledTimes(1);
+  });
+
   it('sends nothing when the receipt shows no withdrawal of that note', async () => {
     for (const receipt of ['no-event', 'other-contract'] as const) {
       const { relayer, wallet, logged } = setup({ receipt });
@@ -283,7 +342,7 @@ describe('gas drops', () => {
 
   it('keeps the budget when the ledger is shared across restarts', async () => {
     let now = 1_000_000;
-    const ledger = new GasDropLedger(null, () => now);
+    const ledger = fileLedger(() => now);
     const first = setup({ ledger });
     await first.relayer.relay(request({ gasDrop: true }));
     await first.relayer.relay(request({ gasDrop: true, nullifier: 556n, recipient: OTHER }));

@@ -35,7 +35,8 @@ export class GasDropLedger {
   private readonly recipients = new Set<string>();
 
   constructor(
-    private readonly path: string | null,
+    /** The file drops are appended to. Null keeps them in memory, which the relayer accepts only with drops off. */
+    readonly path: string | null,
     readonly now: () => number = Date.now,
   ) {
     if (!path) return;

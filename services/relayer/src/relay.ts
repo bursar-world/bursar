@@ -47,9 +47,23 @@ export type RelayerConfig = {
   readonly gasDropWei: bigint;
   /** Gas drops allowed per rolling day, across all recipients. */
   readonly gasDropsPerDay: number;
+  /** What one ETH is worth, in USDG atomic units, which is how a drop is priced into the fee. Read while drops are on. */
+  readonly ethPrice: bigint;
   /** Smallest withdrawal relayed, in USDG atomic units. */
   readonly minWithdrawal: bigint;
 };
+
+/** The SDK's quote, plus what a withdrawal that asks for gas pays on top of `feeBps`. */
+export type RelayerQuote = RelayQuote & {
+  /** USDG atomic units for the drop and the transfer that carries it, at the current gas price. "0" with drops off. */
+  readonly gasDropFee: string;
+};
+
+/** Gas a plain ETH transfer burns, which is what carries a drop. */
+const TRANSFER_GAS = 21_000n;
+const WEI_PER_ETH = 10n ** 18n;
+
+const ceilDiv = (a: bigint, b: bigint): bigint => (a + b - 1n) / b;
 
 export class RelayRefusal extends Error {
   constructor(
@@ -63,7 +77,7 @@ export class RelayRefusal extends Error {
 
 type Client = Pick<
   PublicClient,
-  'readContract' | 'simulateContract' | 'waitForTransactionReceipt' | 'getBalance' | 'getCode' | 'getTransactionCount'
+  'readContract' | 'simulateContract' | 'waitForTransactionReceipt' | 'getBalance' | 'getCode' | 'getTransactionCount' | 'getGasPrice'
 >;
 
 /** What the relayer answers. The SDK's `RelayResult`, plus the hash of the gas transfer when one was made. */
@@ -121,16 +135,43 @@ export class Relayer {
     readonly config: RelayerConfig,
     private readonly drops: GasDropLedger,
     private readonly log: (line: string) => void = () => undefined,
-  ) {}
+  ) {
+    if (!this.dropsOn) return;
+    // The daily budget is the only bound on what the float gives away, and one that starts over
+    // with each restart is no bound. The price is what lets a withdrawal pay for its own drop.
+    if (drops.path === null) {
+      throw new Error(
+        'Gas drops are on and the ledger of drops is kept in memory, where a restart opens a fresh daily budget. ' +
+          'Set RELAYER_DATA_DIR to a directory that outlives the process, or turn drops off with RELAYER_GAS_DROP_ETH=0.',
+      );
+    }
+    if (config.ethPrice <= 0n) {
+      throw new Error(
+        'Gas drops are on, so each drop has to be priced into the relay fee. Set RELAYER_ETH_PRICE_USDG to what one ETH ' +
+          'is worth in USDG, or turn drops off with RELAYER_GAS_DROP_ETH=0.',
+      );
+    }
+  }
 
-  quote(): RelayQuote {
+  private get dropsOn(): boolean {
+    return this.config.gasDropWei > 0n && this.config.gasDropsPerDay > 0;
+  }
+
+  async quote(): Promise<RelayerQuote> {
+    const gasPrice = this.dropsOn ? await this.client.getGasPrice() : 0n;
     return {
       relay: this.config.relay,
       feeRecipient: this.config.feeRecipient,
       feeBps: this.config.feeBps,
       gasDropWei: this.config.gasDropWei.toString(),
       chainId: this.config.chainId,
+      gasDropFee: (this.dropsOn ? this.dropCost(gasPrice) : 0n).toString(),
     };
+  }
+
+  /** What a drop costs in USDG: the ETH handed over, and the transfer that carries it at `gasPrice`. */
+  private dropCost(gasPrice: bigint): bigint {
+    return ceilDiv((this.config.gasDropWei + TRANSFER_GAS * gasPrice) * this.config.ethPrice, WEI_PER_ETH);
   }
 
   private budgetSpent(): boolean {
@@ -168,6 +209,24 @@ export class Relayer {
     const signals = withdrawSignals(proof);
     if (signals.withdrawnValue < c.minWithdrawal) {
       throw new RelayRefusal(400, 'below_minimum', `The smallest withdrawal relayed is ${c.minWithdrawal} atomic USDG.`);
+    }
+    if (parsed.gasDrop && this.dropsOn) {
+      // A withdrawal pays for the ETH it is handed, so a run of fresh addresses earns the float what
+      // it spends. The transfer's gas is quoted at the moment's price and not held to here: it is a
+      // fraction of a percent of the drop, and the price can move between the quote and the proof.
+      const value = signals.withdrawnValue;
+      const drop = this.dropCost(0n);
+      const paid = (value * data.relayFeeBPS) / 10_000n;
+      const owed = (value * BigInt(c.feeBps)) / 10_000n + drop;
+      if (paid < owed) {
+        const needed = ceilDiv(owed * 10_000n, value);
+        throw new RelayRefusal(
+          400,
+          'fee_too_low',
+          `A withdrawal that asks for gas pays for the drop: ${c.feeBps} basis points plus ${drop} atomic USDG, which is ` +
+            `${needed} basis points of this one. Ask for gas at ${needed} basis points, or withdraw without it at ${c.feeBps}.`,
+        );
+      }
     }
     if (signals.context !== withdrawalContext(withdrawal, c.scope)) {
       throw new RelayRefusal(400, 'context_mismatch', 'The proof was made for a different withdrawal or pool.');

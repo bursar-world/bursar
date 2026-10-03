@@ -5,15 +5,16 @@
  * RELAYER_KEYSTORE and RELAYER_PASSWORD_FILE; PORT (default 4321); RELAYER_HOST (default every
  * interface); RELAYER_ALLOWED_ORIGINS (default https://app.bursar.world); RELAYER_FEE_BPS
  * (default 50); RELAYER_FEE_RECIPIENT (default the relayer address); RELAYER_GAS_DROP_ETH (default
- * 0.00015); RELAYER_GAS_DROPS_PER_DAY (default 50); RELAYER_DATA_DIR to keep the gas-drop ledger
- * across restarts; RELAYER_MIN_WITHDRAWAL (atomic USDG, default the pool's minimum deposit from the
+ * 0.00015); RELAYER_GAS_DROPS_PER_DAY (default 50); RELAYER_DATA_DIR, where the gas-drop ledger
+ * lives, and RELAYER_ETH_PRICE_USDG, what one ETH is worth in USDG, both required while gas drops
+ * are on; RELAYER_MIN_WITHDRAWAL (atomic USDG, default the pool's minimum deposit from the
  * deployment record).
  */
 import { join } from 'node:path';
 import process from 'node:process';
 
 import { privacyDeployment, rhcChain, viemChain } from '@bursar/core';
-import { createPublicClient, createWalletClient, formatEther, getAddress, http, parseEther } from 'viem';
+import { createPublicClient, createWalletClient, formatEther, formatUnits, getAddress, http, parseEther, parseUnits } from 'viem';
 
 import { originPolicy } from './cors.js';
 import { GasDropLedger } from './drops.js';
@@ -41,6 +42,12 @@ function run() {
   }
   const gasDropsPerDay = Number(env['RELAYER_GAS_DROPS_PER_DAY'] ?? 50);
   if (!Number.isInteger(gasDropsPerDay) || gasDropsPerDay < 0) throw new Error('RELAYER_GAS_DROPS_PER_DAY must be a whole number.');
+  const gasDropWei = parseEther(env['RELAYER_GAS_DROP_ETH'] ?? '0.00015');
+  const ethPriceText = env['RELAYER_ETH_PRICE_USDG'];
+  if (ethPriceText !== undefined && !/^\d+(\.\d{1,6})?$/u.test(ethPriceText)) {
+    throw new Error('RELAYER_ETH_PRICE_USDG is what one ETH is worth in USDG, a decimal with at most six places.');
+  }
+  const ethPrice = ethPriceText === undefined ? 0n : parseUnits(ethPriceText, 6);
   const host = env['RELAYER_HOST'];
   const origins = originPolicy('RELAYER_ALLOWED_ORIGINS', env['RELAYER_ALLOWED_ORIGINS'], host);
   const dataDir = env['RELAYER_DATA_DIR'];
@@ -59,8 +66,9 @@ function run() {
       scope: BigInt(deployment.scope),
       feeRecipient: getAddress(env['RELAYER_FEE_RECIPIENT'] ?? account.address),
       feeBps,
-      gasDropWei: parseEther(env['RELAYER_GAS_DROP_ETH'] ?? '0.00015'),
+      gasDropWei,
       gasDropsPerDay,
+      ethPrice,
       minWithdrawal: BigInt(env['RELAYER_MIN_WITHDRAWAL'] ?? deployment.minimumDeposit),
     },
     drops,
@@ -77,10 +85,11 @@ function run() {
       return { ok: balance > parseEther('0.0005'), relayer: account.address, relay: deployment.ShieldedRelay, balanceEth: formatEther(balance) };
     },
   });
-  console.log(
-    `relayer ${account.address} serving on ${host ?? '*'}:${port}, relay ${deployment.ShieldedRelay}, fee ${feeBps} bps, ` +
-      `${gasDropsPerDay} gas drops a day${dataDir ? ` recorded under ${dataDir}` : ' kept in memory'}`,
-  );
+  const gasDrops =
+    gasDropWei > 0n && gasDropsPerDay > 0
+      ? `${gasDropsPerDay} gas drops a day of ${formatEther(gasDropWei)} ETH at ${formatUnits(ethPrice, 6)} USDG per ETH, recorded under ${dataDir}`
+      : 'gas drops off';
+  console.log(`relayer ${account.address} serving on ${host ?? '*'}:${port}, relay ${deployment.ShieldedRelay}, fee ${feeBps} bps, ${gasDrops}`);
 }
 
 const [command] = process.argv.slice(2);
