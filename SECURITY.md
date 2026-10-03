@@ -53,6 +53,13 @@ and responds is in [docs/RUNBOOK.md](docs/RUNBOOK.md).
   registry has since blocked can still take out what it put in. Unlinkability grows with
   independent deposits, and a payout from a pool with few depositors can be attributed by
   elimination.
+- **Filling the pool.** Anyone willing to lock 1,000 USDG can fill the pool: four addresses, since
+  one address may put in at most 250 USDG in any seven days, and new deposits then refuse until
+  some of it is withdrawn. That is the launch guard doing its work on a pool kept deliberately
+  small. The capital that fills it stays in the pool, and only the owners of the notes that hold
+  it can take it out; no other user's funds are reached, and every note already in the pool can
+  still be withdrawn. The caps are fixed in this pool, so the pool cap and the per-address limit
+  rise by a governance proposal that registers a pool with higher caps, as the pool proves itself.
 - **Prices.** Each stock and treasury token is priced by one feed, cross-checked against the
   asset's pinned Uniswap v4 pool within a band (0.5% for SGOV, 1% for stocks). A feed older than
   26 hours refuses trades, and a position whose price is stale or whose pool disagrees with its
