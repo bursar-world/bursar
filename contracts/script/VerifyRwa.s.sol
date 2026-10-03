@@ -69,11 +69,12 @@ abstract contract RwaChecks is Verifier {
     }
 
     /// The park lists the record's treasury adapter and not the previous deployment's, when
-    /// `BURSAR_PREVIOUS_RECORD` names a different one. Until the wiring batch switches them the
-    /// previous one is still listed, which is owed.
+    /// `BURSAR_PREVIOUS_RECORD` names a different one on the same park. Until the wiring batch
+    /// switches them the previous one is still listed, which is owed.
     function _checkTreasuryAdapter(TreasuryPark p, address adapter) private {
         address previous = _previousAddress(K.SGOV_ADAPTER);
-        bool switching = previous != address(0) && previous != adapter;
+        bool switching =
+            previous != address(0) && previous != adapter && _previousAddress(K.TREASURY_PARK) == address(p);
         bool listed = p.isAdapter(adapter);
         _fact("TreasuryPark.isAdapter.SGOV", listed);
         if (!listed && switching && p.isAdapter(previous)) {

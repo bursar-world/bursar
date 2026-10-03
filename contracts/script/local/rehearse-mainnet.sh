@@ -14,12 +14,15 @@
 # deployments/rhc-mainnet-v5.json as committed, so the wiring goes to the 48-hour timelock. Without
 # it, the move runs against the chain as it stands, under the one-hour timelock, with a fifth record
 # that takes its governance from the fourth as it reads today: the same scripts in the same order,
-# the other governance.
+# the other governance. In that mode the chain itself still owes the handover's acceptances, one per
+# carried contract, so the final checks list them as owed and have to find nothing mismatched; with
+# the handover landed they run strict and have to find nothing owed either.
 #
 # RHC_RPC_URL is the chain it forks, the public endpoint unless set, and BURSAR_ANVIL_PORT the
-# port, 8549 unless set. The records it writes are copies under cache/bursar/fork, and it builds,
-# logs its transactions and keeps forge's --resume data there too: nothing in deployments/, out/,
-# broadcast/ or cache/ outside cache/bursar changes, so a real run's logs are never overwritten.
+# port, 8549 unless set. The records it writes are copies under cache/bursar/fork, or
+# cache/bursar/fork-landed in the other mode, and it builds, logs its transactions and keeps forge's
+# --resume data there too: nothing in deployments/, out/, broadcast/ or cache/ outside cache/bursar
+# changes, so a real run's logs are never overwritten.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -60,7 +63,7 @@ cast rpc evm_mine --rpc-url "$rpc" >/dev/null
 
 # shellcheck source=../env/rhc-mainnet-v5.env
 source script/env/rhc-mainnet-v5.env
-dir=cache/bursar/fork
+dir="cache/bursar/fork${BURSAR_HANDOVER_LANDED:+-landed}"
 rm -rf "$dir/broadcast"
 mkdir -p "$dir"
 for record in rhc-mainnet-v4 rhc-mainnet-v5; do
@@ -113,6 +116,18 @@ gas_for() {
       echo "  topped up on the fork"
     fi
   done
+}
+
+# The whole check. Strict once the handover has landed: nothing owed. Before that the chain owes
+# the acceptances, which the check lists, and nothing may be mismatched.
+check_all() {
+  if [ -n "${BURSAR_HANDOVER_LANDED:-}" ]; then
+    BURSAR_VERIFY_STRICT=1 check script/Verify.s.sol
+    return
+  fi
+  check script/Verify.s.sol | tee "$dir/verify.log"
+  grep -q '^ *deployment: 0 mismatched, ' "$dir/verify.log"
+  echo "what is owed above is the handover's acceptances, which this mode leaves to the chain"
 }
 
 observe() {
@@ -201,12 +216,12 @@ later "$((delay + 1))"
 send script/ProposeWiring.s.sol "$signer_1" --sig "execute()"
 check script/VerifyWiring.s.sol
 send script/RetireRecords.s.sol "$deployer" --sig "goLive()"
-BURSAR_VERIFY_STRICT=1 check script/Verify.s.sol
+check_all
 
 step "5. The previous record retires"
 send script/MigrateCredit.s.sol "$deployer" --sig "claimSeized()"
 send script/RetireRecords.s.sol "$deployer"
-BURSAR_VERIFY_STRICT=1 check script/Verify.s.sol
+check_all
 
 # What each key spent, from the receipts forge logged: the figure the runbook's balances rest on.
 step "Gas each key used"
@@ -228,6 +243,11 @@ for record in "$BURSAR_PREVIOUS_RECORD" "$BURSAR_RECORD"; do
   printf '%-40s %s\n' "$record" "$(jq -r '.status + (if .supersededBy then " -> " + .supersededBy else "" end)' "$record")"
 done
 current="done"
-printf '\nMainnet rehearsal passed: every step of MIGRATION-V5.md ran on a fork of block %s with the handover %s, the previous record is %s and the new record is %s.\n' \
-  "$forked_at" "${BURSAR_HANDOVER_LANDED:+landed}${BURSAR_HANDOVER_LANDED:-not landed}" \
+if [ -n "${BURSAR_HANDOVER_LANDED:-}" ]; then
+  outcome="the strict check found 0 mismatched and 0 owed"
+else
+  outcome="the check found 0 mismatched and owed only the handover's acceptances"
+fi
+printf '\nMainnet rehearsal passed: every step of MIGRATION-V5.md ran on a fork of block %s with the handover %s, %s, the previous record is %s and the new record is %s.\n' \
+  "$forked_at" "${BURSAR_HANDOVER_LANDED:+landed}${BURSAR_HANDOVER_LANDED:-not landed}" "$outcome" \
   "$(jq -r .status "$BURSAR_PREVIOUS_RECORD")" "$(jq -r .status "$BURSAR_RECORD")"
