@@ -355,18 +355,25 @@ escrow its tests catch, and which ones they miss.
 
 - Tokens are conserved for every asset: the vault's balance is the collateral behind its credit
   lines plus what it has seized.
-  [`invariant_tokensAreConservedPerAsset`](../contracts/test/rwa/CollateralInvariants.t.sol#L534)
+  [`invariant_tokensAreConservedPerAsset`](../contracts/test/rwa/CollateralInvariants.t.sol#L599)
 - The vault's view of a line's debt is the credit pool's, and a line's health reads as unlimited
   exactly when it owes nothing.
-  [`invariant_poolDebtMatchesTheVaultsView`](../contracts/test/rwa/CollateralInvariants.t.sol#L547)
-- A write-off leaves the line with no collateral and no debt.
-  [`invariant_aWriteOffLeavesNoCollateralAndNoDebt`](../contracts/test/rwa/CollateralInvariants.t.sol#L562)
+  [`invariant_poolDebtMatchesTheVaultsView`](../contracts/test/rwa/CollateralInvariants.t.sol#L612)
+- A write-off leaves the line with no debt.
+  [`invariant_aWriteOffLeavesNoDebt`](../contracts/test/rwa/CollateralInvariants.t.sol#L627)
 - No draw lands without a valid price observation that has aged long enough to be trusted.
-  [`invariant_noDrawWithoutAValidAgedObservation`](../contracts/test/rwa/CollateralInvariants.t.sol#L566)
+  [`invariant_noDrawWithoutAValidAgedObservation`](../contracts/test/rwa/CollateralInvariants.t.sol#L631)
+- Only a keeper the guard's governance named can record a reading; nobody else ever plants one.
+  [`invariant_aNonKeeperNeverPlantsAReading`](../contracts/test/rwa/CollateralInvariants.t.sol#L635)
+- No liquidation sale completes while the price guard reports a halt for the asset being sold.
+  [`invariant_noSaleCompletesWhileTheGuardHalts`](../contracts/test/rwa/CollateralInvariants.t.sol#L639)
+- A write-off never seizes more than the written-off debt is worth at the feed while a feed can
+  be read; what the debt does not need stays the borrower's.
+  [`invariant_aWriteOffNeverSeizesMoreThanTheDebtAtTheFeed`](../contracts/test/rwa/CollateralInvariants.t.sol#L643)
 - A line that owes nothing can always withdraw all of its collateral.
-  [`invariant_aLineWithNoDebtCanWithdrawEverything`](../contracts/test/rwa/CollateralInvariants.t.sol#L572)
+  [`invariant_aLineWithNoDebtCanWithdrawEverything`](../contracts/test/rwa/CollateralInvariants.t.sol#L649)
 - Seized tokens only ever sit in the vault's seized balance or go to the pool's lender.
-  [`invariant_seizedOnlyEverLeavesToTheLender`](../contracts/test/rwa/CollateralInvariants.t.sol#L591)
+  [`invariant_seizedOnlyEverLeavesToTheLender`](../contracts/test/rwa/CollateralInvariants.t.sol#L668)
 
 ## Shielded pool
 
