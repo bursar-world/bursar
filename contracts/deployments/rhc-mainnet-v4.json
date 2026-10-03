@@ -2,7 +2,7 @@
   "$schema": "./schema.json",
   "network": "rhc-mainnet-v4",
   "chainId": 4663,
-  "status": "live",
+  "status": "retired",
   "dev": true,
   "rpc": "https://rpc.mainnet.chain.robinhood.com",
   "explorer": "https://robinhoodchain.blockscout.com",
@@ -253,5 +253,7 @@
     "timelockPeriod": 172800,
     "previous": "0xD91A6577828424E386900D0bB41596c6eF3BF8DF",
     "fromBlock": 78636336
-  }
+  },
+  "supersededBy": "rhc-mainnet-v5",
+  "retired": "Replaced by rhc-mainnet-v5. Nothing is open on its credit pool or collateral vault. Its escrow, registries and shielded pool carry over to it."
 }
