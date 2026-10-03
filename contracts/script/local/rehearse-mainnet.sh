@@ -101,16 +101,16 @@ later() {
   cast rpc evm_mine --rpc-url "$rpc" >/dev/null
 }
 
-# A key the fork impersonates still pays for gas. Each one's balance on the chain is printed, which
-# is what the runbook's balance table rests on, and topped up on the fork alone when it is short.
+# A key the fork impersonates still pays for gas. Each one's balance on the chain is printed, to be
+# read against the gas figures at the end, and a key under a tenth of a milli-ether is topped up on
+# the fork alone so the rehearsal gets through.
 gas_for() {
-  local account balance
+  local account
   for account in "$@"; do
-    balance="$(cast balance "$account" --ether --rpc-url "$rpc")"
-    printf '%s holds %s ETH\n' "$account" "$balance"
-    if [ "$(cast balance "$account" --rpc-url "$rpc")" -lt 10000000000000000 ]; then
+    printf '%s holds %s ETH\n' "$account" "$(cast balance "$account" --ether --rpc-url "$rpc")"
+    if [ "$(cast balance "$account" --rpc-url "$rpc")" -lt 100000000000000 ]; then
       cast rpc anvil_setBalance "$account" 0xde0b6b3a7640000 --rpc-url "$rpc" >/dev/null
-      echo "  topped up on the fork; the real key needs gas before the move"
+      echo "  topped up on the fork"
     fi
   done
 }
