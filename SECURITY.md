@@ -4,12 +4,19 @@ Bursar contracts hold real funds on Robinhood Chain mainnet. If you find a way t
 misdirect those funds, or to make any part of the system act outside a mandate, please tell us
 privately first.
 
-## Audit status
+## Reviews
 
-An independent review of the contracts and services was completed on 2026-10-01, and its findings
-are being closed. The caps on mainnet are deliberately low to bound what a defect can cost: a payee
-with no settlement history can be paid at most 25 USDG per job, rising with its record to the
-250 USDG ceiling under the current curve. A point is earned with settled work: a job under 1 USDG
+Two readings of this repository are marked with annotated git tags, so the exact state each one
+read can be checked out:
+
+| Tag | Date | What it covered |
+|---|---|---|
+| `audit-2026-10-01` | 1 October 2026 | An external review of the contracts and the services, at the commit the tag marks. Its findings were closed in the commits that follow it. |
+| `rescore-2026-10-02` | 2 October 2026 | A second reading of the same scope after those fixes, with the fourth contract set live. |
+
+The caps on mainnet are deliberately low to bound what a defect can cost: a payee with no
+settlement history can be paid at most 25 USDG per job, rising with its record to the 250 USDG
+ceiling under the current curve. A point is earned with settled work: a job under 1 USDG
 counts for nothing, each payer counts for at most 62.5 USDG of settled work, and a full score
 takes 250 USDG of it from at least four payers. The cap applies to each payment, not to a payee's
 total. Size any mandate you fund accordingly.

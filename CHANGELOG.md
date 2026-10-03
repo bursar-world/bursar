@@ -86,6 +86,9 @@ records are in `contracts/deployments/`.
   `contracts/script/monitor.mjs`.
 - `GOVERNANCE.md` lists every privileged role, and `SECURITY.md` states the trust assumptions and
   current limits.
+- Two annotated tags mark what was reviewed: `audit-2026-10-01`, the commit the external review
+  read, and `rescore-2026-10-02`, the state read again after its findings were closed.
+  `SECURITY.md` lists them under Reviews.
 
 ## [0.1.0] - 2026-09-27
 
