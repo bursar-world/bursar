@@ -7,11 +7,12 @@
 # script, the wiring batch through the timelock, the lender's first cash, a payee and the three
 # resolvers seated, the three examples, and a strict check of the whole set.
 #
-# Then the next record is planned on top of it, the timelock and the token set carried over, and
-# every step of script/MIGRATION.md runs against the two records in the runbook's order: the staking
-# run joins what it finds, the wiring batch proposes only what differs, the money moves, the first
-# record retires and the next one goes live. It ends on a strict check with nothing owed and one
-# flow per lane against the new set.
+# Then the next record is planned on top of it, everything but the collateral lane carried over,
+# and every step of script/MIGRATION-V5.md runs against the two records in the runbook's order: the
+# RWA run joins the carried registry and park and rebuilds what holds the guard, the collateral run
+# follows, the wiring batch moves the staking pool's two roles and switches the park's adapters,
+# the lending cash and the collateral example move, the first record retires and the next one goes
+# live. It ends on a strict check with nothing owed and one flow per lane against the new set.
 #
 #   script/local/rehearse.sh            # from contracts/
 #
@@ -154,7 +155,11 @@ step "Committed mandates"
 send script/DeployPrivacy.s.sol "$BURSAR_DEPLOYER"
 check script/VerifyPrivacy.s.sol
 
+# The lane tests' shielded proofs were made for a pool at the address this nonce gives it. The pool
+# carries over to the next record, so the first set's shielded run starts there; a mainnet run does
+# not need this.
 step "Shielded settlement"
+cast rpc anvil_setNonce "$BURSAR_DEPLOYER" 0x2710 --rpc-url "$rpc" >/dev/null
 deploy_shielded
 check script/VerifyShielded.s.sol
 
@@ -186,71 +191,39 @@ send script/RetireRecords.s.sol "$BURSAR_DEPLOYER" --sig "goLive()"
 step "The strict check of the first set"
 BURSAR_VERIFY_STRICT=1 check script/Verify.s.sol
 
-# The next record, planned the way deployments/rhc-mainnet-v4.json is: governance, the token set,
-# the roles and the outside contracts carried over, nothing of its own yet.
+# The next record, planned the way deployments/rhc-mainnet-v5.json is: everything carried over but
+# the collateral lane, which its own scripts write.
 step "The next record"
-jq '{
-  network: "local-4663-next",
-  chainId,
-  status: "planned",
-  local,
-  dev,
-  rpc,
-  explorer,
-  settlementAsset,
-  settlementDecimals,
-  supersedes: .network,
-  deployer,
-  external,
-  roles,
-  contracts: {AdminTimelock: .contracts.AdminTimelock},
-  token: (.token | {BRSR, Vesting, Staking, Buyback, V4LiquiditySeeder, keeper, poolId, fromBlock}),
-  verifiedOnChain: {}
-}' "$first" >"$next"
+jq '. as $first
+  | .network = "local-4663-next"
+  | .status = "planned"
+  | .supersedes = $first.network
+  | .verifiedOnChain = {}
+  | .rwa |= {AssetRegistry, TreasuryPark, adapters: {USDG: .adapters.USDG}, assets, fromBlock, guardKeeper}
+  | del(.exampleCollateralMandate, .parameters.PriceGuard, .parameters.CreditPool, .parameters.CollateralVault)
+' "$first" >"$next"
 export BURSAR_RECORD="$next"
 export BURSAR_PREVIOUS_RECORD="$first"
-# The deploy key lent its USDG to the credit pool, and the core run asks it for one again.
-tx "$BURSAR_DEPLOYER" "$usdg" "mint(address,uint256)" "$BURSAR_DEPLOYER" 1000000
 
-step "1. Deploy the new set"
-send script/Deploy.s.sol "$BURSAR_DEPLOYER"
-check script/VerifyCore.s.sol
-check script/VerifyToken.s.sol
-send script/DeployStaking.s.sol "$BURSAR_DEPLOYER"
-check script/VerifyStaking.s.sol
+step "1. Deploy the lane"
 send script/DeployRwa.s.sol "$BURSAR_DEPLOYER"
 check script/VerifyRwa.s.sol
 send script/DeployCollateral.s.sol "$BURSAR_DEPLOYER"
 check script/VerifyCollateral.s.sol
-send script/DeployPrivacy.s.sol "$BURSAR_DEPLOYER"
-check script/VerifyPrivacy.s.sol
-# The proofs the lane tests use are bound to the shielded pool's address, which is the deploy key's
-# address and nonce. The new set's shielded run starts at the nonce the proofs were made for; a
-# mainnet run does not need this.
-cast rpc anvil_setNonce "$BURSAR_DEPLOYER" 0x2710 --rpc-url "$rpc" >/dev/null
-deploy_shielded
-check script/VerifyShielded.s.sol
 
 step "2. Propose the wiring"
 send script/ProposeWiring.s.sol "$BURSAR_TIMELOCK_SIGNER_1" --sig "propose()"
 send script/ProposeWiring.s.sol "$BURSAR_TIMELOCK_SIGNER_2" --sig "approve()"
+check script/ProposeWiring.s.sol --sig "status()"
 
 step "3. Move what needs no governance"
 send script/RetireRecords.s.sol "$BURSAR_DEPLOYER" --sig "settle()"
 send script/MigrateExamples.s.sol "$payer" --sig "drain()"
-# The lender's returned cash is lent again, less the payee's new stake, which it bridges until the
-# payee's old stake comes back in step 5.
 send script/MigrateCredit.s.sol "$BURSAR_LENDER"
-send script/MigrateCredit.s.sol "$BURSAR_LENDER" --sig "fund(uint256)" 5000000
-tx "$BURSAR_LENDER" "$usdg" "transfer(address,uint256)" "$payee" 5000000
-send script/MigratePayee.s.sol "$payee"
-send script/MigrateResolvers.s.sol "$BURSAR_TREASURY" --sig "fund()"
-for resolver in "${resolvers[@]}"; do
-  send script/MigrateResolvers.s.sol "$resolver" --sig "bond()"
-done
+send script/MigrateCredit.s.sol "$BURSAR_LENDER" --sig "fund(uint256)" 10000000
 send script/MigrateExamples.s.sol "$payer" --sig "create()"
-# The keeper's first two observations of each collateral asset's pool, five minutes apart, so the
-# new lane can draw.
+# The keeper's first two observations of each collateral asset's pool on the new guard, five
+# minutes apart, so the new lane can draw.
 observe
 later 301
 observe
@@ -262,31 +235,9 @@ check script/VerifyWiring.s.sol
 send script/RetireRecords.s.sol "$BURSAR_DEPLOYER" --sig "goLive()"
 BURSAR_VERIFY_STRICT=1 check script/Verify.s.sol
 
-step "5. Old bonds and stake come back; the first record retires"
-later "$((7 * 24 * 3600 + 1))"
-for resolver in "${resolvers[@]}"; do
-  send script/MigrateResolvers.s.sol "$resolver" --sig "reclaim()"
-done
-send script/MigratePayee.s.sol "$payee" --sig "reclaim()"
-tx "$payee" "$usdg" "transfer(address,uint256)" "$BURSAR_LENDER" 5000000
-send script/MigrateCredit.s.sol "$BURSAR_LENDER" --sig "fund(uint256)" 5000000
-send script/RetireRecords.s.sol "$BURSAR_DEPLOYER" --sig "settle()"
-send script/MigrateExamples.s.sol "$payer" --sig "drain()"
+step "5. The first record retires"
 send script/MigrateCredit.s.sol "$BURSAR_LENDER" --sig "claimSeized()"
 send script/RetireRecords.s.sol "$BURSAR_DEPLOYER"
-
-# The buyback's ceiling is trusted for seven days, and the week above has used them up. Governance
-# restates it with the figures the buyback holds, the way the runbook has the signers do it.
-step "The buyback's ceiling, restated"
-timelock="$(jq -r .contracts.AdminTimelock "$BURSAR_RECORD")"
-buyback="$(jq -r .token.Buyback "$BURSAR_RECORD")"
-PARAMS="(uint128,uint128,uint128,uint128,uint64,uint64)"
-params="$(cast call "$buyback" "params()($PARAMS)" --json --rpc-url "$rpc" | jq -r '.[0] | map(tostring) | "(" + join(",") + ")"')"
-tx "$BURSAR_TIMELOCK_SIGNER_1" "$timelock" "propose(address,bytes)" "$buyback" "$(cast calldata "setParams($PARAMS)" "$params")"
-id="$(($(cast call "$timelock" "proposalCount()(uint256)" --rpc-url "$rpc" | cut -d' ' -f1) - 1))"
-tx "$BURSAR_TIMELOCK_SIGNER_2" "$timelock" "approve(uint256)" "$id"
-later "$((BURSAR_TIMELOCK_PERIOD + 1))"
-tx "$BURSAR_TIMELOCK_SIGNER_1" "$timelock" "execute(uint256)" "$id"
 
 step "The strict check of the new set"
 BURSAR_VERIFY_STRICT=1 check script/Verify.s.sol
@@ -299,4 +250,4 @@ for record in "$first" "$next"; do
   printf '%-24s %s\n' "$(jq -r .network "$record")" "$(jq -r '.status + (if .supersededBy then " -> " + .supersededBy else "" end)' "$record")"
 done
 current="done"
-printf '\nRehearsal passed: the first set deployed and verified, the next one joined its timelock and token set, every migration step ran, the strict check found 0 mismatched and 0 owed, and every lane ran.\n'
+printf '\nRehearsal passed: the first set deployed and verified, the next one rebuilt the collateral lane on everything it carried over, every migration step ran, the strict check found 0 mismatched and 0 owed, and every lane ran.\n'

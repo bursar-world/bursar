@@ -1,10 +1,20 @@
 #!/usr/bin/env bash
-# Rehearses the move to the fourth contract set on a copy of Robinhood Chain. anvil forks mainnet as
-# it stands, and every step in script/MIGRATION.md runs in the runbook's order with the same
+# Rehearses the move to the fifth contract set on a copy of Robinhood Chain. anvil forks mainnet as
+# it stands, and every step in script/MIGRATION-V5.md runs in the runbook's order with the same
 # scripts and arguments. Each key signs as itself through anvil's impersonation, so no key from this
 # machine is read, and the delays the runbook waits out are skipped with anvil's clock.
 #
-#   script/local/rehearse-mainnet.sh            # from contracts/
+#   script/local/rehearse-mainnet.sh                            # from contracts/
+#   BURSAR_HANDOVER_LANDED=1 script/local/rehearse-mainnet.sh
+#
+# The fifth record is written for the fourth set as it reads once its governance handover has
+# landed, and the real move waits for that. With BURSAR_HANDOVER_LANDED set, the rehearsal lands the
+# handover on the fork first: it skips to when the 48-hour timelock's acceptances are due, executes
+# them as the first hardware signer, finishes the fourth record and runs the move against
+# deployments/rhc-mainnet-v5.json as committed, so the wiring goes to the 48-hour timelock. Without
+# it, the move runs against the chain as it stands, under the one-hour timelock, with a fifth record
+# that takes its governance from the fourth as it reads today: the same scripts in the same order,
+# the other governance.
 #
 # RHC_RPC_URL is the chain it forks, the public endpoint unless set, and BURSAR_ANVIL_PORT the
 # port, 8549 unless set. The records it writes are copies under cache/bursar/fork, and it builds,
@@ -48,16 +58,16 @@ forked_at="$(cast block-number --rpc-url "$rpc")"
 # blob fields, and anvil wants them for the block a call runs on. One block of its own first.
 cast rpc evm_mine --rpc-url "$rpc" >/dev/null
 
-# shellcheck source=../env/rhc-mainnet-v4.env
-source script/env/rhc-mainnet-v4.env
+# shellcheck source=../env/rhc-mainnet-v5.env
+source script/env/rhc-mainnet-v5.env
 dir=cache/bursar/fork
 rm -rf "$dir/broadcast"
 mkdir -p "$dir"
-for record in rhc-mainnet-v3 rhc-mainnet-v4; do
+for record in rhc-mainnet-v4 rhc-mainnet-v5; do
   cp "deployments/$record.json" "$dir/$record.json"
 done
-export BURSAR_RECORD="$dir/rhc-mainnet-v4.json"
-export BURSAR_PREVIOUS_RECORD="$dir/rhc-mainnet-v3.json"
+previous="$dir/rhc-mainnet-v4.json"
+next="$dir/rhc-mainnet-v5.json"
 export BURSAR_ALLOW_EOA_GOVERNANCE=i-accept-eoa-governance
 # The fork reports chain 4663, so without these its logs and --resume data would land where a real
 # mainnet run keeps its own.
@@ -69,17 +79,6 @@ export FOUNDRY_DYNAMIC_TEST_LINKING=false
 # Every key signs through impersonation. Forge reads ETH_PASSWORD as a keystore's password file and
 # refuses an --unlocked run while it is set, as it is in a shell the key tooling set up.
 unset ETH_PASSWORD
-
-# Every key comes from the records, as the runbook's commands name them.
-deployer="$(jq -r .deployer "$BURSAR_RECORD")"
-signer_1="$(jq -r '.roles.timelockSigners[0]' "$BURSAR_RECORD")"
-signer_2="$(jq -r '.roles.timelockSigners[1]' "$BURSAR_RECORD")"
-treasury="$(jq -r .roles.treasury "$BURSAR_RECORD")"
-read -r -a resolvers <<<"$(jq -r '.roles.resolvers | join(" ")' "$BURSAR_RECORD")"
-payer="$(jq -r .exampleMandate.principal "$BURSAR_PREVIOUS_RECORD")"
-payee="$BURSAR_EXAMPLE_PAYEE"
-usdg="$(jq -r .settlementAsset "$BURSAR_RECORD")"
-timelock="$(jq -r .contracts.AdminTimelock "$BURSAR_RECORD")"
 
 send() {
   local script="$1" sender="$2"
@@ -102,6 +101,20 @@ later() {
   cast rpc evm_mine --rpc-url "$rpc" >/dev/null
 }
 
+# A key the fork impersonates still pays for gas. Each one's balance on the chain is printed, which
+# is what the runbook's balance table rests on, and topped up on the fork alone when it is short.
+gas_for() {
+  local account balance
+  for account in "$@"; do
+    balance="$(cast balance "$account" --ether --rpc-url "$rpc")"
+    printf '%s holds %s ETH\n' "$account" "$balance"
+    if [ "$(cast balance "$account" --rpc-url "$rpc")" -lt 10000000000000000 ]; then
+      cast rpc anvil_setBalance "$account" 0xde0b6b3a7640000 --rpc-url "$rpc" >/dev/null
+      echo "  topped up on the fork; the real key needs gas before the move"
+    fi
+  done
+}
+
 observe() {
   local guard keeper
   guard="$(jq -r .rwa.PriceGuard "$BURSAR_RECORD")"
@@ -112,58 +125,52 @@ observe() {
   done
 }
 
-# Executes the newest open proposal on a timelock that carries this target and calldata, as the
-# first signer, once its delay has passed on the fork's clock.
-land() {
-  local on="$1" target="$2" data="$3" count id proposal after now
-  count="$(cast call "$on" "proposalCount()(uint256)" --rpc-url "$rpc" | cut -d' ' -f1)"
-  for ((id = count - 1; id >= 0; id--)); do
-    proposal="$(cast call "$on" "getProposal(uint256)((address,bytes,uint64,uint64,bool,bool))" "$id" --json --rpc-url "$rpc")"
-    if jq -e --arg target "$target" --arg data "$data" \
-      '.[0] | (.[0] | ascii_downcase) == ($target | ascii_downcase) and .[1] == $data and ((.[4] or .[5]) | not)' \
-      <<<"$proposal" >/dev/null; then
-      after="$(jq -r '.[0][3]' <<<"$proposal")"
-      now="$(cast block latest --field timestamp --rpc-url "$rpc")"
-      if [ "$now" -le "$after" ]; then later "$((after - now + 1))"; fi
-      tx "$signer_1" "$on" "execute(uint256)" "$id"
-      echo "executed #$id on $on"
-      return
-    fi
-  done
-  echo "no open proposal on $on for $target $data" >&2
-  return 1
-}
-
-# The third set's own move left its Vesting handover in flight: proposed on both timelocks and
-# waiting out the first one's 48 hours. Its runbook lands it. On a fork taken before that it lands
-# here the same way, so every check below reads the chain as it will stand; once it has landed on
-# the chain itself, this step finds nothing to do.
-step "0. What is still in flight on the chain"
-vesting="$(jq -r .token.Vesting "$BURSAR_RECORD")"
-admin="$(cast call "$vesting" "admin()(address)" --rpc-url "$rpc")"
-if [ "$admin" = "$timelock" ]; then
-  echo "nothing: the vesting contract answers to $timelock"
+step "0. Governance"
+deployer="$(jq -r .deployer "$previous")"
+if [ -n "${BURSAR_HANDOVER_LANDED:-}" ]; then
+  # The 48-hour timelock's acceptances are approved and wait out its delay; the fork skips to
+  # when they are due, lands them as GOVERNANCE-48H.md does, and the fourth record follows.
+  export BURSAR_RECORD="$previous"
+  hw_1="$(jq -r '.governance48.signers[0]' "$previous")"
+  incoming="$(jq -r .governance48.AdminTimelock "$previous")"
+  gas_for "$hw_1" "$deployer"
+  due="$(cast call "$incoming" "getProposal(uint256)((address,bytes,uint64,uint64,bool,bool))" 0 --json --rpc-url "$rpc" | jq -r '.[0][3]')"
+  now="$(cast block latest --field timestamp --rpc-url "$rpc")"
+  if [ "$now" -le "$due" ]; then later "$((due - now + 1))"; fi
+  send script/AcceptGovernance.s.sol "$hw_1" --sig "execute()"
+  send script/HandoverGovernance.s.sol "$deployer" --sig "finish()"
+  if [ "$(jq -r .contracts.AdminTimelock "$previous")" != "$(jq -r .contracts.AdminTimelock "$next")" ]; then
+    echo "the finished fourth record and the fifth name different timelocks" >&2
+    exit 1
+  fi
+  echo "the handover has landed on the fork: the fifth record runs as committed"
 else
-  land "$admin" "$vesting" "$(cast calldata "transferAdmin(address)" "$timelock")"
-  land "$timelock" "$vesting" "$(cast calldata "acceptAdmin()")"
+  # The one-hour timelock still governs the chain as it stands, so the fifth record takes its
+  # governance from the fourth as it reads today, and the committed one is left as written.
+  jq --slurpfile v4 "$previous" '
+    .contracts.AdminTimelock = $v4[0].contracts.AdminTimelock
+    | del(.contracts.escrowPauser)
+    | .roles = $v4[0].roles
+    | .dev = $v4[0].dev
+    | .parameters.AdminTimelock = $v4[0].parameters.AdminTimelock
+  ' "$next" >"$next.tmp" && mv "$next.tmp" "$next"
+  echo "the handover has not landed: the fifth record runs under the one-hour timelock, as the chain stands"
 fi
+export BURSAR_RECORD="$next"
+export BURSAR_PREVIOUS_RECORD="$previous"
 
-step "1. Deploy the new set"
-send script/Deploy.s.sol "$deployer"
-check script/VerifyCore.s.sol
-check script/VerifyToken.s.sol
-send script/DeployStaking.s.sol "$deployer"
-check script/VerifyStaking.s.sol
+# Every key comes from the records, as the runbook's commands name them.
+signer_1="$(jq -r '.roles.timelockSigners[0]' "$BURSAR_RECORD")"
+signer_2="$(jq -r '.roles.timelockSigners[1]' "$BURSAR_RECORD")"
+payer="$(jq -r .exampleMandate.principal "$BURSAR_PREVIOUS_RECORD")"
+keeper="$BURSAR_GUARD_KEEPER"
+gas_for "$deployer" "$signer_1" "$signer_2" "$payer" "$keeper"
+
+step "1. Deploy the lane"
 send script/DeployRwa.s.sol "$deployer"
 check script/VerifyRwa.s.sol
 send script/DeployCollateral.s.sol "$deployer"
 check script/VerifyCollateral.s.sol
-send script/DeployPrivacy.s.sol "$deployer"
-check script/VerifyPrivacy.s.sol
-send script/DeployShielded.s.sol "$deployer" \
-  --libraries "vendor/poseidon-solidity/PoseidonT3.sol:PoseidonT3:$(jq -r .external.PoseidonT3 "$BURSAR_RECORD")" \
-  --libraries "vendor/poseidon-solidity/PoseidonT4.sol:PoseidonT4:$(jq -r .external.PoseidonT4 "$BURSAR_RECORD")"
-check script/VerifyShielded.s.sol
 
 step "2. Propose the wiring"
 send script/ProposeWiring.s.sol "$signer_1" --sig "propose()"
@@ -173,68 +180,54 @@ check script/ProposeWiring.s.sol --sig "status()"
 step "3. Move what needs no governance"
 send script/RetireRecords.s.sol "$deployer" --sig "settle()"
 send script/MigrateExamples.s.sol "$payer" --sig "drain()"
+# The previous pool's cash comes back to the lender and goes into the new pool, as the runbook has
+# the lender do once the figure is on the console.
+cash="$(cast call "$(jq -r .rwa.collateral.CreditPool "$BURSAR_PREVIOUS_RECORD")" "cash()(uint256)" --rpc-url "$rpc" | cut -d' ' -f1)"
 send script/MigrateCredit.s.sol "$deployer"
-send script/MigrateCredit.s.sol "$deployer" --sig "fund(uint256)" 20000000
-tx "$deployer" "$usdg" "transfer(address,uint256)" "$payee" 5000000
-send script/MigratePayee.s.sol "$payee"
-send script/MigrateResolvers.s.sol "$treasury" --sig "fund()"
-for resolver in "${resolvers[@]}"; do
-  send script/MigrateResolvers.s.sol "$resolver" --sig "bond()"
-done
+if [ "$cash" != "0" ]; then send script/MigrateCredit.s.sol "$deployer" --sig "fund(uint256)" "$cash"; fi
 send script/MigrateExamples.s.sol "$payer" --sig "create()"
-# The keeper's first two observations of each collateral asset's pool, five minutes apart, so the
-# new lane can draw.
+# The keeper's first two observations of each collateral asset's pool on the new guard, five
+# minutes apart, so the new lane can draw.
 observe
 later 301
 observe
 
 step "4. The wiring lands; the new record goes live"
-later "$((BURSAR_TIMELOCK_PERIOD + 1))"
+# The delay is the one of the timelock that governs the carried contracts today.
+governs="$(cast call "$(jq -r .token.Staking "$BURSAR_RECORD")" "admin()(address)" --rpc-url "$rpc")"
+delay="$(cast call "$governs" "timelockPeriod()(uint64)" --rpc-url "$rpc" | cut -d' ' -f1)"
+echo "the wiring waits $delay seconds on $governs"
+later "$((delay + 1))"
 send script/ProposeWiring.s.sol "$signer_1" --sig "execute()"
 check script/VerifyWiring.s.sol
 send script/RetireRecords.s.sol "$deployer" --sig "goLive()"
 BURSAR_VERIFY_STRICT=1 check script/Verify.s.sol
 
-step "5. Old bonds and stake come back; the previous record retires"
-later "$((7 * 24 * 3600 + 1))"
-for resolver in "${resolvers[@]}"; do
-  send script/MigrateResolvers.s.sol "$resolver" --sig "reclaim()"
-done
-send script/MigratePayee.s.sol "$payee" --sig "reclaim()"
-tx "$payee" "$usdg" "transfer(address,uint256)" "$deployer" 5000000
-send script/MigrateCredit.s.sol "$deployer" --sig "fund(uint256)" 5000000
-send script/RetireRecords.s.sol "$deployer" --sig "settle()"
-send script/MigrateExamples.s.sol "$payer" --sig "drain()"
+step "5. The previous record retires"
 send script/MigrateCredit.s.sol "$deployer" --sig "claimSeized()"
 send script/RetireRecords.s.sol "$deployer"
-
-# The buyback's ceiling is trusted for seven days after it is set, and the week above has used them
-# up. The signers restate it with the figures the buyback holds, as the runbook has them do.
-buyback="$(jq -r .token.Buyback "$BURSAR_RECORD")"
-PARAMS="(uint128,uint128,uint128,uint128,uint64,uint64)"
-params="$(cast call "$buyback" "params()($PARAMS)" --json --rpc-url "$rpc" | jq -r '.[0] | map(tostring) | "(" + join(",") + ")"')"
-tx "$signer_1" "$timelock" "propose(address,bytes)" "$buyback" "$(cast calldata "setParams($PARAMS)" "$params")"
-id="$(($(cast call "$timelock" "proposalCount()(uint256)" --rpc-url "$rpc" | cut -d' ' -f1) - 1))"
-tx "$signer_2" "$timelock" "approve(uint256)" "$id"
-later "$((BURSAR_TIMELOCK_PERIOD + 1))"
-tx "$signer_1" "$timelock" "execute(uint256)" "$id"
 BURSAR_VERIFY_STRICT=1 check script/Verify.s.sol
 
 # What each key spent, from the receipts forge logged: the figure the runbook's balances rest on.
 step "Gas each key used"
-names=(deployer signer-1 signer-2 treasury resolver-1 resolver-2 resolver-3 payer payee)
-keys=("$deployer" "$signer_1" "$signer_2" "$treasury" "${resolvers[@]}" "$payer" "$payee")
+names=(deployer signer-1 signer-2 payer keeper)
+keys=("$deployer" "$signer_1" "$signer_2" "$payer" "$keeper")
+if [ -n "${BURSAR_HANDOVER_LANDED:-}" ]; then
+  names+=(hardware-1); keys+=("$hw_1")
+fi
 for i in "${!names[@]}"; do
   used="$(find "$dir/broadcast" -name 'run-[0-9]*.json' -exec cat {} + | jq -s --arg from "${keys[$i]}" '
     def hex: ltrimstr("0x") | explode | reduce .[] as $c (0; . * 16 + (if $c > 96 then $c - 87 elif $c > 64 then $c - 55 else $c - 48 end));
     [.[].receipts[] | select((.from | ascii_downcase) == ($from | ascii_downcase)) | .gasUsed | hex] | add // 0')"
   printf '%-12s %s %s\n' "${names[$i]}" "${keys[$i]}" "$used"
 done
+# The keeper's observations go through cast and are not in forge's logs: eight calls to observe.
 
 step "Done"
 for record in "$BURSAR_PREVIOUS_RECORD" "$BURSAR_RECORD"; do
   printf '%-40s %s\n' "$record" "$(jq -r '.status + (if .supersededBy then " -> " + .supersededBy else "" end)' "$record")"
 done
 current="done"
-printf '\nMainnet rehearsal passed: every step of MIGRATION.md ran on a fork of block %s, the previous record is %s and the new record is %s.\n' \
-  "$forked_at" "$(jq -r .status "$BURSAR_PREVIOUS_RECORD")" "$(jq -r .status "$BURSAR_RECORD")"
+printf '\nMainnet rehearsal passed: every step of MIGRATION-V5.md ran on a fork of block %s with the handover %s, the previous record is %s and the new record is %s.\n' \
+  "$forked_at" "${BURSAR_HANDOVER_LANDED:+landed}${BURSAR_HANDOVER_LANDED:-not landed}" \
+  "$(jq -r .status "$BURSAR_PREVIOUS_RECORD")" "$(jq -r .status "$BURSAR_RECORD")"
