@@ -26,7 +26,7 @@ abstract contract PrivacyChecks is Verifier {
 
         SolvencyLog s = SolvencyLog(log);
         _is("SolvencyLog.admin", _recordAddress(K.ADMIN_TIMELOCK), s.admin());
-        _is("SolvencyLog.pendingAdmin", address(0), s.pendingAdmin());
+        _pendingAdmin("SolvencyLog.pendingAdmin", s.pendingAdmin());
         _is("SolvencyLog.poster", _recordAddress(K.SOLVENCY_POSTER), s.poster());
     }
 }

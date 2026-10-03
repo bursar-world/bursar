@@ -47,7 +47,7 @@ abstract contract StakingChecks is Verifier {
         _is("Staking.stakeToken", _recordAddress(K.BRSR), address(staking.stakeToken()));
         _is("Staking.rewardToken", _settlementAsset(), address(staking.rewardToken()));
         _is("Staking.admin", timelock, staking.admin());
-        _is("Staking.pendingAdmin", address(0), staking.pendingAdmin());
+        _pendingAdmin("Staking.pendingAdmin", staking.pendingAdmin());
         _is("Staking.slashSink", _recordAddress(K.SLASH_SINK), staking.slashSink());
         _is("Staking.treasury", _recordAddress(K.TREASURY), staking.treasury());
         _isUint("Staking.unbondingPeriod", _param("Staking.unbondingPeriod"), staking.unbondingPeriod());
@@ -98,7 +98,7 @@ abstract contract StakingChecks is Verifier {
         _is("Buyback.staking", staking, address(buyback.staking()));
         _is("Buyback.treasury", _recordAddress(K.TREASURY), buyback.treasury());
         _is("Buyback.admin", timelock, buyback.admin());
-        _is("Buyback.pendingAdmin", address(0), buyback.pendingAdmin());
+        _pendingAdmin("Buyback.pendingAdmin", buyback.pendingAdmin());
         _governed("Buyback.keeper", _recordAddress(K.KEEPER), buyback.keeper());
         _isUint("Buyback.poolFee", _param("Buyback.poolFee"), buyback.poolFee());
         _is("Buyback.poolHooks", _recordAddress(".parameters.Buyback.poolHooks"), buyback.poolHooks());
@@ -129,7 +129,7 @@ abstract contract StakingChecks is Verifier {
             _owe("V4LiquiditySeeder: the timelock has to accept ownership");
         } else {
             _is("V4LiquiditySeeder.owner", timelock, seeder.owner());
-            _is("V4LiquiditySeeder.pendingOwner", address(0), seeder.pendingOwner());
+            _pendingAdmin("V4LiquiditySeeder.pendingOwner", seeder.pendingOwner());
         }
         _is("V4LiquiditySeeder.buyback", buyback, seeder.buyback());
         _is("V4LiquiditySeeder.poolManager", _recordAddress(K.POOL_MANAGER), address(seeder.poolManager()));

@@ -35,7 +35,7 @@ abstract contract TokenChecks is Verifier {
         address admin = v.admin();
         _fact("Vesting.admin", admin);
         if (admin == timelock) {
-            _is("Vesting.pendingAdmin", address(0), v.pendingAdmin());
+            _pendingAdmin("Vesting.pendingAdmin", v.pendingAdmin());
         } else if (v.pendingAdmin() == timelock) {
             _owe("Vesting.admin: the timelock has to accept the handover (Vesting.acceptAdmin, by proposal)");
         } else {

@@ -290,7 +290,8 @@ contract DeployRwa is BursarScript {
         _expect("router.registry", address(d.registry), address(d.router.registry()));
         _expect("router.guard", address(d.guard), address(d.router.guard()));
         _expect("park.admin", timelock, d.park.admin());
-        _expect("park.pendingAdmin", address(0), d.park.pendingAdmin());
+        // A carried park may have been offered to a new governance: that handover is not the lane's.
+        if (!joining) _expect("park.pendingAdmin", address(0), d.park.pendingAdmin());
         IMandateAccountFactory[] memory factories = d.park.factories();
         _expectUint("park.factories", 1, factories.length);
         _expect("park.factory", factory, address(factories[0]));

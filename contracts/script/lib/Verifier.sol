@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {console2} from "forge-std/console2.sol";
 
 import {BursarScript} from "./BursarScript.sol";
+import {RecordKeys as K} from "./RecordKeys.sol";
 
 /// What the verify scripts share. They send nothing: each one reads the record, asks the chain
 /// the same questions its deploy script asked its own simulation, and says what disagrees.
@@ -177,6 +178,24 @@ abstract contract Verifier is BursarScript {
     function _isAt(string memory what, address expected, address target, bytes memory call) internal {
         (bool ok, address actual) = _askAddress(what, target, call);
         if (ok) _is(what, expected, actual);
+    }
+
+    /// A pending admin, or a pending owner. Nobody passes. The 48-hour timelock the record names
+    /// under `governance48`, while `contracts.AdminTimelock` is still the one handing over, is
+    /// owed: its acceptance lands the handover. Anyone else is a mismatch.
+    function _pendingAdmin(string memory what, address actual) internal {
+        address incoming = _recordAddress(K.GOVERNANCE48_TIMELOCK);
+        if (actual != address(0) && actual == incoming && incoming != _recordAddress(K.ADMIN_TIMELOCK)) {
+            _fact(what, actual);
+            _owe(string.concat(what, " names the 48-hour timelock: its acceptance lands the handover"));
+            return;
+        }
+        _is(what, address(0), actual);
+    }
+
+    function _pendingAdminAt(string memory what, address target, bytes memory call) internal {
+        (bool ok, address actual) = _askAddress(what, target, call);
+        if (ok) _pendingAdmin(what, actual);
     }
 
     function _isUintAt(string memory what, uint256 expected, address target, bytes memory call) internal {

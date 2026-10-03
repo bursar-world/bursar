@@ -27,7 +27,7 @@ abstract contract CollateralChecks is Verifier {
         _is("CreditPool.staking", staking, address(p.staking()));
         _is("CreditPool.buyback", _recordAddress(K.BUYBACK), address(p.buyback()));
         _is("CreditPool.admin", timelock, p.admin());
-        _is("CreditPool.pendingAdmin", address(0), p.pendingAdmin());
+        _pendingAdmin("CreditPool.pendingAdmin", p.pendingAdmin());
         _is("CreditPool.lender", _recordAddress(K.LENDER), p.lender());
         _is("CreditPool.vault", vault, p.vault());
         _isUint("CreditPool.totalDebtCap", _param("CreditPool.totalDebtCap"), p.totalDebtCap());
@@ -44,7 +44,7 @@ abstract contract CollateralChecks is Verifier {
         _is("CollateralVault.pool", pool, address(v.pool()));
         _is("CollateralVault.factory", _recordAddress(K.FACTORY), address(v.factory()));
         _is("CollateralVault.admin", timelock, v.admin());
-        _is("CollateralVault.pendingAdmin", address(0), v.pendingAdmin());
+        _pendingAdmin("CollateralVault.pendingAdmin", v.pendingAdmin());
 
         RwaConfig.Term[] memory terms = RwaConfig.terms();
         for (uint256 i; i < terms.length; ++i) {

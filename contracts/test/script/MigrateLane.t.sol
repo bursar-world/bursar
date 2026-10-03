@@ -36,6 +36,12 @@ contract LaneRwaProbe is VerifyRwa {
     }
 }
 
+contract LaneVerifyProbe is Verify {
+    function tally() external view returns (uint256, uint256) {
+        return (mismatches, owed);
+    }
+}
+
 /// The move that rebuilds the collateral lane and carries everything else over, through the real
 /// scripts. A whole set is built, wired, funded and in use with its three examples; then a record
 /// is planned on top of it naming all of it but the lane, and every step of `MIGRATION-V5.md` runs
@@ -168,10 +174,16 @@ contract MigrateLaneTest is World, LaneFlows {
     }
 
     /// A lane record written as the fourth reads after `finish()`, while the acceptances still wait:
-    /// the carried registry answers to the one-hour timelock, and the join refuses by name.
+    /// the carried registry answers to the one-hour timelock, and the join refuses by name. The
+    /// chain in that state reads as owed to the acceptance, not as wrong: twelve pending admins
+    /// and the seeder's pending owner.
     function _aLaneRecordWrittenForAPendingHandoverIsRefused() private {
         _back();
         _handover(false);
+        (uint256 mismatched, uint256 owedCount) = _tally(_pinned(address(new LaneVerifyProbe())));
+        assertEq(mismatched, 0, "an offered handover reads as a mismatch");
+        assertEq(owedCount, 13, "the offers in flight");
+
         address previous = _readAddress(previousPath, K.ADMIN_TIMELOCK);
         address next = _readAddress(previousPath, K.GOVERNANCE48_TIMELOCK);
         _plan();

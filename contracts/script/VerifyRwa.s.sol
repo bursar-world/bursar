@@ -35,7 +35,7 @@ abstract contract RwaChecks is Verifier {
         _is("PriceGuard.accessRegistry", _recordAddress(K.ACCESS_REGISTRY), address(g.accessRegistry()));
         _is("PriceGuard.stateView", _recordAddress(K.STATE_VIEW), address(g.stateView()));
         _is("PriceGuard.admin", timelock, g.admin());
-        _is("PriceGuard.pendingAdmin", address(0), g.pendingAdmin());
+        _pendingAdmin("PriceGuard.pendingAdmin", g.pendingAdmin());
         address guardKeeper = _recordAddress(".rwa.guardKeeper");
         _fact("PriceGuard.keeper", guardKeeper);
         _isTrue("PriceGuard does not list the recorded keeper", guardKeeper != address(0) && g.isKeeper(guardKeeper));
@@ -47,7 +47,7 @@ abstract contract RwaChecks is Verifier {
 
         TreasuryPark p = TreasuryPark(park);
         _is("TreasuryPark.admin", timelock, p.admin());
-        _is("TreasuryPark.pendingAdmin", address(0), p.pendingAdmin());
+        _pendingAdmin("TreasuryPark.pendingAdmin", p.pendingAdmin());
         IMandateAccountFactory[] memory factories = p.factories();
         _isUint("TreasuryPark.factories", 1, factories.length);
         if (factories.length == 1) _is("TreasuryPark.factory", _recordAddress(K.FACTORY), address(factories[0]));
@@ -87,7 +87,7 @@ abstract contract RwaChecks is Verifier {
     function _checkRegistry(AssetRegistry registry, address timelock) private {
         address asset = _settlementAsset();
         _is("AssetRegistry.admin", timelock, registry.admin());
-        _is("AssetRegistry.pendingAdmin", address(0), registry.pendingAdmin());
+        _pendingAdmin("AssetRegistry.pendingAdmin", registry.pendingAdmin());
         _is("AssetRegistry.settlementAsset", asset, registry.settlementAsset());
 
         RwaConfig.Term[] memory terms = RwaConfig.terms();
