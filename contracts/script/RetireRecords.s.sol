@@ -13,6 +13,7 @@ import {Escrow} from "../src/Escrow.sol";
 import {IEscrow} from "../src/interfaces/IEscrow.sol";
 import {IOracleRegistry} from "../src/interfaces/IOracleRegistry.sol";
 import {CreditPool} from "../src/rwa/CreditPool.sol";
+import {TreasuryPark} from "../src/rwa/TreasuryPark.sol";
 import {Staking} from "../src/token/Staking.sol";
 
 /// What the previous shielded pool owes its notes, which its own code tracks: a transfer sent to
@@ -45,7 +46,8 @@ interface IPreviousShieldedPool is IShieldedPoolReads {
 ///   previous resolver registry.
 ///
 /// Anything still open stops the run and is named; `BURSAR_FORCE=1` retires the record anyway and
-/// lists what was left.
+/// lists what was left. A contract both records name is carried over, not retired: it is checked
+/// for nothing, and the retired record says so.
 ///
 ///   forge script script/RetireRecords.s.sol --sig "settle()" --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/rh-deployer" [--broadcast]
 ///   forge script script/RetireRecords.s.sol --sig "goLive()" --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/rh-deployer" --broadcast
@@ -59,9 +61,17 @@ contract RetireRecords is Migration {
     string[4] internal symbols = ["SGOV", "SPY", "NVDA", "AAPL"];
 
     uint256 private open;
+    /// What `run` checked on the previous set and what it found carried over, for the retired
+    /// record's note.
+    string[] private checked;
+    string[] private carried;
 
     function settle() external {
         _begin();
+        if (_carried(K.ESCROW)) {
+            _note("The escrow carries over to this record: nothing to settle.");
+            return;
+        }
         Escrow escrow = Escrow(_previous(K.ESCROW));
         uint256 last = escrow.nextId();
         vm.startBroadcast(msg.sender);
@@ -97,34 +107,43 @@ contract RetireRecords is Migration {
     function run() external {
         _begin();
         open = 0;
-        _checkEscrow();
+        delete checked;
+        delete carried;
+        if (_carried(K.ESCROW)) carried.push("escrow");
+        else _checkEscrow();
+        if (_carried(K.AGENT_REGISTRY) && _carried(K.ORACLE_REGISTRY)) carried.push("registries");
+        else _checkRegistries();
         _checkLanes();
-        _checkRegistries();
+        if (checked.length == 0) revert NothingToMove("a record that carries every contract over");
         if (open != 0 && !_envFlag("BURSAR_FORCE")) revert StillOpen(open);
 
         string memory previous = _previousPath();
         _previousJson();
         string memory next = vm.parseJsonString(_json(), K.NETWORK);
         _putAt(previous, K.STATUS, _quoted("retired"));
-        _putAt(
-            previous,
-            K.RETIRED,
-            _quoted(
-                string.concat(
-                    "Replaced by ",
-                    next,
-                    ". Nothing is open on its escrow, registries, credit pool, collateral vault or shielded pool."
-                )
-            )
-        );
+        _putAt(previous, K.RETIRED, _quoted(_reason(next)));
         _putAt(previous, K.SUPERSEDED_BY, _quoted(next));
         _writeString(K.STATUS, "live");
         console2.log("record retired:", previous);
         console2.log("this record is live:", next);
     }
 
-    /// The apps can move once the new set has its examples and the carried staking pool answers to
-    /// the new credit pool. The committed example needs terms sealed with the payer's own
+    /// "Nothing is open on its escrow, registries, credit pool, collateral vault or shielded pool."
+    /// Only what was checked is named; what carried over is named as such.
+    function _reason(string memory next) private view returns (string memory reason) {
+        reason = string.concat("Replaced by ", next, ". Nothing is open on its ", _list(checked, "or"), ".");
+        if (carried.length != 0) reason = string.concat(reason, " Its ", _list(carried, "and"), " carry over to it.");
+    }
+
+    function _list(string[] storage items, string memory last) private view returns (string memory text) {
+        for (uint256 i; i < items.length; ++i) {
+            string memory between = i == 0 ? "" : i + 1 == items.length ? string.concat(" ", last, " ") : ", ";
+            text = string.concat(text, between, items[i]);
+        }
+    }
+
+    /// The apps can move once the new set has its examples and the carried staking pool and park
+    /// answer to the new lane. The committed example needs terms sealed with the payer's own
     /// signature, so its absence is noted and stops nothing.
     function _requireUsable() private view {
         if (_recordAddress(".exampleMandate.address").code.length == 0) {
@@ -142,8 +161,12 @@ contract RetireRecords is Migration {
             revert NotReadyForLive("Staking.creditManager: the wiring has not landed");
         }
         if (staking.slasher() != pool) revert NotReadyForLive("Staking.slasher: the wiring has not landed");
+        TreasuryPark park = TreasuryPark(_upstream(K.TREASURY_PARK));
+        if (!park.isAdapter(_upstream(K.SGOV_ADAPTER))) {
+            revert NotReadyForLive("TreasuryPark.isAdapter: the wiring has not landed");
+        }
         address previousPool = _previousOptional(K.SHIELDED_POOL);
-        if (previousPool != address(0) && !IShieldedPoolReads(previousPool).dead()) {
+        if (previousPool != address(0) && !_carried(K.SHIELDED_POOL) && !IShieldedPoolReads(previousPool).dead()) {
             revert NotReadyForLive("the previous shielded pool still takes deposits: the wiring has not landed");
         }
     }
@@ -153,6 +176,7 @@ contract RetireRecords is Migration {
     /// should hold nothing: what it still holds is a payout its asset refused, claimable by its
     /// party, or a stray transfer.
     function _checkEscrow() private {
+        checked.push("escrow");
         Escrow escrow = Escrow(_previous(K.ESCROW));
         uint256 window = escrow.disputeWindow();
         uint256 last = escrow.nextId();
@@ -174,6 +198,23 @@ contract RetireRecords is Migration {
     }
 
     function _checkLanes() private {
+        if (_carried(K.CREDIT_POOL) && _carried(K.COLLATERAL_VAULT)) carried.push("collateral lane");
+        else _checkCollateralLane();
+        if (_carried(K.SHIELDED_POOL)) {
+            carried.push("shielded pool");
+            return;
+        }
+        checked.push("shielded pool");
+        uint256 notes = IPreviousShieldedPool(_previous(K.SHIELDED_POOL)).poolValue();
+        if (notes != 0) {
+            ++open;
+            console2.log("the previous shielded pool still owes its notes, micro-USD", notes);
+        }
+    }
+
+    function _checkCollateralLane() private {
+        checked.push("credit pool");
+        checked.push("collateral vault");
         CreditPool credit = CreditPool(_previous(K.CREDIT_POOL));
         if (credit.cash() != 0 || credit.totalDebt() != 0) {
             ++open;
@@ -205,15 +246,10 @@ contract RetireRecords is Migration {
             ++open;
             console2.log("the previous collateral vault still holds USDG");
         }
-
-        uint256 notes = IPreviousShieldedPool(_previous(K.SHIELDED_POOL)).poolValue();
-        if (notes != 0) {
-            ++open;
-            console2.log("the previous shielded pool still owes its notes, micro-USD", notes);
-        }
     }
 
     function _checkRegistries() private {
+        checked.push("registries");
         uint256 staked = AgentRegistry(_previous(K.AGENT_REGISTRY)).totalStaked();
         if (staked != 0) {
             ++open;

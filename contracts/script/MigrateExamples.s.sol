@@ -31,6 +31,9 @@ import {TreasuryPark} from "../src/rwa/TreasuryPark.sol";
 /// `BURSAR_COMMITTED_COUNTER` and `BURSAR_COMMITTED_CIPHERTEXT` and skips it when they are unset.
 /// Each example is written to the record, under a salt derived from the record's name.
 ///
+/// An example the record carries over from the previous one, at the same address, is left as it
+/// is by both steps: a move that replaces one lane keeps the other lanes' examples.
+///
 ///   forge script script/MigrateExamples.s.sol --sig "drain()"  --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/payer" [--broadcast]
 ///   forge script script/MigrateExamples.s.sol --sig "create()" --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/payer" [--broadcast]
 contract MigrateExamples is Migration {
@@ -47,7 +50,9 @@ contract MigrateExamples is Migration {
         address usdg = _settlementAsset();
 
         address example = _previousOptional(".exampleMandate.address");
-        if (_controls(example)) {
+        if (_carried(".exampleMandate.address")) {
+            _keep("public example", example);
+        } else if (_controls(example)) {
             vm.startBroadcast(msg.sender);
             _unpark(example);
             _withdrawAll(example, usdg);
@@ -58,7 +63,9 @@ contract MigrateExamples is Migration {
         }
 
         address credit = _previousOptional(".exampleCollateralMandate.address");
-        if (_controls(credit)) {
+        if (_carried(".exampleCollateralMandate.address")) {
+            _keep("collateral example", credit);
+        } else if (_controls(credit)) {
             CollateralVault vault = CollateralVault(_previous(K.COLLATERAL_VAULT));
             vm.startBroadcast(msg.sender);
             for (uint256 i; i < symbols.length; ++i) {
@@ -74,7 +81,9 @@ contract MigrateExamples is Migration {
         }
 
         address committed = _previousOptional(".exampleCommittedMandate.address");
-        if (_controls(committed)) {
+        if (_carried(".exampleCommittedMandate.address")) {
+            _keep("committed example", committed);
+        } else if (_controls(committed)) {
             uint256 held = IERC20(usdg).balanceOf(committed);
             if (held != 0) {
                 vm.startBroadcast(msg.sender);
@@ -91,14 +100,23 @@ contract MigrateExamples is Migration {
         IERC20 usdg = IERC20(_settlementAsset());
         MandateAccountFactory factory = MandateAccountFactory(_upstream(K.FACTORY));
 
+        bool keepPublic = _carried(".exampleMandate.address");
+        bool keepCollateral = _carried(".exampleCollateralMandate.address");
+        bool keepCommitted = _carried(".exampleCommittedMandate.address");
+        if (keepPublic) _keep("public example", _recordAddress(".exampleMandate.address"));
+        if (keepCollateral) _keep("collateral example", _recordAddress(".exampleCollateralMandate.address"));
+        if (keepCommitted) _keep("committed example", _recordAddress(".exampleCommittedMandate.address"));
+
         vm.startBroadcast(msg.sender);
-        address pub = _createPublic(factory, payee, usdg);
-        address credit = _createCollateral(factory, payee);
-        address committed = _createCommitted(usdg);
+        address pub = keepPublic ? address(0) : _createPublic(factory, payee, usdg);
+        address credit = keepCollateral ? address(0) : _createCollateral(factory, payee);
+        address committed = keepCommitted ? address(0) : _createCommitted(usdg);
         vm.stopBroadcast();
 
-        _recordExample(".exampleMandate", pub, address(factory), _salt("example-mandate"));
-        _recordExample(".exampleCollateralMandate", credit, address(factory), _salt("collateral-mandate"));
+        if (pub != address(0)) _recordExample(".exampleMandate", pub, address(factory), _salt("example-mandate"));
+        if (credit != address(0)) {
+            _recordExample(".exampleCollateralMandate", credit, address(factory), _salt("collateral-mandate"));
+        }
         if (committed != address(0)) {
             _recordExample(
                 ".exampleCommittedMandate", committed, _recordAddress(K.COMMITTED_FACTORY), _salt("committed-mandate")
@@ -206,6 +224,10 @@ contract MigrateExamples is Migration {
 
     function _previousAsset(string memory symbol) private view returns (address) {
         return _previousOptional(string.concat(K.RWA_ASSETS, ".", symbol, ".address"));
+    }
+
+    function _keep(string memory what, address mandate) private pure {
+        console2.log(string.concat("carried over from the previous record, left as it is: ", what), mandate);
     }
 
     function _controls(address mandate) private view returns (bool) {
