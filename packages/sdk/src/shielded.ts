@@ -1052,8 +1052,37 @@ export type RelayQuote = {
   readonly feeBps: number;
   /** Wei the relayer sends the recipient with the withdrawal, when asked for gas and it is an EOA. */
   readonly gasDropWei: string;
+  /**
+   * USDG atomic units a withdrawal that asks for gas pays on top of `feeBps`: what the drop is worth
+   * at the relayer's current price. Absent from a relayer that does not charge for drops.
+   */
+  readonly gasDropFee?: string;
   readonly chainId: number;
 };
+
+/**
+ * The relay fee a withdrawal of `amount` carries: the relayer's `feeBps` plus, when it asks for gas,
+ * the drop's price in whole basis points of the amount, rounded up. The relayer refuses a request
+ * for gas that pays less. The round-up never leaves it short and overpays by under one basis point.
+ */
+export function relayFeeBpsFor(quote: Pick<RelayQuote, 'feeBps' | 'gasDropFee'>, amount: bigint, withGas: boolean): bigint {
+  const base = BigInt(quote.feeBps);
+  const drop = quote.gasDropFee === undefined ? 0n : BigInt(quote.gasDropFee);
+  if (!withGas || drop === 0n || amount <= 0n) return base;
+  return base + (drop * 10_000n + amount - 1n) / amount;
+}
+
+/**
+ * The smallest withdrawal whose fee can carry a gas drop under the relay contract's cap on the fee,
+ * or null when none can because the relayer's own fee already reaches the cap.
+ */
+export function smallestWithGas(quote: Pick<RelayQuote, 'feeBps' | 'gasDropFee'>, maxRelayFeeBps: number): bigint | null {
+  const drop = quote.gasDropFee === undefined ? 0n : BigInt(quote.gasDropFee);
+  if (drop === 0n) return 0n;
+  const room = BigInt(maxRelayFeeBps) - BigInt(quote.feeBps);
+  if (room <= 0n) return null;
+  return (drop * 10_000n + room - 1n) / room;
+}
 
 export type RelayRequest = {
   readonly withdrawal: Withdrawal;

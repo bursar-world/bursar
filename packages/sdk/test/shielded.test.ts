@@ -31,10 +31,12 @@ import {
   randomShieldedKeys,
   readDepositRoom,
   recoverNotes,
+  relayFeeBpsFor,
   relayWithFreshProof,
   scopeOf,
   shieldedKeyFile,
   shieldedPoolAbi,
+  smallestWithGas,
   viewingKeyMessage,
   withdrawInput,
   withdrawSignals,
@@ -362,6 +364,36 @@ describe('shielded key files', () => {
     expect(file).toMatchObject({ kind: 'bursar-shielded-keys', version: 1, chainId: 4663, pool: POOL });
     expect(BigInt(file.masterNullifier)).toBe(a.masterNullifier);
     expect(BigInt(file.masterSecret)).toBe(a.masterSecret);
+  });
+});
+
+describe('paying for a gas drop in the relay fee', () => {
+  // The relayer asks 1%, and prices a drop at 0.3 USDG.
+  const quote = { feeBps: 100, gasDropFee: '300000' };
+
+  it('adds the drop in whole basis points of the amount, rounded up, only when gas is asked for', () => {
+    expect(relayFeeBpsFor(quote, 20_000_000n, false)).toBe(100n);
+    expect(relayFeeBpsFor({ feeBps: 100 }, 20_000_000n, true)).toBe(100n);
+    expect(relayFeeBpsFor({ feeBps: 100, gasDropFee: '0' }, 20_000_000n, true)).toBe(100n);
+    // 0.3 USDG is 150 basis points of 20 USDG, and 428.57 of 7 USDG.
+    expect(relayFeeBpsFor(quote, 20_000_000n, true)).toBe(250n);
+    expect(relayFeeBpsFor(quote, 7_000_000n, true)).toBe(529n);
+  });
+
+  it('never leaves the relayer short of the drop, by the relay contract’s own arithmetic', () => {
+    for (const amount of [1_000_000n, 7_000_000n, 12_345_678n, 100_000_000n]) {
+      const bps = relayFeeBpsFor(quote, amount, true);
+      expect((amount * bps) / 10_000n - (amount * 100n) / 10_000n).toBeGreaterThanOrEqual(300_000n);
+    }
+  });
+
+  it('names the smallest withdrawal whose fee can carry the drop under the relay’s cap', () => {
+    // 0.3 USDG has to fit in the 400 basis points left under 500: 7.5 USDG.
+    expect(smallestWithGas(quote, 500)).toBe(7_500_000n);
+    expect(relayFeeBpsFor(quote, 7_500_000n, true)).toBe(500n);
+    expect(relayFeeBpsFor(quote, 7_499_999n, true)).toBe(501n);
+    expect(smallestWithGas({ feeBps: 500, gasDropFee: '300000' }, 500)).toBeNull();
+    expect(smallestWithGas({ feeBps: 100 }, 500)).toBe(0n);
   });
 });
 
