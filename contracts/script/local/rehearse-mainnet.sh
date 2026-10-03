@@ -130,13 +130,17 @@ check_all() {
   echo "what is owed above is the handover's acceptances, which this mode leaves to the chain"
 }
 
+# The keeper's observations go through cast, so their gas is summed from the receipts here.
+keeper_gas=0
 observe() {
-  local guard keeper
+  local guard keeper used
   guard="$(jq -r .rwa.PriceGuard "$BURSAR_RECORD")"
   # Only the keeper may observe. anvil impersonates it like any other account.
   keeper="$(jq -r .rwa.guardKeeper "$BURSAR_RECORD")"
   for symbol in SGOV SPY NVDA AAPL; do
-    tx "$keeper" "$guard" "observe(address)" "$(jq -r ".rwa.assets.$symbol.address" "$BURSAR_RECORD")"
+    used="$(cast send "$guard" "observe(address)" "$(jq -r ".rwa.assets.$symbol.address" "$BURSAR_RECORD")" \
+      --from "$keeper" --unlocked --rpc-url "$rpc" --json | jq -r .gasUsed)"
+    keeper_gas=$((keeper_gas + used))
   done
 }
 
@@ -149,7 +153,9 @@ if [ -n "${BURSAR_HANDOVER_LANDED:-}" ]; then
   hw_1="$(jq -r '.governance48.signers[0]' "$previous")"
   incoming="$(jq -r .governance48.AdminTimelock "$previous")"
   gas_for "$hw_1" "$deployer"
-  due="$(cast call "$incoming" "getProposal(uint256)((address,bytes,uint64,uint64,bool,bool))" 0 --json --rpc-url "$rpc" | jq -r '.[0][3]')"
+  # The acceptances went up one block apart, so the last one is due last.
+  last="$(($(cast call "$incoming" "proposalCount()(uint256)" --rpc-url "$rpc" | cut -d' ' -f1) - 1))"
+  due="$(cast call "$incoming" "getProposal(uint256)((address,bytes,uint64,uint64,bool,bool))" "$last" --json --rpc-url "$rpc" | jq -r '.[0][3]')"
   now="$(cast block latest --field timestamp --rpc-url "$rpc")"
   if [ "$now" -le "$due" ]; then later "$((due - now + 1))"; fi
   send script/AcceptGovernance.s.sol "$hw_1" --sig "execute()"
@@ -223,20 +229,19 @@ send script/MigrateCredit.s.sol "$deployer" --sig "claimSeized()"
 send script/RetireRecords.s.sol "$deployer"
 check_all
 
-# What each key spent, from the receipts forge logged: the figure the runbook's balances rest on.
+# What each key spent, from the receipts forge logged, and the keeper's from cast's: the figures the
+# runbook's balances rest on. With the handover landed on the fork, the first signer's figure
+# includes the thirteen acceptances it executed in step 0.
 step "Gas each key used"
-names=(deployer signer-1 signer-2 payer keeper)
-keys=("$deployer" "$signer_1" "$signer_2" "$payer" "$keeper")
-if [ -n "${BURSAR_HANDOVER_LANDED:-}" ]; then
-  names+=(hardware-1); keys+=("$hw_1")
-fi
+names=(deployer signer-1 signer-2 payer)
+keys=("$deployer" "$signer_1" "$signer_2" "$payer")
 for i in "${!names[@]}"; do
   used="$(find "$dir/broadcast" -name 'run-[0-9]*.json' -exec cat {} + | jq -s --arg from "${keys[$i]}" '
     def hex: ltrimstr("0x") | explode | reduce .[] as $c (0; . * 16 + (if $c > 96 then $c - 87 elif $c > 64 then $c - 55 else $c - 48 end));
     [.[].receipts[] | select((.from | ascii_downcase) == ($from | ascii_downcase)) | .gasUsed | hex] | add // 0')"
   printf '%-12s %s %s\n' "${names[$i]}" "${keys[$i]}" "$used"
 done
-# The keeper's observations go through cast and are not in forge's logs: eight calls to observe.
+printf '%-12s %s %s\n' keeper "$keeper" "$keeper_gas"
 
 step "Done"
 for record in "$BURSAR_PREVIOUS_RECORD" "$BURSAR_RECORD"; do
@@ -244,10 +249,11 @@ for record in "$BURSAR_PREVIOUS_RECORD" "$BURSAR_RECORD"; do
 done
 current="done"
 if [ -n "${BURSAR_HANDOVER_LANDED:-}" ]; then
+  mode="landed first on the fork"
   outcome="the strict check found 0 mismatched and 0 owed"
 else
+  mode="not landed"
   outcome="the check found 0 mismatched and owed only the handover's acceptances"
 fi
 printf '\nMainnet rehearsal passed: every step of MIGRATION-V5.md ran on a fork of block %s with the handover %s, %s, the previous record is %s and the new record is %s.\n' \
-  "$forked_at" "${BURSAR_HANDOVER_LANDED:+landed}${BURSAR_HANDOVER_LANDED:-not landed}" "$outcome" \
-  "$(jq -r .status "$BURSAR_PREVIOUS_RECORD")" "$(jq -r .status "$BURSAR_RECORD")"
+  "$forked_at" "$mode" "$outcome" "$(jq -r .status "$BURSAR_PREVIOUS_RECORD")" "$(jq -r .status "$BURSAR_RECORD")"
