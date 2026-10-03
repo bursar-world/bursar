@@ -36,7 +36,8 @@ abstract contract Handover is Governance {
 
     /// The contracts the timelock administers through `transferAdmin`, in the order the batches
     /// name them. The escrow and the mandate factory have no admin, and the escrow's pauser is a
-    /// one-shot that stays with the first governance.
+    /// one-shot that stays with the first governance. A price guard built before the guard had an
+    /// admin answers no `admin()` and has nothing to hand over, so it is left out.
     function _administered() internal view returns (address[] memory targets, string[] memory names) {
         string[12] memory keys = [
             K.REPUTATION,
@@ -68,10 +69,23 @@ abstract contract Handover is Governance {
         ];
         targets = new address[](keys.length);
         names = new string[](keys.length);
+        uint256 n;
         for (uint256 i; i < keys.length; ++i) {
-            targets[i] = _upstream(keys[i]);
-            names[i] = labels[i];
+            address target = _upstream(keys[i]);
+            if (keccak256(bytes(keys[i])) == keccak256(bytes(K.PRICE_GUARD)) && !_answersAdmin(target)) continue;
+            targets[n] = target;
+            names[n] = labels[i];
+            ++n;
         }
+        assembly ("memory-safe") {
+            mstore(targets, n)
+            mstore(names, n)
+        }
+    }
+
+    function _answersAdmin(address target) private view returns (bool) {
+        (bool ok, bytes memory answer) = target.staticcall(abi.encodeWithSignature("admin()"));
+        return ok && answer.length == 32;
     }
 
     /// The timelock taking over, which `deploy()` records.
