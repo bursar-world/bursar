@@ -45,6 +45,14 @@ abstract contract Migration is BursarScript {
         return ok && answer.length == 32 ? abi.decode(answer, (uint256)) : 0;
     }
 
+    /// Whether the record carries a contract over from the previous one at the same address. A
+    /// move that replaces one lane leaves the rest of the set where it was, and the migration
+    /// neither drains nor retires what both records name.
+    function _carried(string memory key) internal view returns (bool) {
+        address at = _recordAddress(key);
+        return at != address(0) && at == _previousOptional(key);
+    }
+
     function _requireKey(string memory role, address expected) internal view {
         if (msg.sender != expected) revert NotTheKey(role, expected, msg.sender);
     }
