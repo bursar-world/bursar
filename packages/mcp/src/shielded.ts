@@ -13,8 +13,10 @@ import {
   leanRoot,
   proofToWire,
   recoverNotes,
+  relayFeeBpsFor,
   shieldedEntrypointAbi,
   shieldedPoolAbi,
+  smallestWithGas,
   submitRelay,
   withdrawalContext,
 } from '@bursar/sdk';
@@ -54,9 +56,6 @@ export type ShieldedStatusView = {
   } | null;
   readonly note: string;
 };
-
-/** The relayer's quote with its price for a gas drop, null when it quotes none. */
-type RelayerQuote = RelayQuote & { readonly gasDropFee: bigint | null };
 
 export type ShieldedNoteView = {
   readonly label: string;
@@ -170,7 +169,7 @@ export function createShieldedGateway(options: {
     }
   };
 
-  const quote = async (): Promise<RelayerQuote> => {
+  const quote = async (): Promise<RelayQuote> => {
     if (relayerUrl === null) {
       throw new ToolError(
         'relayer_unconfigured',
@@ -194,25 +193,22 @@ export function createShieldedGateway(options: {
   };
 
   /**
-   * The relayer prices a gas drop into its fee: a payment that asks for gas pays feeBps plus what
-   * the drop is worth, rounded up to whole basis points of the amount, which never underpays and
-   * overpays by under one basis point. A relayer that quotes no price is from before drops were
-   * priced, and asks feeBps alone.
+   * The fee a payment carries: the relayer's rate, plus the price of a gas drop when one is asked
+   * for. The relay contract caps the fee, and a payment too small for the drop to fit under the cap
+   * is refused here, before anything is proven.
    */
-  const feeBpsFor = (q: RelayerQuote, amount: bigint, gasDrop: boolean): bigint => {
-    const base = BigInt(q.feeBps);
-    if (!gasDrop || q.gasDropFee === null || q.gasDropFee === 0n) return base;
-    const bps = base + ceilDiv(q.gasDropFee * 10_000n, amount);
-    const max = BigInt(d.maxRelayFeeBps);
-    if (bps <= max) return bps;
-    const least = max > base ? ceilDiv(q.gasDropFee * 10_000n, max - base) : null;
+  const feeBpsFor = (q: RelayQuote, amount: bigint, gasDrop: boolean): bigint => {
+    const bps = relayFeeBpsFor(q, amount, gasDrop);
+    if (bps <= BigInt(d.maxRelayFeeBps)) return bps;
+    const drop = q.gasDropFee ?? '0';
+    const least = smallestWithGas(q, d.maxRelayFeeBps);
     throw new ToolError(
       'shielded_gas_drop_unaffordable',
-      `A gas drop is worth ${money(micro(q.gasDropFee)).usdg} USDG at the moment, and the relay takes a fee of at most ` +
-        `${Number(max) / 100}% of a withdrawal, so ` +
+      `A gas drop is worth ${money(micro(BigInt(drop))).usdg} USDG at the moment, and the relay takes a fee of at most ` +
+        `${d.maxRelayFeeBps / 100}% of a withdrawal, so ` +
         (least === null ? 'no payment through this relayer can ask for gas. ' : `a payment has to be at least ${money(micro(least)).usdg} USDG to ask for gas. `) +
         'Nothing was sent. Pay without gasDrop, or pay more.',
-      { gasDropFee: q.gasDropFee.toString(), maxRelayFeeBps: d.maxRelayFeeBps, least: least === null ? null : least.toString() },
+      { gasDropFee: drop, maxRelayFeeBps: d.maxRelayFeeBps, least: least === null ? null : least.toString() },
     );
   };
 
@@ -412,7 +408,7 @@ export function createShieldedGateway(options: {
           (q) => ({
             feeBps: q.feeBps,
             gasDropEth: formatEther(BigInt(q.gasDropWei)),
-            gasDropFee: q.gasDropFee === null ? null : money(micro(q.gasDropFee)),
+            gasDropFee: q.gasDropFee === undefined ? null : money(micro(BigInt(q.gasDropFee))),
             feeRecipient: q.feeRecipient,
           }),
           () => null,
@@ -446,11 +442,11 @@ async function rootPosting(
  * The relayer is a service, and what it answers is checked before any figure from it is used or
  * repeated. A quote this server cannot read refuses the payment in this server's own words.
  */
-function readQuote(payload: unknown, relayerUrl: string): RelayerQuote {
+function readQuote(payload: unknown, relayerUrl: string): RelayQuote {
   const q = isJsonObject(payload) ? payload : {};
   const { relay, feeRecipient, feeBps, gasDropWei, chainId, gasDropFee } = q;
   // Absent from a relayer that does not price drops; present, it has to be an amount.
-  const dropFee = gasDropFee === undefined ? null : typeof gasDropFee === 'string' && /^\d+$/u.test(gasDropFee) ? BigInt(gasDropFee) : undefined;
+  const dropFeeReadable = gasDropFee === undefined || (typeof gasDropFee === 'string' && /^\d+$/u.test(gasDropFee));
 
   if (
     typeof relay === 'string' &&
@@ -466,9 +462,9 @@ function readQuote(payload: unknown, relayerUrl: string): RelayerQuote {
     typeof chainId === 'number' &&
     Number.isInteger(chainId) &&
     chainId > 0 &&
-    dropFee !== undefined
+    dropFeeReadable
   ) {
-    return { relay, feeRecipient, feeBps, gasDropWei, chainId, gasDropFee: dropFee };
+    return { relay, feeRecipient, feeBps, gasDropWei, chainId, ...(typeof gasDropFee === 'string' ? { gasDropFee } : {}) };
   }
 
   throw new ToolError(
@@ -502,8 +498,6 @@ function readRelayResult(payload: unknown): RelayResult {
       'may be on chain. Read shielded_balance before paying again: a deposit that has shrunk was spent.',
   );
 }
-
-const ceilDiv = (a: bigint, b: bigint): bigint => (a + b - 1n) / b;
 
 /** The withdrawal that leaves `amount` with the recipient after the relayer's cut. */
 export function grossUp(amount: bigint, feeBps: bigint): bigint {
