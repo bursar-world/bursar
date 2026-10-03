@@ -266,9 +266,10 @@ Nothing else needs doing in the console. The old signers' keystores stay where t
 escrow's pauser is still the old timelock, so an unpause of the escrow is a proposal on it, and the
 guardian's brake on the escrow runs through it too.
 
-The move to the fifth set, [`MIGRATION-V5.md`](MIGRATION-V5.md), starts only after this step: its
-record is written for the fourth set as `finish()` leaves it, and its first script refuses while the
-carried contracts still answer to the old timelock.
+The move to the fifth set, [`MIGRATION-V5.md`](MIGRATION-V5.md), runs either side of this step. Run
+before it, as its "Running before the handover lands" section describes, it leaves this step as it
+is: the acceptances still take every carried contract, two of them a credit pool and a vault retired
+by then, and `finish()` still rewrites this record.
 
 ## If a step stops
 

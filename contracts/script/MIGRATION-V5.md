@@ -19,8 +19,11 @@ chain can be in.
   down. The public and committed example mandates carry over untouched.
 - **Governance is the 48-hour timelock.** The record is written for the fourth set as
   [`GOVERNANCE-48H.md`](GOVERNANCE-48H.md) leaves it: the 48-hour timelock administers every
-  carried contract and every new one, the one-hour timelock keeps the escrow's brake, and the
-  wiring batch waits two days. The move starts only once that handover has landed.
+  carried contract and every new one, and the one-hour timelock keeps the escrow's brake. The five
+  new contracts answer to the 48-hour timelock from their constructors and never need a handover.
+  The move runs either side of that handover's acceptance: after it, the wiring batch waits two
+  days on the 48-hour timelock; before it, one hour on the one-hour timelock, as "Running before
+  the handover lands" describes.
 - **One governance batch rewires the carried contracts to the new lane.** The staking pool's
   credit manager and slasher move to the new credit pool, and the treasury park lists the new
   treasury adapter and drops the previous one. A position parked through the previous adapter can
@@ -35,10 +38,12 @@ chain can be in.
 
 ## Before you start
 
-**When.** After step 5 of [`GOVERNANCE-48H.md`](GOVERNANCE-48H.md): `finish()` has rewritten the
-fourth record and it is committed. The fifth record names the governance that record names, and
-`DeployRwa.s.sol` refuses with `WiringFailed registry.admin` while the carried registry still
-answers to the one-hour timelock.
+**When.** After step 3 of [`GOVERNANCE-48H.md`](GOVERNANCE-48H.md) at the earliest: the old
+timelock's offers have executed, so every carried contract names the 48-hour timelock as its
+pending admin, which is the timelock the fifth record names. Before step 5 of that runbook the
+carried contracts still answer to the one-hour timelock, and the move runs as "Running before the
+handover lands" describes; after it, as the steps below are written. `DeployRwa.s.sol` refuses with
+`WiringFailed registry.admin` in any other state.
 
 **Tools.** Foundry 1.8.1 and the dependencies, installed as [`../README.md`](../README.md)
 describes, and `jq`. Run everything from `contracts/`.
@@ -116,11 +121,16 @@ checked before the handover landed.
 | Step | Who signs | Then wait |
 |---|---|---|
 | 1. Deploy the lane | deploy key | |
-| 2. Propose the wiring | hardware signer 1, hardware signer 2 | |
+| 2. Propose the wiring | two signers of the governing timelock | |
 | 3. Move what needs no governance | deploy key, payer, keeper | |
-| 4. The wiring lands; the fifth record goes live | a hardware signer, deploy key | 48 hours after step 2 |
-| 5. The fourth record retires | deploy key | once nothing is open on the fourth lane |
+| 4. The wiring lands; the fifth record goes live | a signer of the governing timelock, deploy key | the governing timelock's delay after step 2: 48 hours, or one hour before the handover lands |
+| 5. The fourth record retires | deploy key | once nothing is open on the fourth lane, which can be at once |
 | 6. Publish the records and the sources | nobody | after steps 4 and 5 |
+
+The governing timelock is the one that administers the carried contracts today, which
+`ProposeWiring.s.sol` reads off the chain: the 48-hour timelock once the handover has landed, whose
+signers are the hardware keys, and the one-hour timelock before, whose signers are the `signer-1`
+and `signer-2` keystores.
 
 ### 1. Deploy the lane
 
@@ -156,16 +166,17 @@ hw script/ProposeWiring.s.sol "$signer_2" --sig "approve()"
 verify script/ProposeWiring.s.sol --sig "status()"
 ```
 
-The batch is four calls on the 48-hour timelock: `Staking.setCreditManager` and `Staking.setSlasher`,
-both to the new credit pool, and `TreasuryPark.setAdapter` twice, the new treasury adapter on and
-the fourth set's off. `status()` shows the buyback's keeper, the three bond floors and the rebate
-table as done, and no wind-down: the shielded pool carries over. The script reads which timelock
-administers each contract off the chain and puts each call to it, so a batch proposed to the wrong
-governance cannot happen; `NotSigner` names the timelock whose signer the key is not.
+The batch is four calls on the governing timelock: `Staking.setCreditManager` and
+`Staking.setSlasher`, both to the new credit pool, and `TreasuryPark.setAdapter` twice, the new
+treasury adapter on and the fourth set's off. `status()` shows the buyback's keeper, the three bond
+floors and the rebate table as done, and no wind-down: the shielded pool carries over. The script
+reads which timelock administers each contract off the chain and puts each call to it, so a batch
+proposed to the wrong governance cannot happen; `NotSigner` names the timelock whose signer the key
+is not.
 
-For the two days the batch waits, the new credit pool's spread cannot reach stakers, a write-off on
-it would not reach their stake, and the new treasury adapter cannot park. The collateral example
-created in step 3 draws nothing, so nothing is lent in those two days.
+While the batch waits, the new credit pool's spread cannot reach stakers, a write-off on it would
+not reach their stake, and the new treasury adapter cannot park. The collateral example created in
+step 3 draws nothing, so nothing is lent in that time.
 
 ### 3. Move what needs no governance
 
@@ -225,7 +236,7 @@ service has to be pointed at the new guard before the apps move, as its own runb
 
 ### 4. The wiring lands; the fifth record goes live
 
-Two days after step 2:
+Once the governing timelock's delay has passed:
 
 ```sh
 hw script/ProposeWiring.s.sol "$signer_1" --sig "execute()"
@@ -252,7 +263,7 @@ owed`. Then publish the two records as step 6 describes, which is what moves the
 
 The timelock keeps a proposal open for 14 days after its delay ends, its grace period, and refuses
 it after that. Past it, `propose()` and `approve()` from step 2 put the batch up again, and it waits
-out its two days afresh.
+out its delay afresh.
 
 ### 5. The fourth record retires
 
@@ -308,6 +319,55 @@ key:
 script/check-live.sh
 ```
 
+## Running before the handover lands
+
+The fourth set's offers have executed, and the 48-hour timelock's acceptances wait out their delay
+until 2026-10-05 00:57 UTC. The move can run in that window. Everything above holds, with these
+differences.
+
+**The carried registry, park and staking pool still answer to the one-hour timelock,** with the
+48-hour one pending. `DeployRwa.s.sol` and `DeployCollateral.s.sol` print one line each saying so
+and go on; `WiringFailed` means some other state. The guard, the router, the adapter, the credit
+pool and the vault are born under the 48-hour timelock, the record's, and never need a handover.
+
+**The wiring batch goes to the one-hour timelock,** which administers the staking pool and the park
+today, from the `signer-1` and `signer-2` keystores. A hardware key meets `NotSigner`, naming the
+one-hour timelock.
+
+```sh
+# Step 2
+send script/ProposeWiring.s.sol signer-1 --sig "propose()"
+send script/ProposeWiring.s.sol signer-2 --sig "approve()"
+verify script/ProposeWiring.s.sol --sig "status()"
+
+# Step 4, one hour later
+send script/ProposeWiring.s.sol signer-1 --sig "execute()"
+verify script/VerifyWiring.s.sol
+send script/RetireRecords.s.sol rh-deployer --sig "goLive()"
+verify script/Verify.s.sol
+```
+
+**The checks owe the acceptances.** Each check lists the pending acceptance of every carried
+contract it reads as owed, `<contract>.admin is still the previous timelock: the 48-hour timelock's
+acceptance lands the handover`, and `VerifyToken.s.sol` and `VerifyStaking.s.sol` say the same of
+the vesting contract and the seeder in their own words. The whole check in steps 4 and 5 therefore
+runs without `BURSAR_VERIFY_STRICT`, and must end `0 mismatched, 10 owed`: Reputation,
+OracleRegistry, AgentRegistry, Vesting, Staking, Buyback, the seeder's owner, AssetRegistry,
+TreasuryPark and SolvencyLog, and nothing else. `check-live.sh` reports FAIL on those ten lines
+until the acceptances execute, and PASS afterwards.
+
+**Step 5 runs the same day.** Nothing on the fourth lane unbonds: its cash came back to the lender
+and its collateral example's stock came out of its vault in step 3, and `RetireRecords.s.sol`
+retires the fourth record as soon as that pool holds no cash or debt and that vault no balance. A
+line still drawn on the fourth pool is the one thing that holds it open.
+
+**`GOVERNANCE-48H.md` steps 5 and 6 run unchanged on 2026-10-05.** The acceptances take every
+carried contract. Two of them, #7 and #8, take the fourth set's credit pool and collateral vault,
+retired by then: `acceptAdmin` changes their admin and nothing else, on contracts that hold
+nothing. `finish()` reads the fourth record, checks those contracts among the rest and rewrites that
+record's governance; it never reads the fifth, which names the 48-hour timelock already. Run it as
+that runbook says, in a shell where `script/env/rhc-mainnet-v4.env` is sourced.
+
 ## If a step stops
 
 A refusal stops a step before it sends anything: every check runs in the simulation Forge makes
@@ -318,7 +378,7 @@ share. The ones this move meets on its own:
 
 | It says | What to do |
 |---|---|
-| `WiringFailed` naming `registry.admin` or `park.admin` | The carried contract answers to a timelock other than the record's: the governance handover has not landed, or the record is wrong. Nothing was sent. |
+| `WiringFailed` naming `registry.admin`, `park.admin` or `staking.admin` | The carried contract answers to a timelock the record does not name: neither the record's, nor the one it replaces with the record's pending. The offers of `GOVERNANCE-48H.md` have not executed, or the record is wrong. Nothing was sent. |
 | `WiringFailed` naming `registry.<symbol>.feed`, `AssetNotRegistered`, `PoolIdMismatch` | The carried registry does not hold an asset the way the record describes it. The error names the read, the value expected and the value found. |
 | `NotSigner` | The key is not a signer of the timelock the error names, which is the one administering the contract today: a hardware signer for the 48-hour timelock, never one of the old keystores. |
 | `NotKeeper` | `observe` was sent from a key other than the keeper the record names. |

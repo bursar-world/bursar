@@ -377,11 +377,12 @@ and the transaction logs live in a directory of the run's own under `cache/bursa
 exits, with the chain they describe. `BURSAR_ANVIL_PORT` moves it off 8546.
 
 `rehearse-mainnet.sh` forks mainnet and runs the move in [`MIGRATION-V5.md`](MIGRATION-V5.md), step
-by step, as each real key, on top of the live set. With `BURSAR_HANDOVER_LANDED=1` it first lands
-the 48-hour governance handover on the fork, so the move runs against the fifth record as committed
-and the wiring goes to the 48-hour timelock; without it the move runs under the one-hour timelock,
-as the chain stands. Either way it ends with the previous record retired, the new one live, and the
-gas each key used. `rehearse-governance.sh` does the same for [`GOVERNANCE-48H.md`](GOVERNANCE-48H.md),
+by step, as each real key, on top of the live set and the fifth record as committed. Without
+`BURSAR_HANDOVER_LANDED` the fork is the chain as it stands, with the 48-hour governance handover
+offered and not yet accepted: the wiring lands on the one-hour timelock from its signers, and the
+checks owe the acceptances and nothing else. With it, the rehearsal lands the handover on the fork
+first, the wiring goes to the 48-hour timelock from its hardware signers, and the checks run strict.
+Either way it ends with the previous record retired, the new one live, and the gas each key used. `rehearse-governance.sh` does the same for [`GOVERNANCE-48H.md`](GOVERNANCE-48H.md),
 with three placeholder addresses standing in for the hardware keys.
 
 ### By hand on anvil
