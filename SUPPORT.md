@@ -23,7 +23,7 @@ at [bursar.world](https://bursar.world).
 ## Security vulnerabilities
 
 Do not report vulnerabilities in Discussions, issues, pull requests or on X. Follow
-[SECURITY.md](SECURITY.md) and email security@bursar.world or use GitHub private vulnerability
+[SECURITY.md](SECURITY.md) and email hello@bursar.world or use GitHub private vulnerability
 reporting.
 
 ## Response times

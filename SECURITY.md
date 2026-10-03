@@ -4,6 +4,34 @@ Bursar contracts hold real funds on Robinhood Chain mainnet. If you find a way t
 misdirect those funds, or to make any part of the system act outside a mandate, please tell us
 privately first.
 
+## Contact
+
+- Email **hello@bursar.world**. If funds are at risk right now, start the subject with `URGENT`.
+- [GitHub private vulnerability reporting](https://github.com/bursar-world/bursar/security/advisories/new)
+  on this repository, for a report that stays private until an advisory is published.
+
+Every report is acknowledged within three business days. What follows the acknowledgement is under
+[What to expect](#what-to-expect).
+
+### If funds are at immediate risk
+
+Email first, with `URGENT` in the subject. If email is too slow, the SEAL 911 war room at
+https://securityalliance.org/seal-911 reaches a trusted responder who can contact the team.
+
+Once the team knows, the timelock guardian can act within minutes. One transaction, with no
+approvals and no delay, pauses the current and previous escrows, the `OracleRegistry` and
+`AgentRegistry` of each, and the `Staking` pool and `Buyback` they share; the second set's escrow,
+`OracleRegistry` and `AgentRegistry`; and the first set's `AgentRegistry`, `Staking` and `Buyback`.
+A pause stops new locks, new disputes, new stakes and new buys. Principals can revoke an agent on
+their own mandate accounts at once.
+
+Exits always stay open. Money already held in a lock can still be released, refunded, ruled on and
+claimed; a principal can withdraw from or revoke its own mandate at any time; a shielded pool
+depositor can always leave through ragequit; agent and resolver stake already unbonding still comes
+out. The one hold a pause can place is on the staking pool's matured exits, for at most seven days.
+Nothing pauses a mandate account, the factories, the credit pool, the collateral vault, the
+treasury park, the shielded pool or the relay. Unpausing is a proposal with the full delay.
+
 ## Reviews
 
 Two readings of this repository are marked with annotated git tags, so the exact state each one
@@ -89,19 +117,9 @@ like any other change.
 
 ## Reporting a vulnerability
 
-Do not open a public issue, discussion or pull request for a vulnerability.
-
-Use either channel:
-
-- Email **security@bursar.world**.
-- [GitHub private vulnerability reporting](https://github.com/bursar-world/bursar/security/advisories/new)
-  on this repository.
-
-If funds are at risk right now, start the email subject with `URGENT`. The timelock guardian can
-pause, in the same block, the v4 and v3 escrows, the `OracleRegistry` and `AgentRegistry` of each,
-and the `Staking` and `Buyback` they share; the v2 escrow, `OracleRegistry` and `AgentRegistry`;
-and the v1 `AgentRegistry`, `Staking` and `Buyback`. Principals can revoke an agent on their own
-mandate accounts at once. An early report is what gives them the time.
+Do not open a public issue, discussion or pull request for a vulnerability. Use either channel
+under [Contact](#contact); an early report is what gives the guardian and the principals the time
+to act.
 
 Please include:
 
@@ -198,4 +216,4 @@ researches and reports a vulnerability in good faith under this policy. Good fai
 - give us a reasonable time to fix the issue before disclosing it.
 
 If you are unsure whether something you plan to do is covered, ask us first at
-security@bursar.world.
+hello@bursar.world.

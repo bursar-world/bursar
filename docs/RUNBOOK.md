@@ -7,6 +7,27 @@ it says `cast send`. The roles the commands exercise are listed in
 [GOVERNANCE.md](../GOVERNANCE.md#privileged-roles), and the conditions the checks defend are in
 [INVARIANTS.md](INVARIANTS.md).
 
+## If funds are at immediate risk
+
+Who to reach, in this order:
+
+1. **The guardian key.** One transaction, with no approvals and no delay, pauses the escrows, the
+   resolver and agent registries, the staking pool and the buyback ([Pause](#pause)). Pause first
+   and establish the cause afterwards; an unpause is a proposal with the full delay.
+2. **Two timelock signers.** Everything beyond a pause, from an unpause to rotating a key, is a
+   proposal that needs two of the three signers and waits out the delay
+   ([A parameter change through the timelock](#a-parameter-change-through-the-timelock)).
+3. **The reporter.** Reports come to hello@bursar.world, with `URGENT` in the subject when funds
+   are at risk, and through the repository's GitHub security advisories. A reporter who could not
+   reach us may come through the SEAL 911 war room (https://securityalliance.org/seal-911);
+   answer there, then move to email.
+
+A pause never stops an exit: money already held in a lock can still be released, refunded, ruled
+on and claimed, a principal can withdraw from or revoke its own mandate, and a shielded pool
+depositor can always ragequit. Matured staking exits are the one hold, for at most seven days.
+Mandate accounts, the factories, the credit pool, the collateral vault, the treasury park, the
+shielded pool and the relay have no pause.
+
 ## Set up a shell
 
 Everything runs from `contracts/`. Keys sign from the Foundry keystores under `$KEYS`, named as

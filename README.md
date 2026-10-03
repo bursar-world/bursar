@@ -372,7 +372,7 @@ How decisions are made, including changes to on-chain parameters, is in
 
 ## Security
 
-Do not open a public issue for a vulnerability. Email security@bursar.world or use
+Do not open a public issue for a vulnerability. Email hello@bursar.world or use
 [GitHub private vulnerability reporting](https://github.com/bursar-world/bursar/security/advisories/new).
 [SECURITY.md](SECURITY.md) has the scope and what to expect.
 
