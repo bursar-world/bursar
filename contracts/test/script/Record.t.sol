@@ -431,8 +431,9 @@ contract RecordTest is ScriptHarness {
     /// The records in `deployments/`: every one on Robinhood Chain, none a rehearsal, each with a
     /// status, and the history between them written in both directions where it is complete.
     function test_record_committedRecordsSitOn4663AndNameWhatEachReplaced() public view {
-        string[5] memory names =
-            ["rhc-mainnet", "rhc-mainnet-token", "rhc-mainnet-v2", "rhc-mainnet-v3", "rhc-mainnet-v4"];
+        string[6] memory names = [
+            "rhc-mainnet", "rhc-mainnet-token", "rhc-mainnet-v2", "rhc-mainnet-v3", "rhc-mainnet-v4", "rhc-mainnet-v5"
+        ];
         for (uint256 i; i < names.length; ++i) {
             string memory json = vm.readFile(string.concat("deployments/", names[i], ".json"));
             assertEq(vm.parseJsonUint(json, K.CHAIN_ID), 4663, names[i]);
@@ -451,6 +452,7 @@ contract RecordTest is ScriptHarness {
         string memory v2 = vm.readFile("deployments/rhc-mainnet-v2.json");
         string memory v3 = vm.readFile("deployments/rhc-mainnet-v3.json");
         string memory v4 = vm.readFile("deployments/rhc-mainnet-v4.json");
+        string memory v5 = vm.readFile("deployments/rhc-mainnet-v5.json");
 
         // The fourth set answers for the chain. The records it and the third set replaced stay
         // readable for what they still hold until the last migration step retires each.
@@ -531,5 +533,58 @@ contract RecordTest is ScriptHarness {
         assertTrue(vm.keyExistsJson(v4, ".privacy.shielded.maxPerDepositor"));
         assertTrue(vm.keyExistsJson(v4, ".parameters.Reputation.minScored"));
         assertTrue(vm.keyExistsJson(v4, ".parameters.PriceGuard.minObservationAge"));
+
+        // The fifth record is planned on the fourth as it reads once its governance handover has
+        // landed: the 48-hour timelock governs, the one-hour one keeps the escrow's brake, and
+        // everything but the collateral lane carries over at its address. The lane's own scripts
+        // write the rest.
+        assertEq(vm.parseJsonString(v5, K.STATUS), "planned");
+        assertEq(vm.parseJsonString(v5, K.SUPERSEDES), "rhc-mainnet-v4");
+        assertEq(vm.parseJsonAddress(v5, K.DEPLOYER), vm.parseJsonAddress(v4, K.DEPLOYER));
+        assertEq(vm.parseJsonKeys(v5, ".contracts").length, 7);
+        assertEq(vm.parseJsonAddress(v5, K.ADMIN_TIMELOCK), vm.parseJsonAddress(v4, K.GOVERNANCE48_TIMELOCK));
+        assertEq(vm.parseJsonAddress(v5, K.ESCROW_PAUSER), vm.parseJsonAddress(v4, K.GOVERNANCE48_PREVIOUS));
+        assertEq(vm.parseJsonAddressArray(v5, K.SIGNERS), vm.parseJsonAddressArray(v4, K.GOVERNANCE48_SIGNERS));
+        assertEq(vm.parseJsonAddress(v5, K.GUARDIAN), vm.parseJsonAddress(v4, K.GOVERNANCE48_GUARDIAN));
+        assertEq(
+            vm.parseJsonUint(v5, ".parameters.AdminTimelock.timelockPeriod"),
+            vm.parseJsonUint(v4, K.GOVERNANCE48_PERIOD)
+        );
+        assertFalse(vm.parseJsonBool(v5, ".dev"));
+        assertEq(vm.parseJson(v5, ".governance48"), vm.parseJson(v4, ".governance48"));
+        string[5] memory kept = [K.REPUTATION, K.ESCROW, K.ORACLE_REGISTRY, K.AGENT_REGISTRY, K.FACTORY];
+        for (uint256 i; i < kept.length; ++i) {
+            assertEq(vm.parseJsonAddress(v5, kept[i]), vm.parseJsonAddress(v4, kept[i]), kept[i]);
+        }
+        string[7] memory sections = [
+            ".token",
+            ".privacy",
+            ".external",
+            ".exampleMandate",
+            ".exampleCommittedMandate",
+            ".rwa.assets",
+            ".roles.resolvers"
+        ];
+        for (uint256 i; i < sections.length; ++i) {
+            assertEq(vm.parseJson(v5, sections[i]), vm.parseJson(v4, sections[i]), sections[i]);
+        }
+        assertEq(vm.parseJsonAddress(v5, K.ASSET_REGISTRY), vm.parseJsonAddress(v4, K.ASSET_REGISTRY));
+        assertEq(vm.parseJsonAddress(v5, K.TREASURY_PARK), vm.parseJsonAddress(v4, K.TREASURY_PARK));
+        assertEq(vm.parseJsonAddress(v5, K.USDG_ADAPTER), vm.parseJsonAddress(v4, K.USDG_ADAPTER));
+        assertEq(vm.parseJsonUint(v5, K.RWA_FROM_BLOCK), vm.parseJsonUint(v4, K.RWA_FROM_BLOCK));
+        assertEq(vm.parseJsonUint(v5, K.FROM_BLOCK), vm.parseJsonUint(v4, K.FROM_BLOCK));
+        string[8] memory lane = [
+            K.PRICE_GUARD,
+            K.STOCK_ROUTER,
+            K.SGOV_ADAPTER,
+            ".rwa.collateral",
+            ".exampleCollateralMandate",
+            ".parameters.PriceGuard",
+            ".parameters.CreditPool",
+            ".parameters.CollateralVault"
+        ];
+        for (uint256 i; i < lane.length; ++i) {
+            assertFalse(vm.keyExistsJson(v5, lane[i]), lane[i]);
+        }
     }
 }

@@ -126,6 +126,50 @@ abstract contract World is ScriptHarness {
         }
     }
 
+    /// Takes the collateral lane out of the record at `at`, the way a lane move plans its record:
+    /// the registry, the park, the USDG adapter, the assets and the lane's first block stay; the
+    /// guard, the router, the treasury adapter, the credit pool, the vault, the collateral example
+    /// and their figures go.
+    function _stripLane(string memory at) internal {
+        string memory json = vm.readFile(at);
+        vm.writeJson(
+            string.concat(
+                '{"AssetRegistry":"',
+                vm.toString(vm.parseJsonAddress(json, K.ASSET_REGISTRY)),
+                '","TreasuryPark":"',
+                vm.toString(vm.parseJsonAddress(json, K.TREASURY_PARK)),
+                '","adapters":{"USDG":"',
+                vm.toString(vm.parseJsonAddress(json, K.USDG_ADAPTER)),
+                '"},"assets":{},"fromBlock":',
+                vm.toString(vm.parseJsonUint(json, K.RWA_FROM_BLOCK)),
+                ',"guardKeeper":"',
+                vm.toString(vm.parseJsonAddress(json, ".rwa.guardKeeper")),
+                '"}'
+            ),
+            at,
+            ".rwa"
+        );
+        string[4] memory symbols = ["SGOV", "SPY", "NVDA", "AAPL"];
+        for (uint256 i; i < symbols.length; ++i) {
+            string memory asset = string.concat(K.RWA_ASSETS, ".", symbols[i]);
+            string memory token = string.concat(asset, ".address");
+            string memory feed = string.concat(asset, ".feed");
+            string memory kind = string.concat(asset, ".kind");
+            vm.writeJson(vm.toString(vm.parseJsonAddress(json, token)), at, token);
+            vm.writeJson(vm.toString(vm.parseJsonAddress(json, feed)), at, feed);
+            vm.writeJson(string.concat('"', vm.parseJsonString(json, kind), '"'), at, kind);
+        }
+        string[4] memory gone = [
+            ".exampleCollateralMandate",
+            ".parameters.PriceGuard",
+            ".parameters.CreditPool",
+            ".parameters.CollateralVault"
+        ];
+        for (uint256 i; i < gone.length; ++i) {
+            if (vm.keyExistsJson(json, gone[i])) vm.writeJson("{}", at, gone[i]);
+        }
+    }
+
     /// The chain and the record as they stand, to come back to before each case. The record is a
     /// file, which a state snapshot does not reach.
     function _save() internal {

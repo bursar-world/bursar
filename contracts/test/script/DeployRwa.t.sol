@@ -81,38 +81,11 @@ contract DeployRwaTest is World {
     function _planTheLaneMove() private returns (DeployRwa.Deployment memory first) {
         _restore();
         first = _deploy();
-        string memory json = vm.readFile(path);
         previousPath = string.concat(RECORDS, "/", PREVIOUS, ".json");
-        vm.writeFile(previousPath, json);
+        vm.writeFile(previousPath, vm.readFile(path));
         vm.writeJson(string.concat('"', PREVIOUS, '"'), previousPath, K.NETWORK);
         vm.writeJson(string.concat('"', PREVIOUS, '"'), path, K.SUPERSEDES);
-        vm.writeJson(
-            string.concat(
-                '{"AssetRegistry":"',
-                vm.toString(address(first.registry)),
-                '","TreasuryPark":"',
-                vm.toString(address(first.park)),
-                '","adapters":{"USDG":"',
-                vm.toString(address(first.usdgAdapter)),
-                '"},"assets":{},"fromBlock":',
-                vm.toString(vm.parseJsonUint(json, K.RWA_FROM_BLOCK)),
-                ',"guardKeeper":"',
-                vm.toString(vm.parseJsonAddress(json, ".rwa.guardKeeper")),
-                '"}'
-            ),
-            path,
-            ".rwa"
-        );
-        string[4] memory symbols = ["SGOV", "SPY", "NVDA", "AAPL"];
-        for (uint256 i; i < symbols.length; ++i) {
-            string memory at = string.concat(K.RWA_ASSETS, ".", symbols[i]);
-            string memory token = string.concat(at, ".address");
-            string memory feed = string.concat(at, ".feed");
-            string memory kind = string.concat(at, ".kind");
-            vm.writeJson(vm.toString(vm.parseJsonAddress(json, token)), path, token);
-            vm.writeJson(vm.toString(vm.parseJsonAddress(json, feed)), path, feed);
-            vm.writeJson(string.concat('"', vm.parseJsonString(json, kind), '"'), path, kind);
-        }
+        _stripLane(path);
         vm.roll(block.number + 10);
     }
 
