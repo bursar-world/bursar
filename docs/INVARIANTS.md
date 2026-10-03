@@ -37,6 +37,9 @@ thousand actions per contract. This is what the nightly check runs. It takes min
 seconds. A failure prints the random seed it ran with; `--fuzz-seed <seed>` replays the same
 sequence.
 
+The tests are checked in turn. [MUTATION.md](MUTATION.md) records how many small changes to the
+escrow its tests catch, and which ones they miss.
+
 ## Escrow
 
 - The escrow's balance is exactly the principal of every open lock, the bonds posted against

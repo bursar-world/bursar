@@ -89,6 +89,8 @@ records are in `contracts/deployments/`.
 - Two annotated tags mark what was reviewed: `audit-2026-10-01`, the commit the external review
   read, and `rescore-2026-10-02`, the state read again after its findings were closed.
   `SECURITY.md` lists them under Reviews.
+- Every statement in `docs/INVARIANTS.md` links to the test that checks it, and `docs/MUTATION.md`
+  records the escrow mutation campaign's score with its survivors.
 
 ## [0.1.0] - 2026-09-27
 
