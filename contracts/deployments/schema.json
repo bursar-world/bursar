@@ -126,14 +126,18 @@
       }
     },
     "rwa": {
-      "description": "The asset registry, the price guard, stock purchases and the treasury park, with the collateral lane nested inside.",
+      "description": "The asset registry, the price guard, stock purchases and the treasury park, with the collateral lane nested inside. A record that carries the registry and the park over from the one it supersedes names them here while the guard, the router and the treasury adapter are still to deploy.",
       "type": "object",
-      "required": ["AssetRegistry", "PriceGuard", "StockSpendRouter", "TreasuryPark", "adapters", "assets"],
+      "required": ["AssetRegistry", "TreasuryPark", "adapters", "assets"],
       "properties": {
         "AssetRegistry": { "$ref": "#/$defs/address" },
         "PriceGuard": { "$ref": "#/$defs/address" },
         "StockSpendRouter": { "$ref": "#/$defs/address" },
         "TreasuryPark": { "$ref": "#/$defs/address" },
+        "guardKeeper": {
+          "description": "The keeper service's key, the only address that may call PriceGuard.observe, as the deploy named it. Governance adds or removes keepers afterwards.",
+          "$ref": "#/$defs/address"
+        },
         "adapters": {
           "description": "The park's adapter for each asset it parks in, by symbol.",
           "type": "object",
