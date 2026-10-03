@@ -44,9 +44,10 @@ All three have the same signers and the same guardian. What that means in practi
 - **A fixed delay.** A proposal becomes executable 48 hours (172,800 seconds) after it is created
   on the v1 timelock. The delay is set when a timelock is deployed, has no setter, and on v1
   cannot be below 48 hours or above 30 days. The v2 timelock and the current one are development
-  deployments with a one-hour delay and a one-hour minimum; the current one is replaced by one
-  with a 48-hour delay before the public launch. The delay is the window in which anyone can read
-  a pending change and act on it.
+  deployments with a one-hour delay and a one-hour minimum. A 48-hour timelock with hardware
+  signers is being put in place to take over from the current one, by the steps in
+  [`contracts/script/GOVERNANCE-48H.md`](contracts/script/GOVERNANCE-48H.md). The delay is the
+  window in which anyone can read a pending change and act on it.
 - **A grace period.** An approved proposal that is not executed within 14 days of becoming
   executable expires and has to be proposed again.
 - **Cancellation.** On the v2 timelock and the current one, a proposer can withdraw its own pending
@@ -87,8 +88,8 @@ What it cannot change:
 - The escrow's fee recipient is changed only by the current recipient, in two steps.
 
 In the current release the three signers and the guardian are individual keys held by the core
-team. Moving the signer set to a multisig will itself go through the timelock and be visible on
-chain.
+team. The move to the 48-hour timelock and its hardware signers goes through the current
+timelock's own proposals and is visible on chain.
 
 Replacing a contract that has no admin, such as `Escrow`, means a new deployment with the scripts
 in `contracts/script/`, joined to the existing timelock so that one governance process covers the
@@ -175,7 +176,7 @@ reach another party's funds.
 | Escrow fee recipient | `roles.treasury`: `0x7f2D3be9597fb538BDBA3Dbcb9BEcECCD9056d21` | Receive swept fees (anyone can sweep), and name its successor in two steps (`transferTreasury`, `acceptTreasury`). Also the treasury `Staking`, `Buyback` and `Vesting` send to. | Change a fee or reach a lock. The timelock cannot move this role. |
 | Slash sink | `roles.slashSink`: `0xb4A7D77a710f6b1fF4cDDd9D3c9b66E3f917A4FF` | Receive slashed bonds and stakes and orphaned resolver rewards. | Anything else; it receives and holds no power. |
 | Liquidity key | `roles.liquidity`: `0x0DF776dBD1Ce5A8F38993Bc98bc3D81661FA51B2` | Holds what is left of the 5% liquidity allocation of BRSR and owned the first seeder, now empty. | Take liquidity out of the current seeder, which the timelock owns. |
-| Community allocation holder | The current timelock, which holds the 800,000,000 BRSR since 2 October 2026. | Release community BRSR by two-of-three proposal, 48 hours after it is made. | Mint: the supply is fixed. |
+| Community allocation holder | The current timelock, which holds the 800,000,000 BRSR since 2 October 2026. | Release community BRSR by two-of-three proposal, one hour after it is made. A 48-hour timelock is being put in place to hold the allocation ([`contracts/script/GOVERNANCE-48H.md`](contracts/script/GOVERNANCE-48H.md)). | Mint: the supply is fixed. |
 
 ### No privileged party
 

@@ -31,10 +31,11 @@ and responds is in [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
 - **Governance keys.** The current set is a development deployment. Its timelock has a one-hour
   delay, and its three signers and guardian are plain keys held by the team, with two approvals
-  needed for any change. The first set's timelock, which still administers `Vesting` and the
-  community allocation of BRSR, has a 48-hour delay. Before the public launch a timelock with a
-  48-hour delay and a multisig with hardware keys replace the development set, through proposals
-  visible on chain.
+  needed for any change. Since 2 October 2026 the same timelock administers `Vesting` and holds
+  the community allocation of BRSR, which moved to it from the first set's 48-hour timelock. A
+  timelock with a 48-hour delay and three hardware signers is being put in place to take over
+  from it, through proposals visible on chain; the steps are in
+  [`contracts/script/GOVERNANCE-48H.md`](contracts/script/GOVERNANCE-48H.md).
 - **Resolvers.** Disputes are ruled by three resolver keys run by the team, with a quorum of two
   and a bond of 30,000 BRSR each. Rulings follow the published
   [ruling policy](docs/RULING-POLICY.md), and a vote that misses quorum reopens the lock rather
