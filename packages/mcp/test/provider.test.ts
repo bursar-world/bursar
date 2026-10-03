@@ -193,7 +193,7 @@ describe('the lifecycle a provider runs through', () => {
     await expect(desk.register({ name: 'ok', stake: 25_000_000n as never })).rejects.toThrow(
       /letters, digits and underscore/u,
     );
-    await expect(desk.register({ name: 'rend‮er', stake: 25_000_000n as never })).rejects.toThrow(
+    await expect(desk.register({ name: 'rend\u202Eer', stake: 25_000_000n as never })).rejects.toThrow(
       /invisible characters/u,
     );
     expect(relay.sent).toHaveLength(0);

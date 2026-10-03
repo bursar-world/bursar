@@ -91,6 +91,19 @@ jobs:
             exit 1
           fi
 
+      # A bidirectional override makes a line read differently from how it compiles. Nothing tracked
+      # has a reason to carry one as a byte; a test that needs one writes it as an escape. Text files
+      # only, so the proving artifacts and images are left alone.
+      - name: Refuse bidirectional control characters in tracked text files
+        working-directory: .
+        run: |
+          status=0
+          LC_ALL=C git grep -I -l -P '\xE2\x80[\xAA-\xAE\x8E\x8F]|\xE2\x81[\xA6-\xA9]' || status=$?
+          if [ "$status" -ne 1 ]; then
+            echo "::error::a tracked text file holds a bidirectional control character (files listed above), or git grep could not run"
+            exit 1
+          fi
+
       # Fails when a contract is over the EIP-170 runtime or the EIP-3860 initcode limit.
       - run: forge build --sizes --skip test
 
