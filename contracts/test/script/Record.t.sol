@@ -496,11 +496,11 @@ contract RecordTest is ScriptHarness {
         assertEq(resolvers[2], 0x7062A480732EC7B0F00a3D0c968356e1671dd356);
         assertEq(vm.parseJsonAddressArray(v3, K.SIGNERS).length, 3);
 
-        // The fourth set is live on top of the third: same token set, roles and outside contracts,
-        // everything else deployed by its own scripts. Its governance is the third set's one-hour
-        // timelock until the 48-hour one takes over; from then on the first timelock keeps only the
-        // escrow's brake, and the record says which.
-        assertEq(vm.parseJsonString(v4, K.STATUS), "live");
+        // The fourth set was deployed on top of the third: same token set, roles and outside
+        // contracts, everything else by its own scripts. The fifth record replaced its collateral
+        // lane and retired it; everything else it deployed carries on in the fifth.
+        assertEq(vm.parseJsonString(v4, K.STATUS), "retired");
+        assertEq(vm.parseJsonString(v4, K.SUPERSEDED_BY), "rhc-mainnet-v5");
         assertEq(vm.parseJsonString(v4, K.SUPERSEDES), "rhc-mainnet-v3");
         assertEq(vm.parseJsonAddress(v4, K.DEPLOYER), vm.parseJsonAddress(v3, K.DEPLOYER));
         if (vm.keyExistsJson(v4, K.ESCROW_PAUSER)) {
@@ -534,11 +534,11 @@ contract RecordTest is ScriptHarness {
         assertTrue(vm.keyExistsJson(v4, ".parameters.Reputation.minScored"));
         assertTrue(vm.keyExistsJson(v4, ".parameters.PriceGuard.minObservationAge"));
 
-        // The fifth record is planned on the fourth as it reads once its governance handover has
+        // The fifth record is live on the fourth as it reads once its governance handover has
         // landed: the 48-hour timelock governs, the one-hour one keeps the escrow's brake, and
         // everything but the collateral lane carries over at its address. The lane's own scripts
-        // write the rest.
-        assertEq(vm.parseJsonString(v5, K.STATUS), "planned");
+        // wrote the rest.
+        assertEq(vm.parseJsonString(v5, K.STATUS), "live");
         assertEq(vm.parseJsonString(v5, K.SUPERSEDES), "rhc-mainnet-v4");
         assertEq(vm.parseJsonAddress(v5, K.DEPLOYER), vm.parseJsonAddress(v4, K.DEPLOYER));
         assertEq(vm.parseJsonKeys(v5, ".contracts").length, 7);
@@ -584,7 +584,12 @@ contract RecordTest is ScriptHarness {
             ".parameters.CollateralVault"
         ];
         for (uint256 i; i < lane.length; ++i) {
-            assertFalse(vm.keyExistsJson(v5, lane[i]), lane[i]);
+            assertTrue(vm.keyExistsJson(v5, lane[i]), lane[i]);
         }
+        // The lane is new: none of its contracts is the fourth record's.
+        assertNotEq(vm.parseJsonAddress(v5, K.PRICE_GUARD), vm.parseJsonAddress(v4, K.PRICE_GUARD));
+        assertNotEq(vm.parseJsonAddress(v5, K.CREDIT_POOL), vm.parseJsonAddress(v4, K.CREDIT_POOL));
+        assertNotEq(vm.parseJsonAddress(v5, K.COLLATERAL_VAULT), vm.parseJsonAddress(v4, K.COLLATERAL_VAULT));
+        assertEq(vm.parseJsonAddress(v5, ".rwa.guardKeeper"), 0x4c55AE3Fd264d9932A673B7CfBF80fCB112679BD);
     }
 }

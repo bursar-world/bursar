@@ -10,7 +10,7 @@ import type { AdminAction } from '@/chain/admin-actions';
 import { CallPreview } from '@/app/(app)/governance/builder';
 import { governanceTimelocks, statusOf } from '@/app/(app)/governance/read';
 import { TOKEN_ROLES } from '@/chain';
-import { contractSetAtLeast, contractSetOf, deploymentForChain } from '@bursar/core';
+import { contractSetAtLeast, contractSetOf, deploymentByContract, deploymentForChain } from '@bursar/core';
 import { CUSTODY_LINE, answerInList, answerIs, governanceNotice, permits } from '@/app/(app)/governance/roles';
 import type { Roles } from '@/app/(app)/governance/roles';
 
@@ -170,10 +170,16 @@ describe('the governance delays on this chain', () => {
     expect(token?.name.startsWith('Token, staking and buyback')).toBe(true);
   });
 
-  it('says a brake stops each target on its own only where the delay runs the current build', () => {
+  it('says a brake stops each target on its own exactly where the delay runs a build from the third set on', () => {
     const current = contractSetOf(deploymentForChain(4663));
     expect(tags[0]?.brake).toBe(contractSetAtLeast(current, 'v3') ? 'each-target' : 'all-or-nothing');
-    expect(tags.slice(1).every((tag) => tag.brake === 'all-or-nothing')).toBe(true);
+    // Every delay a record names is tagged by that record's build: the one-hour timelock the
+    // third and fourth sets ran on keeps its per-target brake beside the 48-hour one.
+    for (const tag of tags) {
+      const record = deploymentByContract('AdminTimelock', tag.address);
+      if (record === undefined) continue;
+      expect(tag.brake).toBe(contractSetAtLeast(contractSetOf(record), 'v3') ? 'each-target' : 'all-or-nothing');
+    }
   });
 });
 
