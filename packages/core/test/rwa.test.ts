@@ -72,7 +72,8 @@ describe('why a draw counts nothing for a position', () => {
     expect(drawHaltOf(4)).toBe('NoObservation');
     expect(drawHaltOf(8)).toBe('SpotOffBand');
     expect(drawHaltOf(9)).toBe('Unreadable');
-    expect(drawHaltOf(10)).toBeUndefined();
+    expect(drawHaltOf(10)).toBe('PendingOffBand');
+    expect(drawHaltOf(11)).toBeUndefined();
   });
 });
 

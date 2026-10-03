@@ -195,7 +195,8 @@ describe('the v4 ABIs', () => {
       expect(named(BURSAR_ABIS.CollateralVault, 'function')).toContain(added);
     }
     expect(named(BURSAR_ABIS.Reputation, 'error')).toContain('BadWeights');
-    expect(named(BURSAR_ABIS.PriceGuard, 'error')).toContain('ObservationTooSoon');
+    expect(named(BURSAR_ABIS.PriceGuard, 'error')).toContain('NotKeeper');
+    expect(named(BURSAR_ABIS.PriceGuard, 'function')).toContain('setKeeper');
     expect(named(BURSAR_ABIS.CollateralVault, 'error')).toContain('NothingSeized');
   });
 

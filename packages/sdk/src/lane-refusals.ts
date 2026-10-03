@@ -266,17 +266,19 @@ const GUARD: Readonly<Record<ErrorName<typeof priceGuardAbi>, Reading>> = {
       'or hold the lane’s tokens. Only Robinhood lifts a block; no mandate setting changes it.',
   },
   NotEligible: NOT_ELIGIBLE,
-  ObservationTooSoon: {
-    owner: 'clock',
-    message: (figures, context) =>
-      figured(
-        [ageAt(figures, 1), ageAt(figures, 2)],
-        ([age, bound]) =>
-          `The reading of the ${tokenAt(figures, 0, context, 'asset’s')} pool waiting at the price guard is ` +
-          `${age} old, and the next one can replace it once it is ${bound} old.`,
-        `The reading of the ${tokenAt(figures, 0, context, 'asset’s')} pool waiting at the price guard is too ` +
-          'young for the next one to replace it.',
-      ) + ' Nothing was recorded and the reading in force is unchanged. Observe again after the wait.',
+  NotKeeper: {
+    owner: 'deployment',
+    message:
+      'Only a keeper the price guard’s governance named may record a reading of a pool. Readings are taken ' +
+      'by the keeper service every few minutes; nothing a mandate sends changes that.',
+  },
+  NotAdmin: GOVERNANCE_ONLY,
+  NotPendingAdmin: PENDING_ADMIN,
+  NotDeployer: {
+    owner: 'deployment',
+    message:
+      'The price guard’s first keeper is named once, by the key that deployed it, and that has been done. ' +
+      'Governance names any further keeper.',
   },
   OraclePaused: {
     owner: 'token',
@@ -703,6 +705,13 @@ const VAULT: Readonly<Record<ErrorName<typeof collateralVaultAbi>, Reading>> = {
     message: (figures) =>
       `${mandateAt(figures, 0)} has no collateral line open, so it cannot post collateral or draw on ` +
       'credit. Its principal opens one with openLine().',
+  },
+  SaleHalted: {
+    owner: 'clock',
+    message: (figures, context) =>
+      `${tokenAt(figures, 0, context)} cannot be sold right now: the price check holds no reading of its pool ` +
+      'that a sale may rest on. The sale waits until a reading taken with the pool and the feed in line has ' +
+      'aged; nothing a mandate sends changes that.',
   },
   NotAdmin: GOVERNANCE_ONLY,
   NotCollateral: {
