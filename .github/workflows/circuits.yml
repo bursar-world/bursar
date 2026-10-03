@@ -1,0 +1,96 @@
+name: Circuits
+
+# Compiles the mandate circuit with circom's inspection on, fails on any finding it does not expect,
+# and checks that the committed proving artifacts are what this source compiles to.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'circuits/**'
+      - '.github/workflows/circuits.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'circuits/**'
+      - '.github/workflows/circuits.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: circuits-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  inspect:
+    name: Inspect the mandate circuit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: circuits
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The version comes from "packageManager" in package.json.
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      # circomlib, which the circuit includes from node_modules, is the package's one dev dependency.
+      - run: pnpm install --frozen-lockfile --filter @bursar/circuits
+        working-directory: .
+
+      # The release scripts/compile.sh expects. iden3 publishes no checksums, so this one was taken from
+      # the binary and is what every later run is held to.
+      - name: Install circom
+        env:
+          VERSION: 2.1.9
+          SHA256: e5575829252d763b7818049df9de2ef9304df834697de77fa63ce7babc23c967
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/circom" \
+            "https://github.com/iden3/circom/releases/download/v${VERSION}/circom-linux-amd64"
+          echo "${SHA256}  $RUNNER_TEMP/circom" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/circom"
+
+      # --inspect adds a pass over the constraints: signals no constraint reads, and constraints that
+      # bind nothing. circom colours its output whether or not it has a terminal, so the log is stripped
+      # before it is read.
+      - name: Compile with inspection
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          if ! "$RUNNER_TEMP/circom" src/within_mandate.circom --inspect --r1cs --wasm -l node_modules \
+              -o "$RUNNER_TEMP/out" > "$RUNNER_TEMP/inspect.log" 2>&1; then
+            cat "$RUNNER_TEMP/inspect.log"
+            echo "::error::circom could not compile circuits/src/within_mandate.circom"
+            exit 1
+          fi
+          sed -i 's/\x1b\[[0-9;]*m//g' "$RUNNER_TEMP/inspect.log"
+          cat "$RUNNER_TEMP/inspect.log"
+
+      # The one finding allowed is CA02 on a Num2Bits used as a range check: the circuit's own
+      # (`<name>Bits`) and the one inside circomlib's LessThan (`n2b`). The check is the decomposition
+      # inside Num2Bits, where every output is a bit and together they sum to the input, so the parent
+      # has nothing to read from the bits and circom reports them unused. Any other warning fails the job.
+      - name: Refuse any warning but the known ones
+        run: |
+          if grep -E '^warning' "$RUNNER_TEMP/inspect.log" \
+            | grep -vE '^warning\[CA02\]: In template "(WithinMandate\([0-9,]+\)|LessThan\([0-9]+\))": Array of subcomponent input/output signals ([A-Za-z]+Bits|n2b)\.out contains'; then
+            echo "::error::circom --inspect reported a warning this job does not allow (listed above)"
+            exit 1
+          fi
+
+      # The committed r1cs and wasm, which check-artifacts.mjs holds to the hashes recorded at setup,
+      # are what this source compiles to.
+      - name: Check the committed artifacts match a fresh compile
+        run: |
+          r1cs=$(node -p 'require("./build/setup.json").sha256["within_mandate.r1cs"]')
+          wasm=$(node -p 'require("./build/setup.json").sha256["within_mandate.wasm"]')
+          printf '%s  %s\n%s  %s\n' \
+            "$r1cs" "$RUNNER_TEMP/out/within_mandate.r1cs" \
+            "$wasm" "$RUNNER_TEMP/out/within_mandate_js/within_mandate.wasm" | sha256sum -c -
