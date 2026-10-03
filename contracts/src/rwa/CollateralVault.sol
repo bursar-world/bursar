@@ -607,6 +607,8 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         // slither-disable-next-line reentrancy-benign
         uint256 writtenOff = pool.writeOff(mandate);
         uint256 n = _assets.length;
+        // Summed from zero below; nothing priced leaves it at zero, which seizes everything.
+        // slither-disable-next-line uninitialized-local
         uint256 total;
         // The feed value of each position, the way `health` counts it, over the lane's own assets.
         // slither-disable-next-line calls-loop
@@ -618,6 +620,7 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
             uint256 raw = collateralOf[mandate][asset];
             // slither-disable-next-line incorrect-equality
             if (raw == 0) continue;
+            // slither-disable-next-line incorrect-equality
             uint256 take = total == 0 ? raw : Math.min(raw, Math.mulDiv(raw, writtenOff, total, Math.Rounding.Ceil));
             collateralOf[mandate][asset] = raw - take;
             // slither-disable-next-line incorrect-equality

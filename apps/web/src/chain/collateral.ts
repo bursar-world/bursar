@@ -408,6 +408,8 @@ const HALT_LINES: Readonly<Record<ConsoleHalt, (bounds: ObservationBounds | unde
     `Its price has moved ${bounds === undefined ? 'further' : `more than ${Number(bounds.maxFeedJumpBps) / 100}%`} since the price check’s last reading of its pool${bounds === undefined ? ' than a draw allows' : ''}. A new reading counts ${readingCounts(bounds)}.`,
   SpotOffBand: () => 'Its pool is out of line with its price right now.',
   Unreadable: () => 'The price of this asset cannot be read right now. It counts again once its price feed and its pool answer.',
+  PendingOffBand: (bounds) =>
+    `At the price check’s newest reading its pool was out of line with its price. A reading taken with the two in line counts ${readingCounts(bounds)}.`,
   unknown: () => 'The vault reports a condition this console does not name yet. Until it does, treat the position as not counting.',
 };
 

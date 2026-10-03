@@ -50,6 +50,7 @@ export const DRAW_HALTS = [
   'FeedJump',
   'SpotOffBand',
   'Unreadable',
+  'PendingOffBand',
 ] as const;
 
 export type DrawHalt = (typeof DRAW_HALTS)[number];

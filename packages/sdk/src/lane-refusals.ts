@@ -601,6 +601,13 @@ const DRAW_HALT: Readonly<Record<Halt, Reading>> = {
       'Its feed, its token’s pause switches or its pool’s state did not answer, and the vault values a holding ' +
       'it cannot read at nothing rather than refusing the call. It counts again once they answer.',
   },
+  PendingOffBand: {
+    owner: 'clock',
+    message: (figures, context) =>
+      `${tokenAt(figures, 0, context)} counts for nothing toward a draw right now: at the price check’s newest ` +
+      'reading its pool was out of line with its price. It counts again once a reading taken with the two in ' +
+      'line has aged, and nothing a mandate sends changes that.',
+  },
 };
 
 function isHalt(value: unknown): value is Halt {
