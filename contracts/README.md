@@ -113,9 +113,11 @@ After changing a contract's interface, regenerate the TypeScript ABIs with
 order, every parameter and each condition under which a script refuses to run.
 [`script/TOKEN-README.md`](script/TOKEN-README.md) covers BRSR, staking, the buyback and the market.
 [`script/MIGRATION.md`](script/MIGRATION.md) is the runbook for moving the third contract set on
-Robinhood Chain to the fourth, which keeps its timelock and token set, and
+Robinhood Chain to the fourth, which keeps its timelock and token set,
 [`script/GOVERNANCE-48H.md`](script/GOVERNANCE-48H.md) the runbook for moving the fourth set from
-that one-hour timelock to a 48-hour one whose signers are hardware keys. Every key signs from an
+that one-hour timelock to a 48-hour one whose signers are hardware keys, and
+[`script/MIGRATION-V5.md`](script/MIGRATION-V5.md) the runbook for the fifth set, which rebuilds
+the collateral lane under that governance and carries everything else over. Every key signs from an
 encrypted keystore or a hardware wallet; no private key is ever passed on the command line.
 
 ## A payment and a dispute, with cast

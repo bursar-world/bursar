@@ -11,6 +11,7 @@ the chain the same questions afterwards. You do not need to have read the contra
 | [`TOKEN-README.md`](TOKEN-README.md) | BRSR, vesting, staking, the buyback and the BRSR/USDG market. |
 | [`MIGRATION.md`](MIGRATION.md) | Moving from the third contract set on Robinhood Chain to the fourth, step by step. |
 | [`GOVERNANCE-48H.md`](GOVERNANCE-48H.md) | Moving the fourth set from its one-hour timelock to a 48-hour one with hardware signers. |
+| [`MIGRATION-V5.md`](MIGRATION-V5.md) | Moving from the fourth set to the fifth, which rebuilds the collateral lane and carries everything else over. |
 
 Amounts in USDG are micro-USD: USDG has six decimals, so `1000000` is one dollar. BRSR has
 eighteen, so `1e18` is one token. Durations are seconds and rates are basis points.
@@ -104,7 +105,7 @@ the first timelock, which keeps the escrow's brake and nothing else.
 | `DeployToken.s.sol` | `BRSR` and `Vesting`, on a chain that has neither | `VerifyToken.s.sol` |
 | `DeployStaking.s.sol` | `Staking`, `Buyback`, and a `V4LiquiditySeeder` when the BRSR/USDG pool is open; nothing when the record carries all three over | `VerifyStaking.s.sol` |
 | `SeedPool.s.sol` | opens the BRSR/USDG market on a chain where it is not open, or adds to it | `VerifyStaking.s.sol` |
-| `DeployRwa.s.sol` | `AssetRegistry`, `PriceGuard`, `StockSpendRouter`, `TreasuryPark` and its two adapters | `VerifyRwa.s.sol` |
+| `DeployRwa.s.sol` | `AssetRegistry`, `PriceGuard`, `StockSpendRouter`, `TreasuryPark` and its two adapters; only the guard, the router and the treasury adapter when the record carries the registry, the park and the USDG adapter over | `VerifyRwa.s.sol` |
 | `DeployCollateral.s.sol` | `CreditPool` and `CollateralVault`, bound to each other | `VerifyCollateral.s.sol` |
 | `DeployPrivacy.s.sol` | `WithinMandateVerifier`, `CommittedMandateFactory`, `DisclosureRegistry`, `SolvencyLog` | `VerifyPrivacy.s.sol` |
 | `DeployShielded.s.sol` | the Privacy Pools verifiers and `Entrypoint`, `ShieldedPool` and `ShieldedRelay` | `VerifyShielded.s.sol` |
@@ -114,7 +115,8 @@ the first timelock, which keeps the escrow's brake and nothing else.
 
 `Verify.s.sol` runs every check in one pass, and `check-live.sh` runs it over the live record
 and writes a report. The `Migrate*.s.sol` scripts and `RetireRecords.s.sol` move the previous
-deployment into this one; [`MIGRATION.md`](MIGRATION.md) gives their order.
+deployment into this one; [`MIGRATION.md`](MIGRATION.md) and [`MIGRATION-V5.md`](MIGRATION-V5.md)
+give their order for a whole set and for one lane.
 
 Every contract answers to the timelock from its constructor, so no part of the set is ever
 administered by the deploy key. What the deploy key keeps is the one-shot calls no constructor can
@@ -135,8 +137,11 @@ credit pool's two roles on the staking pool, credit manager and slasher, and, wh
 `SeedPool.s.sol` opened the market, the seeder it offered to the timelock. A call whose effect is
 already on chain is left out, so on a record that carries its staking pool over the batch comes
 down to the credit pool's two roles. With a previous record in the shell it also winds that
-record's shielded pool down, through the Entrypoint the timelock owns: the pool takes no new
-deposit, and every note in it stays withdrawable.
+record's shielded pool down, through the Entrypoint the timelock owns, unless the record carries
+the pool over: the pool takes no new deposit, and every note in it stays withdrawable. On a record
+that carries the treasury park over and names a treasury adapter of its own, the batch switches
+them: the new adapter on, the previous one off. Each call goes to the timelock that administers
+its target on the chain, with that timelock's delay.
 
 ## 4. Running a script
 
@@ -263,7 +268,8 @@ the run records the figures the three hold on chain.
 | `BURSAR_ASP_POSTMAN` | `0x731F…4bbe` | `DeployShielded.s.sol`. The key the association-set service posts roots with. Never the deploy key or the timelock. |
 | `BURSAR_SHIELDED_RELAYER` | `0xc8FB…9630` | `DeployShielded.s.sol`. The relayer the apps send withdrawals through. |
 | `BURSAR_SHIELDED_MAX_PER_DEPOSITOR`, `BURSAR_SHIELDED_DEPOSITOR_WINDOW` | `250000000`, `604800` | `DeployShielded.s.sol`. What one address may put into the pool in any seven days: a quarter of the pool's 1,000 USDG. |
-| `BURSAR_MIN_OBSERVATION_AGE`, `BURSAR_MAX_OBSERVATION_AGE` | `300`, `3600` | `DeployRwa.s.sol`. A draw on the collateral lane counts a holding only against an observation of its pool, taken by anyone calling `PriceGuard.observe(asset)`, at least five minutes old and at most an hour old. A keeper calls it per asset every five minutes. |
+| `BURSAR_MIN_OBSERVATION_AGE`, `BURSAR_MAX_OBSERVATION_AGE` | `300`, `3600` | `DeployRwa.s.sol`. A draw on the collateral lane counts a holding only against an observation of its pool, taken by the keeper calling `PriceGuard.observe(asset)`, at least five minutes old and at most an hour old. The keeper calls it per asset every five minutes; no other key may. |
+| `BURSAR_GUARD_KEEPER` | `0x4c55…79BD` | `DeployRwa.s.sol`. The keeper service's key, the one address the guard takes observations from. The deploy key names it once; governance adds or removes keepers afterwards with `PriceGuard.setKeeper`. |
 | `BURSAR_MAX_FEED_JUMP_BPS` | `1500` | `DeployRwa.s.sol`. How far the feed may move from that observation, 15%, before draws halt. |
 
 The RWA assets come from the record's `external.assets`, and the terms each trades under from
@@ -360,20 +366,23 @@ outside contracts with `script/local/LocalFixtures.s.sol`, which also writes a l
 runs every deploy script with its check. It opens the BRSR/USDG market with `SeedPool.s.sol`, runs
 the wiring batch through the timelock from the signers' own accounts, funds the credit pool, seats
 a payee and the three resolvers, creates the examples, and checks the set under
-`BURSAR_VERIFY_STRICT=1`. Then it plans a second record on top of the first, with the timelock and
-the token set carried over, and runs every step of [`MIGRATION.md`](MIGRATION.md) between the two:
-the staking run joins what it finds, the wiring batch proposes only what differs, the first record
-retires and the second goes live. It ends on a strict check of the second set, which has to find
-nothing owed, and one flow per lane against it. The last line it prints says it passed, or names
-the step it stopped at. The build, the records and the transaction logs live in a directory of the
-run's own under `cache/bursar`, and go when it exits, with the chain they describe.
-`BURSAR_ANVIL_PORT` moves it off 8546.
+`BURSAR_VERIFY_STRICT=1`. Then it plans a second record on top of the first, with everything but
+the collateral lane carried over, and runs every step of [`MIGRATION-V5.md`](MIGRATION-V5.md)
+between the two: the RWA run joins the carried registry and park and rebuilds what holds the guard,
+the wiring batch moves the staking pool's two roles and switches the park's adapters, the lending
+cash and the collateral example move, the first record retires and the second goes live. It ends
+on a strict check of the second set, which has to find nothing owed, and one flow per lane against
+it. The last line it prints says it passed, or names the step it stopped at. The build, the records
+and the transaction logs live in a directory of the run's own under `cache/bursar`, and go when it
+exits, with the chain they describe. `BURSAR_ANVIL_PORT` moves it off 8546.
 
-`rehearse-mainnet.sh` forks mainnet and runs the move in [`MIGRATION.md`](MIGRATION.md), step by
-step, as each real key, on top of the live set. It ends with the previous record retired, the new
-one live, and the gas each key used. `rehearse-governance.sh` does the same for
-[`GOVERNANCE-48H.md`](GOVERNANCE-48H.md), with three placeholder addresses standing in for the
-hardware keys.
+`rehearse-mainnet.sh` forks mainnet and runs the move in [`MIGRATION-V5.md`](MIGRATION-V5.md), step
+by step, as each real key, on top of the live set. With `BURSAR_HANDOVER_LANDED=1` it first lands
+the 48-hour governance handover on the fork, so the move runs against the fifth record as committed
+and the wiring goes to the 48-hour timelock; without it the move runs under the one-hour timelock,
+as the chain stands. Either way it ends with the previous record retired, the new one live, and the
+gas each key used. `rehearse-governance.sh` does the same for [`GOVERNANCE-48H.md`](GOVERNANCE-48H.md),
+with three placeholder addresses standing in for the hardware keys.
 
 ### By hand on anvil
 

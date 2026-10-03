@@ -1,5 +1,9 @@
 # Moving Bursar to the fourth contract set
 
+This move ran on 2026-09-30: the fourth set is live. The runbook stays as the account of how, and as
+the pattern a whole-set move follows. The next move, which rebuilds one lane and carries the rest
+over, is [`MIGRATION-V5.md`](MIGRATION-V5.md).
+
 This runbook brings the fourth Bursar contract set live on Robinhood Chain and moves what the third
 set holds into it. It is written for the people who hold the keys. Every step is a script in this
 directory that can be simulated against the live chain before it sends anything, and the whole
@@ -243,7 +247,8 @@ signature="$(cast wallet sign --keystore "$KEYS/payer" "$(node script/committed-
 eval "$(node script/committed-example.mjs terms "$PAYER" "$signature")"
 send script/MigrateExamples.s.sol payer --sig "create()"
 
-# The first observations of each collateral asset's pool on the new price guard, from any key.
+# The first observations of each collateral asset's pool on the new price guard, from any key: the
+# fourth set's guard took them from anyone. The fifth set's takes them from its keeper alone.
 # A draw needs one at least five minutes old, so the same loop runs again five minutes later.
 observe() {
   for symbol in SGOV SPY NVDA AAPL; do

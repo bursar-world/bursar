@@ -266,6 +266,10 @@ Nothing else needs doing in the console. The old signers' keystores stay where t
 escrow's pauser is still the old timelock, so an unpause of the escrow is a proposal on it, and the
 guardian's brake on the escrow runs through it too.
 
+The move to the fifth set, [`MIGRATION-V5.md`](MIGRATION-V5.md), starts only after this step: its
+record is written for the fourth set as `finish()` leaves it, and its first script refuses while the
+carried contracts still answer to the old timelock.
+
 ## If a step stops
 
 A refusal stops a step before it sends anything: every check runs in the simulation Forge makes
