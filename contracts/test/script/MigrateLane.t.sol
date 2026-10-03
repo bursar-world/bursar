@@ -16,8 +16,8 @@ import {VerifyCollateral} from "../../script/VerifyCollateral.s.sol";
 import {VerifyRwa} from "../../script/VerifyRwa.s.sol";
 import {IShieldedPoolReads} from "../../script/VerifyShielded.s.sol";
 import {VerifyWiring} from "../../script/VerifyWiring.s.sol";
-import {BursarScript} from "../../script/lib/BursarScript.sol";
 import {Governance} from "../../script/lib/Governance.sol";
+import {IAdministered} from "../../script/lib/Handover.sol";
 import {RecordKeys as K} from "../../script/lib/RecordKeys.sol";
 
 import {AdminTimelock} from "../../src/AdminTimelock.sol";
@@ -45,16 +45,22 @@ contract LaneVerifyProbe is Verify {
 /// The move that rebuilds the collateral lane and carries everything else over, through the real
 /// scripts. A whole set is built, wired, funded and in use with its three examples; then a record
 /// is planned on top of it naming all of it but the lane, and every step of `MIGRATION-V5.md` runs
-/// between the two records in the runbook's order. Once under the set's own one-hour timelock, and
-/// once after the 48-hour governance handover has landed, when the wiring goes to the new timelock
-/// and waits out its two days. A lane record written for the finished handover while its
-/// acceptances still wait is refused before anything is sent.
+/// between the two records in the runbook's order. Three times: under the set's own one-hour
+/// timelock; after the 48-hour governance handover has landed, when the wiring goes to the new
+/// timelock and waits out its two days; and while the handover is offered and its acceptances still
+/// wait, when the carried contracts answer to the one-hour timelock with the 48-hour one pending,
+/// the wiring lands on the one-hour timelock from its signers, and the acceptances land afterwards
+/// on a lane already retired.
 contract MigrateLaneTest is World, LaneFlows {
     address internal constant EXAMPLE_PAYER = address(0xE2E00021);
     address internal constant HW_1 = address(0x4801);
     address internal constant HW_2 = address(0x4802);
     address internal constant HW_3 = address(0x4803);
     uint256 internal constant COMMUNITY = 1_000e18;
+    /// What the whole check owes while the handover waits: the pending acceptance of Reputation,
+    /// OracleRegistry, AgentRegistry, Vesting, Staking, Buyback, AssetRegistry, TreasuryPark and
+    /// SolvencyLog, and the seeder's pending owner.
+    uint256 internal constant PENDING_ACCEPTANCES = 10;
 
     string internal previousPath;
     string internal nextPath;
@@ -105,9 +111,19 @@ contract MigrateLaneTest is World, LaneFlows {
         vm.revertToState(_state);
         _state = vm.snapshotState();
         vm.writeFile(previousPath, _previousSaved);
+        _usePrevious();
+    }
+
+    function _usePrevious() private {
         path = previousPath;
         _set("BURSAR_RECORD", previousPath);
         _unset("BURSAR_PREVIOUS_RECORD");
+    }
+
+    function _useNext() private {
+        path = nextPath;
+        _set("BURSAR_RECORD", nextPath);
+        _set("BURSAR_PREVIOUS_RECORD", previousPath);
     }
 
     /// The next record: the previous one as it stands, less the collateral lane, planned.
@@ -119,9 +135,7 @@ contract MigrateLaneTest is World, LaneFlows {
         vm.writeJson(string.concat('"', vm.parseJsonString(previous, K.NETWORK), '"'), nextPath, K.SUPERSEDES);
         vm.writeJson("{}", nextPath, ".verifiedOnChain");
         _stripLane(nextPath);
-        path = nextPath;
-        _set("BURSAR_RECORD", nextPath);
-        _set("BURSAR_PREVIOUS_RECORD", previousPath);
+        _useNext();
     }
 
     function _committedTerms(bool on) private {
@@ -144,20 +158,21 @@ contract MigrateLaneTest is World, LaneFlows {
         _as(key, pinned, abi.encodeWithSignature(sig));
     }
 
-    function _signers() private view returns (address[] memory) {
-        return vm.parseJsonAddressArray(vm.readFile(path), K.SIGNERS);
+    /// The timelock that administers the carried contracts today, which the wiring batch goes to.
+    function _governing() private view returns (AdminTimelock) {
+        return AdminTimelock(Staking(_readAddress(path, K.STAKING)).admin());
     }
 
     function test_migrateLane_rebuildsTheCollateralLaneUnderEitherGovernance() public {
         _theMoveUnderTheRecordsTimelock();
         _theMoveAfterTheHandoverLanded();
-        _aLaneRecordWrittenForAPendingHandoverIsRefused();
+        _theMoveWhileTheHandoverIsPending();
     }
 
     function _theMoveUnderTheRecordsTimelock() private {
         _back();
         _plan();
-        _theWholeMove();
+        _theWholeMove(false);
     }
 
     /// The handover first, through its own scripts, as `GOVERNANCE-48H.md` runs it. The lane record
@@ -165,25 +180,25 @@ contract MigrateLaneTest is World, LaneFlows {
     /// hardware keys.
     function _theMoveAfterTheHandoverLanded() private {
         _back();
-        _handover(true);
+        _offer();
+        _accept();
         assertEq(_readAddress(previousPath, K.ADMIN_TIMELOCK), _readAddress(previousPath, K.GOVERNANCE48_TIMELOCK));
         _plan();
-        assertEq(AdminTimelock(_readAddress(path, K.ADMIN_TIMELOCK)).timelockPeriod(), 48 hours);
-        assertEq(_signers()[0], HW_1);
-        _theWholeMove();
+        assertEq(_governing().timelockPeriod(), 48 hours);
+        assertEq(_governing().getSigners()[0], HW_1);
+        _theWholeMove(false);
     }
 
-    /// A lane record written as the fourth reads after `finish()`, while the acceptances still wait:
-    /// the carried registry answers to the one-hour timelock, and the join refuses by name. The
-    /// chain in that state reads as owed to the acceptance, not as wrong: twelve pending admins
-    /// and the seeder's pending owner.
-    function _aLaneRecordWrittenForAPendingHandoverIsRefused() private {
+    /// Today's path. The handover is offered and its acceptances approved but not yet due. The lane
+    /// record is written as `finish()` will leave the fourth: the join takes the carried registry
+    /// and park with the 48-hour timelock pending, the new guard, pool and vault are born under the
+    /// 48-hour timelock, the wiring lands on the one-hour timelock from its signers, and the checks
+    /// owe the acceptances and nothing else. Two days later the acceptances land, two of them on a
+    /// pool and a vault already retired, and `finish()` rewrites the fourth record as if the move
+    /// had not happened.
+    function _theMoveWhileTheHandoverIsPending() private {
         _back();
-        _handover(false);
-        (uint256 mismatched, uint256 owedCount) = _tally(_pinned(address(new LaneVerifyProbe())));
-        assertEq(mismatched, 0, "an offered handover reads as a mismatch");
-        assertEq(owedCount, 13, "the offers in flight");
-
+        _offer();
         address previous = _readAddress(previousPath, K.ADMIN_TIMELOCK);
         address next = _readAddress(previousPath, K.GOVERNANCE48_TIMELOCK);
         _plan();
@@ -194,19 +209,50 @@ contract MigrateLaneTest is World, LaneFlows {
             path,
             K.SIGNERS
         );
-        _expectRefused(
-            DEPLOYER,
-            address(new DeployRwa()),
-            "run()",
-            abi.encodeWithSelector(BursarScript.WiringFailed.selector, "registry.admin", next, previous)
+        vm.writeJson(vm.toString(uint256(48 hours)), path, ".parameters.AdminTimelock.timelockPeriod");
+        vm.writeJson("false", path, ".dev");
+        assertEq(address(_governing()), previous, "the one-hour timelock no longer governs the staking pool");
+        _theWholeMove(true);
+        assertEq(IAdministered(_readAddress(path, K.ASSET_REGISTRY)).admin(), previous, "the registry changed hands");
+        assertEq(
+            IAdministered(_readAddress(path, K.PRICE_GUARD)).admin(),
+            next,
+            "the guard was not born under the 48-hour timelock"
         );
+        assertEq(
+            IAdministered(_readAddress(path, K.CREDIT_POOL)).admin(),
+            next,
+            "the pool was not born under the 48-hour timelock"
+        );
+
+        // The acceptances land and the fourth record follows; the fifth is not read.
+        _usePrevious();
+        _accept();
+        _useNext();
+        assertEq(
+            IAdministered(_readAddress(path, K.ASSET_REGISTRY)).admin(), next, "the registry's acceptance did not land"
+        );
+        assertEq(
+            IAdministered(_readAddress(previousPath, K.CREDIT_POOL)).admin(),
+            next,
+            "the retired pool's acceptance did not land"
+        );
+        assertEq(
+            vm.parseJsonString(vm.readFile(previousPath), K.STATUS),
+            "retired",
+            "finish() changed the retired record's status"
+        );
+        assertEq(vm.parseJsonAddress(vm.readFile(previousPath), K.ADMIN_TIMELOCK), next);
+        _set("BURSAR_VERIFY_STRICT", "1");
+        _check(address(new Verify()));
+        _unset("BURSAR_VERIFY_STRICT");
     }
 
-    /// `GOVERNANCE-48H.md` on the previous record: the new timelock deployed, the old one's offers
-    /// executed after its hour, the new one's acceptances proposed and approved by the hardware
-    /// keys and, when `land` is set, executed after its two days, with the record rewritten.
-    function _handover(bool land) private {
-        address[] memory old = _signers();
+    /// `GOVERNANCE-48H.md` steps 1 to 4 on the previous record: the new timelock deployed, the old
+    /// one's offers executed after its hour, the new one's acceptances proposed and approved by the
+    /// hardware keys.
+    function _offer() private {
+        address[] memory old = vm.parseJsonAddressArray(vm.readFile(path), K.SIGNERS);
         AdminTimelock timelock = AdminTimelock(_readAddress(path, K.ADMIN_TIMELOCK));
         _step(DEPLOYER, address(new HandoverGovernance()), "deploy()");
         _step(old[0], address(new HandoverGovernance()), "propose()");
@@ -215,17 +261,22 @@ contract MigrateLaneTest is World, LaneFlows {
         _step(old[0], address(new HandoverGovernance()), "execute()");
         _step(HW_1, address(new AcceptGovernance()), "propose()");
         _step(HW_2, address(new AcceptGovernance()), "approve()");
-        if (!land) return;
-        vm.warp(block.timestamp + 48 hours);
+    }
+
+    /// Step 5: the acceptances executed once the last of them is due, and the record rewritten.
+    function _accept() private {
+        AdminTimelock next = AdminTimelock(_readAddress(path, K.GOVERNANCE48_TIMELOCK));
+        uint256 due = next.getProposal(next.proposalCount() - 1).executeAfter;
+        if (block.timestamp <= due) vm.warp(due + 1);
         _step(HW_3, address(new AcceptGovernance()), "execute()");
         _step(DEPLOYER, address(new HandoverGovernance()), "finish()");
     }
 
-    function _theWholeMove() private {
-        _deployTheLane();
+    function _theWholeMove(bool pending) private {
+        _deployTheLane(pending);
         _proposeTheWiring();
         _moveWhatNeedsNoGovernance();
-        _landTheWiringAndGoLive();
+        _landTheWiringAndGoLive(pending);
         _retireThePreviousRecord();
         _lanes(path);
     }
@@ -233,7 +284,7 @@ contract MigrateLaneTest is World, LaneFlows {
     /// 1. Only the lane: the RWA run joins the carried registry and park and deploys the three
     /// contracts that hold the guard; the collateral run deploys the pool and the vault. The carried
     /// staking pool still answers to the previous pool.
-    function _deployTheLane() private {
+    function _deployTheLane(bool pending) private {
         address timelock = _readAddress(path, K.ADMIN_TIMELOCK);
         uint256 nonce = vm.getNonce(DEPLOYER);
         DeployRwa.Deployment memory rwa = abi.decode(_run(DEPLOYER, address(new DeployRwa())), (DeployRwa.Deployment));
@@ -247,7 +298,8 @@ contract MigrateLaneTest is World, LaneFlows {
         assertTrue(rwa.guard.isKeeper(_readAddress(path, ".rwa.guardKeeper")));
         (uint256 mismatched, uint256 owedCount) = _tally(_pinned(address(new LaneRwaProbe())));
         assertEq(mismatched, 0);
-        assertEq(owedCount, 1, "the adapter switch is owed to the wiring batch");
+        // The adapter switch, and while the handover waits the registry's and the park's acceptances.
+        assertEq(owedCount, pending ? 3 : 1, "the RWA check owes something else");
 
         _run(DEPLOYER, address(new DeployCollateral()));
         _check(address(new VerifyCollateral()));
@@ -262,12 +314,12 @@ contract MigrateLaneTest is World, LaneFlows {
         );
     }
 
-    /// 2. Four calls on the timelock that governs the carried contracts: the credit pool's two
-    /// roles on the staking pool and the adapter switch on the park. The carried shielded pool is
-    /// not wound down.
+    /// 2. Four calls on the timelock that governs the carried contracts today, from its signers: the
+    /// credit pool's two roles on the staking pool and the adapter switch on the park. The carried
+    /// shielded pool is not wound down.
     function _proposeTheWiring() private {
-        AdminTimelock timelock = AdminTimelock(_readAddress(path, K.ADMIN_TIMELOCK));
-        address[] memory signers = _signers();
+        AdminTimelock timelock = _governing();
+        address[3] memory signers = timelock.getSigners();
         uint256 before = timelock.proposalCount();
         _step(signers[0], address(new ProposeWiring()), "propose()");
         assertEq(timelock.proposalCount(), before + 4, "more than the two roles and the adapter switch went up");
@@ -337,12 +389,13 @@ contract MigrateLaneTest is World, LaneFlows {
         );
     }
 
-    /// 4. After the delay the batch lands: the roles move, the park switches adapters, the carried
-    /// shielded pool stays open, the record goes live and the strict check finds nothing owed.
-    function _landTheWiringAndGoLive() private {
-        AdminTimelock timelock = AdminTimelock(_readAddress(path, K.ADMIN_TIMELOCK));
+    /// 4. After the governing timelock's delay the batch lands: the roles move, the park switches
+    /// adapters, the carried shielded pool stays open, the record goes live and the whole check
+    /// finds nothing wrong, and nothing owed but the acceptances while the handover waits.
+    function _landTheWiringAndGoLive(bool pending) private {
+        AdminTimelock timelock = _governing();
         vm.warp(block.timestamp + timelock.timelockPeriod());
-        _step(_signers()[0], address(new ProposeWiring()), "execute()");
+        _step(timelock.getSigners()[0], address(new ProposeWiring()), "execute()");
         _check(address(new VerifyWiring()));
         address pool = _readAddress(path, K.CREDIT_POOL);
         Staking staking = Staking(_readAddress(path, K.STAKING));
@@ -358,6 +411,12 @@ contract MigrateLaneTest is World, LaneFlows {
         assertEq(vm.parseJsonString(vm.readFile(previousPath), K.STATUS), "superseded");
         assertEq(vm.parseJsonString(vm.readFile(previousPath), K.SUPERSEDED_BY), "local-4663-lane");
 
+        if (pending) {
+            (uint256 mismatched, uint256 owedCount) = _tally(_pinned(address(new LaneVerifyProbe())));
+            assertEq(mismatched, 0, "the pending handover reads as a mismatch");
+            assertEq(owedCount, PENDING_ACCEPTANCES, "something other than the acceptances is owed");
+            return;
+        }
         _set("BURSAR_VERIFY_STRICT", "1");
         _check(address(new Verify()));
         _unset("BURSAR_VERIFY_STRICT");
