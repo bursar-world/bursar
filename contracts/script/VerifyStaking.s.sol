@@ -27,8 +27,8 @@ abstract contract StakingChecks is Verifier {
         if (staking == address(0) || buyback == address(0)) return;
 
         address timelock = _recordAddress(K.ADMIN_TIMELOCK);
-        _checkPool(Staking(staking), timelock);
-        _checkBuyback(Buyback(buyback), staking, timelock);
+        _checkPool(Staking(staking));
+        _checkBuyback(Buyback(buyback), staking);
         // No seeder is recorded until the pool is open: the staking run builds one for an open
         // pool, and the seed script brings its own when it opens one.
         if (_recordAddress(K.SEEDER) == address(0)) {
@@ -43,11 +43,10 @@ abstract contract StakingChecks is Verifier {
         }
     }
 
-    function _checkPool(Staking staking, address timelock) private {
+    function _checkPool(Staking staking) private {
         _is("Staking.stakeToken", _recordAddress(K.BRSR), address(staking.stakeToken()));
         _is("Staking.rewardToken", _settlementAsset(), address(staking.rewardToken()));
-        _is("Staking.admin", timelock, staking.admin());
-        _pendingAdmin("Staking.pendingAdmin", staking.pendingAdmin());
+        _admin("Staking", staking.admin(), staking.pendingAdmin());
         _is("Staking.slashSink", _recordAddress(K.SLASH_SINK), staking.slashSink());
         _is("Staking.treasury", _recordAddress(K.TREASURY), staking.treasury());
         _isUint("Staking.unbondingPeriod", _param("Staking.unbondingPeriod"), staking.unbondingPeriod());
@@ -91,14 +90,13 @@ abstract contract StakingChecks is Verifier {
         }
     }
 
-    function _checkBuyback(Buyback buyback, address staking, address timelock) private {
+    function _checkBuyback(Buyback buyback, address staking) private {
         _is("Buyback.settlementAsset", _settlementAsset(), address(buyback.settlementAsset()));
         _is("Buyback.brsr", _recordAddress(K.BRSR), address(buyback.brsr()));
         _is("Buyback.poolManager", _recordAddress(K.POOL_MANAGER), address(buyback.poolManager()));
         _is("Buyback.staking", staking, address(buyback.staking()));
         _is("Buyback.treasury", _recordAddress(K.TREASURY), buyback.treasury());
-        _is("Buyback.admin", timelock, buyback.admin());
-        _pendingAdmin("Buyback.pendingAdmin", buyback.pendingAdmin());
+        _admin("Buyback", buyback.admin(), buyback.pendingAdmin());
         _governed("Buyback.keeper", _recordAddress(K.KEEPER), buyback.keeper());
         _isUint("Buyback.poolFee", _param("Buyback.poolFee"), buyback.poolFee());
         _is("Buyback.poolHooks", _recordAddress(".parameters.Buyback.poolHooks"), buyback.poolHooks());

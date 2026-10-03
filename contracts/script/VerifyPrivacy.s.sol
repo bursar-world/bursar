@@ -25,8 +25,7 @@ abstract contract PrivacyChecks is Verifier {
         _isUint("CommittedMandateFactory.ceiling", _param("CommittedMandateFactory.ceiling"), f.ceiling());
 
         SolvencyLog s = SolvencyLog(log);
-        _is("SolvencyLog.admin", _recordAddress(K.ADMIN_TIMELOCK), s.admin());
-        _pendingAdmin("SolvencyLog.pendingAdmin", s.pendingAdmin());
+        _admin("SolvencyLog", s.admin(), s.pendingAdmin());
         _is("SolvencyLog.poster", _recordAddress(K.SOLVENCY_POSTER), s.poster());
     }
 }

@@ -62,8 +62,7 @@ abstract contract CoreChecks is Verifier {
 
     function _checkReputation(address reputation, address deployer) private {
         Reputation r = Reputation(reputation);
-        _isAt("Reputation.admin", _recordAddress(K.ADMIN_TIMELOCK), reputation, _sig(r.admin.selector));
-        _pendingAdminAt("Reputation.pendingAdmin", reputation, _sig(r.pendingAdmin.selector));
+        _adminAt("Reputation", reputation, _sig(r.admin.selector), _sig(r.pendingAdmin.selector));
         _isAt("Reputation.escrow", _recordAddress(K.ESCROW), reputation, _sig(r.escrow.selector));
         _isAt("Reputation.deployer", deployer, reputation, _sig(r.deployer.selector));
 
@@ -118,8 +117,7 @@ abstract contract CoreChecks is Verifier {
     function _checkRegistry(address registry, address deployer) private {
         OracleRegistry o = OracleRegistry(registry);
         _isAt("OracleRegistry.escrow", _recordAddress(K.ESCROW), registry, _sig(o.escrow.selector));
-        _isAt("OracleRegistry.admin", _recordAddress(K.ADMIN_TIMELOCK), registry, _sig(o.admin.selector));
-        _pendingAdminAt("OracleRegistry.pendingAdmin", registry, _sig(o.pendingAdmin.selector));
+        _adminAt("OracleRegistry", registry, _sig(o.admin.selector), _sig(o.pendingAdmin.selector));
         _isAt("OracleRegistry.slashSink", _recordAddress(K.SLASH_SINK), registry, _sig(o.slashSink.selector));
         _isAt("OracleRegistry.settlementAsset", _settlementAsset(), registry, _sig(o.settlementAsset.selector));
         _isAt("OracleRegistry.deployer", deployer, registry, _sig(o.deployer.selector));
@@ -154,8 +152,7 @@ abstract contract CoreChecks is Verifier {
     function _checkAgents(address agents) private {
         AgentRegistry a = AgentRegistry(agents);
         _isAt("AgentRegistry.settlementAsset", _settlementAsset(), agents, _sig(a.settlementAsset.selector));
-        _isAt("AgentRegistry.admin", _recordAddress(K.ADMIN_TIMELOCK), agents, _sig(a.admin.selector));
-        _pendingAdminAt("AgentRegistry.pendingAdmin", agents, _sig(a.pendingAdmin.selector));
+        _adminAt("AgentRegistry", agents, _sig(a.admin.selector), _sig(a.pendingAdmin.selector));
         // No contract can take agent collateral. The only path to it is a proposal.
         _isAt("AgentRegistry.slasher", address(0), agents, _sig(a.slasher.selector));
         _isAt("AgentRegistry.slashSink", _recordAddress(K.SLASH_SINK), agents, _sig(a.slashSink.selector));

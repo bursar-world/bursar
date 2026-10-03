@@ -35,7 +35,10 @@ import {IAccessRegistry, IStateView} from "../src/rwa/interfaces/IRwaExternal.so
 /// contracts that hold the guard: the guard itself, the stock router and the treasury adapter,
 /// built against the carried registry and park. It checks the carried three are the contracts the
 /// record implies, and leaves the park's adapter list to governance: the wiring batch enables the
-/// new treasury adapter and disables the previous one.
+/// new treasury adapter and disables the previous one. While the governance handover the record
+/// names waits for its acceptance, the carried registry and park still answer to the previous
+/// timelock with the record's pending; the run says so and goes on, and the three it builds answer
+/// to the record's timelock from their constructors.
 contract DeployRwa is BursarScript {
     struct Deployment {
         AssetRegistry registry;
@@ -155,7 +158,11 @@ contract DeployRwa is BursarScript {
     /// lists the carried USDG adapter; and that adapter is the park's. Each identity read is one a
     /// record naming the wrong kind of contract fails by name.
     function _requireCarriedSet() private view {
-        _expect("registry.admin", timelock, _identity(address(d.registry), "admin()", "AssetRegistry.admin"));
+        _requireGoverned(
+            "registry.admin",
+            _identity(address(d.registry), "admin()", "AssetRegistry.admin"),
+            d.registry.pendingAdmin()
+        );
         _expect("registry.settlementAsset", asset, d.registry.settlementAsset());
         for (uint256 i; i < terms.length; ++i) {
             if (!d.registry.isRegistered(tokens[i])) revert AssetNotRegistered(terms[i].symbol, tokens[i]);
@@ -165,7 +172,9 @@ contract DeployRwa is BursarScript {
             if (pinned != built) revert PoolIdMismatch(terms[i].symbol, pinned, built);
         }
 
-        _expect("park.admin", timelock, _identity(address(d.park), "admin()", "TreasuryPark.admin"));
+        _requireGoverned(
+            "park.admin", _identity(address(d.park), "admin()", "TreasuryPark.admin"), d.park.pendingAdmin()
+        );
         _expect("park.usdg", asset, address(d.park.usdg()));
         IMandateAccountFactory[] memory factories = d.park.factories();
         _expectUint("park.factories", 1, factories.length);
@@ -275,7 +284,9 @@ contract DeployRwa is BursarScript {
     }
 
     function _verify() private view {
-        _expect("registry.admin", timelock, d.registry.admin());
+        // A carried registry and park were held to their governance before the broadcast, and may
+        // still answer to the previous timelock while the handover waits.
+        if (!joining) _expect("registry.admin", timelock, d.registry.admin());
         _expect("registry.settlementAsset", asset, d.registry.settlementAsset());
         _expectUint("registry.assets", terms.length, d.registry.assets().length);
         _expect("guard.registry", address(d.registry), address(d.guard.registry()));
@@ -289,9 +300,10 @@ contract DeployRwa is BursarScript {
         _expectUint("guard.keeper", 1, d.guard.isKeeper(guardKeeper) ? 1 : 0);
         _expect("router.registry", address(d.registry), address(d.router.registry()));
         _expect("router.guard", address(d.guard), address(d.router.guard()));
-        _expect("park.admin", timelock, d.park.admin());
-        // A carried park may have been offered to a new governance: that handover is not the lane's.
-        if (!joining) _expect("park.pendingAdmin", address(0), d.park.pendingAdmin());
+        if (!joining) {
+            _expect("park.admin", timelock, d.park.admin());
+            _expect("park.pendingAdmin", address(0), d.park.pendingAdmin());
+        }
         IMandateAccountFactory[] memory factories = d.park.factories();
         _expectUint("park.factories", 1, factories.length);
         _expect("park.factory", factory, address(factories[0]));

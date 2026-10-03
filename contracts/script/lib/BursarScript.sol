@@ -488,6 +488,25 @@ abstract contract BursarScript is Script {
         if (expected != actual) revert ParameterNotApplied(what, expected, actual);
     }
 
+    /// A carried contract has to answer to the record's timelock. While the governance handover the
+    /// record names under `governance48` waits for its acceptance, one that still answers to
+    /// `governance48.previous` with the record's timelock pending passes too, and the run says so:
+    /// the acceptance lands it, and nothing built here depends on it.
+    function _requireGoverned(string memory what, address admin, address pending) internal view {
+        address timelock = _recordAddress(K.ADMIN_TIMELOCK);
+        if (admin == timelock) return;
+        address previous = _recordAddress(K.GOVERNANCE48_PREVIOUS);
+        if (previous != address(0) && admin == previous && pending == timelock) {
+            console2.log(
+                string.concat(
+                    what, " is still the previous timelock: the 48-hour timelock's acceptance lands the handover"
+                )
+            );
+            return;
+        }
+        revert WiringFailed(what, timelock, admin);
+    }
+
     /// A retired variable still holds a value in the unit it was retired for. Reading it under
     /// the new name would be worse than ignoring it.
     function _refuseRetired(string memory key, string memory replacement) internal view {

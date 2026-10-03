@@ -27,14 +27,13 @@ abstract contract RwaChecks is Verifier {
         address usdgAdapter = _contract(K.USDG_ADAPTER);
         if (registry == address(0) || guard == address(0) || router == address(0) || park == address(0)) return;
 
-        address timelock = _recordAddress(K.ADMIN_TIMELOCK);
-        _checkRegistry(AssetRegistry(registry), timelock);
+        _checkRegistry(AssetRegistry(registry));
 
         PriceGuard g = PriceGuard(guard);
         _is("PriceGuard.registry", registry, address(g.registry()));
         _is("PriceGuard.accessRegistry", _recordAddress(K.ACCESS_REGISTRY), address(g.accessRegistry()));
         _is("PriceGuard.stateView", _recordAddress(K.STATE_VIEW), address(g.stateView()));
-        _checkGuardGovernance(g, timelock);
+        _checkGuardGovernance(g);
         _isParamAt("PriceGuard.minObservationAge", guard, abi.encodeCall(g.MIN_OBSERVATION_AGE, ()));
         _isParamAt("PriceGuard.maxObservationAge", guard, abi.encodeCall(g.MAX_OBSERVATION_AGE, ()));
         _isParamAt("PriceGuard.maxFeedJumpBps", guard, abi.encodeCall(g.MAX_FEED_JUMP_BPS, ()));
@@ -42,8 +41,7 @@ abstract contract RwaChecks is Verifier {
         _is("StockSpendRouter.guard", guard, address(StockSpendRouter(router).guard()));
 
         TreasuryPark p = TreasuryPark(park);
-        _is("TreasuryPark.admin", timelock, p.admin());
-        _pendingAdmin("TreasuryPark.pendingAdmin", p.pendingAdmin());
+        _admin("TreasuryPark", p.admin(), p.pendingAdmin());
         IMandateAccountFactory[] memory factories = p.factories();
         _isUint("TreasuryPark.factories", 1, factories.length);
         if (factories.length == 1) _is("TreasuryPark.factory", _recordAddress(K.FACTORY), address(factories[0]));
@@ -84,23 +82,21 @@ abstract contract RwaChecks is Verifier {
     /// The guard answers to the timelock and takes observations from the recorded keeper alone. A
     /// guard built before it had an admin, the fourth set's, answers neither read: the check says
     /// so and asks nothing else of its governance, since the fifth set's guard replaces it.
-    function _checkGuardGovernance(PriceGuard g, address timelock) private {
+    function _checkGuardGovernance(PriceGuard g) private {
         (bool ok, bytes memory answer) = address(g).staticcall(abi.encodeCall(g.admin, ()));
         if (!ok || answer.length != 32) {
             _fact("PriceGuard.admin", "none: built before the guard had an admin or a keeper");
             return;
         }
-        _is("PriceGuard.admin", timelock, abi.decode(answer, (address)));
-        _pendingAdmin("PriceGuard.pendingAdmin", g.pendingAdmin());
+        _admin("PriceGuard", abi.decode(answer, (address)), g.pendingAdmin());
         address guardKeeper = _recordAddress(".rwa.guardKeeper");
         _fact("PriceGuard.keeper", guardKeeper);
         _isTrue("PriceGuard does not list the recorded keeper", guardKeeper != address(0) && g.isKeeper(guardKeeper));
     }
 
-    function _checkRegistry(AssetRegistry registry, address timelock) private {
+    function _checkRegistry(AssetRegistry registry) private {
         address asset = _settlementAsset();
-        _is("AssetRegistry.admin", timelock, registry.admin());
-        _pendingAdmin("AssetRegistry.pendingAdmin", registry.pendingAdmin());
+        _admin("AssetRegistry", registry.admin(), registry.pendingAdmin());
         _is("AssetRegistry.settlementAsset", asset, registry.settlementAsset());
 
         RwaConfig.Term[] memory terms = RwaConfig.terms();

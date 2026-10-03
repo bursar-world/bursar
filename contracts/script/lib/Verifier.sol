@@ -202,6 +202,33 @@ abstract contract Verifier is BursarScript {
         if (ok) _pendingAdmin(what, actual);
     }
 
+    /// A contract's admin and pending admin together. The record's timelock with nobody pending
+    /// passes. During the governance handover the record names under `governance48`, a contract
+    /// still answering to `governance48.previous` with the record's timelock pending is owed: the
+    /// acceptance lands it. Anything else is a mismatch.
+    function _admin(string memory what, address admin, address pending) internal {
+        address timelock = _recordAddress(K.ADMIN_TIMELOCK);
+        address previous = _recordAddress(K.GOVERNANCE48_PREVIOUS);
+        if (previous != address(0) && previous != timelock && admin == previous && pending == timelock) {
+            _fact(string.concat(what, ".admin"), admin);
+            _fact(string.concat(what, ".pendingAdmin"), pending);
+            _owe(
+                string.concat(
+                    what, ".admin is still the previous timelock: the 48-hour timelock's acceptance lands the handover"
+                )
+            );
+            return;
+        }
+        _is(string.concat(what, ".admin"), timelock, admin);
+        _pendingAdmin(string.concat(what, ".pendingAdmin"), pending);
+    }
+
+    function _adminAt(string memory what, address target, bytes memory adminCall, bytes memory pendingCall) internal {
+        (bool ok, address admin) = _askAddress(string.concat(what, ".admin"), target, adminCall);
+        (bool answered, address pending) = _askAddress(string.concat(what, ".pendingAdmin"), target, pendingCall);
+        if (ok && answered) _admin(what, admin, pending);
+    }
+
     function _isUintAt(string memory what, uint256 expected, address target, bytes memory call) internal {
         (bool ok, uint256 actual) = _askUint(what, target, call);
         if (ok) _isUint(what, expected, actual);

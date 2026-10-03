@@ -18,7 +18,6 @@ abstract contract CollateralChecks is Verifier {
         address vault = _contract(K.COLLATERAL_VAULT);
         if (pool == address(0) || vault == address(0)) return;
 
-        address timelock = _recordAddress(K.ADMIN_TIMELOCK);
         address staking = _recordAddress(K.STAKING);
         _is("rwa.collateral.Staking", staking, _recordAddress(K.COLLATERAL_STAKING));
 
@@ -26,8 +25,7 @@ abstract contract CollateralChecks is Verifier {
         _is("CreditPool.usdg", _settlementAsset(), address(p.usdg()));
         _is("CreditPool.staking", staking, address(p.staking()));
         _is("CreditPool.buyback", _recordAddress(K.BUYBACK), address(p.buyback()));
-        _is("CreditPool.admin", timelock, p.admin());
-        _pendingAdmin("CreditPool.pendingAdmin", p.pendingAdmin());
+        _admin("CreditPool", p.admin(), p.pendingAdmin());
         _is("CreditPool.lender", _recordAddress(K.LENDER), p.lender());
         _is("CreditPool.vault", vault, p.vault());
         _isUint("CreditPool.totalDebtCap", _param("CreditPool.totalDebtCap"), p.totalDebtCap());
@@ -43,8 +41,7 @@ abstract contract CollateralChecks is Verifier {
         _is("CollateralVault.guard", _recordAddress(K.PRICE_GUARD), address(v.guard()));
         _is("CollateralVault.pool", pool, address(v.pool()));
         _is("CollateralVault.factory", _recordAddress(K.FACTORY), address(v.factory()));
-        _is("CollateralVault.admin", timelock, v.admin());
-        _pendingAdmin("CollateralVault.pendingAdmin", v.pendingAdmin());
+        _admin("CollateralVault", v.admin(), v.pendingAdmin());
 
         RwaConfig.Term[] memory terms = RwaConfig.terms();
         for (uint256 i; i < terms.length; ++i) {

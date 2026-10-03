@@ -105,7 +105,11 @@ contract DeployCollateral is BursarScript {
             asset,
             _read(registry, abi.encodeWithSignature("settlementAsset()"), "AssetRegistry.settlementAsset")
         );
-        _expect("registry.admin", timelock, _read(registry, abi.encodeWithSignature("admin()"), "AssetRegistry.admin"));
+        _requireGoverned(
+            "registry.admin",
+            _read(registry, abi.encodeWithSignature("admin()"), "AssetRegistry.admin"),
+            _read(registry, abi.encodeWithSignature("pendingAdmin()"), "AssetRegistry.pendingAdmin")
+        );
         _expect("guard.registry", registry, _read(guard, abi.encodeWithSignature("registry()"), "PriceGuard.registry"));
         _expect(
             "factory.escrow",
@@ -117,7 +121,11 @@ contract DeployCollateral is BursarScript {
             asset,
             _read(staking, abi.encodeWithSignature("rewardToken()"), "Staking.rewardToken")
         );
-        _expect("staking.admin", timelock, _read(staking, abi.encodeWithSignature("admin()"), "Staking.admin"));
+        _requireGoverned(
+            "staking.admin",
+            _read(staking, abi.encodeWithSignature("admin()"), "Staking.admin"),
+            _read(staking, abi.encodeWithSignature("pendingAdmin()"), "Staking.pendingAdmin")
+        );
         address compoundsInto = _read(buyback, abi.encodeWithSignature("staking()"), "Buyback.staking");
         if (compoundsInto != staking) revert BuybackStakingMismatch(compoundsInto, staking);
         _expect(

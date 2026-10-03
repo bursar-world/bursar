@@ -59,9 +59,20 @@ abstract contract WiringChecks is Verifier {
 
         if (_recordAddress(K.SEEDER) == address(0)) return;
         address seeder = _contract(K.SEEDER);
-        if (seeder != address(0)) {
-            _is("V4LiquiditySeeder.owner", _recordAddress(K.ADMIN_TIMELOCK), V4LiquiditySeeder(seeder).owner());
+        if (seeder != address(0)) _checkSeeder(V4LiquiditySeeder(seeder), s.admin());
+    }
+
+    /// The seeder belongs to the record's timelock. One still offered to the timelock that governs
+    /// the staking pool today was the batch's to accept, and is a mismatch. One offered to the
+    /// record's timelock while another governs is the governance handover's to accept, which
+    /// `VerifyStaking.s.sol` lists as owed; the batch did not touch it.
+    function _checkSeeder(V4LiquiditySeeder seeder, address governance) private {
+        address timelock = _recordAddress(K.ADMIN_TIMELOCK);
+        if (governance != timelock && seeder.pendingOwner() == timelock) {
+            _fact("V4LiquiditySeeder.owner", seeder.owner());
+            return;
         }
+        _is("V4LiquiditySeeder.owner", timelock, seeder.owner());
     }
 
     /// On a park carried over from the previous deployment the batch switches treasury adapters:
