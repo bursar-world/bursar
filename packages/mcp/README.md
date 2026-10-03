@@ -123,7 +123,10 @@ renames into place before each payment leaves, so the day survives a restart and
 leaves the previous file intact. A ledger that cannot be read, or cannot be written, refuses the
 payment: a day this server cannot see is a day it cannot bound. The refusal says so and names the
 file; the operator repairs it or points `BURSAR_SHIELDED_LEDGER` at a writable location. Two
-servers handed the same key file share one ledger by default, which is one float and one day.
+servers handed the same key file share one ledger by default, which is one float and one day: each
+payment is recorded under a lock beside the file (`<ledger>.lock`), so two servers cannot both find
+room for the day's last payment. A lock left behind by a process that died clears itself after ten
+seconds; a payment that waits fifteen seconds on a lock a live process holds is refused and names it.
 
 What stays visible: each deposit into the pool (who and how much), and each payment out of it (how
 much and to whom). What the pool hides is which deposit paid for which payment, and that is only as

@@ -8,7 +8,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, fstatSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 
 import { micro } from '@bursar/core';
 
@@ -18,6 +18,19 @@ import { isJsonObject } from './schema.js';
 
 /** A payment counts against the cap for this long after it went out. */
 export const LEDGER_WINDOW_MS = 86_400_000;
+
+export type LedgerLocking = {
+  /** How long a draw waits for another process to finish its own before refusing the payment. */
+  readonly waitMs: number;
+  /** A draw holds the lock for one read and one write; a lock this old was left by a process that died. */
+  readonly staleMs: number;
+};
+
+/** The wait outlasts the stale age, so a lock left by a crash clears within one draw's wait. */
+export const LEDGER_LOCKING: LedgerLocking = { waitMs: 15_000, staleMs: 10_000 };
+
+const LOCK_POLL_MS = 2;
+const LOCK_SPIN_ATTEMPTS = 500;
 
 export type LedgerPayment = {
   /** Milliseconds since the epoch. */
@@ -44,9 +57,10 @@ export type SpendLedger = {
 
 type File = { readonly version: 1; readonly payments: readonly { readonly at: string; readonly micro: string }[] };
 
-export function createSpendLedger(path: string, now: () => number = Date.now): SpendLedger {
+export function createSpendLedger(path: string, now: () => number = Date.now, locking: LedgerLocking = LEDGER_LOCKING): SpendLedger {
   // Reads and writes are synchronous on purpose: a check and the write that follows it cannot be
   // interleaved with another payment's, so two payments in flight cannot both find room for one.
+  // Across processes the same holds only under the lock, which draw takes around its read and write.
   function current(): LedgerDay {
     const moment = now();
     const payments = read(path)
@@ -69,9 +83,80 @@ export function createSpendLedger(path: string, now: () => number = Date.now): S
       room(amount, cap);
     },
     draw(amount, cap) {
-      write(path, [...room(amount, cap).payments, { at: now(), micro: amount }]);
+      withLock(path, locking, () => write(path, [...room(amount, cap).payments, { at: now(), micro: amount }]));
     },
   };
+}
+
+/**
+ * Two servers handed one key file share one ledger, and a draw is a read, a decision and a write.
+ * Without the lock, two processes can each find room for the day's last payment, and the write of
+ * one erases the other's: the cap is passed and the file undercounts what left the float.
+ */
+function withLock<T>(path: string, locking: LedgerLocking, run: () => T): T {
+  const lock = `${path}.lock`;
+  const fd = acquire(path, lock, locking);
+  try {
+    return run();
+  } finally {
+    release(lock, fd);
+  }
+}
+
+function acquire(path: string, lock: string, locking: LedgerLocking): number {
+  const deadline = Date.now() + locking.waitMs;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return openSync(lock, 'wx', 0o600);
+    } catch (error) {
+      if (codeOf(error) !== 'EEXIST') throw unwritable(path, codeOf(error));
+    }
+    if (isStale(lock, locking.staleMs)) clearStale(path, lock);
+    else if (Date.now() >= deadline) throw lockHeld(path, lock, locking);
+    // A draw holds the lock for about a millisecond, so the first retries follow at once. Sleeping
+    // polls, which the operating system may stretch well past their length, take over if it stays held.
+    else if (attempt >= LOCK_SPIN_ATTEMPTS) pause(LOCK_POLL_MS);
+  }
+}
+
+/** Only the lock this process took: a holder paused past the stale age finds another's in its place. */
+function release(lock: string, fd: number): void {
+  try {
+    if (statSync(lock).ino === fstatSync(fd).ino) rmSync(lock, { force: true });
+  } catch {
+    // Already cleared as stale by another process, so there is nothing of this one's to remove.
+  }
+  closeSync(fd);
+}
+
+function isStale(lock: string, staleMs: number): boolean {
+  try {
+    return Date.now() - statSync(lock).mtimeMs > staleMs;
+  } catch {
+    // Released between the open and the stat; the next attempt takes it.
+    return false;
+  }
+}
+
+/**
+ * Moved aside and then removed, rather than removed in place: of two processes that both find the
+ * lock stale, the rename succeeds for one alone, and neither can remove a fresh lock a third process
+ * has taken in the meantime.
+ */
+function clearStale(path: string, lock: string): void {
+  const aside = `${lock}.${process.pid}.${randomBytes(4).toString('hex')}.stale`;
+  try {
+    renameSync(lock, aside);
+    rmSync(aside, { force: true });
+  } catch (error) {
+    if (codeOf(error) !== 'ENOENT') throw unwritable(path, codeOf(error));
+  }
+}
+
+const sleeper = new Int32Array(new SharedArrayBuffer(4));
+
+function pause(ms: number): void {
+  Atomics.wait(sleeper, 0, 0, ms);
 }
 
 function read(path: string): LedgerPayment[] {
@@ -174,6 +259,18 @@ function unwritable(path: string, reason: string): ToolError {
       'sent: a payment the ledger cannot record is one the daily cap cannot see. The operator makes the file ' +
       'and its directory writable, or points BURSAR_SHIELDED_LEDGER at a directory that is.',
     { path, reason },
+  );
+}
+
+function lockHeld(path: string, lock: string, locking: LedgerLocking): ToolError {
+  const seconds = (ms: number) => `${Math.round(ms / 1000)} seconds`;
+  return new ToolError(
+    'shielded_ledger_locked',
+    `Another process has held the ledger of shielded payments at ${path} for over ${seconds(locking.waitMs)}, so ` +
+      'this payment was not sent: a payment the ledger cannot record is one the daily cap cannot see. A lock ' +
+      `left behind by a process that died clears on its own after ${seconds(locking.staleMs)}; one held this long ` +
+      `has a live process behind it, which the operator finds before removing ${lock}.`,
+    { path, lock },
   );
 }
 
