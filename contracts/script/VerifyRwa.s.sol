@@ -15,7 +15,8 @@ import {UsdgAdapter} from "../src/rwa/adapters/UsdgAdapter.sol";
 
 /// Asks the chain what `DeployRwa.s.sol` asked its simulation: the registry holds every asset on
 /// the terms `RwaConfig` sets and the pool the record names, and the park takes mandates from the
-/// record's factory alone.
+/// record's factory alone. A park carried over from the previous deployment lists that
+/// deployment's treasury adapter until the wiring batch switches them, which is owed, not wrong.
 abstract contract RwaChecks is Verifier {
     function _checkRwa() internal {
         address registry = _contract(K.ASSET_REGISTRY);
@@ -51,7 +52,7 @@ abstract contract RwaChecks is Verifier {
         _isUint("TreasuryPark.factories", 1, factories.length);
         if (factories.length == 1) _is("TreasuryPark.factory", _recordAddress(K.FACTORY), address(factories[0]));
         if (treasuryAdapter != address(0)) {
-            _isTrue("TreasuryPark does not list the treasury adapter", p.isAdapter(treasuryAdapter));
+            _checkTreasuryAdapter(p, treasuryAdapter);
             _is("RobinhoodStockAdapter.park", park, RobinhoodStockAdapter(treasuryAdapter).park());
             _is(
                 "RobinhoodStockAdapter.asset",
@@ -65,6 +66,22 @@ abstract contract RwaChecks is Verifier {
             _is("UsdgAdapter.park", park, UsdgAdapter(usdgAdapter).park());
             _is("UsdgAdapter.asset", _settlementAsset(), UsdgAdapter(usdgAdapter).asset());
         }
+    }
+
+    /// The park lists the record's treasury adapter and not the previous deployment's, when
+    /// `BURSAR_PREVIOUS_RECORD` names a different one. Until the wiring batch switches them the
+    /// previous one is still listed, which is owed.
+    function _checkTreasuryAdapter(TreasuryPark p, address adapter) private {
+        address previous = _previousAddress(K.SGOV_ADAPTER);
+        bool switching = previous != address(0) && previous != adapter;
+        bool listed = p.isAdapter(adapter);
+        _fact("TreasuryPark.isAdapter.SGOV", listed);
+        if (!listed && switching && p.isAdapter(previous)) {
+            _owe("TreasuryPark still lists the previous treasury adapter: the wiring batch switches it");
+            return;
+        }
+        _isTrue("TreasuryPark does not list the treasury adapter", listed);
+        if (switching) _isTrue("TreasuryPark still lists the previous treasury adapter", !p.isAdapter(previous));
     }
 
     function _checkRegistry(AssetRegistry registry, address timelock) private {

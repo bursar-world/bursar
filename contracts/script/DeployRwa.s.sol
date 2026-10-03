@@ -29,6 +29,13 @@ import {IAccessRegistry, IStateView} from "../src/rwa/interfaces/IRwaExternal.so
 /// Each asset's token and feed come from `external.assets` in the record, and the terms it trades
 /// under from `RwaConfig`. On Robinhood Chain the record also carries the id of each asset's pinned
 /// pool as it was measured, and the run stops if the key it builds does not hash to it.
+///
+/// A record that already names the registry, the park and the USDG adapter, with code behind them,
+/// carries them over from the deployment it supersedes. Then this run deploys only the three
+/// contracts that hold the guard: the guard itself, the stock router and the treasury adapter,
+/// built against the carried registry and park. It checks the carried three are the contracts the
+/// record implies, and leaves the park's adapter list to governance: the wiring batch enables the
+/// new treasury adapter and disables the previous one.
 contract DeployRwa is BursarScript {
     struct Deployment {
         AssetRegistry registry;
@@ -43,6 +50,7 @@ contract DeployRwa is BursarScript {
     error PoolIdMismatch(string symbol, bytes32 recorded, bytes32 built);
     error PoolNotOpen(string symbol, bytes32 poolId);
     error OneTreasuryAsset(uint256 found);
+    error AssetNotRegistered(string symbol, address token);
 
     /// The keeper service's key, recorded next to the guard it observes for. RecordKeys names the
     /// shared paths; this one is local to the RWA scripts.
@@ -64,7 +72,9 @@ contract DeployRwa is BursarScript {
     RwaConfig.Term[] private terms;
     address[] private tokens;
     address[] private feeds;
+    address private treasuryAsset;
 
+    bool private joining;
     Deployment private d;
 
     function run() external returns (Deployment memory) {
@@ -73,10 +83,13 @@ contract DeployRwa is BursarScript {
         address deployer = _deployer();
 
         _load();
+        joining = _carried();
+        if (joining) _loadCarried();
         _preflight();
 
         vm.startBroadcast(deployer);
-        _deploy();
+        if (joining) _join();
+        else _deploy();
         vm.stopBroadcast();
 
         _verify();
@@ -110,20 +123,71 @@ contract DeployRwa is BursarScript {
             string memory kind = _recordString(string.concat(at, ".kind"));
             string memory expected = term.isTreasury ? "treasury" : "stock";
             if (keccak256(bytes(kind)) != keccak256(bytes(expected))) revert AssetKindMismatch(term.symbol, kind);
-            if (term.isTreasury) ++treasuries;
+            if (term.isTreasury) {
+                ++treasuries;
+                treasuryAsset = tokens[i];
+            }
             terms.push(term);
         }
         // The park has one treasury adapter, and it is built for the one treasury asset.
         if (treasuries != 1) revert OneTreasuryAsset(treasuries);
     }
 
+    /// Whether the record already carries the registry, the park and the USDG adapter, with code
+    /// behind each entry. An entry with no code is a broadcast that never landed and is deployed
+    /// afresh, as always.
+    function _carried() private view returns (bool) {
+        return _recordAddress(K.ASSET_REGISTRY).code.length != 0 && _recordAddress(K.TREASURY_PARK).code.length != 0
+            && _recordAddress(K.USDG_ADAPTER).code.length != 0;
+    }
+
+    function _loadCarried() private {
+        d.registry = AssetRegistry(_recordAddress(K.ASSET_REGISTRY));
+        d.park = TreasuryPark(_recordAddress(K.TREASURY_PARK));
+        d.usdgAdapter = UsdgAdapter(_recordAddress(K.USDG_ADAPTER));
+        _requireCarriedSet();
+    }
+
+    /// The carried contracts have to be the ones the record implies, read off the chain before the
+    /// guard is built against them: the registry answers to the recorded timelock, settles in the
+    /// recorded asset and holds every launch asset on its recorded feed and pinned pool; the park
+    /// answers to the same timelock, holds the same asset, admits the recorded factory alone and
+    /// lists the carried USDG adapter; and that adapter is the park's. Each identity read is one a
+    /// record naming the wrong kind of contract fails by name.
+    function _requireCarriedSet() private view {
+        _expect("registry.admin", timelock, _identity(address(d.registry), "admin()", "AssetRegistry.admin"));
+        _expect("registry.settlementAsset", asset, d.registry.settlementAsset());
+        for (uint256 i; i < terms.length; ++i) {
+            if (!d.registry.isRegistered(tokens[i])) revert AssetNotRegistered(terms[i].symbol, tokens[i]);
+            _expect(string.concat("registry.", terms[i].symbol, ".feed"), feeds[i], d.registry.get(tokens[i]).feed);
+            bytes32 built = keccak256(abi.encode(RwaConfig.pool(tokens[i], asset, terms[i].fee, terms[i].tickSpacing)));
+            bytes32 pinned = d.registry.poolId(tokens[i]);
+            if (pinned != built) revert PoolIdMismatch(terms[i].symbol, pinned, built);
+        }
+
+        _expect("park.admin", timelock, _identity(address(d.park), "admin()", "TreasuryPark.admin"));
+        _expect("park.usdg", asset, address(d.park.usdg()));
+        IMandateAccountFactory[] memory factories = d.park.factories();
+        _expectUint("park.factories", 1, factories.length);
+        _expect("park.factory", factory, address(factories[0]));
+        _expectUint("park.isAdapter.usdg", 1, d.park.isAdapter(address(d.usdgAdapter)) ? 1 : 0);
+        _expect("usdgAdapter.park", address(d.park), _identity(address(d.usdgAdapter), "park()", "UsdgAdapter.park"));
+        _expect("usdgAdapter.asset", asset, d.usdgAdapter.asset());
+    }
+
+    function _identity(address target, string memory signature, string memory what) private view returns (address) {
+        return _read(target, abi.encodeWithSignature(signature), what);
+    }
+
     function _preflight() private view {
-        _requireUnrecorded(K.ASSET_REGISTRY);
+        if (!joining) {
+            _requireUnrecorded(K.ASSET_REGISTRY);
+            _requireUnrecorded(K.TREASURY_PARK);
+            _requireUnrecorded(K.USDG_ADAPTER);
+        }
         _requireUnrecorded(K.PRICE_GUARD);
         _requireUnrecorded(K.STOCK_ROUTER);
-        _requireUnrecorded(K.TREASURY_PARK);
         _requireUnrecorded(K.SGOV_ADAPTER);
-        _requireUnrecorded(K.USDG_ADAPTER);
 
         // The park admits accounts by asking this factory who created them, so it has to be the
         // factory that builds accounts on this deployment's escrow and asset.
@@ -158,14 +222,37 @@ contract DeployRwa is BursarScript {
     function _deploy() private {
         address[] memory list = new address[](terms.length);
         AssetRegistry.Asset[] memory configs = new AssetRegistry.Asset[](terms.length);
-        address treasuryAsset;
         for (uint256 i; i < terms.length; ++i) {
             list[i] = tokens[i];
             configs[i] = RwaConfig.asset(terms[i], tokens[i], feeds[i], asset);
-            if (terms[i].isTreasury) treasuryAsset = tokens[i];
         }
 
         d.registry = new AssetRegistry(timelock, asset, list, configs);
+        _deployGuard();
+
+        IMandateAccountFactory[] memory factories = new IMandateAccountFactory[](1);
+        factories[0] = IMandateAccountFactory(factory);
+        d.park = new TreasuryPark(asset, timelock, factories);
+        _deployTreasuryAdapter();
+        d.usdgAdapter = new UsdgAdapter(address(d.park), asset, RwaConfig.PARK_PER_MANDATE, RwaConfig.PARK_TOTAL);
+
+        // The adapters take the park's address in their constructors, so the deployer lists them
+        // once, here. Every later change is governance's.
+        address[] memory adapters = new address[](2);
+        adapters[0] = address(d.treasuryAdapter);
+        adapters[1] = address(d.usdgAdapter);
+        d.park.initAdapters(adapters);
+    }
+
+    /// On a carried registry and park, only the three contracts that hold the guard. The park's
+    /// adapter list is governance's once the deployer has listed it, so the new treasury adapter
+    /// waits for the wiring batch.
+    function _join() private {
+        _deployGuard();
+        _deployTreasuryAdapter();
+    }
+
+    function _deployGuard() private {
         d.guard = new PriceGuard(
             d.registry,
             IAccessRegistry(accessRegistry),
@@ -179,21 +266,12 @@ contract DeployRwa is BursarScript {
         // lane cannot draw until a keeper exists, so the deployer names the first one here, the
         // way it binds the vault and lists the park's adapters.
         d.guard.initKeeper(guardKeeper);
-        IPoolManager pm = IPoolManager(poolManager);
-        d.router = new StockSpendRouter(d.registry, d.guard, pm);
+        d.router = new StockSpendRouter(d.registry, d.guard, IPoolManager(poolManager));
+    }
 
-        IMandateAccountFactory[] memory factories = new IMandateAccountFactory[](1);
-        factories[0] = IMandateAccountFactory(factory);
-        d.park = new TreasuryPark(asset, timelock, factories);
-        d.treasuryAdapter = new RobinhoodStockAdapter(address(d.park), treasuryAsset, d.registry, d.guard, pm);
-        d.usdgAdapter = new UsdgAdapter(address(d.park), asset, RwaConfig.PARK_PER_MANDATE, RwaConfig.PARK_TOTAL);
-
-        // The adapters take the park's address in their constructors, so the deployer lists them
-        // once, here. Every later change is governance's.
-        address[] memory adapters = new address[](2);
-        adapters[0] = address(d.treasuryAdapter);
-        adapters[1] = address(d.usdgAdapter);
-        d.park.initAdapters(adapters);
+    function _deployTreasuryAdapter() private {
+        d.treasuryAdapter =
+            new RobinhoodStockAdapter(address(d.park), treasuryAsset, d.registry, d.guard, IPoolManager(poolManager));
     }
 
     function _verify() private view {
@@ -216,8 +294,11 @@ contract DeployRwa is BursarScript {
         IMandateAccountFactory[] memory factories = d.park.factories();
         _expectUint("park.factories", 1, factories.length);
         _expect("park.factory", factory, address(factories[0]));
-        _expectUint("park.adapters", 2, d.park.adapters().length);
-        _expectUint("park.isAdapter.treasury", 1, d.park.isAdapter(address(d.treasuryAdapter)) ? 1 : 0);
+        // A carried park lists the previous treasury adapter until the wiring batch switches them.
+        if (!joining) {
+            _expectUint("park.adapters", 2, d.park.adapters().length);
+            _expectUint("park.isAdapter.treasury", 1, d.park.isAdapter(address(d.treasuryAdapter)) ? 1 : 0);
+        }
         _expectUint("park.isAdapter.usdg", 1, d.park.isAdapter(address(d.usdgAdapter)) ? 1 : 0);
     }
 
@@ -236,7 +317,8 @@ contract DeployRwa is BursarScript {
             }
         }
         _write(K.USDG_ADAPTER, address(d.usdgAdapter));
-        _write(K.RWA_FROM_BLOCK, _chainBlock());
+        // A carried registry and park keep the block their own deployment recorded.
+        if (!joining) _write(K.RWA_FROM_BLOCK, _chainBlock());
 
         _write(GUARD_KEEPER, guardKeeper);
         _write(".parameters.PriceGuard.minObservationAge", minObservationAge);
@@ -248,14 +330,18 @@ contract DeployRwa is BursarScript {
         console2.log("chain", block.chainid);
         console2.log("deployer", deployer);
         console2.log("AssetRegistry", address(d.registry));
+        if (joining) console2.log("  live, carried over by this run");
         console2.log("PriceGuard", address(d.guard));
         console2.log("  keeper observes every", minObservationAge);
         console2.log("  keeper", guardKeeper);
         console2.log("StockSpendRouter", address(d.router));
         console2.log("TreasuryPark", address(d.park));
+        if (joining) console2.log("  live, carried over by this run");
         console2.log("  mandates from", factory);
         console2.log("RobinhoodStockAdapter", address(d.treasuryAdapter));
+        if (joining) console2.log("  listed on the park by the wiring batch, which drops the previous one");
         console2.log("UsdgAdapter", address(d.usdgAdapter));
+        if (joining) console2.log("  live, carried over by this run");
         console2.log("Next: DeployCollateral.s.sol");
     }
 }
