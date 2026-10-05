@@ -104,6 +104,7 @@ export const RHC_DEPLOYMENT: Deployment = {
     slashSink: '0xd2C622cFF4FE816453Ffe6F8B17Edc2a66923775',
   },
   verifiedOnChain: {},
+  examples: {},
 };
 
 export function fakeConnection(options: FakeOptions = {}): FakeConnection {
