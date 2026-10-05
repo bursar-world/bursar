@@ -23,12 +23,15 @@ import {ICreditStaking} from "./interfaces/ICreditStaking.sol";
 /// lender's cash. The lender earns principal back, not the spread, while the lane runs on
 /// operator capital.
 ///
-/// Losses. A write-off books the unpaid debt as `badDebt`, and the lender carries it in USDG.
-/// Once Staking names this pool its slasher, the same write-off penalises stakers: the loss is
-/// converted to BRSR at the Buyback's price ceiling, the BRSR price governance restates on
-/// chain, and slashed up to the window cap. That BRSR goes to Staking's slash sink and none of
-/// it comes back to the lender. A ceiling that is unset, or older than the Buyback would trade
-/// on, is not a price, and nothing is slashed against it.
+/// Losses. A write-off books the unpaid debt as `badDebt`. The vault seizes collateral worth the
+/// debt at the feed for the lender, as far as the line still holds that much, and the lender
+/// carries the rest in USDG. Once Staking names this pool its slasher, the same write-off
+/// penalises stakers for that rest alone: the uncovered loss is converted to BRSR at the
+/// Buyback's price ceiling, the BRSR price governance restates on chain, and slashed up to the
+/// window cap. That BRSR goes to Staking's slash sink and none of it comes back to the lender,
+/// who is covered once, in seized collateral, and never a second time out of stake. A ceiling
+/// that is unset, or older than the Buyback would trade on, is not a price, and nothing is
+/// slashed against it.
 ///
 /// Caps. `totalDebtCap` across all mandates and `perMandateCap` for one, both in USDG.
 contract CreditPool is ReentrancyGuard {
@@ -72,6 +75,9 @@ contract CreditPool is ReentrancyGuard {
     uint256 public reserves;
     /// Debt written off after a position ran out of collateral.
     uint256 public badDebt;
+    /// The part of `badDebt` the vault seized collateral for, valued at the feed as it was seized:
+    /// what the lender recovers through the vault's seized pots rather than carrying in USDG.
+    uint256 public lossCovered;
     uint256 public spreadPaid;
 
     mapping(address mandate => uint256) public scaledDebtOf;
@@ -84,6 +90,9 @@ contract CreditPool is ReentrancyGuard {
     event Borrowed(address indexed mandate, address indexed to, uint256 amount, uint256 debt);
     event Repaid(address indexed mandate, address indexed payer, uint256 amount, uint256 debt);
     event WrittenOff(address indexed mandate, uint256 amount, uint256 slashedBrsr);
+    /// How a write-off split: `covered` is what seized collateral is worth to the lender at the
+    /// feed, `uncovered` the loss the lender carries and stakers are slashed for.
+    event WriteOffCovered(address indexed mandate, uint256 covered, uint256 uncovered);
     event SlashSkipped(address indexed mandate, uint256 loss, SlashSkip reason);
     event SpreadSwept(uint256 amount);
     event CapsSet(uint128 totalDebtCap, uint128 perMandateCap);
@@ -203,8 +212,11 @@ contract CreditPool is ReentrancyGuard {
 
     /// Clears what a liquidation could not cover once the position holds nothing more to sell.
     /// The debt stops accruing here. The spread in it was never paid, so none of it was booked.
-    /// The lender carries the loss in USDG whether or not stakers are slashed for it.
-    function writeOff(address mandate) external onlyVault nonReentrant returns (uint256 amount) {
+    /// `coveredAtFeed` is what the vault seizes for the lender against this debt, valued at the
+    /// feed; it is cut to the debt. The lender carries the rest in USDG, and stakers are slashed
+    /// for that rest alone, so a loss the collateral covers is never made good twice, once in
+    /// seized stock and once in stake.
+    function writeOff(address mandate, uint256 coveredAtFeed) external onlyVault nonReentrant returns (uint256 amount) {
         _accrue();
         uint256 scaled = scaledDebtOf[mandate];
         if (scaled == 0) return 0;
@@ -213,7 +225,13 @@ contract CreditPool is ReentrancyGuard {
         principalOf[mandate] = 0;
         totalScaled -= scaled;
         badDebt += amount;
-        uint256 slashedBrsr = _slash(mandate, amount);
+        uint256 covered = coveredAtFeed > amount ? amount : coveredAtFeed;
+        uint256 uncovered = amount - covered;
+        lossCovered += covered;
+        emit WriteOffCovered(mandate, covered, uncovered);
+        // A loss the seized collateral covers in full takes no stake.
+        // slither-disable-next-line incorrect-equality
+        uint256 slashedBrsr = uncovered == 0 ? 0 : _slash(mandate, uncovered);
         emit WrittenOff(mandate, amount, slashedBrsr);
     }
 

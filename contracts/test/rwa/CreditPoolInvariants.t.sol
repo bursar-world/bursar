@@ -37,6 +37,7 @@ contract CreditPoolHandler is CommonBase, StdUtils {
     uint256 public principalLost;
     uint256 public writeOffBreaks;
     uint256 public slashBreaks;
+    uint256 public coverBreaks;
 
     constructor(CreditPool pool_, MockERC20 usdg_, address lender_, address governance_) {
         pool = pool_;
@@ -93,23 +94,30 @@ contract CreditPoolHandler is CommonBase, StdUtils {
     }
 
     /// A write-off clears the debt and the principal behind it and books nothing for stakers.
-    /// The stake it takes is the loss at the Buyback's ceiling cut to the slash allowance, and
-    /// none unless the pool is the slasher and the ceiling is set and fresh.
-    function writeOff(uint256 who) external {
+    /// The vault names what its seizure covers at the feed, anywhere from nothing to past the
+    /// debt here, and the pool counts no more of it than the debt. The stake the write-off takes
+    /// is the uncovered loss at the Buyback's ceiling cut to the slash allowance, none for a loss
+    /// the collateral covers, and none unless the pool is the slasher and the ceiling is set and
+    /// fresh.
+    function writeOff(uint256 who, uint256 covered) external {
         address m = _mandate(who);
         uint256 principal = pool.principalOf(m);
         uint256 debt = pool.debtOf(m);
+        covered = bound(covered, 0, debt * 2 + 1);
+        uint256 counted = Math.min(covered, debt);
         uint256 reserves = pool.reserves();
         uint256 bad = pool.badDebt();
+        uint256 wasCovered = pool.lossCovered();
         uint256 staked = staking.totalStaked();
-        uint256 due = Math.min(_atCeiling(debt), staking.slashAllowance());
-        try pool.writeOff(m) returns (uint256 amount) {
+        uint256 due = Math.min(_atCeiling(debt - counted), staking.slashAllowance());
+        try pool.writeOff(m, covered) returns (uint256 amount) {
             principalLost += principal;
             if (
                 amount != debt || pool.debtOf(m) != 0 || pool.principalOf(m) != 0 || pool.reserves() != reserves
                     || pool.badDebt() != bad + debt
             ) ++writeOffBreaks;
             if (staked - staking.totalStaked() != due) ++slashBreaks;
+            if (pool.lossCovered() != wasCovered + counted) ++coverBreaks;
         } catch {}
     }
 
@@ -242,10 +250,18 @@ contract CreditPoolInvariantTest is Test {
         assertGe(pool.badDebt(), handler.principalLost(), "bad debt below the principal written off");
     }
 
-    /// Every write-off takes the loss at a live ceiling, cut to what the window's allowance had
-    /// left, and nothing while the pool is not the slasher or the ceiling is unset or stale.
+    /// Every write-off takes the uncovered loss at a live ceiling, cut to what the window's
+    /// allowance had left, nothing for the part seized collateral covers, and nothing while the
+    /// pool is not the slasher or the ceiling is unset or stale.
     function invariant_slashIsTheLossAtTheCeilingInsideTheAllowance() public view {
         assertEq(handler.slashBreaks(), 0, "a write-off slashed off the ceiling or past the allowance");
+    }
+
+    /// What the vault says its seizure covers is booked against the debt and no further: the
+    /// covered loss never runs past what was written off.
+    function invariant_coveredLossNeverExceedsTheWriteOff() public view {
+        assertEq(handler.coverBreaks(), 0, "a write-off booked cover past the debt");
+        assertLe(pool.lossCovered(), pool.badDebt(), "cover past the bad debt");
     }
 
     function _lent() internal view returns (uint256 sum) {

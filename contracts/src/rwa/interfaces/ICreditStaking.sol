@@ -19,6 +19,7 @@ interface ICreditStaking {
     /// allowance.
     ///
     /// The slash does not reimburse the lender. The pool books the whole USDG loss as bad debt
-    /// whatever the slash takes, and the BRSR goes to the slash sink, not to the pool.
+    /// whatever the slash takes, asks for a slash only on the part of it no seized collateral
+    /// covers, and the BRSR goes to the slash sink, not to the pool.
     function slash(uint256 lossBrsr) external returns (uint256 taken);
 }

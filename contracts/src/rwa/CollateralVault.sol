@@ -49,8 +49,10 @@ import {ITreasuryPark} from "./interfaces/ITreasuryPark.sol";
 /// position gives up the same fraction of its raw amount, rounded up so the lender is covered, and
 /// the rest is the borrower's to withdraw against a line that now owes nothing. A line worth no
 /// more than its debt at the feed, or one no feed can price, gives up everything, as before. The
-/// seized share goes to a per-asset pot that only the pool's lender can be paid from. The decision
-/// to write off is `_exhausted`, and it never rests on the pool's spot alone.
+/// seized share goes to a per-asset pot that only the pool's lender can be paid from, and the pool
+/// is told what it is worth, so stakers are slashed for the part of the loss it does not cover and
+/// the lender is never covered twice. The decision to write off is `_exhausted`, and it never rests
+/// on the pool's spot alone.
 ///
 /// A draw or a collateral withdrawal must leave health at or above `minBorrowHealth` with every
 /// position at its after-hours haircut, whatever the clock says. Checked at the session haircut,
@@ -599,15 +601,15 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
     /// its raw amount, rounded up so the lender is never short, and the line keeps the rest as
     /// collateral against a debt that is now zero. When the line's collateral is worth no more than
     /// the debt at the feed, or no position has a feed price to value, the whole of it is seized,
-    /// as it was before. The tokens stay put: a transfer that fails must not hold up the write-off,
-    /// so the lender is paid through `claimSeized` once the token lets them move.
+    /// as it was before. The pool is told the feed value the seizure can draw on, so it slashes
+    /// stakers for the part of the debt the collateral does not cover and no more: the lender is
+    /// covered by the seized pot up to the debt's worth, and is never covered a second time out of
+    /// stake. The tokens stay put: a transfer that fails must not hold up the write-off, so the
+    /// lender is paid through `claimSeized` once the token lets them move.
     function _writeOff(address mandate) private {
-        // The pool is this lane's own, and every way into the vault that moves collateral is under
-        // the reentrancy guard.
-        // slither-disable-next-line reentrancy-benign
-        uint256 writtenOff = pool.writeOff(mandate);
         uint256 n = _assets.length;
-        // Summed from zero below; nothing priced leaves it at zero, which seizes everything.
+        // Summed from zero below; nothing priced leaves it at zero, which seizes everything and
+        // covers nothing.
         // slither-disable-next-line uninitialized-local
         uint256 total;
         // The feed value of each position, the way `health` counts it, over the lane's own assets.
@@ -615,6 +617,11 @@ contract CollateralVault is ITreasuryPark, V4Swapper, ReentrancyGuard {
         for (uint256 i; i < n; ++i) {
             total += _position(mandate, _assets[i]).atFeed;
         }
+        // The pool is this lane's own, bound once and answering only this vault, and every way
+        // into the vault that moves collateral is under the reentrancy guard; the positions read
+        // above cannot change under the call.
+        // slither-disable-next-line reentrancy-no-eth,reentrancy-benign
+        uint256 writtenOff = pool.writeOff(mandate, total);
         for (uint256 i; i < n; ++i) {
             address asset = _assets[i];
             uint256 raw = collateralOf[mandate][asset];
