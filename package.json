@@ -22,8 +22,8 @@
     "check": "pnpm -r build && pnpm -r typecheck && pnpm -r test"
   },
   "devDependencies": {
-    "@types/node": "22.20.2",
-    "tsx": "4.23.13",
+    "@types/node": "22.20.5",
+    "tsx": "4.23.15",
     "typescript": "5.9.3",
     "vitest": "4.1.11"
   }
