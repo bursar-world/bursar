@@ -26,6 +26,7 @@ export const LOCAL_RECORD = {
     MandateAccountFactory: '0x610178dA211FEF7D417bC0e6FeD39F05609AD788',
   },
   verifiedOnChain: {},
+  examples: {},
   roles: {
     timelockSigners: [
       '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',

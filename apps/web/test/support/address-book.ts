@@ -33,6 +33,7 @@ export function v3Record(
     },
     roles: { timelockSigners: [fill('7')], guardian: fill('c'), treasury: fill('d'), slashSink: fill('e') },
     verifiedOnChain: {},
+    examples: {},
     supersedes: 'rhc-mainnet-v2',
     ...(overrides.rwa === undefined ? {} : { rwa: overrides.rwa }),
   });

@@ -69,6 +69,7 @@ const DEPLOYMENT: Deployment = {
     slashSink: '0xaAaAaAaaAaAaAaaAaAAAAAAAAaaaAaAaAaaAaaAa',
   },
   verifiedOnChain: {},
+  examples: {},
 };
 
 type TokenRead = { readonly fn: 'name' | 'decimals' | 'DOMAIN_SEPARATOR'; readonly value: string | number };

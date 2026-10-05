@@ -89,6 +89,7 @@ function v3Record(overrides: { network?: string; escrow?: string; settlementAsse
     },
     roles: { timelockSigners: [fill('7')], guardian: fill('c'), treasury: fill('d'), slashSink: fill('e') },
     verifiedOnChain: {},
+    examples: {},
     supersedes: 'rhc-mainnet-v2',
   });
 }
