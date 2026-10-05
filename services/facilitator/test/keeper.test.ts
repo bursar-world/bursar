@@ -24,6 +24,7 @@ const SETTLED: Observation = {
   feedE8: 77_100_000_000n,
   halt: 'None',
   bandBps: 100n,
+  tier: 2,
 };
 /** The pool pushed 2% under the feed, past a stock's 1% band. */
 const PUSHED = 75_500_000_000n;
@@ -313,6 +314,26 @@ describe('deciding whether to observe an asset', () => {
     it('reads a waiting reading with no feed answer as one to replace', () => {
       expect(observeDecision({ ...SETTLED, pending: { ...SETTLED.pending, feedE8: 0n } }, RULE, NOW)).toEqual({ action: 'observe', reason: 'pending-off-band' });
     });
+
+    // A dropped position is written off only once the reading in force disagrees with the feed,
+    // and a reading that has run out does not count. Withholding an untiered asset's readings while
+    // its pool sits off band would leave a pool that has gone for good without that disagreement,
+    // and the line could never settle.
+    it('records an asset the vault no longer tiers as the pool and the feed stand', () => {
+      const dropped = { ...SETTLED, aged: NONE, poolE8: PUSHED, halt: 'NoObservation' as const, tier: 0 };
+
+      expect(observeDecision({ ...dropped, tier: 2 }, RULE, NOW)).toEqual({ action: 'skip', reason: 'off-band-halting' });
+      expect(observeDecision(dropped, RULE, NOW)).toEqual({ action: 'observe', reason: 'promote' });
+
+      const jumped = { ...SETTLED, feedE8: 89_500_000_000n, poolE8: 89_500_000_000n, halt: 'FeedJump' as const, tier: 0 };
+      expect(observeDecision({ ...jumped, tier: 1 }, RULE, NOW)).toEqual({ action: 'skip', reason: 'feed-jump' });
+      expect(observeDecision(jumped, RULE, NOW)).toEqual({ action: 'observe', reason: 'halted' });
+
+      // Its waiting reading off band is the truth about its pool, and is left to be promoted.
+      const disagreeing = { ...SETTLED, pending: { ...SETTLED.pending, poolE8: PUSHED }, poolE8: PUSHED, halt: 'SpotOffBand' as const, tier: 0 };
+      expect(observeDecision(disagreeing, RULE, NOW)).toEqual({ action: 'skip', reason: 'unchanged' });
+      expect(observeDecision({ ...disagreeing, halt: 'ObservationOffBand' }, RULE, NOW)).toEqual({ action: 'observe', reason: 'halted' });
+    });
   });
 
   /**
@@ -333,7 +354,7 @@ describe('deciding whether to observe an asset', () => {
       const inForce = aged.at !== 0n && t - aged.at <= RULE.maxAge;
       if (t > start + 600n && !inForce) gaps++;
       const halt = aged.at === 0n ? 'NoObservation' : inForce ? 'None' : 'ObservationExpired';
-      const decision = observeDecision({ aged, pending, poolE8, feedE8, halt, bandBps: 100n }, RULE, t);
+      const decision = observeDecision({ aged, pending, poolE8, feedE8, halt, bandBps: 100n, tier: 2 }, RULE, t);
       if (decision.action !== 'observe') continue;
       sent++;
       // What the guard does with the reading.
@@ -420,6 +441,29 @@ describe('keeping the guard’s readings', () => {
     expect(chain.sent).toEqual([]);
     expect(report.health.observed).toBe(false);
     expect(report.health.summary).toBe('Draws against 1 of 2 assets are halted for want of a reading in force; 2 readings withheld while the pool sits off band or the feed has jumped.');
+  });
+
+  it('says when a reading of a dropped asset is one a tiered asset would have been spared', async () => {
+    const chain = v4();
+    chain.observations = {
+      [SPY]: { ...SETTLED, aged: NONE, poolE8: PUSHED, halt: 'NoObservation', tier: 0 },
+      [AAPL]: { ...SETTLED, aged: NONE, halt: 'NoObservation', tier: 0 },
+    };
+
+    const report = await run(chain, true);
+
+    expect(report.actions).toEqual([
+      {
+        kind: 'observe',
+        asset: SPY,
+        outcome: 'sent',
+        reason: 'promote',
+        tx: TX,
+        detail: 'untiered: the vault no longer tiers this asset, so the reading is taken as the pool and the feed stand; a dropped position is written off only once the reading in force disagrees with the feed',
+      },
+      { kind: 'observe', asset: AAPL, outcome: 'sent', reason: 'promote', tx: TX },
+    ]);
+    expect(chain.sent).toEqual([`observe ${SPY}`, `observe ${AAPL}`]);
   });
 
   it('withholds a jumped feed with the figures, and leaves the reading in force to run', async () => {

@@ -684,7 +684,12 @@ moved past the guard's `MAX_FEED_JUMP_BPS` (15% as deployed) since the reading i
 a gap or a mis-scaled round, and recording it would seat the jumped answer as the one draws are
 judged against. It is left out while the reading in force lasts. Once that reading has run out, the
 next one is taken whatever the feed says, so a feed that has moved for real halts draws for about an
-hour and then counts again on two readings that agree.
+hour and then counts again on two readings that agree. Neither withholding applies to an asset the
+vault no longer tiers. A dropped position is written off only once the reading in force disagrees
+with the feed, and a reading that has run out does not count, so a stopped keeper cannot let a
+borrower force a write-off with a push; for such an asset the pass records the pool and the feed as
+they stand, so a pool that has gone for good produces the disagreement that lets the line settle,
+and the report marks the reading `untiered`.
 
 The keeper is not part of the facilitator process and nothing in this repository schedules it. On
 the hosted deployment it runs as a Render cron job on this package's `keeper` script with the

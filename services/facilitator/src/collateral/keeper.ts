@@ -30,8 +30,10 @@ import type { OnchainCollateral } from '../lanes/onchain-collateral.js';
  * off band of its feed, which a push held across the pass would otherwise seat as the reading draws
  * are judged against, and one taken while the feed has jumped past the guard's bound since the
  * reading in force, which is a gap or a mis-scaled round until that reading runs out. A waiting
- * reading that was taken off band is replaced at once. A guard from before v4 has no readings to
- * keep, and the pass says so.
+ * reading that was taken off band is replaced at once. None of that applies to an asset the vault
+ * no longer tiers: a dropped position is written off only once the reading in force disagrees with
+ * the feed, so its readings are taken as the pool and the feed stand. A guard from before v4 has no
+ * readings to keep, and the pass says so.
  *
  * Dry run is the default. Nothing is sent unless the run is told to execute and holds a key.
  */
@@ -104,6 +106,8 @@ export type Observation = {
   readonly halt: DrawHalt | undefined;
   /** How far the pool's mid may sit from the feed for a reading to count, in basis points: the asset's band in the registry. */
   readonly bandBps: bigint;
+  /** The asset's collateral tier in the vault. Zero for an asset governance has dropped, whose readings are taken as they come. */
+  readonly tier: number;
 };
 
 export interface KeeperChain {
@@ -157,8 +161,8 @@ export type KeeperAction =
     }
   | { readonly kind: 'sweep'; readonly amountMicro: string; readonly outcome: 'sent'; readonly tx: Hex }
   | { readonly kind: 'sweep'; readonly amountMicro: string; readonly outcome: 'would-send' | 'waiting' | 'failed'; readonly reason?: string }
-  | { readonly kind: 'observe'; readonly asset: Address; readonly outcome: 'sent'; readonly reason: ObserveReason; readonly tx: Hex }
-  | { readonly kind: 'observe'; readonly asset: Address; readonly outcome: 'would-send'; readonly reason: ObserveReason }
+  | { readonly kind: 'observe'; readonly asset: Address; readonly outcome: 'sent'; readonly reason: ObserveReason; readonly tx: Hex; readonly detail?: string }
+  | { readonly kind: 'observe'; readonly asset: Address; readonly outcome: 'would-send'; readonly reason: ObserveReason; readonly detail?: string }
   | { readonly kind: 'observe'; readonly asset: Address; readonly outcome: 'waiting' | 'skipped' | 'failed'; readonly reason: string; readonly detail?: string };
 
 /** Why a pass observes an asset. */
@@ -304,7 +308,12 @@ function e8(price: bigint): string {
  *
  * A waiting reading the pool was pushed across is replaced at once, young or not: young, the guard
  * overwrites it in place; old enough, it is promoted, and the sooner that happens the sooner the
- * in-band reading taken now takes its place. A reading the guard would otherwise refuse as too young
+ * in-band reading taken now takes its place. An asset the vault no longer tiers gets none of this
+ * care. A dropped position is written off only once the reading in force disagrees with the feed,
+ * and a reading that has run out does not count, so a stopped keeper cannot let a borrower force a
+ * write-off with a push; withholding its readings while its pool sits off band would mean a pool
+ * that has gone for good never produces that disagreement, and the line could never settle. So for
+ * it the pool and the feed are recorded as they stand. A reading the guard would otherwise refuse as too young
  * is a wait, because the call would reset the waiting reading's clock. After that, only what a
  * reading would change is worth its gas: a guard with no reading at all, no reading in force or one
  * about to run out, or a draw halted on the reading in force where the one waiting may clear it. A
@@ -322,15 +331,11 @@ export function observeDecision(
   | { readonly action: 'observe'; readonly reason: ObserveReason }
   | { readonly action: 'wait'; readonly until: bigint }
   | { readonly action: 'skip'; readonly reason: SkipReason } {
-  if (!inBand(o.poolE8, o.feedE8, o.bandBps)) {
-    const stranded = o.aged.at === 0n || now - o.aged.at > rule.maxAge - rule.minAge;
-    return { action: 'skip', reason: stranded ? 'off-band-halting' : 'off-band' };
-  }
-  if (o.aged.at !== 0n && o.aged.feedE8 !== 0n && now - o.aged.at <= rule.maxAge && deviationBps(o.feedE8, o.aged.feedE8) > rule.maxFeedJumpBps) {
-    return { action: 'skip', reason: 'feed-jump' };
-  }
+  const tiered = o.tier !== 0;
+  const held = withholding(o, rule, now);
+  if (tiered && held !== null) return { action: 'skip', reason: held };
   if (o.pending.at === 0n) return { action: 'observe', reason: 'first-reading' };
-  if (!inBand(o.pending.poolE8, o.pending.feedE8, o.bandBps)) return { action: 'observe', reason: 'pending-off-band' };
+  if (tiered && !inBand(o.pending.poolE8, o.pending.feedE8, o.bandBps)) return { action: 'observe', reason: 'pending-off-band' };
 
   const pendingAge = now - o.pending.at;
   if (pendingAge < rule.minAge) return { action: 'wait', until: o.pending.at + rule.minAge };
@@ -343,6 +348,21 @@ export function observeDecision(
 
   return { action: 'skip', reason: 'unchanged' };
 }
+
+/** The withholding a reading of a tiered asset gets right now, or null when none applies. */
+function withholding(o: Observation, rule: ObservationRule, now: bigint): Exclude<SkipReason, 'unchanged'> | null {
+  if (!inBand(o.poolE8, o.feedE8, o.bandBps)) {
+    const stranded = o.aged.at === 0n || now - o.aged.at > rule.maxAge - rule.minAge;
+    return stranded ? 'off-band-halting' : 'off-band';
+  }
+  if (o.aged.at !== 0n && o.aged.feedE8 !== 0n && now - o.aged.at <= rule.maxAge && deviationBps(o.feedE8, o.aged.feedE8) > rule.maxFeedJumpBps) {
+    return 'feed-jump';
+  }
+  return null;
+}
+
+const UNTIERED =
+  'untiered: the vault no longer tiers this asset, so the reading is taken as the pool and the feed stand; a dropped position is written off only once the reading in force disagrees with the feed';
 
 /** What a withheld or unneeded reading is waiting on, for the report. */
 function skipDetail(reason: SkipReason, o: Observation, rule: ObservationRule): string {
@@ -412,12 +432,14 @@ async function observeAssets(
       continue;
     }
 
+    // A reading of a dropped asset that a tiered one would have been spared says so.
+    const taken = o.tier === 0 && withholding(o, rule, now) !== null ? { detail: UNTIERED } : {};
     if (!execute) {
-      actions.push({ kind: 'observe', asset, outcome: 'would-send', reason: decision.reason });
+      actions.push({ kind: 'observe', asset, outcome: 'would-send', reason: decision.reason, ...taken });
       continue;
     }
     try {
-      actions.push({ kind: 'observe', asset, outcome: 'sent', reason: decision.reason, tx: await chain.observe(asset) });
+      actions.push({ kind: 'observe', asset, outcome: 'sent', reason: decision.reason, tx: await chain.observe(asset), ...taken });
     } catch (error) {
       actions.push({ kind: 'observe', asset, outcome: 'failed', reason: revertName(error) });
     }
@@ -637,15 +659,16 @@ export function createKeeperChain(options: ViemKeeperOptions): KeeperChain {
     },
     async observation(asset) {
       const [address, registryAt] = await Promise.all([guardAddress(), registryAddress()]);
-      const [aged, pending, poolE8, valuation, halt, terms] = await Promise.all([
+      const [aged, pending, poolE8, valuation, halt, terms, tier] = await Promise.all([
         publicClient.readContract({ address, abi: priceGuardAbi, functionName: 'aged', args: [asset] }),
         publicClient.readContract({ address, abi: priceGuardAbi, functionName: 'pending', args: [asset] }),
         publicClient.readContract({ address, abi: priceGuardAbi, functionName: 'poolPriceE8', args: [asset] }),
         publicClient.readContract({ address, abi: priceGuardAbi, functionName: 'valuation', args: [asset] }),
         publicClient.readContract({ address: vault, abi: collateralVaultAbi, functionName: 'drawHalt', args: [asset] }),
         publicClient.readContract({ address: registryAt, abi: assetRegistryAbi, functionName: 'get', args: [asset] }),
+        publicClient.readContract({ address: vault, abi: collateralVaultAbi, functionName: 'tierOf', args: [asset] }),
       ]);
-      return { aged: toSample(aged), pending: toSample(pending), poolE8, feedE8: valuation[0], halt: drawHaltOf(halt), bandBps: BigInt(terms.bandBps) };
+      return { aged: toSample(aged), pending: toSample(pending), poolE8, feedE8: valuation[0], halt: drawHaltOf(halt), bandBps: BigInt(terms.bandBps), tier };
     },
     async simulateObserve(asset) {
       await publicClient.simulateContract({ address: await guardAddress(), abi: priceGuardAbi, functionName: 'observe', args: [asset], account: caller });
