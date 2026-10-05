@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { BaseError, createPublicClient, custom, encodeErrorResult } from 'viem';
 import type { Address, Hex, PublicClient } from 'viem';
 
-import { createKeeperChain, observeDecision, revertName, runKeeper } from '../src/collateral/keeper.js';
+import { createKeeperChain, deviationBps, inBand, observeDecision, revertName, runKeeper } from '../src/collateral/keeper.js';
 import type { KeeperChain, Observation, ObservationRule, Position, Spread } from '../src/collateral/keeper.js';
 import { createOnchainCollateralReader, fromAccountTuple } from '../src/lanes/onchain-collateral.js';
 
@@ -14,7 +14,7 @@ const AAPL: Address = '0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9';
 const NO_DEBT = (1n << 256n) - 1n;
 const TX: Hex = '0xabc0000000000000000000000000000000000000000000000000000000000abc';
 const NOW = 1_800_000_000n;
-const RULE: ObservationRule = { minAge: 300n, maxAge: 3_600n };
+const RULE: ObservationRule = { minAge: 300n, maxAge: 3_600n, maxFeedJumpBps: 1_500n };
 const NONE = { at: 0n, poolE8: 0n, feedE8: 0n };
 /** A pool and a feed in line, read now and recorded in a waiting reading old enough to promote. */
 const SETTLED: Observation = {
@@ -23,7 +23,10 @@ const SETTLED: Observation = {
   poolE8: 77_000_000_000n,
   feedE8: 77_100_000_000n,
   halt: 'None',
+  bandBps: 100n,
 };
+/** The pool pushed 2% under the feed, past a stock's 1% band. */
+const PUSHED = 75_500_000_000n;
 
 class FakeChain implements KeeperChain {
   sent: string[] = [];
@@ -214,7 +217,7 @@ describe('deciding whether to observe an asset', () => {
     const fresh = { ...SETTLED, aged: { ...SETTLED.aged, at: NOW - 3_000n } };
 
     expect(observeDecision(expiring, RULE, NOW)).toEqual({ action: 'observe', reason: 'promote' });
-    expect(observeDecision(fresh, RULE, NOW)).toEqual({ action: 'skip' });
+    expect(observeDecision(fresh, RULE, NOW)).toEqual({ action: 'skip', reason: 'unchanged' });
   });
 
   it.each(['ObservationOffBand', 'FeedJump', 'ObservationExpired'] as const)('observes when a draw is halted on %s, which the next reading may clear', (halt) => {
@@ -222,7 +225,7 @@ describe('deciding whether to observe an asset', () => {
   });
 
   it.each(['NoPrice', 'Paused', 'FeedStale', 'SpotOffBand', 'Unreadable'] as const)('leaves a draw halted on %s to the market, and skips an unchanged reading', (halt) => {
-    expect(observeDecision({ ...SETTLED, halt }, RULE, NOW)).toEqual({ action: 'skip' });
+    expect(observeDecision({ ...SETTLED, halt }, RULE, NOW)).toEqual({ action: 'skip', reason: 'unchanged' });
   });
 
   it('reports a condition this build does not name as unknown, and does not read it as counting', async () => {
@@ -238,16 +241,108 @@ describe('deciding whether to observe an asset', () => {
     expect(report.health.observed).toBe(true);
   });
 
-  it('observes when the pool or the feed has moved since the waiting reading', () => {
-    expect(observeDecision({ ...SETTLED, poolE8: 77_500_000_000n }, RULE, NOW)).toEqual({ action: 'observe', reason: 'moved' });
-    expect(observeDecision({ ...SETTLED, feedE8: 0n }, RULE, NOW)).toEqual({ action: 'observe', reason: 'moved' });
+  // The guard judges each sample by the pool and the feed stored in it, so a reading taken in band
+  // stays in band however the market moves afterwards. Refreshing it on every move was a reading a
+  // pass per asset in a live market, which ran the keeper's float dry.
+  it('sends nothing when the pool and the feed have moved but the waiting reading is in band and the one in force is fresh', () => {
+    const moved = { ...SETTLED, poolE8: 77_400_000_000n, feedE8: 77_600_000_000n };
+
+    expect(observeDecision(moved, RULE, NOW)).toEqual({ action: 'skip', reason: 'unchanged' });
   });
 
-  it('compares a mid past the field as the guard would record it, clipped', () => {
-    const edge = (1n << 104n) - 1n;
-    const pinned = { ...SETTLED, pending: { ...SETTLED.pending, poolE8: edge }, poolE8: edge + 5n };
+  it('measures a deviation in basis points of the reference, rounded up, and a band as the guard does', () => {
+    expect(deviationBps(77_000_000_000n, 77_100_000_000n)).toBe(13n);
+    expect(deviationBps(77_100_000_000n, 77_000_000_000n)).toBe(13n);
+    expect(deviationBps(100n, 100n)).toBe(0n);
+    expect(inBand(77_000_000_000n, 77_100_000_000n, 100n)).toBe(true);
+    expect(inBand(77_000_000_000n, 77_100_000_000n, 12n)).toBe(false);
+    expect(inBand(0n, 77_100_000_000n, 100n)).toBe(false);
+    expect(inBand(77_000_000_000n, 0n, 100n)).toBe(false);
+  });
 
-    expect(observeDecision(pinned, RULE, NOW)).toEqual({ action: 'skip' });
+  describe('withholding a reading', () => {
+    it('skips while the pool sits off band of its feed, and the reading in force stands', () => {
+      expect(observeDecision({ ...SETTLED, poolE8: PUSHED }, RULE, NOW)).toEqual({ action: 'skip', reason: 'off-band' });
+      expect(observeDecision({ ...SETTLED, poolE8: PUSHED, halt: 'SpotOffBand' }, RULE, NOW)).toEqual({ action: 'skip', reason: 'off-band' });
+    });
+
+    it('skips a pool or a feed with no price the same way', () => {
+      expect(observeDecision({ ...SETTLED, poolE8: 0n }, RULE, NOW)).toEqual({ action: 'skip', reason: 'off-band' });
+      expect(observeDecision({ ...SETTLED, feedE8: 0n }, RULE, NOW)).toEqual({ action: 'skip', reason: 'off-band' });
+    });
+
+    it('says when the skip leaves no reading in force, which halts draws until the pool returns', () => {
+      // No reading at all, no reading in force, and one that cannot last to the next promotion.
+      expect(observeDecision({ ...SETTLED, aged: NONE, pending: NONE, poolE8: PUSHED, halt: 'NoObservation' }, RULE, NOW)).toEqual({ action: 'skip', reason: 'off-band-halting' });
+      expect(observeDecision({ ...SETTLED, aged: NONE, poolE8: PUSHED, halt: 'NoObservation' }, RULE, NOW)).toEqual({ action: 'skip', reason: 'off-band-halting' });
+      expect(observeDecision({ ...SETTLED, aged: { ...SETTLED.aged, at: NOW - 3_301n }, poolE8: PUSHED }, RULE, NOW)).toEqual({ action: 'skip', reason: 'off-band-halting' });
+      expect(observeDecision({ ...SETTLED, aged: { ...SETTLED.aged, at: NOW - 3_300n }, poolE8: PUSHED }, RULE, NOW)).toEqual({ action: 'skip', reason: 'off-band' });
+    });
+
+    it('withholds a feed that has jumped past the guard’s bound while the reading in force lasts', () => {
+      // 16% over the aged reading's feed, with the pool pushed along to match it.
+      const jumped = { ...SETTLED, feedE8: 89_500_000_000n, poolE8: 89_500_000_000n, halt: 'FeedJump' as const };
+
+      expect(observeDecision(jumped, RULE, NOW)).toEqual({ action: 'skip', reason: 'feed-jump' });
+      // At the bound, the move is not a jump.
+      expect(observeDecision({ ...jumped, feedE8: 88_665_000_000n, poolE8: 88_665_000_000n, halt: 'None' }, RULE, NOW)).toEqual({ action: 'skip', reason: 'unchanged' });
+    });
+
+    it('takes the jumped reading once the one in force has run out, so the lane can settle on two that agree', () => {
+      const jumped = { ...SETTLED, feedE8: 89_500_000_000n, poolE8: 89_500_000_000n, halt: 'ObservationExpired' as const };
+
+      expect(observeDecision({ ...jumped, aged: { ...SETTLED.aged, at: NOW - 3_600n } }, RULE, NOW)).toEqual({ action: 'skip', reason: 'feed-jump' });
+      expect(observeDecision({ ...jumped, aged: { ...SETTLED.aged, at: NOW - 3_601n } }, RULE, NOW)).toEqual({ action: 'observe', reason: 'promote' });
+    });
+
+    it('does not read a jump against a reading in force that was taken with no feed answer', () => {
+      const blind = { ...SETTLED, aged: { ...SETTLED.aged, feedE8: 0n }, halt: 'ObservationOffBand' as const };
+
+      expect(observeDecision(blind, RULE, NOW)).toEqual({ action: 'observe', reason: 'halted' });
+    });
+
+    it('replaces a waiting reading the pool was pushed across as soon as the pool is back, young or not', () => {
+      const pushedAcross = { ...SETTLED, pending: { ...SETTLED.pending, poolE8: PUSHED } };
+
+      expect(observeDecision(pushedAcross, RULE, NOW)).toEqual({ action: 'observe', reason: 'pending-off-band' });
+      expect(observeDecision({ ...pushedAcross, pending: { ...pushedAcross.pending, at: NOW - 60n } }, RULE, NOW)).toEqual({ action: 'observe', reason: 'pending-off-band' });
+      // The vault's own word for it, once the waiting reading is old enough to be judged.
+      expect(observeDecision({ ...pushedAcross, halt: 'PendingOffBand' }, RULE, NOW)).toEqual({ action: 'observe', reason: 'pending-off-band' });
+    });
+
+    it('reads a waiting reading with no feed answer as one to replace', () => {
+      expect(observeDecision({ ...SETTLED, pending: { ...SETTLED.pending, feedE8: 0n } }, RULE, NOW)).toEqual({ action: 'observe', reason: 'pending-off-band' });
+    });
+  });
+
+  /**
+   * A day of passes every five minutes over a market that moves every pass. The decision has to
+   * keep a reading in force throughout and send about two readings an hour, which is what a
+   * 0.003 ETH float lasts days on rather than hours.
+   */
+  it('keeps a reading in force all day on about two readings an hour', () => {
+    let aged = NONE;
+    let pending = NONE;
+    let sent = 0;
+    let gaps = 0;
+    const start = NOW;
+    for (let t = start; t < start + 86_400n; t += 300n) {
+      const tick = (t - start) / 300n;
+      const feedE8 = 77_000_000_000n + tick * 1_000_000n;
+      const poolE8 = feedE8 - 50_000_000n;
+      const inForce = aged.at !== 0n && t - aged.at <= RULE.maxAge;
+      if (t > start + 600n && !inForce) gaps++;
+      const halt = aged.at === 0n ? 'NoObservation' : inForce ? 'None' : 'ObservationExpired';
+      const decision = observeDecision({ aged, pending, poolE8, feedE8, halt, bandBps: 100n }, RULE, t);
+      if (decision.action !== 'observe') continue;
+      sent++;
+      // What the guard does with the reading.
+      if (pending.at !== 0n && t - pending.at >= RULE.minAge) aged = pending;
+      pending = { at: t, poolE8, feedE8 };
+    }
+    expect(gaps).toBe(0);
+    expect(sent).toBeGreaterThanOrEqual(40);
+    expect(sent).toBeLessThanOrEqual(60);
   });
 });
 
@@ -284,17 +379,66 @@ describe('keeping the guard’s readings', () => {
   it('sends the readings that would change what a draw sees, and skips the rest', async () => {
     const chain = v4();
     chain.observations = {
-      [SPY]: { ...SETTLED, poolE8: 78_000_000_000n },
-      [AAPL]: SETTLED,
+      [SPY]: { ...SETTLED, aged: { ...SETTLED.aged, at: NOW - 3_100n } },
+      [AAPL]: { ...SETTLED, poolE8: 78_000_000_000n, feedE8: 78_100_000_000n },
     };
 
     const report = await run(chain, true);
 
     expect(report.actions).toEqual([
-      { kind: 'observe', asset: SPY, outcome: 'sent', reason: 'moved', tx: TX },
-      { kind: 'observe', asset: AAPL, outcome: 'skipped', reason: 'unchanged', detail: expect.stringContaining('sit where the waiting reading left them') },
+      { kind: 'observe', asset: SPY, outcome: 'sent', reason: 'promote', tx: TX },
+      { kind: 'observe', asset: AAPL, outcome: 'skipped', reason: 'unchanged', detail: expect.stringContaining('would change nothing a draw sees') },
     ]);
     expect(chain.sent).toEqual([`observe ${SPY}`]);
+  });
+
+  it('withholds a reading of a pushed pool, says what it saw, and counts it in the summary', async () => {
+    const chain = v4();
+    chain.observations = {
+      [SPY]: { ...SETTLED, poolE8: PUSHED, halt: 'SpotOffBand' },
+      [AAPL]: { ...SETTLED, aged: NONE, pending: NONE, poolE8: 0n, halt: 'NoObservation' },
+    };
+
+    const report = await run(chain, true);
+
+    expect(report.actions).toEqual([
+      {
+        kind: 'observe',
+        asset: SPY,
+        outcome: 'skipped',
+        reason: 'off-band',
+        detail: "the pool's mid (755.00) sits 208 bps from the feed (771.00), outside the asset's 100 bps band; recording it would carry the pushed price into the reading in force, so the one in force stands until the pool returns",
+      },
+      {
+        kind: 'observe',
+        asset: AAPL,
+        outcome: 'skipped',
+        reason: 'off-band-halting',
+        detail: 'the pool has no price; no reading in force can carry the lane across, so draws halt until the pool returns and two readings agree',
+      },
+    ]);
+    expect(chain.sent).toEqual([]);
+    expect(report.health.observed).toBe(false);
+    expect(report.health.summary).toBe('Draws against 1 of 2 assets are halted for want of a reading in force; 2 readings withheld while the pool sits off band or the feed has jumped.');
+  });
+
+  it('withholds a jumped feed with the figures, and leaves the reading in force to run', async () => {
+    const chain = v4();
+    chain.observations = { [SPY]: { ...SETTLED, feedE8: 89_500_000_000n, poolE8: 89_500_000_000n, halt: 'FeedJump' } };
+
+    const report = await run(chain, true);
+
+    expect(report.actions).toEqual([
+      {
+        kind: 'observe',
+        asset: SPY,
+        outcome: 'skipped',
+        reason: 'feed-jump',
+        detail: "the feed (895.00) has moved 1609 bps from the reading in force (771.00), past the guard's 1500 bps; a jumped round is not recorded while that reading lasts",
+      },
+    ]);
+    expect(chain.sent).toEqual([]);
+    expect(report.health.summary).toBe('Readings are in force for every asset; draws against 1 of 1 are halted on the feed, the issuer or the pool; 1 reading withheld while the pool sits off band or the feed has jumped.');
   });
 
   it('reports a reading too young to replace, and says when it can', async () => {
@@ -310,7 +454,7 @@ describe('keeping the guard’s readings', () => {
 
   it('names a key the guard does not hold as a keeper, which no retry mends', async () => {
     const chain = v4();
-    chain.observations = { [SPY]: { ...SETTLED, poolE8: 78_000_000_000n } };
+    chain.observations = { [SPY]: { ...SETTLED, aged: { ...SETTLED.aged, at: NOW - 3_100n } } };
     chain.observeRevert = new BaseError('execution reverted: NotKeeper()');
 
     const report = await run(chain, true);
@@ -321,7 +465,7 @@ describe('keeping the guard’s readings', () => {
 
   it('reports any other refusal of a reading as a failure, and goes on to the next asset', async () => {
     const chain = v4();
-    chain.observations = { [SPY]: { ...SETTLED, poolE8: 78_000_000_000n }, [AAPL]: { ...SETTLED, feedE8: 0n } };
+    chain.observations = { [SPY]: { ...SETTLED, aged: { ...SETTLED.aged, at: NOW - 3_100n } }, [AAPL]: { ...SETTLED, aged: NONE, halt: 'NoObservation' } };
     chain.observeRevert = new BaseError('execution reverted: NotRegistered(address)');
 
     const report = await run(chain, true);

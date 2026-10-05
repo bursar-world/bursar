@@ -1,4 +1,4 @@
-import { collateralVaultAbi, creditPoolAbi, drawHaltOf, priceGuardAbi } from '@bursar/core';
+import { assetRegistryAbi, collateralVaultAbi, creditPoolAbi, drawHaltOf, priceGuardAbi } from '@bursar/core';
 import type { CollateralDeployment, DrawHalt } from '@bursar/core';
 import { BaseError, ContractFunctionRevertedError, ContractFunctionZeroDataError, getAbiItem } from 'viem';
 import type { Abi, Account, Address, Chain, Hex, PublicClient, WalletClient } from 'viem';
@@ -24,16 +24,19 @@ import type { OnchainCollateral } from '../lanes/onchain-collateral.js';
  * and at most `MAX_OBSERVATION_AGE` earlier, so with nobody observing every draw halts within the
  * hour. Each pass reads each asset's pending and aged samples and observes where it would change
  * what a draw sees; a reading the guard refuses as too young is reported as waiting, and a pass
- * that finds the pool and the feed where the last reading left them sends nothing unless the aged
- * sample is about to run out. A guard from before v4 has no readings to keep, and the pass says so.
+ * that finds a reading in force with time left sends nothing, however the pool and the feed have
+ * moved: the guard judges each sample by the figures stored in it, so a reading taken in band stays
+ * in band. Two readings are withheld on purpose: one taken while the pool sits
+ * off band of its feed, which a push held across the pass would otherwise seat as the reading draws
+ * are judged against, and one taken while the feed has jumped past the guard's bound since the
+ * reading in force, which is a gap or a mis-scaled round until that reading runs out. A waiting
+ * reading that was taken off band is replaced at once. A guard from before v4 has no readings to
+ * keep, and the pass says so.
  *
  * Dry run is the default. Nothing is sent unless the run is told to execute and holds a key.
  */
 
 const WAD = 10n ** 18n;
-
-/** The widest a pool mid is recorded at: the guard clips a reading to this before it stores it. */
-const MAX_SAMPLE_PRICE = (1n << 104n) - 1n;
 
 /**
  * Reverts that mean "not now", as opposed to "never", with what the keeper is waiting for. Every
@@ -85,6 +88,8 @@ export type Sample = {
 export type ObservationRule = {
   readonly minAge: bigint;
   readonly maxAge: bigint;
+  /** The widest move of the feed since the reading in force that a draw still counts. */
+  readonly maxFeedJumpBps: bigint;
 };
 
 /** Everything the pass needs to decide whether to observe one asset. */
@@ -97,6 +102,8 @@ export type Observation = {
   readonly feedE8: bigint;
   /** What the vault says a draw against this asset fails on right now. Undefined for a condition this build does not name. */
   readonly halt: DrawHalt | undefined;
+  /** How far the pool's mid may sit from the feed for a reading to count, in basis points: the asset's band in the registry. */
+  readonly bandBps: bigint;
 };
 
 export interface KeeperChain {
@@ -162,8 +169,22 @@ export type ObserveReason =
   | 'promote'
   /** A draw is halted on the reading in force, and the one waiting may clear it. */
   | 'halted'
-  /** The pool or the feed has moved since the waiting reading was taken. */
-  | 'moved';
+  /** The waiting reading was taken with the pool off band, and is replaced before it can be promoted or judged. */
+  | 'pending-off-band';
+
+/** Why a pass leaves an asset's readings as they are. */
+export type SkipReason =
+  /** The reading in force has time left and the waiting one is sound; nothing a reading would change. */
+  | 'unchanged'
+  /** The pool sits off band of its feed, or one of them has no price; the reading in force stands. */
+  | 'off-band'
+  /** As `off-band`, with no reading in force to stand: draws halt until the pool returns. */
+  | 'off-band-halting'
+  /** The feed has jumped past the guard's bound since the reading in force, which lasts for now. */
+  | 'feed-jump';
+
+/** The readings a pass withholds, as opposed to the one it finds nothing to change. */
+const WITHHELD: ReadonlySet<SkipReason> = new Set(['off-band', 'off-band-halting', 'feed-jump']);
 
 /** One asset's standing under the draw rule, after the pass. `Unknown` is a condition this build does not name. */
 export type ObservationSnapshot = {
@@ -244,31 +265,72 @@ export async function runKeeper(options: KeeperOptions): Promise<KeeperReport> {
  * Halts the next reading may clear. The rest are the feed's, the issuer's or the pool's to clear,
  * `Unreadable` among them: a feed or a pool that does not answer is not helped by a reading of it.
  */
-const CLEARED_BY_OBSERVING: ReadonlySet<DrawHalt | undefined> = new Set(['NoObservation', 'ObservationExpired', 'ObservationOffBand', 'FeedJump']);
+const CLEARED_BY_OBSERVING: ReadonlySet<DrawHalt | undefined> = new Set(['NoObservation', 'ObservationExpired', 'ObservationOffBand', 'PendingOffBand', 'FeedJump']);
 
 /** Halts that mean this keeper has not kept up. */
 const UNKEPT: ReadonlySet<DrawHalt | 'Unknown'> = new Set(['NoObservation', 'ObservationExpired']);
 
-function clip(priceE8: bigint): bigint {
-  return priceE8 > MAX_SAMPLE_PRICE ? MAX_SAMPLE_PRICE : priceE8;
+const BPS = 10_000n;
+
+/** How far `x` sits from `ref`, in basis points of `ref` rounded up, as the guard measures it. `ref` is never zero here. */
+export function deviationBps(x: bigint, ref: bigint): bigint {
+  const diff = x > ref ? x - ref : ref - x;
+  return (diff * BPS + ref - 1n) / ref;
+}
+
+/** Whether a pool mid sits inside the band of a feed answer, as the guard judges a reading. No price on either side agrees with nothing. */
+export function inBand(poolE8: bigint, feedE8: bigint, bandBps: bigint): boolean {
+  return poolE8 !== 0n && feedE8 !== 0n && deviationBps(poolE8, feedE8) <= bandBps;
+}
+
+function e8(price: bigint): string {
+  return (Number(price) / 1e8).toFixed(2);
 }
 
 /**
  * What one asset needs this pass: a reading, a wait, or nothing.
  *
- * A reading the guard would refuse as too young is a wait, whatever else is true, because the call
- * would revert. After that, anything a reading would change is worth its gas: a guard with no
- * reading at all, no reading in force, one about to run out, a draw halted on the reading in force,
- * or a pool or feed that has moved since the waiting reading was taken. A pool and a feed sitting
- * where the last reading left them, with the reading in force good for two more waits, is the
- * weekend, and observing it would record the same figures under a newer stamp.
+ * Two readings are withheld before anything else is weighed. One taken while the pool sits off band
+ * of its feed, or while either has no price, is a reading the guard holds against the lane: once
+ * promoted it halts every draw for a cycle after the pool has recovered, which is what a push held
+ * across one pass used to buy. So the pool has to agree with the feed before a reading is taken,
+ * and the one in force stands meanwhile. When none is in force, or the one in force cannot last to
+ * the next promotion, the lane halts for want of a reading instead, the halt the guard would raise
+ * on the off-band reading itself. The other is a feed that has jumped past the guard's bound since
+ * the reading in force: a gap or a mis-scaled round, and recording it would seat the jumped answer
+ * as the one draws are judged against. It is left out while the reading in force lasts; once that
+ * has run out the next reading is taken whatever the feed says, so the lane settles on two readings
+ * that agree.
+ *
+ * A waiting reading the pool was pushed across is replaced at once, young or not: young, the guard
+ * overwrites it in place; old enough, it is promoted, and the sooner that happens the sooner the
+ * in-band reading taken now takes its place. A reading the guard would otherwise refuse as too young
+ * is a wait, because the call would reset the waiting reading's clock. After that, only what a
+ * reading would change is worth its gas: a guard with no reading at all, no reading in force or one
+ * about to run out, or a draw halted on the reading in force where the one waiting may clear it. A
+ * pool or a feed that has moved since the waiting reading was taken is not a reason: the guard
+ * judges each sample by the pool and the feed stored in it, so a reading taken in band stays in
+ * band, and refreshing it on every move cost a reading a pass per asset in a live market, which is
+ * what emptied the keeper's float. With a reading in force good for two more waits, the pass sends
+ * nothing.
  */
 export function observeDecision(
   o: Observation,
   rule: ObservationRule,
   now: bigint,
-): { readonly action: 'observe'; readonly reason: ObserveReason } | { readonly action: 'wait'; readonly until: bigint } | { readonly action: 'skip' } {
+):
+  | { readonly action: 'observe'; readonly reason: ObserveReason }
+  | { readonly action: 'wait'; readonly until: bigint }
+  | { readonly action: 'skip'; readonly reason: SkipReason } {
+  if (!inBand(o.poolE8, o.feedE8, o.bandBps)) {
+    const stranded = o.aged.at === 0n || now - o.aged.at > rule.maxAge - rule.minAge;
+    return { action: 'skip', reason: stranded ? 'off-band-halting' : 'off-band' };
+  }
+  if (o.aged.at !== 0n && o.aged.feedE8 !== 0n && now - o.aged.at <= rule.maxAge && deviationBps(o.feedE8, o.aged.feedE8) > rule.maxFeedJumpBps) {
+    return { action: 'skip', reason: 'feed-jump' };
+  }
   if (o.pending.at === 0n) return { action: 'observe', reason: 'first-reading' };
+  if (!inBand(o.pending.poolE8, o.pending.feedE8, o.bandBps)) return { action: 'observe', reason: 'pending-off-band' };
 
   const pendingAge = now - o.pending.at;
   if (pendingAge < rule.minAge) return { action: 'wait', until: o.pending.at + rule.minAge };
@@ -278,9 +340,28 @@ export function observeDecision(
   // reading promoted now would itself be due.
   if (now - o.aged.at + 2n * rule.minAge > rule.maxAge) return { action: 'observe', reason: 'promote' };
   if (CLEARED_BY_OBSERVING.has(o.halt)) return { action: 'observe', reason: 'halted' };
-  if (clip(o.poolE8) !== o.pending.poolE8 || clip(o.feedE8) !== o.pending.feedE8) return { action: 'observe', reason: 'moved' };
 
-  return { action: 'skip' };
+  return { action: 'skip', reason: 'unchanged' };
+}
+
+/** What a withheld or unneeded reading is waiting on, for the report. */
+function skipDetail(reason: SkipReason, o: Observation, rule: ObservationRule): string {
+  switch (reason) {
+    case 'unchanged':
+      return 'the reading in force has time left and the waiting one was taken in band; a reading now would change nothing a draw sees';
+    case 'off-band':
+      return `${offBand(o)}; recording it would carry the pushed price into the reading in force, so the one in force stands until the pool returns`;
+    case 'off-band-halting':
+      return `${offBand(o)}; no reading in force can carry the lane across, so draws halt until the pool returns and two readings agree`;
+    case 'feed-jump':
+      return `the feed (${e8(o.feedE8)}) has moved ${deviationBps(o.feedE8, o.aged.feedE8)} bps from the reading in force (${e8(o.aged.feedE8)}), past the guard's ${rule.maxFeedJumpBps} bps; a jumped round is not recorded while that reading lasts`;
+  }
+}
+
+function offBand(o: Observation): string {
+  if (o.feedE8 === 0n) return 'the feed has no answer';
+  if (o.poolE8 === 0n) return 'the pool has no price';
+  return `the pool's mid (${e8(o.poolE8)}) sits ${deviationBps(o.poolE8, o.feedE8)} bps from the feed (${e8(o.feedE8)}), outside the asset's ${o.bandBps} bps band`;
 }
 
 async function observeAssets(
@@ -303,7 +384,7 @@ async function observeAssets(
 
     const decision = observeDecision(o, rule, now);
     if (decision.action === 'skip') {
-      actions.push({ kind: 'observe', asset, outcome: 'skipped', reason: 'unchanged', detail: 'the pool and the feed sit where the waiting reading left them, and the reading in force has time left' });
+      actions.push({ kind: 'observe', asset, outcome: 'skipped', reason: decision.reason, detail: skipDetail(decision.reason, o, rule) });
       continue;
     }
     if (decision.action === 'wait') {
@@ -345,18 +426,20 @@ async function observeAssets(
   const halted = snapshots.filter((s) => s.halt !== 'None').map((s) => ({ asset: s.asset, halt: s.halt }));
   const unkept = halted.filter((h) => UNKEPT.has(h.halt));
   const sent = actions.filter((a) => a.kind === 'observe' && a.outcome === 'sent').length;
+  const withheld = actions.filter((a) => a.kind === 'observe' && a.outcome === 'skipped' && WITHHELD.has(a.reason as SkipReason)).length;
+  const standing =
+    unkept.length > 0
+      ? `Draws against ${unkept.length} of ${assets.length} assets are halted for want of a reading in force${sent > 0 ? `; ${sent} reading${sent === 1 ? '' : 's'} sent this pass, in force after the guard's minimum age` : ''}`
+      : halted.length > 0
+        ? `Readings are in force for every asset; draws against ${halted.length} of ${assets.length} are halted on the feed, the issuer or the pool`
+        : `Readings are in force for every asset and draws count all ${assets.length}`;
   return {
     actions,
     snapshots,
     health: {
       observed: unkept.length === 0,
       halted,
-      summary:
-        unkept.length > 0
-          ? `Draws against ${unkept.length} of ${assets.length} assets are halted for want of a reading in force${sent > 0 ? `; ${sent} reading${sent === 1 ? '' : 's'} sent this pass, in force after the guard's minimum age` : ''}.`
-          : halted.length > 0
-            ? `Readings are in force for every asset; draws against ${halted.length} of ${assets.length} are halted on the feed, the issuer or the pool.`
-            : `Readings are in force for every asset and draws count all ${assets.length}.`,
+      summary: `${standing}${withheld > 0 ? `; ${withheld} reading${withheld === 1 ? '' : 's'} withheld while the pool sits off band or the feed has jumped` : ''}.`,
     },
   };
 }
@@ -470,13 +553,22 @@ export function createKeeperChain(options: ViemKeeperOptions): KeeperChain {
     return hash;
   };
 
-  // The guard is immutable on the vault, so one read serves the pass.
+  // The guard is immutable on the vault, and the registry on the guard, so one read of each serves
+  // the pass.
   let guard: Promise<Address> | undefined;
   const guardAddress = (): Promise<Address> =>
     (guard ??= publicClient.readContract({ address: vault, abi: collateralVaultAbi, functionName: 'guard' }).catch((error: unknown) => {
       guard = undefined;
       throw error;
     }));
+  let registry: Promise<Address> | undefined;
+  const registryAddress = (): Promise<Address> =>
+    (registry ??= guardAddress()
+      .then((address) => publicClient.readContract({ address, abi: priceGuardAbi, functionName: 'registry' }))
+      .catch((error: unknown) => {
+        registry = undefined;
+        throw error;
+      }));
 
   return {
     async lines(fromBlock) {
@@ -532,26 +624,28 @@ export function createKeeperChain(options: ViemKeeperOptions): KeeperChain {
     async observationRule() {
       const address = await guardAddress();
       try {
-        const [minAge, maxAge] = await Promise.all([
+        const [minAge, maxAge, maxFeedJumpBps] = await Promise.all([
           publicClient.readContract({ address, abi: priceGuardAbi, functionName: 'MIN_OBSERVATION_AGE' }),
           publicClient.readContract({ address, abi: priceGuardAbi, functionName: 'MAX_OBSERVATION_AGE' }),
+          publicClient.readContract({ address, abi: priceGuardAbi, functionName: 'MAX_FEED_JUMP_BPS' }),
         ]);
-        return { minAge, maxAge };
+        return { minAge, maxAge, maxFeedJumpBps };
       } catch (error) {
         if (noSuchFunction(error)) return null;
         throw error;
       }
     },
     async observation(asset) {
-      const address = await guardAddress();
-      const [aged, pending, poolE8, valuation, halt] = await Promise.all([
+      const [address, registryAt] = await Promise.all([guardAddress(), registryAddress()]);
+      const [aged, pending, poolE8, valuation, halt, terms] = await Promise.all([
         publicClient.readContract({ address, abi: priceGuardAbi, functionName: 'aged', args: [asset] }),
         publicClient.readContract({ address, abi: priceGuardAbi, functionName: 'pending', args: [asset] }),
         publicClient.readContract({ address, abi: priceGuardAbi, functionName: 'poolPriceE8', args: [asset] }),
         publicClient.readContract({ address, abi: priceGuardAbi, functionName: 'valuation', args: [asset] }),
         publicClient.readContract({ address: vault, abi: collateralVaultAbi, functionName: 'drawHalt', args: [asset] }),
+        publicClient.readContract({ address: registryAt, abi: assetRegistryAbi, functionName: 'get', args: [asset] }),
       ]);
-      return { aged: toSample(aged), pending: toSample(pending), poolE8, feedE8: valuation[0], halt: drawHaltOf(halt) };
+      return { aged: toSample(aged), pending: toSample(pending), poolE8, feedE8: valuation[0], halt: drawHaltOf(halt), bandBps: BigInt(terms.bandBps) };
     },
     async simulateObserve(asset) {
       await publicClient.simulateContract({ address: await guardAddress(), abi: priceGuardAbi, functionName: 'observe', args: [asset], account: caller });
