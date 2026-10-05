@@ -601,8 +601,9 @@ contract RecordTest is ScriptHarness {
 
         // The sixth record is planned on the fifth: the lane rebuilt a second time, everything
         // else carried over at its address under the same governance. Until its scripts run it
-        // names no guard, router, treasury adapter, pool, vault or collateral example, and holds
-        // no readback. Once it is live the fifth is superseded or retired, and the lane is new.
+        // names no guard, router, treasury adapter, pool, vault or collateral example; while its
+        // wiring waits on the timelock it names the five it deployed; and it holds no readback
+        // until it is live. Once it is live the fifth is superseded or retired, and the lane is new.
         bytes32 sixth = keccak256(bytes(vm.parseJsonString(v6, K.STATUS)));
         assertEq(vm.parseJsonString(v6, K.SUPERSEDES), "rhc-mainnet-v5");
         assertEq(vm.parseJsonAddress(v6, K.DEPLOYER), vm.parseJsonAddress(v5, K.DEPLOYER));
@@ -622,8 +623,17 @@ contract RecordTest is ScriptHarness {
         assertEq(vm.parseJsonAddress(v6, ".rwa.guardKeeper"), vm.parseJsonAddress(v5, ".rwa.guardKeeper"));
         if (sixth == keccak256("planned")) {
             assertEq(vm.parseJsonString(v5, K.STATUS), "live");
-            for (uint256 i; i < lane.length; ++i) {
-                assertFalse(vm.keyExistsJson(v6, lane[i]), lane[i]);
+            // Planned, the record names no lane. Deployed and waiting for its wiring batch to
+            // land on the 48-hour timelock, it names the new guard, pool and vault, none of them
+            // the fifth's, and the collateral example comes with the move. No readback either way.
+            if (!vm.keyExistsJson(v6, K.PRICE_GUARD)) {
+                for (uint256 i; i < lane.length; ++i) {
+                    assertFalse(vm.keyExistsJson(v6, lane[i]), lane[i]);
+                }
+            } else {
+                assertNotEq(vm.parseJsonAddress(v6, K.PRICE_GUARD), vm.parseJsonAddress(v5, K.PRICE_GUARD));
+                assertNotEq(vm.parseJsonAddress(v6, K.CREDIT_POOL), vm.parseJsonAddress(v5, K.CREDIT_POOL));
+                assertNotEq(vm.parseJsonAddress(v6, K.COLLATERAL_VAULT), vm.parseJsonAddress(v5, K.COLLATERAL_VAULT));
             }
             assertEq(vm.parseJsonKeys(v6, ".verifiedOnChain").length, 0);
         } else {
