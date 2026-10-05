@@ -431,8 +431,14 @@ contract RecordTest is ScriptHarness {
     /// The records in `deployments/`: every one on Robinhood Chain, none a rehearsal, each with a
     /// status, and the history between them written in both directions where it is complete.
     function test_record_committedRecordsSitOn4663AndNameWhatEachReplaced() public view {
-        string[6] memory names = [
-            "rhc-mainnet", "rhc-mainnet-token", "rhc-mainnet-v2", "rhc-mainnet-v3", "rhc-mainnet-v4", "rhc-mainnet-v5"
+        string[7] memory names = [
+            "rhc-mainnet",
+            "rhc-mainnet-token",
+            "rhc-mainnet-v2",
+            "rhc-mainnet-v3",
+            "rhc-mainnet-v4",
+            "rhc-mainnet-v5",
+            "rhc-mainnet-v6"
         ];
         for (uint256 i; i < names.length; ++i) {
             string memory json = vm.readFile(string.concat("deployments/", names[i], ".json"));
@@ -453,6 +459,7 @@ contract RecordTest is ScriptHarness {
         string memory v3 = vm.readFile("deployments/rhc-mainnet-v3.json");
         string memory v4 = vm.readFile("deployments/rhc-mainnet-v4.json");
         string memory v5 = vm.readFile("deployments/rhc-mainnet-v5.json");
+        string memory v6 = vm.readFile("deployments/rhc-mainnet-v6.json");
 
         // The fourth set answers for the chain. The records it and the third set replaced stay
         // readable for what they still hold until the last migration step retires each.
@@ -591,5 +598,45 @@ contract RecordTest is ScriptHarness {
         assertNotEq(vm.parseJsonAddress(v5, K.CREDIT_POOL), vm.parseJsonAddress(v4, K.CREDIT_POOL));
         assertNotEq(vm.parseJsonAddress(v5, K.COLLATERAL_VAULT), vm.parseJsonAddress(v4, K.COLLATERAL_VAULT));
         assertEq(vm.parseJsonAddress(v5, ".rwa.guardKeeper"), 0x4c55AE3Fd264d9932A673B7CfBF80fCB112679BD);
+
+        // The sixth record is planned on the fifth: the lane rebuilt a second time, everything
+        // else carried over at its address under the same governance. Until its scripts run it
+        // names no guard, router, treasury adapter, pool, vault or collateral example, and holds
+        // no readback. Once it is live the fifth is superseded or retired, and the lane is new.
+        bytes32 sixth = keccak256(bytes(vm.parseJsonString(v6, K.STATUS)));
+        assertEq(vm.parseJsonString(v6, K.SUPERSEDES), "rhc-mainnet-v5");
+        assertEq(vm.parseJsonAddress(v6, K.DEPLOYER), vm.parseJsonAddress(v5, K.DEPLOYER));
+        assertEq(vm.parseJson(v6, ".contracts"), vm.parseJson(v5, ".contracts"));
+        assertEq(vm.parseJson(v6, ".roles"), vm.parseJson(v5, ".roles"));
+        assertEq(vm.parseJson(v6, ".governance48"), vm.parseJson(v5, ".governance48"));
+        assertEq(vm.parseJson(v6, ".parameters.AdminTimelock"), vm.parseJson(v5, ".parameters.AdminTimelock"));
+        assertFalse(vm.parseJsonBool(v6, ".dev"));
+        for (uint256 i; i < sections.length; ++i) {
+            assertEq(vm.parseJson(v6, sections[i]), vm.parseJson(v5, sections[i]), sections[i]);
+        }
+        assertEq(vm.parseJsonAddress(v6, K.ASSET_REGISTRY), vm.parseJsonAddress(v5, K.ASSET_REGISTRY));
+        assertEq(vm.parseJsonAddress(v6, K.TREASURY_PARK), vm.parseJsonAddress(v5, K.TREASURY_PARK));
+        assertEq(vm.parseJsonAddress(v6, K.USDG_ADAPTER), vm.parseJsonAddress(v5, K.USDG_ADAPTER));
+        assertEq(vm.parseJsonUint(v6, K.RWA_FROM_BLOCK), vm.parseJsonUint(v5, K.RWA_FROM_BLOCK));
+        assertEq(vm.parseJsonUint(v6, K.FROM_BLOCK), vm.parseJsonUint(v5, K.FROM_BLOCK));
+        assertEq(vm.parseJsonAddress(v6, ".rwa.guardKeeper"), vm.parseJsonAddress(v5, ".rwa.guardKeeper"));
+        if (sixth == keccak256("planned")) {
+            assertEq(vm.parseJsonString(v5, K.STATUS), "live");
+            for (uint256 i; i < lane.length; ++i) {
+                assertFalse(vm.keyExistsJson(v6, lane[i]), lane[i]);
+            }
+            assertEq(vm.parseJsonKeys(v6, ".verifiedOnChain").length, 0);
+        } else {
+            assertEq(sixth, keccak256("live"));
+            bytes32 fifth = keccak256(bytes(vm.parseJsonString(v5, K.STATUS)));
+            assertTrue(fifth == keccak256("superseded") || fifth == keccak256("retired"), "the fifth record");
+            assertEq(vm.parseJsonString(v5, K.SUPERSEDED_BY), "rhc-mainnet-v6");
+            for (uint256 i; i < lane.length; ++i) {
+                assertTrue(vm.keyExistsJson(v6, lane[i]), lane[i]);
+            }
+            assertNotEq(vm.parseJsonAddress(v6, K.PRICE_GUARD), vm.parseJsonAddress(v5, K.PRICE_GUARD));
+            assertNotEq(vm.parseJsonAddress(v6, K.CREDIT_POOL), vm.parseJsonAddress(v5, K.CREDIT_POOL));
+            assertNotEq(vm.parseJsonAddress(v6, K.COLLATERAL_VAULT), vm.parseJsonAddress(v5, K.COLLATERAL_VAULT));
+        }
     }
 }

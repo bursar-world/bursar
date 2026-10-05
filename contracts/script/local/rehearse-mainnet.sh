@@ -1,27 +1,34 @@
 #!/usr/bin/env bash
-# Rehearses the move to the fifth contract set on a copy of Robinhood Chain. anvil forks mainnet as
-# it stands, and every step in script/MIGRATION-V5.md runs in the runbook's order with the same
-# scripts and arguments. Each key signs as itself through anvil's impersonation, so no key from this
-# machine is read, and the delays the runbook waits out are skipped with anvil's clock.
+# Rehearses a collateral-lane move (one record to the next) on a copy of Robinhood Chain. anvil
+# forks mainnet as it stands, and every step of the runbook for the pair runs in the runbook's
+# order with the same scripts and arguments. Each key signs as itself through anvil's
+# impersonation, so no key from this machine is read, and the delays the runbook waits out are
+# skipped with anvil's clock.
 #
 #   script/local/rehearse-mainnet.sh                            # from contracts/
+#   BURSAR_REHEARSE_PREVIOUS=rhc-mainnet-v5 BURSAR_REHEARSE_NEXT=rhc-mainnet-v6 script/local/rehearse-mainnet.sh
 #   BURSAR_HANDOVER_LANDED=1 script/local/rehearse-mainnet.sh
 #
-# The fifth record is written for the fourth set as it reads once its governance handover has
-# landed, and the move runs either side of that. Without BURSAR_HANDOVER_LANDED the fork is the chain
-# as it stands: the handover offered, its acceptances approved and waiting, so the carried contracts
-# still answer to the one-hour timelock with the 48-hour one pending. The wiring then lands on the
-# one-hour timelock from its signers, and the checks owe the acceptances and nothing else. With
-# BURSAR_HANDOVER_LANDED set, the rehearsal lands the handover on the fork first: it skips to when
-# the acceptances are due, executes them as the first hardware signer, finishes the fourth record,
-# and the wiring goes to the 48-hour timelock from its hardware signers; the checks run strict.
-# Both modes run deployments/rhc-mainnet-v5.json as committed.
+# The pair is the record being replaced and the planned record that supersedes it, by name. Unset,
+# it is the latest pair: the one record under deployments/ that is planned and the record it names
+# in `supersedes`. The planned record's env file, script/env/<next>.env, is sourced for the
+# figures, and its runbook is script/MIGRATION-<Vn>.md.
+#
+# Governance on the fork is read off the chain. When the carried contracts already answer to the
+# 48-hour timelock the previous record names in `governance48`, the handover has landed on the
+# chain itself: the wiring goes to that timelock from its signers, and the checks run strict. When
+# they still answer to the earlier timelock with the 48-hour one pending, the move runs either
+# side of the handover: without BURSAR_HANDOVER_LANDED the wiring lands on the earlier timelock
+# from its signers and the checks owe the acceptances and nothing else; with it set, the rehearsal
+# lands the handover on the fork first (skips to when the acceptances are due, executes them as
+# the first signer of the 48-hour timelock, finishes the previous record) and then runs the move
+# as it reads once landed, strict. The records run as committed.
 #
 # RHC_RPC_URL is the chain it forks, the public endpoint unless set, and BURSAR_ANVIL_PORT the
-# port, 8549 unless set. The records it writes are copies under cache/bursar/fork, or
-# cache/bursar/fork-landed in the other mode, and it builds, logs its transactions and keeps forge's
-# --resume data there too: nothing in deployments/, out/, broadcast/ or cache/ outside cache/bursar
-# changes, so a real run's logs are never overwritten.
+# port, 8549 unless set. The records it writes are copies under cache/bursar/fork-<next>, or
+# cache/bursar/fork-<next>-landed when it lands the handover itself, and it builds, logs its
+# transactions and keeps forge's --resume data there too: nothing in deployments/, out/,
+# broadcast/ or cache/ outside cache/bursar changes, so a real run's logs are never overwritten.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -60,16 +67,44 @@ forked_at="$(cast block-number --rpc-url "$rpc")"
 # blob fields, and anvil wants them for the block a call runs on. One block of its own first.
 cast rpc evm_mine --rpc-url "$rpc" >/dev/null
 
-# shellcheck source=../env/rhc-mainnet-v5.env
-source script/env/rhc-mainnet-v5.env
-dir="cache/bursar/fork${BURSAR_HANDOVER_LANDED:+-landed}"
+# The pair: named, or the one planned record and what it supersedes.
+next_name="${BURSAR_REHEARSE_NEXT:-}"
+if [ -z "$next_name" ]; then
+  planned="$(for f in deployments/rhc-mainnet*.json; do jq -r 'select(.status == "planned") | .network' "$f"; done)"
+  if [ "$(wc -w <<<"$planned")" -ne 1 ]; then
+    echo "deployments/ holds $(wc -w <<<"$planned") planned records; name the pair with BURSAR_REHEARSE_PREVIOUS and BURSAR_REHEARSE_NEXT" >&2
+    exit 1
+  fi
+  next_name="$planned"
+fi
+previous_name="${BURSAR_REHEARSE_PREVIOUS:-$(jq -r .supersedes "deployments/$next_name.json")}"
+if [ "$(jq -r .supersedes "deployments/$next_name.json")" != "$previous_name" ]; then
+  echo "$next_name supersedes $(jq -r .supersedes "deployments/$next_name.json"), not $previous_name" >&2
+  exit 1
+fi
+if [ "$(jq -r .status "deployments/$next_name.json")" != "planned" ]; then
+  echo "$next_name is $(jq -r .status "deployments/$next_name.json"), and a move can only be rehearsed into a planned record" >&2
+  exit 1
+fi
+# rhc-mainnet-v6 -> V6 -> script/MIGRATION-V6.md
+runbook="MIGRATION-$(sed 's/.*-v\([0-9]*\)$/V\1/' <<<"$next_name").md"
+[ -f "script/$runbook" ] || { echo "script/$runbook is missing" >&2; exit 1; }
+echo "rehearsing $previous_name -> $next_name, the steps of script/$runbook"
+
+# shellcheck source=/dev/null
+source "script/env/$next_name.env"
+if [ "$BURSAR_RECORD" != "deployments/$next_name.json" ]; then
+  echo "script/env/$next_name.env names $BURSAR_RECORD, not deployments/$next_name.json" >&2
+  exit 1
+fi
+dir="cache/bursar/fork-$next_name${BURSAR_HANDOVER_LANDED:+-landed}"
 rm -rf "$dir/broadcast"
 mkdir -p "$dir"
-for record in rhc-mainnet-v4 rhc-mainnet-v5; do
+for record in "$previous_name" "$next_name"; do
   cp "deployments/$record.json" "$dir/$record.json"
 done
-previous="$dir/rhc-mainnet-v4.json"
-next="$dir/rhc-mainnet-v5.json"
+previous="$dir/$previous_name.json"
+next="$dir/$next_name.json"
 export BURSAR_ALLOW_EOA_GOVERNANCE=i-accept-eoa-governance
 # The fork reports chain 4663, so without these its logs and --resume data would land where a real
 # mainnet run keeps its own.
@@ -117,11 +152,12 @@ gas_for() {
   done
 }
 
-# The whole check. Strict once the handover has landed: nothing owed. Before that the chain owes
-# the acceptances, which the check lists, one per carried contract; nothing may be mismatched and
-# nothing else may be owed.
+# The whole check. Strict once the handover has landed, on the chain or on the fork: nothing owed.
+# Before that the chain owes the acceptances, which the check lists, one per carried contract;
+# nothing may be mismatched and nothing else may be owed.
+strict=""
 check_all() {
-  if [ -n "${BURSAR_HANDOVER_LANDED:-}" ]; then
+  if [ -n "$strict" ]; then
     BURSAR_VERIFY_STRICT=1 check script/Verify.s.sol
     return
   fi
@@ -153,12 +189,24 @@ observe() {
 
 step "0. Governance"
 deployer="$(jq -r .deployer "$previous")"
-if [ -n "${BURSAR_HANDOVER_LANDED:-}" ]; then
+# Which timelock the carried contracts answer to today, read off the staking pool, against the
+# 48-hour timelock the previous record names once its handover has landed.
+governs_now="$(cast call "$(jq -r .token.Staking "$previous")" "admin()(address)" --rpc-url "$rpc")"
+incoming="$(jq -r '.governance48.AdminTimelock // empty' "$previous")"
+if [ -n "$incoming" ] && [ "$(tr '[:upper:]' '[:lower:]' <<<"$governs_now")" = "$(tr '[:upper:]' '[:lower:]' <<<"$incoming")" ]; then
+  strict=1
+  landed="on the chain"
+  if [ "$(jq -r .contracts.AdminTimelock "$previous")" != "$incoming" ] || [ "$(jq -r .contracts.AdminTimelock "$next")" != "$incoming" ]; then
+    echo "the chain's governance is the 48-hour timelock $incoming, and the records do not both name it in contracts.AdminTimelock" >&2
+    exit 1
+  fi
+  echo "the handover has landed on the chain: the 48-hour timelock administers the carried contracts, and the wiring goes to it"
+elif [ -n "${BURSAR_HANDOVER_LANDED:-}" ]; then
+  [ -n "$incoming" ] || { echo "$previous_name names no governance48 timelock to land" >&2; exit 1; }
   # The 48-hour timelock's acceptances are approved and wait out its delay; the fork skips to
-  # when they are due, lands them as GOVERNANCE-48H.md does, and the fourth record follows.
+  # when they are due, lands them as GOVERNANCE-48H.md does, and the previous record follows.
   export BURSAR_RECORD="$previous"
   hw_1="$(jq -r '.governance48.signers[0]' "$previous")"
-  incoming="$(jq -r .governance48.AdminTimelock "$previous")"
   gas_for "$hw_1" "$deployer"
   # The acceptances went up one block apart, so the last one is due last.
   last="$(($(cast call "$incoming" "proposalCount()(uint256)" --rpc-url "$rpc" | cut -d' ' -f1) - 1))"
@@ -168,12 +216,15 @@ if [ -n "${BURSAR_HANDOVER_LANDED:-}" ]; then
   send script/AcceptGovernance.s.sol "$hw_1" --sig "execute()"
   send script/HandoverGovernance.s.sol "$deployer" --sig "finish()"
   if [ "$(jq -r .contracts.AdminTimelock "$previous")" != "$(jq -r .contracts.AdminTimelock "$next")" ]; then
-    echo "the finished fourth record and the fifth name different timelocks" >&2
+    echo "the finished previous record and the next name different timelocks" >&2
     exit 1
   fi
+  strict=1
+  landed="first on the fork"
   echo "the handover has landed on the fork: the wiring goes to the 48-hour timelock"
 else
-  echo "the handover has not landed: the carried contracts still answer to the one-hour timelock, with the 48-hour one pending"
+  landed="not landed"
+  echo "the handover has not landed: the carried contracts still answer to the earlier timelock, with the 48-hour one pending"
 fi
 export BURSAR_RECORD="$next"
 export BURSAR_PREVIOUS_RECORD="$previous"
@@ -230,7 +281,7 @@ check_all
 
 # What each key spent, from the receipts forge logged, and the keeper's from cast's: the figures the
 # runbook's balances rest on. With the handover landed on the fork, the first signer's figure
-# includes the thirteen acceptances it executed in step 0.
+# includes the acceptances it executed in step 0.
 step "Gas each key used"
 names=(deployer signer-1 signer-2 payer)
 keys=("$deployer" "$signer_1" "$signer_2" "$payer")
@@ -247,12 +298,12 @@ for record in "$BURSAR_PREVIOUS_RECORD" "$BURSAR_RECORD"; do
   printf '%-40s %s\n' "$record" "$(jq -r '.status + (if .supersededBy then " -> " + .supersededBy else "" end)' "$record")"
 done
 current="done"
-if [ -n "${BURSAR_HANDOVER_LANDED:-}" ]; then
-  mode="landed first on the fork, the wiring on the 48-hour timelock"
+if [ -n "$strict" ]; then
+  mode="$landed, the wiring on the 48-hour timelock"
   outcome="the strict check found 0 mismatched and 0 owed"
 else
-  mode="not landed, the wiring on the one-hour timelock"
+  mode="not landed, the wiring on the earlier timelock"
   outcome="the check found 0 mismatched and owed only the handover's acceptances"
 fi
-printf '\nMainnet rehearsal passed: every step of MIGRATION-V5.md ran on a fork of block %s with the handover %s, %s, the previous record is %s and the new record is %s.\n' \
-  "$forked_at" "$mode" "$outcome" "$(jq -r .status "$BURSAR_PREVIOUS_RECORD")" "$(jq -r .status "$BURSAR_RECORD")"
+printf '\nMainnet rehearsal passed: every step of %s ran on a fork of block %s with the handover %s, %s, the previous record (%s) is %s and the new record (%s) is %s.\n' \
+  "$runbook" "$forked_at" "$mode" "$outcome" "$previous_name" "$(jq -r .status "$BURSAR_PREVIOUS_RECORD")" "$next_name" "$(jq -r .status "$BURSAR_RECORD")"
