@@ -8951,6 +8951,11 @@ export const priceGuardAbi = [
         "name": "admin_",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "guardian_",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "nonpayable"
@@ -9168,6 +9173,19 @@ export const priceGuardAbi = [
   },
   {
     "type": "function",
+    "name": "guardian",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "initKeeper",
     "inputs": [
       {
@@ -9313,6 +9331,19 @@ export const priceGuardAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "setGuardian",
+    "inputs": [
+      {
+        "name": "guardian_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -9505,6 +9536,19 @@ export const priceGuardAbi = [
       },
       {
         "name": "to",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "GuardianSet",
+    "inputs": [
+      {
+        "name": "guardian",
         "type": "address",
         "indexed": true,
         "internalType": "address"
@@ -12939,6 +12983,19 @@ export const creditPoolAbi = [
   },
   {
     "type": "function",
+    "name": "lossCovered",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "pendingAdmin",
     "inputs": [],
     "outputs": [
@@ -13269,6 +13326,11 @@ export const creditPoolAbi = [
         "name": "mandate",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "coveredAtFeed",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [
@@ -13516,6 +13578,31 @@ export const creditPoolAbi = [
         "type": "address",
         "indexed": true,
         "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "WriteOffCovered",
+    "inputs": [
+      {
+        "name": "mandate",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "covered",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "uncovered",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false
