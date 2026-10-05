@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { outflow, readState, writeState, type MonitorState } from '../../../contracts/script/monitor-state.mjs';
+import { outflow, readState, readingState, writeState, type MonitorState } from '../../../contracts/script/monitor-state.mjs';
 
 const USDG = (whole: number) => BigInt(whole) * 1_000_000n;
 const BRSR = (whole: number) => BigInt(whole) * 10n ** 18n;
@@ -23,13 +23,40 @@ describe('the monitor rule for an outflow between two runs', () => {
     expect(outflow(USDG(1_000), 0n, 6)).toBe(USDG(1_000));
   });
 
-  it('keeps a small balance quiet under 100 whole units, whatever the share', () => {
-    expect(outflow(USDG(10), USDG(1), 6)).toBeNull();
-    expect(outflow(USDG(300), USDG(200), 6)).toBeNull();
-    expect(outflow(USDG(300), USDG(199), 6)).toBe(USDG(101));
-    // The floor is in the asset's own units, so BRSR at 18 decimals is held to 100 BRSR.
-    expect(outflow(BRSR(150), BRSR(60), 18)).toBeNull();
-    expect(outflow(BRSR(150), BRSR(40), 18)).toBe(BRSR(110));
+  it('keeps dust quiet under one whole unit, whatever the share', () => {
+    expect(outflow(1_000_000n, 1n, 6)).toBeNull();
+    expect(outflow(3_000_000n, 2_000_000n, 6)).toBeNull();
+    expect(outflow(3_000_000n, 1_999_999n, 6)).toBe(1_000_001n);
+    // The floor is in the asset's own units, so BRSR at 18 decimals is held to 1 BRSR.
+    expect(outflow(BRSR(3), BRSR(2), 18)).toBeNull();
+    expect(outflow(BRSR(3), BRSR(2) - 1n, 18)).toBe(BRSR(1) + 1n);
+  });
+
+  it('sees a small balance drained: the credit pool at 20 USDG halving alerts, a 2.5% dip does not', () => {
+    expect(outflow(USDG(20), USDG(10), 6)).toBe(USDG(10));
+    expect(outflow(USDG(20), 19_500_000n, 6)).toBeNull();
+  });
+});
+
+describe('the monitor rule for the price guard\'s readings', () => {
+  const MIN = 300n;
+  const MAX = 3600n;
+  const now = 1_800_000_000n;
+
+  it('alerts when nothing is in force: no aged sample, or one past the bound', () => {
+    expect(readingState(0n, 0n, now, MIN, MAX)).toEqual({ level: 'alert', agedAge: null, pendingAge: null });
+    expect(readingState(0n, now - 60n, now, MIN, MAX)).toEqual({ level: 'alert', agedAge: null, pendingAge: 60n });
+    expect(readingState(now - MAX - 1n, now - 60n, now, MIN, MAX)).toEqual({ level: 'alert', agedAge: MAX + 1n, pendingAge: 60n });
+  });
+
+  it('is ok while the aged sample is inside the bound, and at the bound itself', () => {
+    expect(readingState(now - 600n, now - 120n, now, MIN, MAX)).toEqual({ level: 'ok', agedAge: 600n, pendingAge: 120n });
+    expect(readingState(now - (MAX - 2n * MIN), now - 120n, now, MIN, MAX).level).toBe('ok');
+  });
+
+  it('warns once the keeper has missed a pass: older than the bound less two keeper intervals', () => {
+    expect(readingState(now - (MAX - 2n * MIN) - 1n, now - 120n, now, MIN, MAX)).toEqual({ level: 'warn', agedAge: MAX - 2n * MIN + 1n, pendingAge: 120n });
+    expect(readingState(now - MAX, now - 120n, now, MIN, MAX).level).toBe('warn');
   });
 });
 

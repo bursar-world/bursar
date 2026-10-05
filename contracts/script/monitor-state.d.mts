@@ -18,5 +18,12 @@ export type MonitorState = {
 };
 
 export function outflow(previous: bigint, current: bigint, decimals: number): bigint | null;
+export function readingState(
+  agedAt: bigint,
+  pendingAt: bigint,
+  now: bigint,
+  minAge: bigint,
+  maxAge: bigint,
+): { readonly level: 'ok' | 'warn' | 'alert'; readonly agedAge: bigint | null; readonly pendingAge: bigint | null };
 export function readState(path: string): MonitorState | null;
 export function writeState(path: string, state: MonitorState): void;

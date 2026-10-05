@@ -22,7 +22,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { OUTFLOW_ALERT_BPS, OUTFLOW_ALERT_FLOOR_UNITS, STATE_VERSION, outflow, readState, writeState } from './monitor-state.mjs';
+import { OUTFLOW_ALERT_BPS, OUTFLOW_ALERT_FLOOR_UNITS, STATE_VERSION, outflow, readState, readingState, writeState } from './monitor-state.mjs';
 
 // Two hourly runs overlap, so nothing that happened between runs is missed.
 const EVENT_LOOKBACK_SECONDS = 2 * 3600;
@@ -104,6 +104,12 @@ const vaultAbi = parseAbi([
   'function tierOf(address) view returns (uint8)',
   'function tiers() view returns ((uint16 sessionHaircutBps, uint16 afterHoursHaircutBps, uint32 sessionStaleness, uint32 valuationStaleness, string name)[])',
 ]);
+const priceGuardAbi = parseAbi([
+  'function aged(address) view returns (uint48 at, uint104 poolE8, uint104 feedE8)',
+  'function pending(address) view returns (uint48 at, uint104 poolE8, uint104 feedE8)',
+  'function MIN_OBSERVATION_AGE() view returns (uint256)',
+  'function MAX_OBSERVATION_AGE() view returns (uint256)',
+]);
 const creditPoolAbi = parseAbi([
   'function cash() view returns (uint256)',
   'function totalDebt() view returns (uint256)',
@@ -177,6 +183,7 @@ for (const [name, check] of Object.entries({
   'shielded pool': checkShieldedPool,
   'price feeds': checkFeeds,
   'credit pool': checkCreditPool,
+  'guard readings': checkReadings,
   holdings: checkHoldings,
   disputes: checkDisputes,
   buyback: checkBuyback,
@@ -327,6 +334,12 @@ async function checkBalances() {
   if (record.token.keeper && !(record.roles.resolvers ?? []).some((r) => same(r, record.token.keeper))) {
     await balance('buyback keeper', record.token.keeper, SERVICE_KEY_MIN_ETH, SERVICE_KEY_MIN_ETH / 2);
   }
+  // The price guard's keeper takes the reading every draw and every liquidation sale rests on. Read
+  // once when it is a key the lines above already covered.
+  const guardKeeper = record.rwa?.guardKeeper;
+  if (guardKeeper && ![...(record.roles.resolvers ?? []), record.token.keeper].some((r) => r && same(r, guardKeeper))) {
+    await balance('price guard keeper', guardKeeper, SERVICE_KEY_MIN_ETH, SERVICE_KEY_MIN_ETH / 2);
+  }
   for (const [i, signer] of record.roles.timelockSigners.entries()) {
     await balance(`signer ${i + 1}`, signer, GOVERNANCE_KEY_MIN_ETH, GOVERNANCE_KEY_MIN_ETH / 2);
   }
@@ -465,6 +478,51 @@ async function checkCreditPool() {
   else if (utilisation >= CREDIT_UTILISATION_WARN_BPS) report('warn', 'credit pool', `${figure}: draws refuse once debt reaches cash`);
   else if (cash < perMandateCap) report('warn', 'credit pool', `${figure}: less cash than one full line of ${usdg(perMandateCap)} USDG`);
   else report('ok', 'credit pool', figure);
+}
+
+// The price guard's reading of each collateral asset's pool. A draw, and a liquidation sale, count a
+// position only against the aged sample while it is between MIN_OBSERVATION_AGE and
+// MAX_OBSERVATION_AGE old, and only the keeper writes one, so a keeper that stopped shows here
+// before it shows as a halted draw. Assets the vault does not tier are not read: nothing draws on them.
+async function checkReadings() {
+  const rwa = record.rwa;
+  if (!rwa?.PriceGuard || !rwa.assets) {
+    report('skip', 'guard readings', 'the record names no price guard');
+    return;
+  }
+  const guard = { address: rwa.PriceGuard, abi: priceGuardAbi };
+  let minAge;
+  let maxAge;
+  try {
+    [minAge, maxAge] = await Promise.all([
+      client.readContract({ ...guard, functionName: 'MIN_OBSERVATION_AGE' }),
+      client.readContract({ ...guard, functionName: 'MAX_OBSERVATION_AGE' }),
+    ]);
+  } catch {
+    report('skip', 'guard readings', 'the price guard takes no readings: it was built before the draw rule');
+    return;
+  }
+  const vault = rwa.collateral?.CollateralVault;
+  for (const [symbol, asset] of Object.entries(rwa.assets)) {
+    const tier = vault ? await client.readContract({ address: vault, abi: vaultAbi, functionName: 'tierOf', args: [asset.address] }) : 1;
+    if (tier === 0) continue;
+    const [[agedAt], [pendingAt]] = await Promise.all([
+      client.readContract({ ...guard, functionName: 'aged', args: [asset.address] }),
+      client.readContract({ ...guard, functionName: 'pending', args: [asset.address] }),
+    ]);
+    const state = readingState(BigInt(agedAt), BigInt(pendingAt), BigInt(now), minAge, maxAge);
+    const pending = state.pendingAge === null ? 'no pending sample' : `pending sample ${duration(Number(state.pendingAge))} old`;
+    const halted = 'draws and liquidation sales are halted until the keeper observes; check the bursar-keeper cron and its gas';
+    if (state.level === 'alert' && state.agedAge === null) {
+      report('alert', `reading ${symbol}`, `no reading in force, ${pending}: ${halted}`);
+    } else if (state.level === 'alert') {
+      report('alert', `reading ${symbol}`, `the guard's reading expired ${duration(Number(state.agedAge - maxAge))} ago (${duration(Number(state.agedAge))} old against the ${duration(Number(maxAge))} bound), ${pending}: ${halted}`);
+    } else if (state.level === 'warn') {
+      report('warn', `reading ${symbol}`, `the reading in force is ${duration(Number(state.agedAge))} old and expires in ${duration(Number(maxAge - state.agedAge))}, ${pending}: the keeper has missed a pass; check the bursar-keeper cron and its gas`);
+    } else {
+      report('ok', `reading ${symbol}`, `reading in force ${duration(Number(state.agedAge))} old, ${pending}, bound ${duration(Number(maxAge))}`);
+    }
+  }
 }
 
 // The other contracts that hold funds, as their tokens see them. The credit pool's cash and the

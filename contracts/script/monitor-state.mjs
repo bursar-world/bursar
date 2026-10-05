@@ -6,10 +6,12 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node
 import { dirname } from 'node:path';
 
 // A fall between two runs alerts when it is over both of these: a quarter of the previous figure,
-// and 100 whole units of the asset (100 USDG, 100 BRSR, 100 shares). The share catches a drain of
-// a large balance; the floor keeps a small balance's ordinary movements quiet.
+// and one whole unit of the asset (1 USDG, 1 BRSR, 1 share). The share catches a drain of a large
+// balance, and a quarter of a small one is already a fall worth a look: the live set holds tens of
+// USDG per contract, which a higher floor would have let drain unseen. The floor only keeps dust
+// movements quiet.
 export const OUTFLOW_ALERT_BPS = 2_500n;
-export const OUTFLOW_ALERT_FLOOR_UNITS = 100n;
+export const OUTFLOW_ALERT_FLOOR_UNITS = 1n;
 
 export const STATE_VERSION = 1;
 
@@ -20,6 +22,23 @@ export function outflow(previous, current, decimals) {
   const share = (previous * OUTFLOW_ALERT_BPS) / 10_000n;
   const floor = OUTFLOW_ALERT_FLOOR_UNITS * 10n ** BigInt(decimals);
   return fall > (share > floor ? share : floor) ? fall : null;
+}
+
+/**
+ * How the price guard's readings for one asset stand. A draw, and a liquidation sale, count a
+ * position only against the aged sample while it is at most `maxAge` old, so with none in force
+ * both halt: that is the alert. The keeper promotes the pending sample once it is `minAge` old and
+ * keeps the aged one under `maxAge - 2 * minAge` when it runs on schedule, so an aged sample older
+ * than that means a pass was missed: that is the warning. Ages are in seconds; `agedAge` and
+ * `pendingAge` are null for a slot nothing was written to. Every argument is a bigint.
+ */
+export function readingState(agedAt, pendingAt, now, minAge, maxAge) {
+  const agedAge = agedAt === 0n ? null : now - agedAt;
+  const pendingAge = pendingAt === 0n ? null : now - pendingAt;
+  let level = 'ok';
+  if (agedAge === null || agedAge > maxAge) level = 'alert';
+  else if (agedAge > maxAge - 2n * minAge) level = 'warn';
+  return { level, agedAge, pendingAge };
 }
 
 /** The previous run's state, or null when there is none yet. A file that is there but not a state throws. */

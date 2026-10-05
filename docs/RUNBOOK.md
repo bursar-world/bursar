@@ -68,11 +68,12 @@ node contracts/script/monitor.mjs
 |---|---|
 | Timelock proposals: created in the last two hours, pending, executable, near expiry | A proposal is the only way any parameter changes. One nobody on the team made is an incident. |
 | Guardian pauses and executions in the last two hours, and the pause flag on every pausable contract | A pause stops new payments; a pause nobody knows about is an outage. |
-| Facilitator gas float, shielded relayer, postman, resolvers, signers and guardian: ETH balances | Each key pays gas in ETH. An empty key cannot settle, relay, post, vote or pause. |
+| Facilitator gas float, shielded relayer, postman, resolvers, the price guard's keeper, signers and guardian: ETH balances | Each key pays gas in ETH. An empty key cannot settle, relay, post, observe, vote or pause. |
 | Shielded pool fill against its 1,000 USDG cap, and whether a root has been posted since the last deposit | At the cap, deposits refuse, as does a deposit that would take one address past 250 USDG in seven days. Without a current root, no note can be withdrawn. |
 | Each price feed's age against the 26-hour trade bound and the 100-hour collateral bound | Past 26 hours trades refuse; past 100 hours collateral counts as zero and liquidation defers. |
 | Credit pool: cash, debt, utilisation, bad debt | Debt above cash means draws refuse; bad debt means a line was written off and the lender carries it. |
-| The balance of every contract that holds funds (escrow USDG, credit pool cash, shielded pool, buyback USDG, staking and timelock BRSR, each asset in the vault), against the previous run's | A balance that fell by more than a quarter and more than 100 units in an hour is an outflow to account for. |
+| The price guard's reading of each collateral asset's pool: the age of the sample in force against the one-hour bound | A draw and a liquidation sale both count a position only against a reading between five minutes and an hour old, and only the keeper writes one. No reading in force means the keeper has stopped, and every draw and sale on the lane halts with it. |
+| The balance of every contract that holds funds (escrow USDG, credit pool cash, shielded pool, buyback USDG, staking and timelock BRSR, each asset in the vault), against the previous run's | A balance that fell by more than a quarter and more than one unit in an hour is an outflow to account for. |
 | Open disputes on the escrow and their reveal window | A dispute nobody finalises leaves a payment frozen. |
 | Buyback price ceiling age, and solvency log age | A stale ceiling stops buybacks; a missed day on the solvency log means the poster is down. |
 
@@ -82,9 +83,10 @@ against, one in the OS temp directory by default; the workflow carries it from o
 next in the actions cache. A first run with no file reports `ok` and records the figures.
 
 The collateral keeper is a separate job, run every five minutes, that takes the price guard's
-reading of each asset's pool. A draw counts a position only against a reading between five minutes
-and an hour old, so if the keeper stops for an hour every draw halts until it runs again;
-repayments, and withdrawals from a line with no debt, go on. Its report, and how it is scheduled,
+reading of each asset's pool. A draw, and a liquidation sale, count a position only against a reading
+between five minutes and an hour old, so if the keeper stops for an hour every draw and every sale
+halts until it runs again; repayments, and withdrawals from a line with no debt, go on. The monitor
+reports the reading's age under `reading <asset>`, and the keeper's gas under `price guard keeper`. Its report, and how it is scheduled,
 are in [`services/facilitator/README.md`](../services/facilitator/README.md#the-collateral-keeper).
 
 ## Alerts and the first response
@@ -96,12 +98,14 @@ are in [`services/facilitator/README.md`](../services/facilitator/README.md#the-
 | Pause in effect | `paused()` true on any pausable contract | Find out who paused and why. Unpause by proposal once the cause is settled, below. |
 | Facilitator gas float low | Below `FACILITATOR_GAS_FLOAT_MINIMUM_ETH` (0.004 ETH by default) | Top up, below. Settlements on the wallet lane stop when it empties; verification and the mandate lane continue. |
 | Relayer low | Below 0.0005 ETH, the relayer's own health floor; warn below 0.002 ETH | Top up. Relayed withdrawals and gas drops stop when it empties; deposits and ragequits are unaffected. |
-| Postman, resolver or keeper low | Below 0.0001 ETH (the resolver service's own floor); signers and guardian below 0.0002 ETH | Top up. A guardian with no gas cannot pause. |
+| Postman, resolver or keeper low | Below 0.0001 ETH (the resolver service's own floor); signers and guardian below 0.0002 ETH | Top up. A guardian with no gas cannot pause, and a price guard keeper with none takes no reading, which halts the lane within the hour. |
 | Pool near cap | Above 80% of 1,000 USDG | Nothing to fix. Deposits refuse at the cap by design, and one address is held to 250 USDG in any seven days whatever the fill. |
 | Root behind deposits | A deposit after the last posted root for longer than the ten-minute posting cadence, or deposits with no root at all | Association-set root, below. |
 | Feed stale | Age over 26 hours inside the equities session (Monday 01:00 UTC to Saturday 00:00 UTC); over 100 hours at any time | Stale feed, below. Over 26 hours at a weekend is expected and reported `ok`. |
 | Credit pool | Utilisation over 90%, cash under one full line (10 USDG), or bad debt above zero | Liquidation, below. Bad debt is the lender's loss and never a staker's or a mandate's. |
-| Large outflow | A fund-holding balance fell by more than 25% of the previous run's figure and by more than 100 units (USDG, BRSR or shares) since that run | Find the transaction that moved it on the explorer. A withdrawal, release, buyback or liquidation the team knows about ends it. Anything else is an incident: pause what still holds funds with the guardian, below, and read the timelock's proposals. |
+| Reading expired | No aged sample on the price guard for a collateral asset, or one older than an hour | Every draw and liquidation sale on that asset halts until the keeper observes twice, five minutes apart. Check the `bursar-keeper` cron's last runs on Render and the keeper's gas; run a pass by hand with `BURSAR_KEEPER_EXECUTE=1` as [`services/facilitator/README.md`](../services/facilitator/README.md#the-collateral-keeper) shows. |
+| Reading near expiry | The aged sample is older than 50 minutes: the keeper has missed a pass | The same checks. Draws still count while the sample is under an hour old. |
+| Large outflow | A fund-holding balance fell by more than 25% of the previous run's figure and by more than one unit (USDG, BRSR or shares) since that run | Find the transaction that moved it on the explorer. A withdrawal, release, buyback or liquidation the team knows about ends it. Anything else is an incident: pause what still holds funds with the guardian, below, and read the timelock's proposals. |
 | Dispute window | Reveal window ends within 20 minutes with fewer than two reveals, or closed over an hour ago with the dispute still open | Resolver, below. |
 | Buyback ceiling stale | Now past `ceilingSetAt + maxCeilingAge` (seven days) | Restate it with `Buyback.setParams`, as [`MIGRATION.md`](../contracts/script/MIGRATION.md#5-the-handover-lands) shows. Buybacks refuse until it lands. |
 | Solvency log stale | Latest epoch older than two days, or none | Check the solvency service; `bursar-solvency post --dry-run` shows what it would post. |
