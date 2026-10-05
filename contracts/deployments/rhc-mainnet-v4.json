@@ -3,14 +3,14 @@
   "network": "rhc-mainnet-v4",
   "chainId": 4663,
   "status": "retired",
-  "dev": true,
+  "dev": false,
   "rpc": "https://rpc.mainnet.chain.robinhood.com",
   "explorer": "https://robinhoodchain.blockscout.com",
   "settlementAsset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
   "settlementDecimals": 6,
   "supersedes": "rhc-mainnet-v3",
   "deployer": "0x6B6fC40Ed9652728A9B620C4e1B05fBF4F9712a4",
-  "note": "Fourth contract set on Robinhood Chain mainnet, planned, with a one-hour timelock. The timelock, BRSR, Vesting, the staking pool, the buyback and the seeder carry over from rhc-mainnet-v3, and the Poseidon libraries with them; every other contract will be new, rebuilt after the external audit. Each deploy script writes its own section as it runs. The status turns live when the apps move to this set, and rhc-mainnet-v3 retires once nothing is open on it.",
+  "note": "Fourth contract set on Robinhood Chain mainnet, administered since 2026-10-05 08:20:06 UTC by a 48-hour AdminTimelock whose three signers are hardware keys. The timelock, BRSR, Vesting, the staking pool, the buyback and the seeder carried over from rhc-mainnet-v3, and the Poseidon libraries with them; every other contract was rebuilt after the external audit. The one-hour timelock at contracts.escrowPauser keeps the escrow's brake, pause and unpause, and nothing else.",
   "external": {
     "PoolManager": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
     "StateView": "0xF3334192D15450CdD385c8B70e03f9A6bD9E673b",
@@ -61,12 +61,13 @@
     ]
   },
   "contracts": {
-    "AdminTimelock": "0xD91A6577828424E386900D0bB41596c6eF3BF8DF",
+    "AdminTimelock": "0xffe874aA257C99414205ddf684903e30761E1832",
     "Reputation": "0x4FEa7af88C60988E80b065F6e2af071C7fB3F5E8",
     "Escrow": "0x11e73B5632837355e250fC236cFC2Be03aD0845A",
     "OracleRegistry": "0xbb628E362EceE9Ce16f2e48DD79f5ed4558596e3",
     "AgentRegistry": "0x6501ABAb6aF58549De0Dd42040240665591c6C2a",
-    "MandateAccountFactory": "0xC42dBCbd34E64e2D81B48866F673ddB7B42ba562"
+    "MandateAccountFactory": "0xC42dBCbd34E64e2D81B48866F673ddB7B42ba562",
+    "escrowPauser": "0xD91A6577828424E386900D0bB41596c6eF3BF8DF"
   },
   "token": {
     "BRSR": "0x00e503925880c4b07E5Fb70232D83aD871F57a7d",
@@ -82,7 +83,7 @@
   "fromBlock": 77686776,
   "parameters": {
     "AdminTimelock": {
-      "timelockPeriod": 3600
+      "timelockPeriod": 172800
     },
     "Escrow": {
       "feeBps": 100,
