@@ -82,7 +82,7 @@ contract RwaTest is Test {
         reg = new AssetRegistry(admin, address(usdg), assets, configs);
 
         guard = new PriceGuard(
-            reg, IAccessRegistry(address(access)), IStateView(address(v4)), 5 minutes, 1 hours, 1_500, admin
+            reg, IAccessRegistry(address(access)), IStateView(address(v4)), 5 minutes, 1 hours, 1_500, admin, address(0)
         );
         router = new StockSpendRouter(reg, guard, IPoolManager(address(v4)));
         accounts = new MockAccounts();

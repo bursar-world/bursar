@@ -62,6 +62,7 @@ contract CollateralTest is Test {
     address lender = makeAddr("lender");
     address merchant = makeAddr("merchant");
     address keeper = makeAddr("keeper");
+    address guardian = makeAddr("guardian");
     address staker = makeAddr("staker");
     address slashSink = makeAddr("slashSink");
     address treasury = makeAddr("treasury");
@@ -117,7 +118,14 @@ contract CollateralTest is Test {
         configs[2] = _cfg(address(aaplFeed), aaplPool, true, false, 100);
         reg = new AssetRegistry(admin, address(usdg), assets, configs);
         guard = new PriceGuard(
-            reg, IAccessRegistry(address(access)), IStateView(address(v4)), MIN_AGE, MAX_AGE, MAX_JUMP_BPS, admin
+            reg,
+            IAccessRegistry(address(access)),
+            IStateView(address(v4)),
+            MIN_AGE,
+            MAX_AGE,
+            MAX_JUMP_BPS,
+            admin,
+            guardian
         );
         // This suite observes both as itself, through `_observeAll`, and as the `keeper` address
         // where a test wants an honest round next to an attacker's push.
@@ -1049,6 +1057,151 @@ contract CollateralTest is Test {
         guard.setKeeper(stranger, true);
     }
 
+    /// L-N1 of the second rescore. The pending reading used to be judged only once it was old
+    /// enough to promote, and the keeper promotes and replaces it at exactly that age, so a pool
+    /// pushed and held across one keeper transaction was never judged: the next block's draw
+    /// counted the asset on the aged reading alone. The pending reading is judged from the next
+    /// block on, whatever its age, and the push halts draws until a round after it has aged in.
+    function test_regression_aPushHeldAcrossOneKeeperRoundHaltsTheNextDraw() public {
+        _deposit(spy, 0.01e18);
+        _expectHalt(PriceGuard.DrawHalt.None, true);
+
+        // The keeper's round lands at exactly MIN age with the pool pushed for the length of its
+        // transaction: the previous pending reading is promoted and the pushed one is pending.
+        vm.warp(block.timestamp + MIN_AGE);
+        _refreshFeeds();
+        _setPool(spy, SPY_E8 * 90 / 100);
+        vm.prank(keeper);
+        guard.observe(address(spy));
+        _setPool(spy, SPY_E8);
+
+        vm.warp(block.timestamp + 1);
+        _expectHalt(PriceGuard.DrawHalt.PendingOffBand, false);
+        vm.expectRevert(abi.encodeWithSelector(CollateralVault.HealthTooLow.selector, 0, 1.25e18));
+        _spendOnCredit(1e6);
+        assertEq(pool.debtOf(address(acct)), 0);
+
+        // Halted up to the second before the pushed reading can promote, then on the aged slot
+        // once it has, until the keeper's next in-band reading ages in behind it.
+        vm.warp(block.timestamp + MIN_AGE - 2);
+        _refreshFeeds();
+        _expectHalt(PriceGuard.DrawHalt.PendingOffBand, false);
+        vm.warp(block.timestamp + 1);
+        _refreshFeeds();
+        vm.prank(keeper);
+        guard.observe(address(spy));
+        _expectHalt(PriceGuard.DrawHalt.ObservationOffBand, false);
+        vm.warp(block.timestamp + MIN_AGE);
+        _refreshFeeds();
+        vm.prank(keeper);
+        guard.observe(address(spy));
+        _expectHalt(PriceGuard.DrawHalt.None, true);
+        _spendOnCredit(1e6);
+        assertEq(pool.debtOf(address(acct)), 1e6);
+    }
+
+    /// A pending reading from the block that uses it is left alone, as the aged slot is; from the
+    /// block after, it is judged at any age.
+    function test_pendingReading_isJudgedFromTheNextBlockOn() public {
+        _deposit(spy, 0.01e18);
+        _setPool(spy, SPY_E8 * 90 / 100);
+        vm.prank(keeper);
+        guard.observe(address(spy));
+        // In the same block it is the spot that halts, not the reading just taken.
+        _expectHalt(PriceGuard.DrawHalt.SpotOffBand, false);
+        _setPool(spy, SPY_E8);
+        _expectHalt(PriceGuard.DrawHalt.None, true);
+
+        vm.warp(block.timestamp + 1);
+        _expectHalt(PriceGuard.DrawHalt.PendingOffBand, false);
+        vm.warp(block.timestamp + MIN_AGE - 2);
+        _refreshFeeds();
+        _expectHalt(PriceGuard.DrawHalt.PendingOffBand, false);
+    }
+
+    /// The guardian takes a keeper off in one transaction and adds none. Naming the guardian is
+    /// governance's, and no guardian at all leaves removal to governance alone.
+    function test_guardian_removesAKeeperAtOnceAndAddsNone() public {
+        assertEq(guard.guardian(), guardian);
+        address stranger = makeAddr("stranger");
+        vm.prank(guardian);
+        vm.expectRevert(PriceGuard.NotAdmin.selector);
+        guard.setKeeper(stranger, true);
+
+        vm.prank(guardian);
+        vm.expectEmit(address(guard));
+        emit PriceGuard.KeeperSet(keeper, false);
+        guard.setKeeper(keeper, false);
+        assertFalse(guard.isKeeper(keeper));
+        vm.prank(keeper);
+        vm.expectRevert(PriceGuard.NotKeeper.selector);
+        guard.observe(address(spy));
+
+        vm.prank(stranger);
+        vm.expectRevert(PriceGuard.NotAdmin.selector);
+        guard.setKeeper(keeper, false);
+
+        vm.expectRevert(PriceGuard.NotAdmin.selector);
+        guard.setGuardian(stranger);
+        vm.prank(guardian);
+        vm.expectRevert(PriceGuard.NotAdmin.selector);
+        guard.setGuardian(stranger);
+        vm.prank(admin);
+        vm.expectEmit(address(guard));
+        emit PriceGuard.GuardianSet(stranger);
+        guard.setGuardian(stranger);
+        assertEq(guard.guardian(), stranger);
+        vm.prank(guardian);
+        vm.expectRevert(PriceGuard.NotAdmin.selector);
+        guard.setKeeper(address(this), false);
+        vm.prank(stranger);
+        guard.setKeeper(address(this), false);
+        assertFalse(guard.isKeeper(address(this)));
+
+        vm.prank(admin);
+        guard.setGuardian(address(0));
+        vm.prank(stranger);
+        vm.expectRevert(PriceGuard.NotAdmin.selector);
+        guard.setKeeper(keeper, false);
+        vm.prank(admin);
+        guard.setKeeper(keeper, true);
+        assertTrue(guard.isKeeper(keeper));
+    }
+
+    /// A keeper the guardian removed leaves the readings to expire: draws and sales halt on the
+    /// asset, the outcome a stopped keeper has, until governance names a keeper again.
+    function test_guardian_removalHaltsDrawsAndSalesOnceTheReadingExpires() public {
+        _deposit(spy, 0.01e18);
+        _spendOnCredit(4e6);
+        vm.startPrank(guardian);
+        guard.setKeeper(keeper, false);
+        guard.setKeeper(address(this), false);
+        vm.stopPrank();
+        vm.warp(block.timestamp + MAX_AGE + 1);
+        _refreshFeeds();
+        _expectHalt(PriceGuard.DrawHalt.ObservationExpired, false);
+        vm.expectRevert(abi.encodeWithSelector(CollateralVault.HealthTooLow.selector, 0, 1.25e18));
+        _spendOnCredit(1e6);
+        _movePrice(spy, spyFeed, SPY_E8 / 2);
+        assertLt(vault.health(address(acct)), WAD);
+        vm.prank(keeper);
+        vm.expectPartialRevert(CollateralVault.SaleHalted.selector);
+        vault.liquidate(address(acct), address(spy));
+
+        vm.prank(admin);
+        guard.setKeeper(keeper, true);
+        vm.startPrank(keeper);
+        guard.observe(address(spy));
+        vm.warp(block.timestamp + MIN_AGE);
+        _refreshFeeds();
+        guard.observe(address(spy));
+        vm.warp(block.timestamp + MIN_AGE);
+        _refreshFeeds();
+        guard.observe(address(spy));
+        assertGt(vault.liquidate(address(acct), address(spy)), 0);
+        vm.stopPrank();
+    }
+
     /// The guard hands its admin over in two steps, like the other lane contracts, and naming
     /// keepers moves with it.
     function test_guard_adminHandsOverInTwoSteps() public {
@@ -1076,7 +1229,14 @@ contract CollateralTest is Test {
     /// The deployer seeds the first keeper once and cannot do it twice.
     function test_guard_initKeeperIsAOneShotForTheDeployer() public {
         PriceGuard g = new PriceGuard(
-            reg, IAccessRegistry(address(access)), IStateView(address(v4)), MIN_AGE, MAX_AGE, MAX_JUMP_BPS, admin
+            reg,
+            IAccessRegistry(address(access)),
+            IStateView(address(v4)),
+            MIN_AGE,
+            MAX_AGE,
+            MAX_JUMP_BPS,
+            admin,
+            address(0)
         );
         g.initKeeper(keeper);
         assertTrue(g.isKeeper(keeper));
@@ -1272,22 +1432,23 @@ contract CollateralTest is Test {
         IAccessRegistry ar = IAccessRegistry(address(access));
         IStateView sv = IStateView(address(v4));
         vm.expectRevert(PriceGuard.BadObservationBounds.selector);
-        new PriceGuard(reg, ar, sv, 0, 1 hours, 1_500, admin);
+        new PriceGuard(reg, ar, sv, 0, 1 hours, 1_500, admin, address(0));
         vm.expectRevert(PriceGuard.BadObservationBounds.selector);
-        new PriceGuard(reg, ar, sv, 5 minutes, 10 minutes - 1, 1_500, admin);
+        new PriceGuard(reg, ar, sv, 5 minutes, 10 minutes - 1, 1_500, admin, address(0));
         vm.expectRevert(PriceGuard.BadObservationBounds.selector);
-        new PriceGuard(reg, ar, sv, 5 minutes, 1 days + 1, 1_500, admin);
+        new PriceGuard(reg, ar, sv, 5 minutes, 1 days + 1, 1_500, admin, address(0));
         vm.expectRevert(PriceGuard.BadObservationBounds.selector);
-        new PriceGuard(reg, ar, sv, 5 minutes, 1 hours, 0, admin);
+        new PriceGuard(reg, ar, sv, 5 minutes, 1 hours, 0, admin, address(0));
         vm.expectRevert(PriceGuard.BadObservationBounds.selector);
-        new PriceGuard(reg, ar, sv, 5 minutes, 1 hours, 10_000, admin);
+        new PriceGuard(reg, ar, sv, 5 minutes, 1 hours, 10_000, admin, address(0));
         vm.expectRevert(PriceGuard.NotAdmin.selector);
-        new PriceGuard(reg, ar, sv, 5 minutes, 1 hours, 1_500, address(0));
-        PriceGuard g = new PriceGuard(reg, ar, sv, 5 minutes, 10 minutes, 9_999, admin);
+        new PriceGuard(reg, ar, sv, 5 minutes, 1 hours, 1_500, address(0), address(0));
+        PriceGuard g = new PriceGuard(reg, ar, sv, 5 minutes, 10 minutes, 9_999, admin, guardian);
         assertEq(g.MIN_OBSERVATION_AGE(), 5 minutes);
         assertEq(g.MAX_OBSERVATION_AGE(), 10 minutes);
         assertEq(g.MAX_FEED_JUMP_BPS(), 9_999);
         assertEq(g.admin(), admin);
+        assertEq(g.guardian(), guardian);
     }
 
     function test_tierAndCapSettersRefuseNonAdmins() public {
@@ -1318,12 +1479,15 @@ contract CollateralTest is Test {
     }
 
     /// The 4 USDG written off comes out of stake at the five-cent ceiling: 80 BRSR, inside the
-    /// tenth of the pool a window allows. The lender is still down the whole 4 USDG.
+    /// tenth of the pool a window allows. The stranded line is dust worth nothing at the feed, so
+    /// the seized pot covers none of it and the lender is down the whole 4 USDG.
     function test_writeOff_slashesStakeAtTheCeiling() public {
         _stake();
         _nameSlasher();
         _strandLine();
 
+        vm.expectEmit(address(pool));
+        emit CreditPool.WriteOffCovered(address(acct), 0, 4e6);
         vm.expectEmit(address(pool));
         emit CreditPool.WrittenOff(address(acct), 4e6, 80e18);
         vault.liquidate(address(acct), address(spy));
@@ -1331,7 +1495,70 @@ contract CollateralTest is Test {
         assertEq(brsr.balanceOf(slashSink), 80e18);
         assertEq(staking.totalStaked(), STAKE - 80e18);
         assertEq(pool.badDebt(), 4e6);
+        assertEq(pool.lossCovered(), 0);
         assertEq(pool.cash(), 26e6);
+    }
+
+    /// A line worth more than its debt at the feed covers the lender in full from the seized pot,
+    /// so the write-off takes no stake: 12 USDG of AAPL behind 4 of debt, the debt's worth seized
+    /// and nothing slashed. Before the second rescore the stake was slashed for the whole 4 as
+    /// well, a second payment for a loss the collateral had already covered.
+    function test_writeOff_coveredByTheSeizedCollateralSlashesNothing() public {
+        _stake();
+        _nameSlasher();
+        _deposit(aapl, 0.04e18);
+        _spendOnCredit(4e6);
+        vm.prank(admin);
+        vault.setAssetTier(address(aapl), 0);
+        _setPool(aapl, 300e8 * 90 / 100);
+        _ageObservations();
+        uint256 debt = pool.debtOf(address(acct));
+
+        vm.expectEmit(address(pool));
+        emit CreditPool.WriteOffCovered(address(acct), debt, 0);
+        vm.expectEmit(address(pool));
+        emit CreditPool.WrittenOff(address(acct), debt, 0);
+        vm.prank(keeper);
+        vault.liquidate(address(acct), address(aapl));
+
+        assertEq(pool.badDebt(), debt);
+        assertEq(pool.lossCovered(), debt);
+        assertEq(staking.totalStaked(), STAKE);
+        assertEq(brsr.balanceOf(slashSink), 0);
+        assertEq(vault.seized(address(aapl)), Math.mulDiv(0.04e18, debt, 12e6, Math.Rounding.Ceil));
+    }
+
+    /// Collateral worth less than the debt covers that much and no more: 1 USDG of AAPL at the
+    /// feed behind 4 of debt leaves 3 for the lender to carry, and stakers are slashed for the 3.
+    function test_writeOff_slashesOnlyWhatTheSeizedCollateralLeavesUncovered() public {
+        _stake();
+        _nameSlasher();
+        _deposit(aapl, 0.04e18);
+        _spendOnCredit(4e6);
+        vm.prank(admin);
+        vault.setAssetTier(address(aapl), 0);
+        // The feed falls to 25, so 0.04 AAPL is worth 1 USDG, and the pool sits a tenth under it.
+        aaplFeed.set(int256(25e8), block.timestamp);
+        _setPool(aapl, 25e8 * 90 / 100);
+        _ageObservations();
+        assertEq(uint8(vault.drawHalt(address(aapl))), uint8(PriceGuard.DrawHalt.ObservationOffBand));
+        uint256 debt = pool.debtOf(address(acct));
+        uint256 slashed = Math.mulDiv(debt - 1e6, 1e18, CEILING);
+
+        vm.expectEmit(address(pool));
+        emit CreditPool.WriteOffCovered(address(acct), 1e6, debt - 1e6);
+        vm.expectEmit(address(pool));
+        emit CreditPool.WrittenOff(address(acct), debt, slashed);
+        vm.prank(keeper);
+        vault.liquidate(address(acct), address(aapl));
+
+        assertEq(pool.lossCovered(), 1e6);
+        assertEq(pool.badDebt(), debt);
+        assertEq(brsr.balanceOf(slashSink), slashed);
+        assertEq(staking.totalStaked(), STAKE - slashed);
+        // Worth less than the debt, the whole position is seized.
+        assertEq(vault.seized(address(aapl)), 0.04e18);
+        assertEq(vault.collateralOf(address(acct), address(aapl)), 0);
     }
 
     /// The ceiling holds through the last second the Buyback would still trade on it. A second

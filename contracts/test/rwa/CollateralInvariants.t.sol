@@ -39,6 +39,8 @@ contract CollateralHandler is CommonBase, StdUtils {
     CreditPool public immutable pool;
     PriceGuard public immutable guard;
     AssetRegistry public immutable registry;
+    Staking public immutable staking;
+    Buyback public immutable buyback;
     MockV4 public immutable v4;
     MockERC20 public immutable usdg;
     address public immutable principal;
@@ -69,6 +71,14 @@ contract CollateralHandler is CommonBase, StdUtils {
     /// A write-off that seized more than the debt was worth at the feed, every seized feed
     /// readable.
     uint256 public seizeBreaks;
+    /// A draw the guard let count an asset whose pending reading, from an earlier block, had the
+    /// pool off its band: a push held across a keeper's reading that backed a draw.
+    uint256 public pendingBreaks;
+    /// A write-off that took other stake than the uncovered loss at the ceiling, inside the
+    /// allowance: too much, for a loss the seized collateral covered, or too little.
+    uint256 public slashBreaks;
+    /// Write-offs the handler saw slash stake, so the slash property is known not to be vacuous.
+    uint256 public slashes;
 
     constructor(
         CollateralVault vault_,
@@ -84,6 +94,8 @@ contract CollateralHandler is CommonBase, StdUtils {
         pool = vault_.pool();
         guard = vault_.guard();
         registry = vault_.registry();
+        staking = Staking(address(pool.staking()));
+        buyback = pool.buyback();
         v4 = MockV4(address(vault_.poolManager()));
         usdg = MockERC20(address(vault_.usdg()));
         principal = principal_;
@@ -144,6 +156,7 @@ contract CollateralHandler is CommonBase, StdUtils {
             (uint48 at,,) = guard.aged(token);
             uint256 age = block.timestamp - at;
             if (at == 0 || age < guard.MIN_OBSERVATION_AGE() || age > guard.MAX_OBSERVATION_AGE()) ++drawBreaks;
+            if (_pendingOffBand(token)) ++pendingBreaks;
             if (vault.collateralOf(address(line), token) != 0 && vault.tierOf(token) != 0) counted = true;
         }
         uint256 scaled = pool.scaledDebtOf(address(line));
@@ -255,6 +268,9 @@ contract CollateralHandler is CommonBase, StdUtils {
         address line = address(_line(who));
         address asset = address(_token(which));
         uint256 bad = pool.badDebt();
+        uint256 covered = pool.lossCovered();
+        uint256 staked = staking.totalStaked();
+        uint256 allowance = staking.slashAllowance();
         PriceGuard.DrawHalt halt = vault.drawHalt(asset);
         uint256[] memory before = new uint256[](tokens.length);
         for (uint256 i; i < tokens.length; ++i) {
@@ -268,10 +284,41 @@ contract CollateralHandler is CommonBase, StdUtils {
             seizedEver[address(tokens[i])] += vault.seized(address(tokens[i])) - before[i];
         }
         if (sold > 0 && halt != PriceGuard.DrawHalt.None) ++saleBreaks;
-        if (pool.badDebt() == bad) return;
+        if (pool.badDebt() == bad) {
+            if (staking.totalStaked() != staked) ++slashBreaks;
+            return;
+        }
         ++writeOffs;
         if (pool.debtOf(line) != 0) ++writeOffBreaks;
-        _checkSeize(pool.badDebt() - bad, before);
+        uint256 writtenOff = pool.badDebt() - bad;
+        _checkSeize(writtenOff, before);
+        _checkSlash(writtenOff - (pool.lossCovered() - covered), staked, allowance);
+    }
+
+    /// Stakers are slashed for the uncovered loss alone, at the Buyback's ceiling and inside the
+    /// allowance the window had left, and for nothing while the pool is not the slasher or the
+    /// ceiling is unset or stale; a loss the seized collateral covered takes no stake.
+    function _checkSlash(uint256 uncovered, uint256 staked, uint256 allowance) internal {
+        uint256 due;
+        if (
+            uncovered != 0 && staking.slasher() == address(pool) && buyback.params().maxPriceMicroUsdPerBrsr != 0
+                && block.timestamp <= buyback.ceilingSetAt() + buyback.maxCeilingAge()
+        ) {
+            due = Math.min(Math.mulDiv(uncovered, 1e18, buyback.params().maxPriceMicroUsdPerBrsr), allowance);
+        }
+        uint256 taken = staked - staking.totalStaked();
+        if (taken != 0) ++slashes;
+        if (taken != due) ++slashBreaks;
+    }
+
+    /// The pending reading, taken in an earlier block, has the pool off its band of the feed, or
+    /// no feed answer at all: what a push held across a keeper's reading leaves behind.
+    function _pendingOffBand(address token) internal view returns (bool) {
+        (uint48 at, uint104 poolE8, uint104 feedE8) = guard.pending(token);
+        if (at == 0 || at >= block.timestamp) return false;
+        if (feedE8 == 0 || poolE8 == 0) return true;
+        uint256 diff = poolE8 > feedE8 ? poolE8 - feedE8 : feedE8 - poolE8;
+        return Math.mulDiv(diff, BPS, feedE8, Math.Rounding.Ceil) > registry.get(token).bandBps;
     }
 
     /// A write-off values each seized position at the feed, as `health` does, and takes no more
@@ -402,6 +449,9 @@ contract CollateralInvariantTest is Test {
     CollateralVault vault;
     CollateralHandler handler;
     MandateAccount[] lines;
+    MockBRSR brsr;
+    Staking staking;
+    uint256 internal constant STAKE = 1_000_000e18;
 
     address principal = makeAddr("principal");
     address agent = makeAddr("agent");
@@ -418,7 +468,14 @@ contract CollateralInvariantTest is Test {
 
         (address[] memory list, uint8[] memory assetTiers) = _registerAssets();
         guard = new PriceGuard(
-            reg, IAccessRegistry(address(new MockAccess())), IStateView(address(v4)), MIN_AGE, MAX_AGE, 1_500, admin
+            reg,
+            IAccessRegistry(address(new MockAccess())),
+            IStateView(address(v4)),
+            MIN_AGE,
+            MAX_AGE,
+            1_500,
+            admin,
+            address(0)
         );
         // This contract takes the keeper's first rounds in `setUp`; the handler takes every round
         // and the adversarial action after it.
@@ -438,6 +495,7 @@ contract CollateralInvariantTest is Test {
             assetTiers
         );
         pool.bindVault(address(vault));
+        _stakeAndNameSlasher();
 
         usdg.mint(lender, 100e6);
         vm.startPrank(lender);
@@ -456,6 +514,18 @@ contract CollateralInvariantTest is Test {
         vm.prank(admin);
         guard.setKeeper(address(handler), true);
         _target();
+    }
+
+    /// A staked pool with this credit pool as its slasher, so write-offs reach stake and the
+    /// slash property is not vacuous.
+    function _stakeAndNameSlasher() private {
+        brsr.mint(makeAddr("staker"), STAKE);
+        vm.startPrank(makeAddr("staker"));
+        brsr.approve(address(staking), STAKE);
+        staking.stake(STAKE);
+        vm.stopPrank();
+        vm.prank(admin);
+        staking.setSlasher(address(pool));
     }
 
     /// Three assets, one per tier, each with a feed and a pinned pool priced at it.
@@ -483,9 +553,9 @@ contract CollateralInvariantTest is Test {
 
     /// A pool on a staking contract and buyback of its own, as the deploy scripts pair them.
     function _creditPool() private returns (CreditPool p) {
-        MockBRSR brsr = new MockBRSR();
+        brsr = new MockBRSR();
         address treasury = makeAddr("treasury");
-        Staking staking = new Staking(
+        staking = new Staking(
             IERC20(address(brsr)), IERC20(address(usdg)), admin, makeAddr("slashSink"), treasury, 7 days, 1e18
         );
         Buyback buyback = new Buyback(
@@ -577,6 +647,8 @@ contract CollateralInvariantTest is Test {
     }
 
     /// The handler reaches a write-off and a claim, and reads both the way the invariants need.
+    /// Dust covers next to nothing (a micro-USDG here), so this write-off slashes stake for all
+    /// but that of the loss.
     function test_theFixtureWritesOffSeizesAndPaysTheLender() public {
         handler.deposit(0, 1, 0.01e18);
         handler.draw(0, 4e6);
@@ -585,6 +657,10 @@ contract CollateralInvariantTest is Test {
         handler.liquidate(0, 1);
         assertEq(handler.writeOffs(), 1);
         assertEq(handler.writeOffBreaks(), 0);
+        assertEq(handler.slashes(), 1);
+        assertEq(handler.slashBreaks(), 0);
+        assertEq(pool.lossCovered(), 1);
+        assertEq(staking.totalStaked(), STAKE - Math.mulDiv(pool.badDebt() - pool.lossCovered(), 1e18, 50_000));
         assertEq(handler.seizedEver(address(tokens[1])), 0.01e18);
         invariant_tokensAreConservedPerAsset();
         invariant_aLineWithNoDebtCanWithdrawEverything();
@@ -642,6 +718,14 @@ contract CollateralInvariantTest is Test {
 
     function invariant_aWriteOffNeverSeizesMoreThanTheDebtAtTheFeed() public view {
         assertEq(handler.seizeBreaks(), 0, "a write-off seized more than the debt was worth at the feed");
+    }
+
+    function invariant_aPushedPendingReadingHaltsDraws() public view {
+        assertEq(handler.pendingBreaks(), 0, "a draw counted an asset whose pending reading had the pool off band");
+    }
+
+    function invariant_aWriteOffSlashesOnlyTheUncoveredLoss() public view {
+        assertEq(handler.slashBreaks(), 0, "a write-off slashed other stake than the uncovered loss at the ceiling");
     }
 
     /// Tried against a snapshot, so the check moves nothing: whatever the feeds, pools and

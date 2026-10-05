@@ -71,6 +71,9 @@ contract DeployRwa is BursarScript {
     uint256 private maxObservationAge;
     uint256 private maxFeedJumpBps;
     address private guardKeeper;
+    /// The timelock's guardian, which can take a keeper off the guard without a proposal: the
+    /// 48-hour governance's when the record names one, else the first timelock's, else none.
+    address private guardian;
 
     RwaConfig.Term[] private terms;
     address[] private tokens;
@@ -114,6 +117,8 @@ contract DeployRwa is BursarScript {
         maxObservationAge = _envUint("BURSAR_MAX_OBSERVATION_AGE");
         maxFeedJumpBps = _envUint16("BURSAR_MAX_FEED_JUMP_BPS");
         guardKeeper = _role(GUARD_KEEPER, "BURSAR_GUARD_KEEPER");
+        guardian = _recordAddress(K.GOVERNANCE48_GUARDIAN);
+        if (guardian == address(0)) guardian = _recordAddress(K.GUARDIAN);
 
         RwaConfig.Term[] memory all = RwaConfig.terms();
         uint256 treasuries;
@@ -269,7 +274,8 @@ contract DeployRwa is BursarScript {
             minObservationAge,
             maxObservationAge,
             maxFeedJumpBps,
-            timelock
+            timelock,
+            guardian
         );
         // The guard answers to the timelock, but the keeper service's key is known now and the
         // lane cannot draw until a keeper exists, so the deployer names the first one here, the
@@ -297,6 +303,7 @@ contract DeployRwa is BursarScript {
         _expectUint("guard.maxFeedJumpBps", maxFeedJumpBps, d.guard.MAX_FEED_JUMP_BPS());
         _expect("guard.admin", timelock, d.guard.admin());
         _expect("guard.pendingAdmin", address(0), d.guard.pendingAdmin());
+        _expect("guard.guardian", guardian, d.guard.guardian());
         _expectUint("guard.keeper", 1, d.guard.isKeeper(guardKeeper) ? 1 : 0);
         _expect("router.registry", address(d.registry), address(d.router.registry()));
         _expect("router.guard", address(d.guard), address(d.router.guard()));
@@ -347,6 +354,7 @@ contract DeployRwa is BursarScript {
         console2.log("PriceGuard", address(d.guard));
         console2.log("  keeper observes every", minObservationAge);
         console2.log("  keeper", guardKeeper);
+        console2.log("  guardian, who can remove a keeper at once", guardian);
         console2.log("StockSpendRouter", address(d.router));
         console2.log("TreasuryPark", address(d.park));
         if (joining) console2.log("  live, carried over by this run");

@@ -79,9 +79,12 @@ abstract contract RwaChecks is Verifier {
         if (switching) _isTrue("TreasuryPark still lists the previous treasury adapter", !p.isAdapter(previous));
     }
 
-    /// The guard answers to the timelock and takes observations from the recorded keeper alone. A
+    /// The guard answers to the timelock, takes observations from the recorded keeper alone, and
+    /// names the timelock's guardian as the one who can remove a keeper without a proposal. A
     /// guard built before it had an admin, the fourth set's, answers neither read: the check says
-    /// so and asks nothing else of its governance, since the fifth set's guard replaces it.
+    /// so and asks nothing else of its governance, since the fifth set's guard replaces it. The
+    /// fifth set's guard answers the admin reads and not the guardian one, which the sixth set's
+    /// adds; the check says so for it the same way.
     function _checkGuardGovernance(PriceGuard g) private {
         (bool ok, bytes memory answer) = address(g).staticcall(abi.encodeCall(g.admin, ()));
         if (!ok || answer.length != 32) {
@@ -92,6 +95,14 @@ abstract contract RwaChecks is Verifier {
         address guardKeeper = _recordAddress(".rwa.guardKeeper");
         _fact("PriceGuard.keeper", guardKeeper);
         _isTrue("PriceGuard does not list the recorded keeper", guardKeeper != address(0) && g.isKeeper(guardKeeper));
+        (ok, answer) = address(g).staticcall(abi.encodeCall(g.guardian, ()));
+        if (!ok || answer.length != 32) {
+            _fact("PriceGuard.guardian", "none: built before the guard had a guardian");
+            return;
+        }
+        address guardian = _recordAddress(K.GOVERNANCE48_GUARDIAN);
+        if (guardian == address(0)) guardian = _recordAddress(K.GUARDIAN);
+        _is("PriceGuard.guardian", guardian, abi.decode(answer, (address)));
     }
 
     function _checkRegistry(AssetRegistry registry) private {

@@ -30,14 +30,16 @@ import {IAccessRegistry, IAggregatorV3, IRobinhoodStock, IStateView} from "./int
 ///
 /// A draw against a holding asks more than a trade or a valuation, because the pool's spot is one
 /// swap away from wherever a borrower wants it inside a transaction. The pool has to have agreed
-/// with the feed at two readings a keeper took across the window: an aged one at least
-/// `MIN_OBSERVATION_AGE` old, and the pending one waiting to replace it once it too is that old,
-/// both inside the asset's band of their own feed sample. One push held open for a single reading
-/// no longer counts; the price has to have stood through a keeper's whole cycle. Two breakers sit
-/// on the feed itself for draws. An answer more than `MAX_FEED_JUMP_BPS` away from the aged
-/// sample's is a gap or a mis-scaled round, and the caller's own age bound halts a feed that has
-/// gone quiet in session. Neither reads the feed's round history, so neither depends on the feed
-/// keeping one.
+/// with the feed at the keeper's last two readings: the aged one, at least `MIN_OBSERVATION_AGE`
+/// old, and the pending one waiting to replace it, whatever its age, each inside the asset's band
+/// of its own feed sample. A push held open across one keeper transaction does not count; the
+/// price has to have stood at two of them. The pending reading is judged from the block after the
+/// one that took it, not only once it is old enough to promote: judged that late, a keeper that
+/// promotes and replaces it at exactly that age would leave one reading in force at a time. Two
+/// breakers sit on the feed itself for draws. An answer more than `MAX_FEED_JUMP_BPS` away from
+/// the aged sample's is a gap or a mis-scaled round, and the caller's own age bound halts a feed
+/// that has gone quiet in session. Neither reads the feed's round history, so neither depends on
+/// the feed keeping one.
 ///
 /// Only a keeper may `observe`, and it is trusted for timing alone. A keeper that recorded a
 /// pushed pool would be caught the same block it mattered: the spot-versus-feed and feed-jump
@@ -45,7 +47,11 @@ import {IAccessRegistry, IAggregatorV3, IRobinhoodStock, IStateView} from "./int
 /// aged sample to expire past `MAX_OBSERVATION_AGE`, which halts draws, the same outcome as a
 /// keeper that never ran. What a keeper cannot do is age a reading faster or plant one a draw
 /// reads in the same block: a sample is promoted to `aged` only once it has sat as `pending` for
-/// `MIN_OBSERVATION_AGE`, and overwriting a younger pending resets that clock.
+/// `MIN_OBSERVATION_AGE`, overwriting a younger pending resets that clock, and a pending reading
+/// is judged only from the next block on. Governance names keepers through its timelock; the
+/// guardian it names here can take one off at once and add none, so a key that has gone rogue or
+/// quiet is off the guard in the same block instead of after the timelock's delay. Removal halts
+/// draws and sales once the aged reading expires, the safe outcome.
 contract PriceGuard {
     /// A reading of the pool's mid against the feed's answer, taken by `observe`.
     struct Sample {
@@ -95,9 +101,11 @@ contract PriceGuard {
     mapping(address asset => Sample) public aged;
     mapping(address asset => Sample) public pending;
 
-    /// Governance, and the keeper service it trusts to take readings on schedule.
+    /// Governance, the keeper service it trusts to take readings on schedule, and the brake that
+    /// can take a keeper off without a proposal.
     address public admin;
     address public pendingAdmin;
+    address public guardian;
     mapping(address keeper => bool) public isKeeper;
 
     /// Names the first keeper once, so the lane can draw before the timelock's first proposal.
@@ -106,6 +114,7 @@ contract PriceGuard {
 
     event Observed(address indexed asset, uint256 poolE8, uint256 feedE8, bool promoted);
     event KeeperSet(address indexed keeper, bool enabled);
+    event GuardianSet(address indexed guardian);
     event AdminTransferStarted(address indexed from, address indexed to);
     event AdminTransferred(address indexed from, address indexed to);
 
@@ -136,7 +145,8 @@ contract PriceGuard {
         uint256 minObservationAge,
         uint256 maxObservationAge,
         uint256 maxFeedJumpBps,
-        address admin_
+        address admin_,
+        address guardian_
     ) {
         // A keeper observing every `minObservationAge` leaves the aged sample up to twice that
         // old between promotions, so a tighter maximum would halt draws on schedule.
@@ -152,16 +162,20 @@ contract PriceGuard {
         MAX_OBSERVATION_AGE = maxObservationAge;
         MAX_FEED_JUMP_BPS = maxFeedJumpBps;
         admin = admin_;
+        // Zero names no guardian, which leaves removing a keeper to governance alone.
+        // slither-disable-next-line missing-zero-check
+        guardian = guardian_;
         deployer = msg.sender;
         emit AdminTransferred(address(0), admin_);
+        emit GuardianSet(guardian_);
     }
 
     /// Records the pool's mid and the feed's answer for `asset`. Only a keeper may call it. The
-    /// reading lands as `pending`; once it is `MIN_OBSERVATION_AGE` old the next call promotes it
-    /// to `aged` and takes its place. A pending sample younger than that is overwritten in place
-    /// and not promoted, so the aged slot never holds a reading from the block that uses it and a
-    /// keeper cannot age one faster. A feed or pool that cannot be read is recorded as no price,
-    /// which agrees with nothing.
+    /// reading lands as `pending`, where draws judge it from the next block on; once it is
+    /// `MIN_OBSERVATION_AGE` old the next call promotes it to `aged` and takes its place. A pending
+    /// sample younger than that is overwritten in place and not promoted, so the aged slot never
+    /// holds a reading from the block that uses it and a keeper cannot age one faster. A feed or
+    /// pool that cannot be read is recorded as no price, which agrees with nothing.
     function observe(address asset) external {
         if (!isKeeper[msg.sender]) revert NotKeeper();
         AssetRegistry.Asset memory a = registry.get(asset);
@@ -175,11 +189,22 @@ contract PriceGuard {
         emit Observed(asset, poolE8, feedE8, promoted);
     }
 
-    /// Governance adds or removes a keeper. Zero stays off; a keeper removed can no longer take
-    /// readings, which halts draws once the aged sample expires, as a stopped keeper does.
-    function setKeeper(address keeper, bool enabled) external onlyAdmin {
+    /// Governance adds or removes a keeper; the guardian removes one and adds none. Zero stays
+    /// off. A keeper removed can no longer take readings, which halts draws and sales once the
+    /// aged sample expires, as a stopped keeper does; the guardian's path exists so that a key
+    /// that has gone rogue or quiet is off the guard in one transaction, not after the delay a
+    /// proposal waits.
+    function setKeeper(address keeper, bool enabled) external {
+        if (msg.sender != admin && (msg.sender != guardian || enabled)) revert NotAdmin();
         isKeeper[keeper] = enabled;
         emit KeeperSet(keeper, enabled);
+    }
+
+    /// Governance names the brake. Zero leaves removal to governance alone.
+    function setGuardian(address guardian_) external onlyAdmin {
+        // slither-disable-next-line missing-zero-check
+        guardian = guardian_;
+        emit GuardianSet(guardian_);
     }
 
     /// The deployer names the first keeper once, the way it binds the vault and lists the park's
@@ -327,9 +352,10 @@ contract PriceGuard {
 
     /// The aged sample is promoted only once it is `MIN_OBSERVATION_AGE` old, so its lower age
     /// bound holds without a check here. A sample taken while the feed had no answer agrees with
-    /// nothing. The pending sample is judged too, once it is old enough to be promoted, so a draw
-    /// needs the pool to have agreed with the feed across the keeper's window and not at one
-    /// reading a push was held open for. A pending sample younger than that says nothing yet.
+    /// nothing. The pending sample is judged too, at any age, once it was taken in an earlier
+    /// block: a draw needs the pool to have agreed with the feed at both of the keeper's last two
+    /// readings, not at one a push was held open for. Only keepers write it, so judging it young
+    /// hands nobody else a lever. A reading from this block is left alone, as the aged slot is.
     function _drawHalt(
         address asset,
         uint16 bandBps,
@@ -349,7 +375,7 @@ contract PriceGuard {
         if (block.timestamp - s.at > MAX_OBSERVATION_AGE) return DrawHalt.ObservationExpired;
         if (s.feedE8 == 0 || !_agrees(s.poolE8, s.feedE8, bandBps)) return DrawHalt.ObservationOffBand;
         Sample memory q = pending[asset];
-        if (q.at != 0 && block.timestamp - q.at >= MIN_OBSERVATION_AGE) {
+        if (q.at != 0 && q.at < block.timestamp) {
             if (q.feedE8 == 0 || !_agrees(q.poolE8, q.feedE8, bandBps)) return DrawHalt.PendingOffBand;
         }
         if (_deviationBps(priceE8, s.feedE8) > MAX_FEED_JUMP_BPS) return DrawHalt.FeedJump;

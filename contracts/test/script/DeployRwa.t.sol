@@ -100,6 +100,7 @@ contract DeployRwaTest is World {
         assertTrue(address(out.guard) != address(first.guard));
         assertEq(out.guard.admin(), _readAddress(path, K.ADMIN_TIMELOCK));
         assertTrue(out.guard.isKeeper(_readAddress(path, ".rwa.guardKeeper")));
+        assertEq(out.guard.guardian(), _readAddress(path, K.GUARDIAN), "the timelock's guardian can remove a keeper");
         assertEq(address(out.router.guard()), address(out.guard));
         assertEq(address(out.router.registry()), address(first.registry));
         assertEq(out.treasuryAdapter.park(), address(first.park));
