@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { deployment } from '@/chain/rhc';
 import { exampleMandate, laneAvailable, laneParkOf, laneValue, mandateFactories, newMandateFactory, readFundingLane } from '@/chain/mandates';
 import { readDraft } from '@/app/(app)/console/limits-form';
 import { newDraft, readWorkspace } from '@/workspace/model';
@@ -50,8 +51,9 @@ describe('funding lanes', () => {
     expect(reading.limits?.totalCap).toBe(100_000n);
   });
 
-  it('points a visitor at the live example mandate', () => {
-    expect(exampleMandate()).toBe('0x420BeB507F72173E7d78e0f956968f64fb508356');
+  it('points a visitor at the live record\'s example mandate', () => {
+    expect(exampleMandate()).toBe(deployment().examples.mandate);
+    expect(exampleMandate()).toMatch(/^0x[0-9a-fA-F]{40}$/);
   });
 });
 

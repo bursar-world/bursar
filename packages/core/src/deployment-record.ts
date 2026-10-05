@@ -62,6 +62,11 @@ export type Deployment = {
    * which keeps what it applied and read back under `parameters`.
    */
   readonly verifiedOnChain: Readonly<Record<string, string | number>>;
+  /**
+   * The mandates the record names as its live examples, the ones a reader with no wallet is shown.
+   * Each is absent until the script that creates it has run.
+   */
+  readonly examples: Readonly<{ mandate?: Address; committedMandate?: Address; collateralMandate?: Address }>;
   /** Anything the deploy left unfinished. Present means a human still owes an action. */
   readonly pending?: string;
   /**
@@ -263,6 +268,19 @@ export function parseDeployment(json: unknown, label = 'record'): Deployment {
     verifiedOnChain[key] = value;
   }
 
+  // A record file names each example under its own key; a parsed record carries them under
+  // `examples`, and parsing that again has to read the same addresses back.
+  const examples: { mandate?: Address; committedMandate?: Address; collateralMandate?: Address } = {};
+  const parsedExamples = record['examples'] === undefined ? {} : object(record['examples'], name, 'examples');
+  for (const [key, section] of [
+    ['exampleMandate', 'mandate'],
+    ['exampleCommittedMandate', 'committedMandate'],
+    ['exampleCollateralMandate', 'collateralMandate'],
+  ] as const) {
+    if (record[key] !== undefined) examples[section] = address(object(record[key], name, key), name, 'address');
+    else if (parsedExamples[section] !== undefined) examples[section] = address(parsedExamples, name, section);
+  }
+
   const rwa = record['rwa'] === undefined ? undefined : parseRwa(record['rwa'], `${name}.rwa`);
   const privacy = record['privacy'] === undefined ? undefined : parsePrivacy(record['privacy'], name);
 
@@ -297,6 +315,7 @@ export function parseDeployment(json: unknown, label = 'record'): Deployment {
       slashSink: address(rolesRecord, name, 'slashSink'),
     }),
     verifiedOnChain: Object.freeze(verifiedOnChain),
+    examples: Object.freeze(examples),
     ...(optionalString('pending') === undefined ? {} : { pending: optionalString('pending') }),
     ...(optionalString('retired') === undefined ? {} : { retired: optionalString('retired') }),
     ...(optionalString('supersedes') === undefined ? {} : { supersedes: optionalString('supersedes') }),

@@ -1,12 +1,12 @@
 # Ruling policy
 
 Version 3, in force from 1 October 2026. It covers disputes heard by the Bursar dispute
-registries on Robinhood Chain (chain 4663). The fourth set of contracts takes new payments, and the
-third, second and first sets settle the disputes still open on them:
+registries on Robinhood Chain (chain 4663). The current contracts take new payments, and the three
+earlier sets settle the disputes still open on them:
 
 | Set | Registry | Escrow |
 |---|---|---|
-| v4, current (development deployment) | `0xbb628E362EceE9Ce16f2e48DD79f5ed4558596e3` | `0x11e73B5632837355e250fC236cFC2Be03aD0845A` |
+| current (deployed with the fourth set, carried since) | `0xbb628E362EceE9Ce16f2e48DD79f5ed4558596e3` | `0x11e73B5632837355e250fC236cFC2Be03aD0845A` |
 | v3, previous | `0x20E75139996fFf7B3158DF28Bf133b326DCD2BdF` | `0x68D4aD683b5519C785Dde9F0ee0eE09dB2D40919` |
 | v2, previous | `0xE38349668f0C470C814487E95C14e7652F713B17` | `0x4315F8be7C9661345710910577Ec31cb867f3c20` |
 | v1, previous | `0xCb7c60037eC43b9692A5dDcA42A500181Cf549FF` | `0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4` |
@@ -200,8 +200,8 @@ Everything else is as in Version 2.
 Version 2 applied to disputes opened before 1 October 2026. Its text follows unchanged.
 
 Version 2, in force from 30 September 2026. It covers disputes heard by the Bursar dispute
-registries on Robinhood Chain (chain 4663). The fourth set of contracts takes new payments, and the
-third, second and first sets settle the disputes still open on them:
+registries on Robinhood Chain (chain 4663). The current contracts take new payments, and the three
+earlier sets settle the disputes still open on them:
 
 | Set | Registry | Escrow |
 |---|---|---|

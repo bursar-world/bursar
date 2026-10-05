@@ -77,6 +77,18 @@ function exampleRecord(overrides: Record<string, unknown> = {}): Record<string, 
   };
 }
 
+describe('the example mandates', () => {
+  it('reads each example the record names and leaves the rest absent', () => {
+    const parsed = parseDeployment(exampleRecord({ exampleMandate: { address: fill('f'), principal: fill('b') } }));
+    expect(parsed.examples).toEqual({ mandate: fill('f') });
+    expect(parseDeployment(exampleRecord()).examples).toEqual({});
+  });
+
+  it('refuses an example without an address', () => {
+    expect(() => parseDeployment(exampleRecord({ exampleCollateralMandate: { principal: fill('b') } }))).toThrow(BursarError);
+  });
+});
+
 const RETIRED_REASON = 'Superseded by example-net. Kept as the record of what ran.';
 
 /** The same shape, retired, on a second fictional chain. */

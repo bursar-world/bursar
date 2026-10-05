@@ -75,12 +75,9 @@ export function mandateFactories(): readonly Address[] {
   return out;
 }
 
-/**
- * A live mandate anyone can read, for a visitor with no wallet. The record's `exampleMandate`; the
- * core package does not carry that field, so it is named here per chain.
- */
+/** A live mandate anyone can read, for a visitor with no wallet: the live record's own example. */
 export function exampleMandate(): Address | undefined {
-  return CHAIN_ID === 4663 ? '0x420BeB507F72173E7d78e0f956968f64fb508356' : undefined;
+  return deployment().examples.mandate;
 }
 
 /**
