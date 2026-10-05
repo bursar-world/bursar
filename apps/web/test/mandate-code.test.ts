@@ -10,7 +10,7 @@ import { isMandateCode, mandateBuild, mandateCodeSet } from '@/chain/mandates';
 /**
  * Runtime code of mandates the factories deployed on chain 4663, read with `eth_getCode`. The v3
  * one was deployed by a v3 factory on a local chain with id 4663, against an escrow at 0x3333…3333,
- * because no v3 escrow existed yet, and the v4 one by a v4 factory the same way.
+ * because no v3 escrow existed yet; the v4 one is the first account the v4 factory deployed on 4663.
  */
 const fixture = (name: string) => readFileSync(new URL(`./fixtures/${name}.hex`, import.meta.url), 'utf8').trim() as Hex;
 const FIRST: Address = '0xB4Bd99d8604fDB876fA1B38a3f8bA024D20ccD0b';
@@ -125,11 +125,12 @@ describe('a v3 account', () => {
   });
 });
 
-const V4_ACCOUNT: Address = '0x68E05D3B6FCcb94A2aDdc1E3942C8efc622bd5Df';
+const V4_ACCOUNT: Address = '0x8605853aC6A64dA11F4ED0Ff0Ad128961Cc3cd5c';
+const V4_ESCROW = '0x11e73B5632837355e250fC236cFC2Be03aD0845A';
 
 /** The same record one set on: any name no earlier set claims runs the current build. */
 function v4Record(overrides: { escrow?: string } = {}): Deployment {
-  return parseDeployment({ ...v3Record(overrides), network: 'rhc-mainnet-v4', supersedes: 'rhc-mainnet-v3' });
+  return parseDeployment({ ...v3Record({ escrow: overrides.escrow ?? V4_ESCROW }), network: 'rhc-mainnet-v4', supersedes: 'rhc-mainnet-v3' });
 }
 
 /**
@@ -162,9 +163,12 @@ describe('a v4 account', () => {
     for (let at = 2; at < v3.length; at += 2) if (v3.slice(at, at + 2) !== v4.slice(at, at + 2)) differing.push((at - 2) / 2);
 
     // The two accounts sit at different addresses, so the address and the domain separator built
-    // from it differ too. Everything else that differs is the 32-byte hash before the last 11 bytes.
+    // from it differ too, and each names its own escrow in six slots. Everything else that differs
+    // is the 32-byte hash before the last 11 bytes.
+    const escrowSlots = [2_629, 3_275, 5_618, 9_353, 11_817, 11_932];
     const outsideAccountFields = differing.filter(
-      (offset) => !(offset >= 10_817 && offset < 10_837) && !(offset >= 10_889 && offset < 10_921),
+      (offset) =>
+        !(offset >= 10_817 && offset < 10_837) && !(offset >= 10_889 && offset < 10_921) && !escrowSlots.some((at) => offset >= at && offset < at + 20),
     );
     expect(v4.length).toBe(v3.length);
     expect(outsideAccountFields.every((offset) => offset >= 20_095 && offset < 20_127)).toBe(true);

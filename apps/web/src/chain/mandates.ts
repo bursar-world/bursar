@@ -165,9 +165,11 @@ export function newMandateFactory(): Address {
  * The v4 build is the same account compiled beside the audited escrow interface. Its code differs
  * from v3's in one place, the metadata hash in its last bytes, which follows the source of every
  * file the account imports: MandateAccount.sol, IMandateAccount.sol, IEscrow.sol, IAgentRegistry.sol,
- * IStockRouter.sol and ITreasuryPark.sol. It was fingerprinted the way v3 was, ahead of its escrow,
- * and is pinned to a v4 record the same way. A change to any of those six files before the v4
- * deploy moves the hash, and it has to be taken again from an account that build deploys.
+ * IStockRouter.sol and ITreasuryPark.sol. Its hash was taken from
+ * 0x8605853aC6A64dA11F4ED0Ff0Ad128961Cc3cd5c on chain 4663, the first account the v4 factory
+ * deployed, and is pinned to a v4 record the way v3 is. A fingerprint taken from a local build
+ * ahead of the deploy once missed by that metadata hash alone, and every live mandate read as
+ * foreign for four days: the hash is taken from the chain, never from a build.
  */
 type MandateFingerprint = {
   readonly set: ContractSet;
@@ -227,7 +229,7 @@ const MANDATE_CODE: readonly MandateFingerprint[] = [
       escrow: [2_629, 3_275, 5_618, 9_353, 11_817, 11_932],
       settlementAsset: [2_526, 6_683, 8_722, 9_399, 11_874, 14_350],
     },
-    maskedHash: '0xeb414540012986f743a491bc16494b834c91f959e0a13372d705ecb221fbb5b2',
+    maskedHash: '0xafbfb1dc71c9174149a48d3cc0785f91b93edb71b4e0f79f18700b02ec22542d',
     draws: true,
   },
 ];
