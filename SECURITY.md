@@ -92,13 +92,23 @@ and responds is in [docs/RUNBOOK.md](docs/RUNBOOK.md).
 - **Prices.** Each stock and treasury token is priced by one feed, cross-checked against the
   asset's pinned Uniswap v4 pool within a band (0.5% for SGOV, 1% for stocks). A feed older than
   26 hours refuses trades, and a position whose price is stale or whose pool disagrees with its
-  feed counts as zero collateral. Nothing in the protocol trades or lends on a price it cannot
-  check.
+  feed counts as zero collateral. A draw, and a liquidation sale, also needs the pool to have
+  agreed with the feed at both of the keeper's last two readings of it, so a pool pushed and held
+  across one keeper transaction backs nothing. Only keepers governance names take readings; the
+  timelock's guardian can remove one in a single transaction, without waiting out the timelock,
+  which halts draws and sales on the lane once the last reading expires. Nothing in the protocol
+  trades or lends on a price it cannot check.
 - **Reputation caps.** `Reputation` publishes a per-job cap from a payee's settlement history, from
   25 USDG with no history to 250 USDG at a perfect score, and the escrow refuses a lock above it.
   The score is earned with settled work: a job of 1 USDG or more counts, each payer for at most
   62.5 USDG of credit, and a full score takes 250 USDG of credit, so at least four payers. The cap
-  bounds what one job can carry; it is not a judgement of the payee beyond its record.
+  bounds what one job can carry; it is not a judgement of the payee beyond its record. A payee can
+  wash its own score: four payer addresses settling 250 USDG of locks through the escrow buy a
+  full score for the 1% fee on them, 2.5 USDG. We accept that. What it buys is a 250 USDG per-job
+  cap, nothing the escrow would not allow any payee with that history, and the payer who locks
+  against it still chooses the payee and still holds every other protection the escrow gives it.
+  A change to how a point is earned is a new `Reputation` and a new `Escrow`, which hold each
+  other in immutables; it is planned for the next core contract set rather than for a lane move.
 - **Lane caps.** The collateral lane lends at most 10 USDG per mandate and 100 USDG in total, with
   the loss on a written-off line carried by the pool's lender. Stock purchases are capped at
   25 USDG per trade and treasury parking at 100 USDG per mandate and 1,000 USDG in total.
