@@ -641,8 +641,14 @@ line's health, every action it took or would take, each asset's standing under t
 |---|---|
 | `RHC_RPC_URL` | The endpoint. The chain's public one when unset. |
 | `BURSAR_KEEPER_EXECUTE` | `1` sends. Anything else is a dry run that reports what it would send. |
-| `BURSAR_KEEPER_KEY` | The key that pays gas and takes the liquidation bounty. Needed to send, and its own key: never the relayer's. |
+| `BURSAR_KEEPER_KEYSTORE` | The path to the keeper's keystore: a version 3 Web3 Secret Storage file, as `cast wallet import` writes one, holding the key that pays gas and takes the liquidation bounty. Needed to send, and its own key: never the relayer's. |
+| `BURSAR_KEEPER_KEYSTORE_PASSWORD` | The keystore's password. |
+| `BURSAR_KEEPER_KEYSTORE_PASSWORD_FILE` | A path to a file holding the password, read less its trailing line end. One of the two is needed with the keystore. |
+| `BURSAR_KEEPER_KEY` | The same key as raw hex. Read only when no keystore is named, and the pass prints one line on stderr asking for the keystore instead. |
 | `BURSAR_KEEPER_SWEEP_MIN_MICRO` | The smallest spread worth a sweep, in micro-USDG. 100000 (0.10 USDG) when unset. |
+
+The keystore keeps the key out of the environment and out of every place that records it: a scheduler's
+settings page, a process listing, a crash report. The pass decrypts it in memory and holds it for one run.
 
 The readings are what sets the schedule. A draw counts a position only against a reading the guard
 took at least `MIN_OBSERVATION_AGE` earlier and at most `MAX_OBSERVATION_AGE` earlier, 300 s and
@@ -651,15 +657,39 @@ aged into force. Run the pass every five minutes, the guard's minimum, and it ke
 fresh as the guard allows; run it less often than every 27 minutes and the reading in force runs out
 between passes and every draw halts. A pass observes an asset only where a reading would change what
 a draw sees: the guard has no reading yet, none is in force or the one in force is about to run out,
-a draw is halted on a reading the next one may clear, or the pool or the feed has moved since the
-waiting reading was taken. Over a weekend, with every feed and pool where the last pass left them,
-that is two readings an hour per asset instead of twelve. A reading the guard refuses as too young
-is reported as waiting, not as a failure. On a lane whose guard takes no readings the report says so
-and the pass does the rest of its work.
+a draw is halted on a reading the next one may clear, or the waiting reading was taken with the pool
+off band and has to go. A pool or a feed that has moved is no reason on its own. The guard judges
+each reading by the pool and the feed stored in it, so a reading taken in band stays in band however
+the market moves afterwards, and the pass leaves a sound reading alone until the one in force is
+about to run out. On a five-minute schedule that comes to about two readings an hour per asset, which
+keeps a reading in force at every minute of the day: with the deployed bounds, about 210 readings a
+day across the four collateral assets, about 0.0006 ETH a day at 150,000 gas each and the chain's
+0.02 gwei. A pass that took a reading on every move sent twelve an hour per asset in a live market,
+about 0.0035 ETH a day, and ran a 0.003 ETH float dry in under a day; that is what emptied the keeper
+and let every reading expire. A reading the guard refuses as too young is reported as waiting, not as
+a failure. On a lane whose guard takes no readings the report says so and the pass does the rest of
+its work.
+
+Two readings are withheld on purpose, and the report says so with the figures. A reading taken while
+the pool sits outside the asset's band of its feed, or while either has no price, is one the guard
+would hold against the lane: promoted, it halts every draw and every liquidation sale for a cycle
+after the pool has recovered, which is what a push held across one pass used to buy. So the pool has
+to agree with the feed before a reading is taken, and the reading in force stands meanwhile. When no
+reading is in force, or the one in force cannot last to the next promotion, the lane halts for want
+of a reading until the pool returns and two readings agree, the same halt the guard would raise on
+the off-band reading itself; the report names that case `off-band-halting`. A waiting reading that
+turns out to have been taken off band, because the push began between the pass's read and its
+transaction, is replaced as soon as the pool is back. The other withheld reading is a feed that has
+moved past the guard's `MAX_FEED_JUMP_BPS` (15% as deployed) since the reading in force was taken:
+a gap or a mis-scaled round, and recording it would seat the jumped answer as the one draws are
+judged against. It is left out while the reading in force lasts. Once that reading has run out, the
+next one is taken whatever the feed says, so a feed that has moved for real halts draws for about an
+hour and then counts again on two readings that agree.
 
 The keeper is not part of the facilitator process and nothing in this repository schedules it. On
-the hosted deployment it runs as a Render cron job on this package's `keeper` script with the four
-variables above, `BURSAR_KEEPER_EXECUTE=1`, and a schedule of `*/5 * * * *`.
+the hosted deployment it runs as a Render cron job on this package's `keeper` script with the
+endpoint, the keystore and its password file above, `BURSAR_KEEPER_EXECUTE=1`, and a schedule of
+`*/5 * * * *`.
 
 ## Tests
 
