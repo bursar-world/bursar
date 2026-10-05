@@ -27,7 +27,7 @@ import { useWriteContract } from '@/wallet/write';
  * The staking surface.
  *
  * What a staker is exposed to comes before what the position pays, and both come before the
- * controls. Stake is first-loss cover for collateral-backed credit at a capped rate, and whether a
+ * controls. Stake is slashed for the part of a credit write-off the seized collateral leaves uncovered, at a capped rate, and whether a
  * write-off can reach it today is a reading, not a sentence: it depends on whom the pool names as
  * its slasher.
  */
@@ -44,16 +44,17 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
   return (
     <Section
       title="Staking"
-      description="First-loss cover for collateral-backed credit, where that credit’s spread and the buyback arrive, and the fee rebate a staked balance earns."
+      description="Stake that stands behind collateral-backed credit, where that credit’s spread and the buyback arrive, and the fee rebate a staked balance earns."
     >
       <Card title="What staking here exposes you to">
         <div className="max-w-3xl space-y-3 text-sm">
           <p>
-            Staked BRSR takes first loss on collateral-backed credit: USDG lent from a separate credit pool against
-            posted stock and treasury tokens. When a line&rsquo;s collateral cannot repay its debt, the credit
-            pool writes the shortfall off, and where the staking contract names that pool as its slasher, the write-off
-            takes stake: the loss is converted to BRSR at the buyback&rsquo;s price ceiling and sent to the slash sink.
-            The lender carries whatever the stake does not cover.
+            Staked BRSR stands behind collateral-backed credit: USDG lent from a separate credit pool against posted
+            stock and treasury tokens. When a line&rsquo;s collateral cannot repay its debt, the vault seizes the
+            collateral for the lender first, up to what the debt was worth at the feed. Where the staking contract
+            names that pool as its slasher, the write-off then takes stake for the part the collateral did not cover:
+            that loss is converted to BRSR at the buyback&rsquo;s price ceiling and sent to the slash sink. The lender
+            carries the uncovered part in USDG; the stake is a penalty, not a payout to the lender.
           </p>
           <p>{capSentence(pool)}</p>
           <p>{slasherSentence(pool, creditPool, data.token === undefined)}</p>

@@ -34,7 +34,7 @@ export function TokenView() {
     <div className="space-y-10">
       <Section
         title="$BRSR"
-        description="The bond a resolver posts to rule on a dispute, and the stake that covers first losses on collateral-backed credit and earns its spread and the BRSR the buyback buys."
+        description="The bond a resolver posts to rule on a dispute, and the stake that stands behind collateral-backed credit and earns its spread and the BRSR the buyback buys."
         actions={
           <Button size="sm" onClick={data.refresh} disabled={data.isFetching}>
             {data.isFetching ? 'Reading' : 'Read again'}
