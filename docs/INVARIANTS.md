@@ -226,53 +226,57 @@ escrow its tests catch, and which ones they miss.
 
 - Every unit in the pool or lent out came from the lender or from spread a borrower paid, less
   what was taken back, swept to stakers or written off.
-  [`invariant_cashLentAndReservesAreConserved`](../contracts/test/rwa/CreditPoolInvariants.t.sol#L211)
+  [`invariant_cashLentAndReservesAreConserved`](../contracts/test/rwa/CreditPoolInvariants.t.sol#L219)
 - Stakers are only ever paid spread.
-  [`invariant_stakersOnlyEverGetPaidSpread`](../contracts/test/rwa/CreditPoolInvariants.t.sol#L221)
+  [`invariant_stakersOnlyEverGetPaidSpread`](../contracts/test/rwa/CreditPoolInvariants.t.sol#L229)
 - No principal outstanding sits above the pool's cap or a mandate's cap.
-  [`invariant_noPrincipalAboveCaps`](../contracts/test/rwa/CreditPoolInvariants.t.sol#L231)
+  [`invariant_noPrincipalAboveCaps`](../contracts/test/rwa/CreditPoolInvariants.t.sol#L239)
 - A write-off clears the debt and the principal behind it and leaves the reserves alone.
-  [`invariant_writeOffsClearDebtAndLeaveReserves`](../contracts/test/rwa/CreditPoolInvariants.t.sol#L240)
-- Every write-off takes the loss at a live price ceiling, within the slash allowance, and nothing
-  while the pool is not the slasher or the ceiling is unset or stale.
-  [`invariant_slashIsTheLossAtTheCeilingInsideTheAllowance`](../contracts/test/rwa/CreditPoolInvariants.t.sol#L247)
+  [`invariant_writeOffsClearDebtAndLeaveReserves`](../contracts/test/rwa/CreditPoolInvariants.t.sol#L248)
+- Every write-off takes the uncovered loss at a live price ceiling, within the slash allowance,
+  nothing for the part the seized collateral covers, and nothing while the pool is not the
+  slasher or the ceiling is unset or stale.
+  [`invariant_slashIsTheLossAtTheCeilingInsideTheAllowance`](../contracts/test/rwa/CreditPoolInvariants.t.sol#L256)
+- What the vault says its seizure covers is booked against the debt and no further: the covered
+  loss never runs past what was written off.
+  [`invariant_coveredLossNeverExceedsTheWriteOff`](../contracts/test/rwa/CreditPoolInvariants.t.sol#L262)
 
 ## Treasury lane (TreasuryPark)
 
 - Each adapter holds exactly the asset behind every position it carries, its basis total is the
   sum of the positions' bases, and the USDG reserve is held one for one.
-  [`invariant_everyAdapterHoldsExactlyThePositionsItCarries`](../contracts/test/rwa/TreasuryParkInvariants.t.sol#L783)
+  [`invariant_everyAdapterHoldsExactlyThePositionsItCarries`](../contracts/test/rwa/TreasuryParkInvariants.t.sol#L790)
 - Every unit a mandate was funded with is on the mandate, in its vault, parked at cost, spent, or
   withdrawn by the principal, less what came back from the adapters.
-  [`invariant_usdgIsConservedPerMandate`](../contracts/test/rwa/TreasuryParkInvariants.t.sol#L805)
+  [`invariant_usdgIsConservedPerMandate`](../contracts/test/rwa/TreasuryParkInvariants.t.sol#L812)
 - USDG is conserved across every address in the lane.
-  [`invariant_theSettlementAssetIsConservedAcrossEveryHolder`](../contracts/test/rwa/TreasuryParkInvariants.t.sol#L822)
+  [`invariant_theSettlementAssetIsConservedAcrossEveryHolder`](../contracts/test/rwa/TreasuryParkInvariants.t.sol#L829)
 - No park lands past a mandate's cap or the shared cap, and no park leaves a mandate under the
   buffer its principal set.
-  [`invariant_noParkPassesACapOrDipsUnderTheBuffer`](../contracts/test/rwa/TreasuryParkInvariants.t.sol#L832)
+  [`invariant_noParkPassesACapOrDipsUnderTheBuffer`](../contracts/test/rwa/TreasuryParkInvariants.t.sol#L839)
 - Only a mandate's own principal or agent parks, unparks or returns its idle USDG, only its
   principal sets its buffer, only an account one of the factories created may park at all, and
   only governance switches adapters and listings.
-  [`invariant_onlyAMandatesOwnOperatorsMoveItsFunds`](../contracts/test/rwa/TreasuryParkInvariants.t.sol#L851)
+  [`invariant_onlyAMandatesOwnOperatorsMoveItsFunds`](../contracts/test/rwa/TreasuryParkInvariants.t.sol#L858)
 - An unpark delivers to the mandate exactly what it reports, and never more than the position
   it sold was worth at the price feed plus the fill band.
-  [`invariant_anUnparkReturnsNoMoreThanThePositionIsWorth`](../contracts/test/rwa/TreasuryParkInvariants.t.sol#L864)
+  [`invariant_anUnparkReturnsNoMoreThanThePositionIsWorth`](../contracts/test/rwa/TreasuryParkInvariants.t.sol#L871)
 - Spending power counts the mandate's USDG, its idle vault balance and the USDG reserve, and
   counts SGOV after the haircut only while the feed is fresh, nothing is paused and the pool
   agrees with the feed. Otherwise SGOV counts for nothing.
-  [`invariant_spendingPowerCountsOnlyFreshPositions`](../contracts/test/rwa/TreasuryParkInvariants.t.sol#L871)
+  [`invariant_spendingPowerCountsOnlyFreshPositions`](../contracts/test/rwa/TreasuryParkInvariants.t.sol#L878)
 - A move inside every rule is never refused: setting a buffer, returning idle USDG and unparking
   what a position holds all land, from the reserve at any time and from SGOV while its market
   is open.
-  [`invariant_aMoveInsideEveryRuleIsNeverRefused`](../contracts/test/rwa/TreasuryParkInvariants.t.sol#L897)
+  [`invariant_aMoveInsideEveryRuleIsNeverRefused`](../contracts/test/rwa/TreasuryParkInvariants.t.sol#L904)
 - The admin seat moves only to the address the sitting admin named, and only when that address
   accepts.
-  [`invariant_theAdminSeatMovesOnlyByOfferAndAcceptance`](../contracts/test/rwa/TreasuryParkInvariants.t.sol#L889)
+  [`invariant_theAdminSeatMovesOnlyByOfferAndAcceptance`](../contracts/test/rwa/TreasuryParkInvariants.t.sol#L896)
 - Whatever governance switches off, every position comes back out: at the end of every sequence
   each position is sold back to its mandate and each vault emptied. Nothing is left on the
   reserve, and no SGOV position keeps more than a remainder worth under a tenth of a cent, which
   sells with the next amount parked on top of it.
-  [`afterInvariant`](../contracts/test/rwa/TreasuryParkInvariants.t.sol#L905)
+  [`afterInvariant`](../contracts/test/rwa/TreasuryParkInvariants.t.sol#L912)
 
 ## Buyback
 
@@ -355,25 +359,33 @@ escrow its tests catch, and which ones they miss.
 
 - Tokens are conserved for every asset: the vault's balance is the collateral behind its credit
   lines plus what it has seized.
-  [`invariant_tokensAreConservedPerAsset`](../contracts/test/rwa/CollateralInvariants.t.sol#L599)
+  [`invariant_tokensAreConservedPerAsset`](../contracts/test/rwa/CollateralInvariants.t.sol#L675)
 - The vault's view of a line's debt is the credit pool's, and a line's health reads as unlimited
   exactly when it owes nothing.
-  [`invariant_poolDebtMatchesTheVaultsView`](../contracts/test/rwa/CollateralInvariants.t.sol#L612)
+  [`invariant_poolDebtMatchesTheVaultsView`](../contracts/test/rwa/CollateralInvariants.t.sol#L688)
 - A write-off leaves the line with no debt.
-  [`invariant_aWriteOffLeavesNoDebt`](../contracts/test/rwa/CollateralInvariants.t.sol#L627)
+  [`invariant_aWriteOffLeavesNoDebt`](../contracts/test/rwa/CollateralInvariants.t.sol#L703)
 - No draw lands without a valid price observation that has aged long enough to be trusted.
-  [`invariant_noDrawWithoutAValidAgedObservation`](../contracts/test/rwa/CollateralInvariants.t.sol#L631)
+  [`invariant_noDrawWithoutAValidAgedObservation`](../contracts/test/rwa/CollateralInvariants.t.sol#L707)
 - Only a keeper the guard's governance named can record a reading; nobody else ever plants one.
-  [`invariant_aNonKeeperNeverPlantsAReading`](../contracts/test/rwa/CollateralInvariants.t.sol#L635)
+  [`invariant_aNonKeeperNeverPlantsAReading`](../contracts/test/rwa/CollateralInvariants.t.sol#L711)
 - No liquidation sale completes while the price guard reports a halt for the asset being sold.
-  [`invariant_noSaleCompletesWhileTheGuardHalts`](../contracts/test/rwa/CollateralInvariants.t.sol#L639)
+  [`invariant_noSaleCompletesWhileTheGuardHalts`](../contracts/test/rwa/CollateralInvariants.t.sol#L715)
 - A write-off never seizes more than the written-off debt is worth at the feed while a feed can
   be read; what the debt does not need stays the borrower's.
-  [`invariant_aWriteOffNeverSeizesMoreThanTheDebtAtTheFeed`](../contracts/test/rwa/CollateralInvariants.t.sol#L643)
+  [`invariant_aWriteOffNeverSeizesMoreThanTheDebtAtTheFeed`](../contracts/test/rwa/CollateralInvariants.t.sol#L719)
+- A pool pushed and held across a keeper's reading backs no draw: while the pending reading,
+  taken in an earlier block, has the pool off its band, no draw counts the asset, whatever the
+  reading's age.
+  [`invariant_aPushedPendingReadingHaltsDraws`](../contracts/test/rwa/CollateralInvariants.t.sol#L723)
+- A write-off slashes stakers for the loss the seized collateral does not cover, at a live
+  ceiling and within the allowance, and for nothing when the collateral covers it: the lender is
+  never covered twice.
+  [`invariant_aWriteOffSlashesOnlyTheUncoveredLoss`](../contracts/test/rwa/CollateralInvariants.t.sol#L727)
 - A line that owes nothing can always withdraw all of its collateral.
-  [`invariant_aLineWithNoDebtCanWithdrawEverything`](../contracts/test/rwa/CollateralInvariants.t.sol#L649)
+  [`invariant_aLineWithNoDebtCanWithdrawEverything`](../contracts/test/rwa/CollateralInvariants.t.sol#L733)
 - Seized tokens only ever sit in the vault's seized balance or go to the pool's lender.
-  [`invariant_seizedOnlyEverLeavesToTheLender`](../contracts/test/rwa/CollateralInvariants.t.sol#L668)
+  [`invariant_seizedOnlyEverLeavesToTheLender`](../contracts/test/rwa/CollateralInvariants.t.sol#L752)
 
 ## Shielded pool
 
