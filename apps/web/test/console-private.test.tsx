@@ -106,19 +106,19 @@ describe('the terms the viewing key opens', () => {
   it('round-trips from the form through the seal and renders readable', async () => {
     const owner = privateKeyToAccount('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d');
     const key = deriveViewingKey(await owner.signMessage({ message: viewingKeyMessage(owner.address) }));
-    const doc = writeTerms({ ...readPrivateForm(filled, NOW).terms!, label: 'Render budget' });
+    const doc = writeTerms({ ...readPrivateForm(filled, NOW).terms!, label: 'Research agent: data and inference' });
     const sealed = await sealTerms(key.termsKey, { account: MANDATE, version: 1 }, doc);
     // Whole strings, as raw bytes and as text: a four-digit fragment turns up in random bytes a few
     // runs in a hundred.
     expect(sealed.toLowerCase()).not.toContain(PROVIDER.slice(2).toLowerCase());
-    for (const clear of ['Render budget', PROVIDER, PROVIDER.toLowerCase()]) {
+    for (const clear of ['Research agent: data and inference', PROVIDER, PROVIDER.toLowerCase()]) {
       expect(sealed.toLowerCase()).not.toContain(stringToHex(clear).slice(2));
     }
 
     const record = { account: MANDATE, version: 1n, termsCommitment: commit(doc).termsCommitment, ciphertext: sealed };
     const opened = await openTerms(key.termsKey, record);
     const html = renderToStaticMarkup(<TermsView terms={opened} />);
-    expect(html).toContain('Render budget');
+    expect(html).toContain('Research agent: data and inference');
     expect(html).toContain('$0.10');
     expect(html).toContain('Per day');
     expect(html).toContain('$1.00');
@@ -134,7 +134,7 @@ describe('the terms the viewing key opens', () => {
   });
 
   it('prefills an amendment with the terms in force', async () => {
-    const doc = writeTerms({ ...readPrivateForm(filled, NOW).terms!, label: 'Render budget' });
+    const doc = writeTerms({ ...readPrivateForm(filled, NOW).terms!, label: 'Research agent: data and inference' });
     const form = formFromTerms(doc);
     expect(form).toMatchObject({ perCall: '0.1', periodCap: '0.25', total: '1', expiry: '2026-12-31', classes: { service: true, hire: false } });
     expect(readPrivateForm(form, NOW).terms).toEqual(readPrivateForm(filled, NOW).terms);

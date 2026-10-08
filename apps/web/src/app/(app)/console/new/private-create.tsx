@@ -138,7 +138,7 @@ export function PrivateCreate({ owner }: { readonly owner: Address }) {
                 className="w-full rounded-md border border-[color:var(--color-line)] bg-transparent px-3 py-2 text-sm"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                placeholder="Render budget"
+                placeholder="Research agent: data and inference"
               />
             </Field>
           </FieldGrid>

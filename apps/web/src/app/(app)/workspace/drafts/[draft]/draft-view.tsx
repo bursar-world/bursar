@@ -127,7 +127,7 @@ function DraftEditor({ saved, workspace }: { readonly saved: MandateDraft; reado
           )}
           <Card title="About this draft">
             <div className="space-y-4">
-              <TextField label="Name" value={draft.name} onChange={(name) => setDraft({ ...draft, name })} placeholder="Research budget" />
+              <TextField label="Name" value={draft.name} onChange={(name) => setDraft({ ...draft, name })} placeholder="Research agent: data and inference" />
               <TextField label="Notes" value={draft.notes} onChange={(notes) => setDraft({ ...draft, notes })} help="Only you can read these." />
             </div>
           </Card>
