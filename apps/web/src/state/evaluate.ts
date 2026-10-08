@@ -451,6 +451,13 @@ export function evaluateFunding(snapshot: ChainSnapshot | undefined, checkedAt: 
   return report('funding', 'Funding', 'ok', 'Funded for payments and fees.', `${held}${fees}`.trim(), null, checks, facts, checkedAt, stale);
 }
 
+/** "primary" is the pool's name for an endpoint, not a reader's. */
+function endpointLabel(name: string): string {
+  if (name === 'primary') return 'Primary endpoint';
+  if (name === 'fallback') return 'Fallback endpoint';
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
 export function evaluateConnectivity(
   providers: readonly ProviderHealth[] | undefined,
   chainId: number,
@@ -467,13 +474,13 @@ export function evaluateConnectivity(
 
   const checks: Check[] = list.map((provider) => ({
     id: `provider:${provider.name}`,
-    label: provider.name,
+    label: endpointLabel(provider.name),
     level: (!provider.reachable ? 'blocked' : provider.chainId !== chainId ? 'blocked' : provider.breaker === 'open' ? 'attention' : 'ok') as StateLevel,
     detail: !provider.reachable
       ? `Not answering. ${provider.problem ?? ''}`.trim()
       : provider.chainId !== chainId
         ? `Answering for chain ${provider.chainId}, and Bursar runs on chain ${chainId}.`
-        : `Block ${provider.blockNumber?.toString() ?? '?'} in ${provider.latencyMs}ms.`,
+        : `Block ${provider.blockNumber?.toString() ?? '?'} in ${provider.latencyMs} ms.`,
   }));
 
   if (list.length === 0) {

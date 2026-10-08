@@ -40,6 +40,26 @@ export function formatDuration(seconds: number): string {
   return rest === 0 ? `${days}d` : `${days}d ${rest}h`;
 }
 
+/**
+ * "2 days", "1 hour 30 minutes": the same two units as `formatDuration`, written out, for a setting
+ * or a sentence. "Wait 2d before a change" reads as code; a table cell counting down can stay short.
+ */
+export function spellDuration(seconds: number): string {
+  const value = Math.max(0, Math.floor(seconds));
+  const unit = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
+  if (value < MINUTE) return unit(value, 'second');
+  if (value < HOUR) {
+    const rest = value % MINUTE;
+    return `${unit(Math.floor(value / MINUTE), 'minute')}${rest === 0 ? '' : ` ${unit(rest, 'second')}`}`;
+  }
+  if (value < DAY) {
+    const rest = Math.floor((value % HOUR) / MINUTE);
+    return `${unit(Math.floor(value / HOUR), 'hour')}${rest === 0 ? '' : ` ${unit(rest, 'minute')}`}`;
+  }
+  const rest = Math.floor((value % DAY) / HOUR);
+  return `${unit(Math.floor(value / DAY), 'day')}${rest === 0 ? '' : ` ${unit(rest, 'hour')}`}`;
+}
+
 /** "in 4h 12m" or "12m ago". */
 export function formatRelative(date: Date, now: Date = new Date()): string {
   const delta = Math.round((date.getTime() - now.getTime()) / 1000);
