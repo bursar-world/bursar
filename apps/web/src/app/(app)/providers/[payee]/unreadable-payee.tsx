@@ -14,15 +14,15 @@ const QUOTE_LIMIT = 64;
 export function UnreadablePayee({ typed }: { readonly typed: string }) {
   return (
     <EmptyState
-      title="The address in this URL is not an address."
+      title="This link does not contain a valid address."
       action={
         <Link href="/providers" className="text-detail underline underline-offset-2">
           Open a desk by address
         </Link>
       }
     >
-      <span className="tabular break-all">{quote(typed)}</span> sits where a payee address belongs, and an address is 42
-      characters beginning 0x. Check what you pasted, or open the provider surface and type it there.
+      <span className="tabular break-all">{quote(typed)}</span> is not an address. An address is 42 characters starting
+      with 0x.
     </EmptyState>
   );
 }

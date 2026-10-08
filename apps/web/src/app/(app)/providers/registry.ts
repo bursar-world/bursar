@@ -67,7 +67,7 @@ export const NAME_MAX_LENGTH = 32;
 export function nameProblem(raw: string): string | undefined {
   if (raw === '') return undefined;
   if (!/^[0-9A-Za-z_]*$/.test(raw)) {
-    return 'Letters, digits and underscore only. The registry refuses the rest so one handle cannot be dressed up as another.';
+    return 'Letters, digits and underscores only.';
   }
   if (raw.length < NAME_MIN_LENGTH) return `At least ${NAME_MIN_LENGTH} characters.`;
   if (raw.length > NAME_MAX_LENGTH) return `At most ${NAME_MAX_LENGTH} characters.`;
@@ -81,9 +81,9 @@ export type RegistrationForm = {
 };
 
 export function registrationGate(facts: RegistryFacts, form: RegistrationForm): Gate {
-  if (facts.barred === true) return { kind: 'blocked', reason: 'This address is barred from the registry. Governance clears that; nothing on this page can.' };
+  if (facts.barred === true) return { kind: 'blocked', reason: 'This address is barred from the registry. Only governance can lift that.' };
   if (facts.registered === true) return { kind: 'blocked', reason: 'This address is already listed. Add to the stake instead.' };
-  if (facts.paused === true) return { kind: 'blocked', reason: 'The registry is paused and is taking no new listings. It reopens when governance unpauses it.' };
+  if (facts.paused === true) return { kind: 'blocked', reason: 'The registry is paused. Listings reopen when governance unpauses it.' };
 
   const unread = firstUnread([
     [facts.registered, 'whether this address is already listed'],
@@ -95,7 +95,7 @@ export function registrationGate(facts: RegistryFacts, form: RegistrationForm): 
 
   const problem = nameProblem(form.name);
   if (problem) return { kind: 'blocked', reason: problem };
-  if (form.name === '') return { kind: 'blocked', reason: 'Choose a handle. It is a display name, not an identity: nothing in the protocol resolves it.' };
+  if (form.name === '') return { kind: 'blocked', reason: 'Choose a handle.' };
 
   return fundingGate(facts, form.stake, facts.minStake);
 }
@@ -103,8 +103,8 @@ export function registrationGate(facts: RegistryFacts, form: RegistrationForm): 
 /** Topping up. The registry cancels any pending withdrawal when it lands, which the copy says. */
 export function topUpGate(facts: RegistryFacts, amount: bigint | undefined): Gate {
   if (facts.registered === false) return { kind: 'blocked', reason: 'This address is not listed yet. Register first.' };
-  if (facts.barred === true) return { kind: 'blocked', reason: 'This address is barred from the registry, so it takes no more stake.' };
-  if (facts.paused === true) return { kind: 'blocked', reason: 'The registry is paused and is taking no stake. It reopens when governance unpauses it.' };
+  if (facts.barred === true) return { kind: 'blocked', reason: 'This address is barred from the registry and cannot add stake.' };
+  if (facts.paused === true) return { kind: 'blocked', reason: 'The registry is paused and is not taking stake.' };
 
   const unread = firstUnread([
     [facts.registered, 'whether this address is listed'],
@@ -118,8 +118,8 @@ export function topUpGate(facts: RegistryFacts, amount: bigint | undefined): Gat
 
 /** Asking to take stake out. Step one of three. */
 export function withdrawalRequestGate(facts: RegistryFacts, amount: bigint | undefined): Gate {
-  if (facts.registered === false) return { kind: 'blocked', reason: 'This address is not listed, so it has no stake to take out.' };
-  if (facts.paused === true) return { kind: 'blocked', reason: 'The registry is paused. A request already matured can still be taken; a new one waits for the unpause.' };
+  if (facts.registered === false) return { kind: 'blocked', reason: 'This address has no stake to take out.' };
+  if (facts.paused === true) return { kind: 'blocked', reason: 'The registry is paused. A request that has already matured can still be taken.' };
   if (facts.withdrawal) return { kind: 'blocked', reason: 'One request at a time. Cancel the one waiting, or take it once it matures.' };
 
   const unread = firstUnread([
@@ -136,12 +136,12 @@ export function withdrawalRequestGate(facts: RegistryFacts, amount: bigint | und
 
   const stake = facts.stake as Micro;
   const floor = facts.minStake as Micro;
-  if (amount > stake) return { kind: 'blocked', reason: 'More than the registry holds for this address.' };
+  if (amount > stake) return { kind: 'blocked', reason: 'More than the stake held for this address.' };
 
   if (facts.active === true && stake - amount < floor) {
     return {
       kind: 'blocked',
-      reason: 'A listed address has to leave the minimum behind. Stop taking work first, then the whole stake can go.',
+      reason: 'While you take work, the minimum stake has to stay. Stop taking work to withdraw all of it.',
     };
   }
 
@@ -151,21 +151,21 @@ export function withdrawalRequestGate(facts: RegistryFacts, amount: bigint | und
 /** Step three. Open while the registry is paused: a matured request is the payee's own money. */
 export function withdrawalExecuteGate(facts: RegistryFacts): Gate {
   if (facts.withdrawal === undefined) return { kind: 'unread', missing: 'whether a request is waiting' };
-  if (facts.withdrawal === null) return { kind: 'blocked', reason: 'Nothing has been asked for.' };
+  if (facts.withdrawal === null) return { kind: 'blocked', reason: 'No withdrawal has been requested.' };
   if (facts.withdrawal.matured === undefined) return { kind: 'unread', missing: 'how long the wait is' };
-  if (!facts.withdrawal.matured) return { kind: 'blocked', reason: 'The wait is still running.' };
+  if (!facts.withdrawal.matured) return { kind: 'blocked', reason: 'The waiting period has not ended yet.' };
   return { kind: 'ready' };
 }
 
 export function withdrawalCancelGate(facts: RegistryFacts): Gate {
   if (facts.withdrawal === undefined) return { kind: 'unread', missing: 'whether a request is waiting' };
-  if (facts.withdrawal === null) return { kind: 'blocked', reason: 'Nothing has been asked for.' };
+  if (facts.withdrawal === null) return { kind: 'blocked', reason: 'No withdrawal has been requested.' };
   return { kind: 'ready' };
 }
 
 export function deactivateGate(facts: RegistryFacts): Gate {
   if (facts.registered === false) return { kind: 'blocked', reason: 'This address is not listed.' };
-  if (facts.active === false) return { kind: 'blocked', reason: 'Already stopped. No payer can open a lock against this address.' };
+  if (facts.active === false) return { kind: 'blocked', reason: 'Already stopped. Payers cannot open new jobs with this address.' };
 
   const unread = firstUnread([
     [facts.registered, 'whether this address is listed'],
@@ -179,8 +179,8 @@ export function deactivateGate(facts: RegistryFacts): Gate {
 export function reactivateGate(facts: RegistryFacts): Gate {
   if (facts.registered === false) return { kind: 'blocked', reason: 'This address is not listed.' };
   if (facts.active === true) return { kind: 'blocked', reason: 'Already taking work.' };
-  if (facts.barred === true) return { kind: 'blocked', reason: 'This address is barred from the registry. Governance clears that; nothing on this page can.' };
-  if (facts.paused === true) return { kind: 'blocked', reason: 'The registry is paused, so it is admitting nobody. It reopens when governance unpauses it.' };
+  if (facts.barred === true) return { kind: 'blocked', reason: 'This address is barred from the registry. Only governance can lift that.' };
+  if (facts.paused === true) return { kind: 'blocked', reason: 'The registry is paused and is not admitting anyone.' };
 
   const unread = firstUnread([
     [facts.registered, 'whether this address is listed'],
@@ -212,8 +212,8 @@ function fundingGate(facts: RegistryFacts, amount: bigint | undefined, floor: Mi
   if (unread) return unread;
 
   if (amount === undefined || amount <= 0n) return { kind: 'blocked', reason: 'Enter an amount.' };
-  if (floor !== undefined && amount < floor) return { kind: 'blocked', reason: 'Under the minimum the registry asks for.' };
-  if (amount > (facts.balance as Micro)) return { kind: 'blocked', reason: 'More USDG than this address holds.' };
+  if (floor !== undefined && amount < floor) return { kind: 'blocked', reason: 'Below the minimum stake.' };
+  if (amount > (facts.balance as Micro)) return { kind: 'blocked', reason: 'More USDG than this wallet holds.' };
   if (amount > (facts.allowance as Micro)) return { kind: 'approve', amount };
 
   return { kind: 'ready' };
@@ -273,9 +273,9 @@ export function creditLine(weights: {
 
   const payers = weights.edgeCap === 0n ? undefined : ceilDiv(weights.fullCredit, weights.edgeCap);
   return (
-    `A score is earned with delivered work, not counted in jobs alone. A job of ${usd(weights.minScored)} or more counts, ` +
-    `each payer for up to ${usd(weights.edgeCap)} of credit, and a full score takes ${usd(weights.fullCredit)} of credit` +
-    (payers === undefined || payers <= 1n ? '.' : `, so at least ${payers} payers.`)
+    `Score comes from delivered work. Jobs of ${usd(weights.minScored)} or more count, each payer adds up to ` +
+    `${usd(weights.edgeCap)} of credit, and a full score takes ${usd(weights.fullCredit)} of credit` +
+    (payers === undefined || payers <= 1n ? '.' : ` from at least ${payers} payers.`)
   );
 }
 
@@ -299,7 +299,7 @@ export function registryTermLines(terms: RegistryTerms | undefined): RegistryTer
   const curveLine =
     terms.baseCap === undefined || terms.capPerScore === undefined || terms.maxCap === undefined
       ? undefined
-      : `A payer may lock up to ${usd(terms.baseCap)} against a new payee, plus ${usd(terms.capPerScore)} for every score point, to a ceiling of ${usd(terms.maxCap)}.`;
+      : `A new provider can take jobs up to ${usd(terms.baseCap)}. Each score point adds ${usd(terms.capPerScore)}, up to ${usd(terms.maxCap)}.`;
 
   return {
     minStake: terms.minStake === undefined ? undefined : usd(terms.minStake),
@@ -312,7 +312,7 @@ export function registryTermLines(terms: RegistryTerms | undefined): RegistryTer
       terms.paused === undefined
         ? undefined
         : terms.paused
-          ? 'The registry is paused and is taking no new listings. It reopens when governance unpauses it.'
+          ? 'The registry is paused. Listings reopen when governance unpauses it.'
           : undefined,
   };
 }

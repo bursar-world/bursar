@@ -38,21 +38,20 @@ function Introduction() {
     <div className="space-y-10">
       <Section
         title="Getting paid"
-        description="Locks held against an address, the record they build, and the ceiling that record earns."
+        description="Agents pay providers through escrow, and a provider's record sets the largest job a payer can open."
       >
         <Card>
           <div className="space-y-4">
             <p className="max-w-prose text-sm">
-              A payer locks USDG in the escrow before the work starts, and the payee releases it on delivery. The escrow
-              will only do that for an address the registry lists, so a provider joins the registry with a stake before
-              anything can pay them. The stake is collateral a ruling is taken from, not a fee.
+              A payer locks USDG in escrow before the work starts, and you release it when you deliver. To be paid, your
+              address joins the provider registry with a stake. A ruling against a job can take part of that stake.
             </p>
             <div className="flex flex-wrap items-center gap-3">
               <Button tone="primary" onClick={() => setConnecting(true)}>
                 Connect a wallet
               </Button>
               <span className="text-detail text-[color:var(--color-muted)]">
-                Connecting is only needed to sign. Reading needs no wallet.
+                A wallet is only needed to sign.
               </span>
             </div>
           </div>
@@ -62,7 +61,7 @@ function Introduction() {
 
       <Section
         title="Open a desk by address"
-        description="Escrow locks, the settlement record and the ceiling it earns are public. Reading one needs no wallet and signs nothing."
+        description="Every provider's payments and record are public. Paste an address to read its desk."
       >
         <Card>
           <OpenDesk />
@@ -71,7 +70,7 @@ function Introduction() {
 
       <RegistryTerms />
 
-      <Section title="Current conditions" description="Read from this network whether or not a wallet is connected.">
+      <Section title="Current conditions" description="Read live from Robinhood Chain.">
         <Card>
           <div className="space-y-3">
             <ErrorSurface error={system.error} action="Reading the current conditions" onRetry={system.refresh} />
@@ -94,7 +93,7 @@ function RegistryTerms() {
   return (
     <Section
       title="What a listing costs"
-      description="Read live from the registry and the reputation curve on Robinhood Chain."
+      description="Live from the provider registry on Robinhood Chain."
       actions={
         <Button size="sm" onClick={refresh} disabled={isFetching}>
           {isFetching ? 'Reading' : 'Read again'}
@@ -105,16 +104,16 @@ function RegistryTerms() {
         <div className="space-y-4">
           <ErrorSurface error={error} action="read the registry terms" onRetry={refresh} />
           <FieldGrid columns={4}>
-            <Field label="Stake to join" hint="Posted in USDG and held by the registry">
+            <Field label="Stake to join" hint="Paid in USDG and held by the registry">
               {show(lines.minStake)}
             </Field>
-            <Field label="Most a ruling can take" hint="Of the stake, per ruling. What is taken does not come back.">
+            <Field label="Most a ruling can take" hint="Share of the stake one ruling can take">
               {show(lines.slashBps)}
             </Field>
             <Field label="Wait to withdraw" hint="Between asking for the stake and taking it">
               {show(lines.withdrawalDelay)}
             </Field>
-            <Field label="First job ceiling" hint="The largest single lock a payer may open at a score of nothing">
+            <Field label="First job ceiling" hint="The largest job a payer can open with a new provider">
               {show(lines.baseCap)}
             </Field>
           </FieldGrid>
@@ -126,20 +125,17 @@ function RegistryTerms() {
           )}
 
           <p className="max-w-prose text-detail text-[color:var(--color-muted)]">
-            {lines.curveLine ??
-              'The reputation curve could not be read, so what a score is worth is unknown on this reading.'}{' '}
-            Score is delivered jobs as a share of every job that reached an outcome
-            {lines.creditLine === null ? '' : ', scaled by the credit that work has earned'}. A job that ran past its
-            deadline or was contested counts as settled and not as delivered.
+            {lines.curveLine ?? 'The score curve could not be read right now.'} Your score is the share of your jobs that
+            were delivered{lines.creditLine === null ? '' : ', weighted by the credit that work earned'}. A job that missed
+            its deadline or was contested counts against it.
           </p>
           {lines.creditLine !== null && (
             <p className="max-w-prose text-detail text-[color:var(--color-muted)]">
-              {lines.creditLine ?? 'How a point is earned could not be read on this reading.'}
+              {lines.creditLine ?? 'How score is earned could not be read right now.'}
             </p>
           )}
           <p className="max-w-prose text-detail text-[color:var(--color-muted)]">
-            The stake does not raise the ceiling on a single job; only the score does. Deeper collateral is what a
-            principal reads before allowlisting an address, and it is what a ruling is taken from.
+            Only your score raises the job ceiling. Your stake is what payers see at risk behind your work.
           </p>
         </div>
       </Card>

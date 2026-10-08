@@ -75,7 +75,7 @@ describe('a handle the registry would take', () => {
   });
 
   it('refuses the characters the contract refuses, and names the reason it refuses them', () => {
-    expect(nameProblem('acme transcribe')).toContain('Letters, digits and underscore only');
+    expect(nameProblem('acme transcribe')).toContain('Letters, digits and underscores only');
     expect(nameProblem('acme-transcribe')).toBeDefined();
     expect(nameProblem('acme.co')).toBeDefined();
   });
@@ -86,7 +86,7 @@ describe('a handle the registry would take', () => {
    * add a third emoji to a handle that can never be accepted.
    */
   it('names the character set for a handle that is short in characters and long in bytes', () => {
-    expect(nameProblem('🙂🙂')).toContain('Letters, digits and underscore only');
+    expect(nameProblem('🙂🙂')).toContain('Letters, digits and underscores only');
   });
 
   it('holds the registry length bounds', () => {
@@ -110,12 +110,12 @@ describe('registering', () => {
 
   it('refuses a stake under the registry minimum rather than letting the wallet find out', () => {
     const gate = registrationGate(facts({ registered: false }), { ...form, stake: 4_999_999n });
-    expect(reason(gate)).toContain('Under the minimum');
+    expect(reason(gate)).toContain('Below the minimum stake');
   });
 
   it('refuses a stake the address cannot pay for', () => {
     const gate = registrationGate(facts({ registered: false, balance: micro(1_000_000n) }), form);
-    expect(reason(gate)).toContain('More USDG than this address holds');
+    expect(reason(gate)).toContain('More USDG than this wallet holds');
   });
 
   it('sends an address that is already listed to the top-up instead', () => {
@@ -124,7 +124,7 @@ describe('registering', () => {
 
   it('names governance as the owner of a barred address, because nothing on the page clears it', () => {
     const gate = registrationGate(facts({ registered: false, barred: true }), form);
-    expect(reason(gate)).toContain('Governance clears that');
+    expect(reason(gate)).toContain('Only governance can lift that');
   });
 
   it('says the registry is closed rather than blaming the form', () => {
@@ -173,7 +173,7 @@ describe('asking to take a stake out', () => {
   /** `requestWithdrawal` reverts `InsufficientStake` when an active agent drops under the floor. */
   it('refuses to strip a listed address under the floor, and says what to do instead', () => {
     const gate = withdrawalRequestGate(facts(), 6_000_000n);
-    expect(reason(gate)).toContain('Stop taking work first');
+    expect(reason(gate)).toContain('Stop taking work to withdraw all of it');
   });
 
   it('lets a stopped address take the whole stake', () => {
@@ -181,7 +181,7 @@ describe('asking to take a stake out', () => {
   });
 
   it('refuses more than the registry holds', () => {
-    expect(reason(withdrawalRequestGate(facts(), 11_000_000n))).toContain('More than the registry holds');
+    expect(reason(withdrawalRequestGate(facts(), 11_000_000n))).toContain('More than the stake held');
   });
 
   it('refuses a second request while one is waiting, which is what the contract does', () => {
@@ -196,7 +196,7 @@ describe('asking to take a stake out', () => {
 
 describe('taking a matured stake, and cancelling one that is not', () => {
   it('waits while the clock is running, and says so rather than dimming a button', () => {
-    expect(reason(withdrawalExecuteGate(facts({ withdrawal: pending() })))).toContain('wait is still running');
+    expect(reason(withdrawalExecuteGate(facts({ withdrawal: pending() })))).toContain('waiting period has not ended');
   });
 
   it('is ready once the request has matured', () => {
@@ -204,7 +204,7 @@ describe('taking a matured stake, and cancelling one that is not', () => {
   });
 
   it('says nothing was asked for when nothing was', () => {
-    expect(reason(withdrawalExecuteGate(facts()))).toContain('Nothing has been asked for');
+    expect(reason(withdrawalExecuteGate(facts()))).toContain('No withdrawal has been requested');
   });
 
   it('separates a request that is not there from one nobody could read', () => {
@@ -303,13 +303,13 @@ describe('how a point is earned', () => {
 
   it('names the job that counts, the cap per payer and the fewest payers a full score takes', () => {
     expect(creditLine(weights)).toBe(
-      'A score is earned with delivered work, not counted in jobs alone. A job of $1.00 or more counts, each payer for up to ' +
-        '$62.50 of credit, and a full score takes $250.00 of credit, so at least 4 payers.',
+      'Score comes from delivered work. Jobs of $1.00 or more count, each payer adds up to $62.50 of credit, and a full ' +
+        'score takes $250.00 of credit from at least 4 payers.',
     );
   });
 
   it('rounds the payers up when the cap does not divide the full credit', () => {
-    expect(creditLine({ ...weights, edgeCap: micro(100_000_000n) })).toContain('so at least 3 payers.');
+    expect(creditLine({ ...weights, edgeCap: micro(100_000_000n) })).toContain('from at least 3 payers.');
     expect(creditLine({ ...weights, edgeCap: micro(250_000_000n) })).toMatch(/of credit\.$/);
   });
 
@@ -353,7 +353,7 @@ describe('the registry terms a reader sees before connecting anything', () => {
 
   it('says nothing about a pause that is off, and says so when it is on', () => {
     expect(registryTermLines(terms).pausedLine).toBeUndefined();
-    expect(registryTermLines({ ...terms, paused: true }).pausedLine).toContain('taking no new listings');
+    expect(registryTermLines({ ...terms, paused: true }).pausedLine).toContain('Listings reopen when governance unpauses it');
   });
 
   it('answers a reading that never happened without inventing one', () => {

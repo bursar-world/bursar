@@ -4,7 +4,7 @@ import { ProviderView } from './provider-view';
 export const metadata: Metadata = {
   title: 'Getting paid · BURSAR',
   description:
-    'For the party being paid: what a listing costs, locks held against an address, and the record that decides how large a single job may be. Readable without a wallet.',
+    'Get paid by agents through escrow. List your address with a stake, deliver the work, and grow the size of job a payer can open.',
 };
 
 export default function ProvidersPage() {

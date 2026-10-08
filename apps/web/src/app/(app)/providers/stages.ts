@@ -21,12 +21,12 @@ const STAGE_LABEL: Record<LockStage, string> = {
   'awaiting-delivery': 'Waiting on delivery',
   'deadline-passed': 'Deadline passed',
   'paid-open-to-dispute': 'Paid, still contestable',
-  'paid-unrecorded': 'Paid, outside the record',
+  'paid-unrecorded': 'Paid, not yet recorded',
   'paid-recorded': 'Paid and recorded',
   contested: 'Contested',
   ruled: 'Settled by a ruling',
   'dispute-closed': 'Closed without a ruling',
-  'dispute-unread': 'Settled by a dispute, outcome not read',
+  'dispute-unread': 'Settled by a dispute, result not read',
   'returned-to-payer': 'Returned to the payer',
   declined: 'Returned early',
 };
@@ -60,29 +60,29 @@ export function stageDetail(lock: ProviderLock, now: Date, voice: Voice = 'payee
   switch (lock.stage) {
     case 'awaiting-delivery':
       return mine
-        ? `${usd(lock.net)} reaches you when you release it. The payer takes the money back after ${formatInstant(lock.deadline)}, ${formatRelative(lock.deadline, now)}.`
-        : `${usd(lock.net)} is held for this address until the job is released. The payer takes it back after ${formatInstant(lock.deadline)}, ${formatRelative(lock.deadline, now)}.`;
+        ? `You receive ${usd(lock.net)} when you release it. After ${formatInstant(lock.deadline)} (${formatRelative(lock.deadline, now)}) it can go back to the payer.`
+        : `${usd(lock.net)} is held for this address until the job is released. After ${formatInstant(lock.deadline)} (${formatRelative(lock.deadline, now)}) it can go back to the payer.`;
 
     case 'deadline-passed':
       return mine
-        ? `The deadline ran out ${formatRelative(lock.deadline, now)}. Anyone can return the money to the payer now, and the escrow counts the job against you when they do.`
-        : `The deadline ran out ${formatRelative(lock.deadline, now)}. Anyone can return the money to the payer now, and the escrow counts the job against this address when they do.`;
+        ? `The deadline passed ${formatRelative(lock.deadline, now)}. Anyone can now return the money to the payer, and the job will count against your record.`
+        : `The deadline passed ${formatRelative(lock.deadline, now)}. Anyone can now return the money to the payer, and the job will count against this address's record.`;
 
     case 'paid-open-to-dispute':
       if (lock.recordableAt === null) return 'Paid. The payer can still contest it.';
       return mine
-        ? `Paid. The payer can contest it until ${formatInstant(lock.recordableAt)}. After that the job can go into your record.`
-        : `Paid. The payer can contest it until ${formatInstant(lock.recordableAt)}. After that the job can go into this address's record.`;
+        ? `Paid. The payer can contest it until ${formatInstant(lock.recordableAt)}, then it can be recorded.`
+        : `Paid. The payer can contest it until ${formatInstant(lock.recordableAt)}, then it can be recorded.`;
 
     case 'paid-unrecorded':
       return mine
-        ? `Paid ${formatRelative(lock.releasedAt ?? lock.deadline, now)} and never contested. Nothing has written it into your record, so it is not counting towards your ceiling.`
-        : `Paid ${formatRelative(lock.releasedAt ?? lock.deadline, now)} and never contested. Nothing has written it into the record, so it is not counting towards this address's ceiling.`;
+        ? `Paid ${formatRelative(lock.releasedAt ?? lock.deadline, now)} and not contested. Record it to count it toward your job ceiling.`
+        : `Paid ${formatRelative(lock.releasedAt ?? lock.deadline, now)} and not contested. It counts toward this address's ceiling once it is recorded.`;
 
     case 'paid-recorded':
       return mine
-        ? `Paid and counted towards your record${lock.releasedAt ? ` on ${formatInstant(lock.releasedAt)}` : ''}.`
-        : `Paid and counted towards the record${lock.releasedAt ? ` on ${formatInstant(lock.releasedAt)}` : ''}.`;
+        ? `Paid and recorded${lock.releasedAt ? ` on ${formatInstant(lock.releasedAt)}` : ''}.`
+        : `Paid and recorded${lock.releasedAt ? ` on ${formatInstant(lock.releasedAt)}` : ''}.`;
 
     case 'contested':
       return contestedDetail(lock, now, mine);
@@ -95,8 +95,8 @@ export function stageDetail(lock: ProviderLock, now: Date, voice: Voice = 'payee
 
     case 'dispute-unread':
       return mine
-        ? 'This lock left the escrow through a dispute. How that dispute ended did not come back in this reading, so what reached you is unknown rather than nothing.'
-        : 'This lock left the escrow through a dispute. How that dispute ended did not come back in this reading, so what reached the payee is unknown rather than nothing.';
+        ? 'Settled through a dispute. The result could not be read right now.'
+        : 'Settled through a dispute. The result could not be read right now.';
 
     case 'returned-to-payer':
       return mine
@@ -105,8 +105,8 @@ export function stageDetail(lock: ProviderLock, now: Date, voice: Voice = 'payee
 
     case 'declined':
       return mine
-        ? 'You returned this one before the deadline. Declining early costs your record nothing.'
-        : 'Returned before the deadline. Declining early costs the record nothing.';
+        ? 'You returned this before the deadline. Declining early does not affect your record.'
+        : 'Returned before the deadline. Declining early does not affect the record.';
   }
 }
 
@@ -125,16 +125,16 @@ function ruledDetail(lock: ProviderLock, mine: boolean): string {
 
   const opening =
     dispute === undefined
-      ? 'A resolver panel ruled on this lock.'
-      : `A resolver panel ruled on this lock at a median score of ${dispute.medianScore}, which sent ${refund} of it back to the payer.`;
+      ? 'Resolvers ruled on this job.'
+      : `Resolvers ruled on this job with a median score of ${dispute.medianScore}, returning ${refund} of it to the payer.`;
 
   if (lock.payout.kind === 'paid') {
-    return `${opening} ${usdExact(lock.payout.amount)} reached ${you}, after the settlement fee.`;
+    return `${opening} ${usdExact(lock.payout.amount)} reached ${you} after the settlement fee.`;
   }
   if (lock.payout.kind === 'none') {
     return `${opening} Nothing reached ${you}.`;
   }
-  return `${opening} What reached ${you} could not be worked out from this reading.`;
+  return `${opening} What reached ${you} could not be read right now.`;
 }
 
 /**
@@ -151,18 +151,18 @@ function closedDetail(lock: ProviderLock, mine: boolean): string {
   const you = mine ? 'you' : 'the payee';
 
   if (dispute !== undefined && dispute.status === DISPUTE_FAILED && lock.deployment.contractSet !== 'v1') {
-    return `Most of the scores the resolvers revealed sat far from the middle, so the vote had nothing to rule by. The dispute closed without a ruling and the escrow returned the whole lock to the payer, with no resolver fee taken. Nothing reached ${you}, and the job counts as disputed on the record.`;
+    return `The resolvers' scores were too far apart to rule on, so the dispute closed without a ruling. The payer got the full amount back and no resolver fee was taken. Nothing reached ${you}, and the job counts as disputed.`;
   }
 
   if (dispute !== undefined && dispute.status === DISPUTE_FAILED) {
     const quorum =
       dispute.revealCount === 0
-        ? 'No resolver ever published a score'
+        ? 'No resolver published a score'
         : `${dispute.revealCount} of ${dispute.commitCount} sealed ${dispute.commitCount === 1 ? 'score was' : 'scores were'} published`;
-    return `The panel never reached a result, so the dispute was closed without a ruling. ${quorum}, which leaves no median to split the lock by, and the escrow sends the whole lock back to the payer less its resolver fee. Nothing reached ${you}, and the job counts as disputed on the record.`;
+    return `Too few resolvers published a score, so the dispute closed without a ruling. ${quorum}. The payer got the amount back less the resolver fee. Nothing reached ${you}, and the job counts as disputed.`;
   }
 
-  return `No ruling ever landed on this dispute, and the earlier contracts holding it returned the lock to the payer without one. Nothing reached ${you}, no fee was taken from it, and the job counts as disputed on the record.`;
+  return `The dispute closed without a ruling and the payer got the amount back with no fee taken. Nothing reached ${you}, and the job counts as disputed.`;
 }
 
 /** `IOracleRegistry.DisputeStatus.Failed`. */
@@ -173,27 +173,27 @@ function contestedDetail(lock: ProviderLock, now: Date, mine: boolean): string {
 
   if (lock.releasedAt !== null && lock.status === LockStatus.Disputed) {
     return mine
-      ? `${byWhom} contested this after it was paid. The money stayed with you, and your record counts the job as contested. It does not count as delivered.`
-      : `${byWhom} contested this after it was paid. The money stayed with the payee, and the record counts the job as contested. It does not count as delivered.`;
+      ? `${byWhom} contested this after it was paid. You keep the money, and the job counts as contested on your record.`
+      : `${byWhom} contested this after it was paid. The payee keeps the money, and the job counts as contested.`;
   }
 
   const dispute = lock.dispute;
   if (!dispute) {
-    return `${byWhom} contested this lock. The money is frozen until a resolver rules on it.`;
+    return `${byWhom} contested this job. The money is held until resolvers rule on it.`;
   }
 
   const voting =
     dispute.revealEndsAt === null
-      ? 'A resolver panel is ruling on it.'
-      : `Resolvers vote in two passes: sealed scores first, then the reveal, which closes ${formatRelative(dispute.revealEndsAt, now)}. ${dispute.commitCount} sealed so far, ${dispute.revealCount} revealed.`;
+      ? 'Resolvers are ruling on it.'
+      : `Resolvers seal their scores, then reveal them. The reveal closes ${formatRelative(dispute.revealEndsAt, now)}: ${dispute.commitCount} sealed and ${dispute.revealCount} revealed so far.`;
 
   // From then one of the registry's two exits is always open, to anyone, so nothing holds the lock.
   const settles =
     lock.deployment.contractSet === 'v1'
-      ? ' Once the reveal closes anyone can settle it.'
-      : ` Once the reveal closes anyone can settle it: a ruling splits the lock, and if too few resolvers reveal, it goes back on hold for ${mine ? 'you' : 'the payee'} with a new deadline.`;
+      ? ' After the reveal anyone can settle it.'
+      : ` After the reveal anyone can settle it. A ruling splits the amount, and if too few resolvers reveal, the payment goes back on hold for ${mine ? 'you' : 'the payee'} with a new deadline.`;
 
-  return `${byWhom} contested this lock, so the money is frozen. ${voting}${settles}`;
+  return `${byWhom} contested this job, so the money is held. ${voting}${settles}`;
 }
 
 /** The delivery window a payer may choose, in words. */

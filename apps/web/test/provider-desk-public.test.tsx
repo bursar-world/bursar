@@ -142,7 +142,7 @@ describe('a lock read by somebody who is not the payee', () => {
   });
 
   it('still reads in the second person for the payee, which is who it is addressed to', () => {
-    expect(stageDetail(lock(), NOW, 'payee')).toContain('reaches you when you release it');
+    expect(stageDetail(lock(), NOW, 'payee')).toContain('when you release it');
   });
 
   it('keeps every stage free of the second person on the public reading', () => {
@@ -177,9 +177,9 @@ describe('a lock read by somebody who is not the payee', () => {
       disputedAt: new Date(NOW.getTime() - 3_600 * 1000),
     });
 
-    expect(stageDetail(contested, NOW, 'public')).toContain('stayed with the payee');
+    expect(stageDetail(contested, NOW, 'public')).toContain('The payee keeps the money');
     expect(stageDetail(contested, NOW, 'public')).not.toMatch(/\byou\b|\byour\b/i);
-    expect(stageDetail(contested, NOW, 'payee')).toContain('stayed with you');
+    expect(stageDetail(contested, NOW, 'payee')).toContain('You keep the money');
   });
 
   it('defaults to the reading the payee gets, so an existing call site is unchanged', () => {
@@ -259,11 +259,11 @@ describe('the credit behind a score', () => {
     expect(markup).toContain('Credit toward a full score');
     expect(markup).toContain('$62.50');
     expect(markup).toContain('of $250.00');
-    expect(markup).toContain('2 of 2 settled jobs were delivered, and that work has earned $62.50 of the $250.00 a full score takes.');
-    expect(markup).toContain('The score is the first share scaled by the second: 25 of 100.');
-    expect(markup).toContain('A payer counts for up to $62.50, so more work from a payer already there adds nothing');
-    expect(markup).toContain('A job under $1.00 counts for nothing either way.');
-    expect(markup).toContain('scaled by the credit that work has earned');
+    expect(markup).toContain('2 of 2 settled jobs were delivered, earning $62.50 of the $250.00 a full score takes.');
+    expect(markup).toContain('The score combines the two: 25 of 100.');
+    expect(markup).toContain('Each payer counts for up to $62.50, so once a payer reaches that, only work from new payers adds credit.');
+    expect(markup).toContain('Jobs under $1.00 do not count.');
+    expect(markup).toContain('weighted by the credit that work earned');
   });
 
   it('counts credit past the top as the top, and says the score now moves with delivered work alone', () => {
@@ -271,14 +271,14 @@ describe('the credit behind a score', () => {
 
     expect(markup).toContain('$250.00 of the $250.00');
     expect(markup).toContain('The credit is full, so your score now moves with the delivered share alone.');
-    expect(markup).not.toContain('adds nothing');
+    expect(markup).not.toContain('only work from new payers');
   });
 
   it('tells a new payee what the first job earns and how many payers a full score takes', () => {
     const fresh = { ...weighed, released: 0n, score: 0, cap: micro(25_000_000n), credit: micro(0n) };
     const markup = renderToStaticMarkup(<ReputationPanel desk={desk({ record: fresh })} owned={false} />);
 
-    expect(markup).toContain('Nothing has settled for this address yet.');
+    expect(markup).toContain('No jobs have settled for this address yet.');
     expect(markup).toContain('a full score takes $250.00 from at least 4 payers');
   });
 
@@ -286,7 +286,7 @@ describe('the credit behind a score', () => {
     const markup = renderToStaticMarkup(<ReputationPanel desk={desk({ record: { ...weighed, credit: undefined } })} owned={false} />);
 
     expect(markup).toContain('Not read');
-    expect(markup).toContain('The credit behind this score could not be read.');
+    expect(markup).toContain('The credit behind this score could not be read right now.');
     expect(markup).not.toContain('$0.00 of');
   });
 });
@@ -336,8 +336,8 @@ describe('whether a payer can reach this address', () => {
     const markup = renderToStaticMarkup(<DeskStanding desk={desk()} owned={false} />);
 
     expect(markup).toContain('Listed as acme_transcribe');
-    expect(markup).toContain('Taking work, and payers can open locks against it');
-    expect(markup).toContain('can take up to 10% of it, which is $1.00 at the stake posted now');
+    expect(markup).toContain('Taking work.');
+    expect(markup).toContain('One ruling can take up to 10% of it, $1.00 at today');
   });
 
   /**
@@ -349,14 +349,14 @@ describe('whether a payer can reach this address', () => {
   it('says the address can be paid when both compliance readings landed clear', () => {
     const markup = renderToStaticMarkup(<DeskStanding desk={desk()} owned={false} />);
 
-    expect(markup).toContain('Not blocked, and USDG is not paused');
-    expect(markup).not.toContain('The pause did not answer');
+    expect(markup).toContain('Payouts can land here.');
+    expect(markup).not.toContain('Could not read whether USDG is paused');
   });
 
   it('still says the pause is unknown when only the blocklist answered', () => {
     const markup = renderToStaticMarkup(<DeskStanding desk={desk({ tokenPaused: undefined })} owned={false} />);
 
-    expect(markup).toContain('The pause did not answer');
+    expect(markup).toContain('Could not read whether USDG is paused');
     expect(markup).toContain('aria-label="Unknown"');
   });
 
@@ -368,15 +368,15 @@ describe('whether a payer can reach this address', () => {
     });
     const markup = renderToStaticMarkup(<DeskStanding desk={unknown} owned={false} />);
 
-    expect(markup).toContain('The registry did not answer');
-    expect(markup).toContain('The blocklist did not answer');
+    expect(markup).toContain('Could not read the registry');
+    expect(markup).toContain('Could not read the USDG blocklist');
   });
 
   /** A payout to a blocked address reverts on the token whatever the escrow and the registry say. */
   it('says the token blocks the address even while the registry is happy', () => {
     const markup = renderToStaticMarkup(<DeskStanding desk={desk({ blocked: true })} owned={false} />);
 
-    expect(markup).toContain('asset issuer has blocked this address');
+    expect(markup).toContain('USDG issuer has blocked this address');
   });
 
   it('tells the payee where their own control is, and does not send a stranger looking for it', () => {
@@ -391,7 +391,7 @@ describe('whether a payer can reach this address', () => {
   it('flags a stake that has fallen under the registry minimum', () => {
     const short = desk({ standing: { ...desk().standing, stake: micro(1_000_000n) } });
 
-    expect(renderToStaticMarkup(<DeskStanding desk={short} owned />)).toContain('stake sits under the minimum');
+    expect(renderToStaticMarkup(<DeskStanding desk={short} owned />)).toContain('the stake is below the minimum');
   });
 });
 
@@ -402,7 +402,7 @@ describe('the headline figures', () => {
     expect(markup).toContain('Largest single job');
     expect(markup).toContain('$100.00');
     expect(markup).toContain('Stake posted');
-    expect(markup).toContain('Against a $5.00 minimum');
+    expect(markup).toContain('Minimum $5.00');
   });
 
   it('shows a dash and says Not read when the escrow did not answer, never a total of zero', () => {

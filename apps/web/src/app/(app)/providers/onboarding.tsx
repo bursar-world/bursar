@@ -60,7 +60,7 @@ export function RegisterCard({
   return (
     <Card
       title="Join the registry"
-      description="A payer cannot open a lock against an address the registry does not list. This is that listing."
+      description="List your address so payers can pay you."
     >
       <form className="space-y-4" onSubmit={preventNavigation}>
         <FieldGrid columns={2}>
@@ -85,7 +85,7 @@ export function RegisterCard({
             />
             <p className="text-note" style={{ color: nameProblem(name) ? 'var(--color-state-blocked)' : 'var(--color-muted)' }}>
               {nameProblem(name) ??
-                'A display name. It is not unique and nothing in the protocol resolves it, so the address stays the identity.'}
+                'A display name. Your address remains your identity.'}
             </p>
           </div>
 
@@ -100,8 +100,8 @@ export function RegisterCard({
             max={desk.balance === undefined ? undefined : { atomic: desk.balance, label: 'All of it' }}
             hint={
               floor === undefined
-                ? 'The registry did not answer its minimum.'
-                : `At least ${usd(floor)}. More stake does not raise the ceiling on a job; it is what a ruling is taken from.`
+                ? 'The minimum stake could not be read.'
+                : `At least ${usd(floor)}. A ruling against a job can take part of it.`
             }
           />
         </FieldGrid>
@@ -159,10 +159,9 @@ export function RegisterCard({
         {!landed && <GateNote gate={gate} />}
 
         <p className="text-detail text-[color:var(--color-muted)]">
-          Two transactions. The first lets the registry at {floor === undefined ? 'the stake' : usd(floor)} of USDG from
-          this wallet; the second joins the registry and moves it. Transaction fees are paid in ETH from the wallet that
-          signs, and the stake is paid in USDG.
-          {ruling !== undefined && ` A single ruling can take up to ${bps(ruling)} of the stake.`}
+          Two transactions: allow the registry to take the stake, then register. The stake is paid in USDG and transaction
+          fees in ETH.
+          {ruling !== undefined && ` One ruling can take up to ${bps(ruling)} of the stake.`}
         </p>
       </form>
     </Card>
@@ -181,7 +180,7 @@ export function AddStakeCard({ desk, blockedBy, onDone }: PanelProps) {
   const pending = desk.standing.withdrawal;
 
   return (
-    <Card title="Add to the stake" description="Deeper collateral is what a principal reads before allowlisting an address.">
+    <Card title="Add to the stake" description="Payers see your stake before they allow your address.">
       <form className="max-w-md space-y-4" onSubmit={preventNavigation}>
         <AmountInput
           label="Amount to add"
@@ -192,7 +191,7 @@ export function AddStakeCard({ desk, blockedBy, onDone }: PanelProps) {
             setAtomic(value);
           }}
           max={desk.balance === undefined ? undefined : { atomic: desk.balance, label: 'All of it' }}
-          hint="Added to the collateral a ruling is taken from. It does not raise the ceiling on a single job; only the score does that."
+          hint="Only your score raises the job ceiling."
         />
 
         {/*
@@ -244,8 +243,8 @@ export function AddStakeCard({ desk, blockedBy, onDone }: PanelProps) {
 
         {pending && (
           <p className="text-detail" style={{ color: 'var(--color-state-attention)' }}>
-            A withdrawal of {usd(pending.amount)} is waiting. Adding stake cancels it, and the wait starts again from
-            zero if it is asked for a second time.
+            A withdrawal of {usd(pending.amount)} is pending. Adding stake cancels it, and a new request starts the wait
+            again.
           </p>
         )}
       </form>
@@ -278,17 +277,16 @@ export function WithdrawalCard({ desk, blockedBy, onDone }: PanelProps) {
   const openLocks = desk.complete ? desk.working.length : undefined;
   const caveat =
     openLocks === undefined
-      ? 'Whether anything is locked against you could not be read, so what a request would leave outstanding is unknown.'
+      ? 'Your open jobs could not be read right now.'
       : openLocks === 0
-        ? 'Nothing is locked against you right now, so a request leaves no work outstanding.'
-        : `Asking does not settle the ${openLocks} ${openLocks === 1 ? 'job' : 'jobs'} already locked against you. Each one still has to be delivered, or it runs to its deadline and counts against your record.`;
+        ? 'You have no open jobs.'
+        : `You still have ${openLocks} open ${openLocks === 1 ? 'job' : 'jobs'}. Deliver each one, or it counts against your record when its deadline passes.`;
 
   if (pending === undefined) {
     return (
       <Card title="Take stake out">
         <p className="text-sm text-[color:var(--color-muted)]">
-          The registry did not answer whether a withdrawal is waiting, so neither step is offered. Nothing has changed on
-          chain; only the reading failed.
+          Could not read whether a withdrawal is pending. Read the desk again.
         </p>
       </Card>
     );
@@ -296,13 +294,13 @@ export function WithdrawalCard({ desk, blockedBy, onDone }: PanelProps) {
 
   if (pending !== null) {
     return (
-      <Card title="Stake on its way out" description="One request at a time. The registry holds it until the wait runs down.">
+      <Card title="Withdrawal pending" description="The registry releases it when the waiting period ends.">
         <div className="space-y-4">
           <FieldGrid columns={3}>
             <Field label="Amount">
               <span className="tabular">{usd(pending.amount)}</span>
             </Field>
-            <Field label="Asked for">
+            <Field label="Requested">
               <Instant at={pending.requestedAt} />
             </Field>
             <Field label={pending.matured === true ? 'Ready since' : 'Ready'}>
@@ -317,7 +315,7 @@ export function WithdrawalCard({ desk, blockedBy, onDone }: PanelProps) {
           </FieldGrid>
 
           <p className="text-sm">
-            {caveat} The stake stays slashable until it leaves, so a ruling made inside the wait still reaches it.
+            {caveat} A ruling during the waiting period can still take from this stake.
           </p>
 
           <div className="flex flex-wrap items-start gap-3">
@@ -353,10 +351,8 @@ export function WithdrawalCard({ desk, blockedBy, onDone }: PanelProps) {
           <GateNote gate={executeGate} />
 
           <p className="text-detail text-[color:var(--color-muted)]">
-            Taking it while you are still listed and the remainder falls under{' '}
-            {standing.minStake === undefined ? 'the minimum' : usd(standing.minStake)} stops you taking work in the
-            same transaction. Cancelling costs the wait: a second request starts the{' '}
-            {delay ?? 'full'} clock again.
+            If what remains falls below {standing.minStake === undefined ? 'the minimum' : usd(standing.minStake)},
+            taking it also stops you taking work. Cancelling resets the wait: a new request starts it again.
           </p>
         </div>
       </Card>
@@ -366,7 +362,7 @@ export function WithdrawalCard({ desk, blockedBy, onDone }: PanelProps) {
   return (
     <Card
       title="Take stake out"
-      description={delay === undefined ? 'Asked for first, taken later.' : `Asked for first, taken ${delay} later.`}
+      description={delay === undefined ? 'Request it now and take it after a waiting period.' : `Request it now and take it ${delay} later.`}
     >
       <form className="max-w-md space-y-4" onSubmit={preventNavigation}>
         <AmountInput
@@ -380,8 +376,8 @@ export function WithdrawalCard({ desk, blockedBy, onDone }: PanelProps) {
           max={standing.stake === undefined ? undefined : { atomic: standing.stake, label: 'All of it' }}
           hint={
             standing.minStake === undefined
-              ? 'A listed address has to leave the registry minimum behind.'
-              : `A listed address has to leave ${usd(standing.minStake)} behind. Stop taking work first to withdraw the whole stake.`
+              ? 'While you take work, the minimum stake has to stay.'
+              : `While you take work, ${usd(standing.minStake)} has to stay. Stop taking work to withdraw all of it.`
           }
         />
 
@@ -422,14 +418,14 @@ export function AvailabilityCard({ desk, blockedBy, onDone }: PanelProps) {
   const active = desk.standing.active;
 
   return (
-    <Card title="Taking work" description="Whether the escrow will accept a new lock naming your address.">
+    <Card title="Taking work" description="Whether payers can open new jobs with you.">
       <div className="space-y-4">
         <p className="text-sm">
           {active === undefined
-            ? 'The registry did not answer whether you are taking work, so neither control is offered.'
+            ? 'Could not read whether you are taking work. Read the desk again.'
             : active
-              ? 'Payers can open locks against you now. Stopping refuses new ones from the next block. Locks already open are unaffected: each still has to be delivered, or it runs to its deadline and counts against your record.'
-              : 'The registry is refusing new locks against you. Your stake stays posted and stays slashable while you are stopped, so this is a pause on new work and not an exit.'}
+              ? 'Payers can open jobs with you. Stopping refuses new jobs right away, and open jobs still need delivering.'
+              : 'You are not taking new jobs. Your stake stays posted, and a ruling can still take from it.'}
         </p>
 
         <div className="flex flex-wrap items-start gap-3">
@@ -457,7 +453,7 @@ export function AvailabilityCard({ desk, blockedBy, onDone }: PanelProps) {
               blockedBy={blockedBy}
               confirmPhrase="stop"
               confirmTitle="Stop taking work"
-              confirmDescription="New locks naming your address are refused from the moment this lands. Work already locked still has to be delivered."
+              confirmDescription="New jobs are refused as soon as this lands. Open jobs still need delivering."
               send={() =>
                 writeContractAsync({
                   address: ADDRESSES.agentRegistry,
@@ -484,21 +480,20 @@ function StakeTerms({ desk }: { readonly desk: ProviderDesk }) {
   return (
     <FieldGrid columns={3}>
       <Field label="What it buys" hint={`Held by the registry at ${shortAddress(ADDRESSES.agentRegistry)}`}>
-        The escrow will accept a lock naming your address. Without a listing it refuses every one.
+        Payers can open jobs with your address.
       </Field>
       <Field
         label="What it risks"
         hint={
           standing.slashBps === undefined
-            ? 'The registry did not answer the ceiling on a ruling.'
+            ? 'The ruling limit could not be read.'
             : `Up to ${bps(standing.slashBps)} of the stake per ruling`
         }
       >
-        A resolver ruling against a job can take part of the stake. What it takes leaves the registry and does not
-        come back.
+        A ruling against a job can take part of the stake. That part is not returned.
       </Field>
       <Field label="Getting it back" hint={delay === undefined ? undefined : `${delay} between asking and taking`}>
-        Through a request that matures on a delay, so a stake cannot leave between a bad job and the ruling on it.
+        Request a withdrawal, then take it after the waiting period.
       </Field>
     </FieldGrid>
   );
@@ -521,7 +516,7 @@ export function GateNote({ gate }: { readonly gate: Gate }): ReactNode {
           <LevelDot level="unknown" />
         </span>
         <span>
-          Held back because {gate.missing} could not be read. Nothing has changed on chain; only the reading failed.
+          Could not read {gate.missing}. Read the desk again.
         </span>
       </p>
     );

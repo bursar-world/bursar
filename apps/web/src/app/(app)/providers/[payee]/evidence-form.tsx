@@ -57,7 +57,7 @@ export function EvidenceForm({ lock }: { readonly lock: ProviderLock }) {
         body: JSON.stringify(encodeEvidence({ kind: 'delivery', chainId: CHAIN_ID, escrow: lock.deployment.escrow, evidence, signature: signature as Hex })),
       });
       const body = (await response.json().catch(() => ({}))) as { counted?: unknown; cutoff?: unknown; detail?: unknown };
-      if (!response.ok) throw new Error(typeof body.detail === 'string' ? body.detail : `The ruling service answered ${response.status}.`);
+      if (!response.ok) throw new Error(typeof body.detail === 'string' ? body.detail : 'The ruling service could not take the evidence. Try again.');
       setSent({ counted: body.counted === true, cutoff: typeof body.cutoff === 'string' ? new Date(body.cutoff) : cutoff });
     } catch (caught) {
       setFailure(caught);
@@ -68,16 +68,15 @@ export function EvidenceForm({ lock }: { readonly lock: ProviderLock }) {
 
   return (
     <Card
-      title={`Show the resolvers job ${lock.id.toString()}`}
+      title={`Send evidence for job ${lock.id.toString()}`}
       description={
         <>
-          The payer disputed this job before it was paid, so no output reached the chain. Signed evidence lets the resolvers check the
-          delivery.{' '}
+          The payer contested this job before it was paid. Sign what you delivered so the resolvers can check it.{' '}
           {cutoff === null ? (
-            'It counts if it arrives within the first half of the resolvers’ sealing window.'
+            'Send it within the first half of the sealing window.'
           ) : (
             <>
-              It counts if it arrives before <Instant at={cutoff} />.
+              Send it before <Instant at={cutoff} />.
             </>
           )}
         </>
@@ -102,7 +101,7 @@ export function EvidenceForm({ lock }: { readonly lock: ProviderLock }) {
             className="w-full border border-[color:var(--color-line)] bg-surface px-3.5 py-2.5 font-mono text-note outline-none focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-[color:var(--color-ring)]"
           />
           <p className="text-note" style={{ color: draft.outputProblem === undefined ? 'var(--color-muted)' : 'var(--color-state-blocked)' }}>
-            {draft.outputProblem ?? 'The JSON output of the job. Its hash is the commitment the resolvers check.'}
+            {draft.outputProblem ?? 'The job’s JSON output, exactly as delivered.'}
           </p>
         </div>
 
@@ -116,7 +115,7 @@ export function EvidenceForm({ lock }: { readonly lock: ProviderLock }) {
           placeholder="Leave empty to send it inline"
           mono
           problem={draft.uriProblem}
-          help="An https address serving exactly these bytes. The resolvers fetch it and hash what they get. Empty sends the output with the evidence."
+          help="An https link to the same output. Leave it empty to send the output with the evidence."
         />
 
         <div className="flex flex-wrap items-center gap-3">
@@ -128,15 +127,15 @@ export function EvidenceForm({ lock }: { readonly lock: ProviderLock }) {
               ? 'Connect the wallet this job paid to.'
               : wrongChain
                 ? 'Switch the wallet to Robinhood Chain.'
-                : 'A signature only. Nothing is sent on chain and no gas is spent.'}
+                : 'A signature only. No transaction and no fee.'}
           </span>
         </div>
 
         {sent !== undefined && (
           <p className="text-sm" role="status">
             {sent.counted
-              ? 'Received in time. The resolvers will check it at the cutoff and publish the ruling with its reasons.'
-              : 'Received after the cutoff. It is published with the ruling and does not change the score.'}{' '}
+              ? 'Received in time. The resolvers will check it and publish the ruling with its reasons.'
+              : 'Received after the cutoff. It is published with the ruling but does not affect the score.'}{' '}
             <Link href={POLICY_PATH} className="underline underline-offset-2">
               How rulings are made
             </Link>
@@ -165,7 +164,7 @@ export function readDraft(outputText: string, uriText: string): Draft {
     return { evidence: undefined, outputProblem: 'This is not JSON. Paste the output exactly as the job produced it.', uriProblem: undefined };
   }
   if (output === null || (typeof output === 'object' && Object.keys(output).length === 0)) {
-    return { evidence: undefined, outputProblem: 'An empty output is not a delivery.', uriProblem: undefined };
+    return { evidence: undefined, outputProblem: 'The output is empty.', uriProblem: undefined };
   }
 
   const outputCommit = commitCanonical(output);
@@ -173,12 +172,12 @@ export function readDraft(outputText: string, uriText: string): Draft {
   if (uri === '') {
     const inline = toDataUri(canonicalStringify(output));
     return inline.length > MAX_OUTPUT_URI_CHARS
-      ? { evidence: undefined, outputProblem: undefined, uriProblem: 'This output is too large to send inline. Publish it and give its address.' }
+      ? { evidence: undefined, outputProblem: undefined, uriProblem: 'Too large to send inline. Publish it and paste the link.' }
       : { evidence: { outputCommit, outputURI: inline }, outputProblem: undefined, uriProblem: undefined };
   }
 
   if (!/^https:\/\/[^\s]+$/.test(uri)) {
-    return { evidence: undefined, outputProblem: undefined, uriProblem: 'An https address the resolvers can fetch from.' };
+    return { evidence: undefined, outputProblem: undefined, uriProblem: 'Use an https link.' };
   }
   return { evidence: { outputCommit, outputURI: uri }, outputProblem: undefined, uriProblem: undefined };
 }

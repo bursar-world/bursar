@@ -43,13 +43,11 @@ export function RecordCard({
 
   if (unrecorded.length === 0) {
     return (
-      <Card title="How a payment reaches your record" description="Getting paid and being credited for the job are two separate steps.">
+      <Card title="How a payment reaches your record" description="Getting paid and recording the job are two steps.">
         <p className="text-sm">
-          {desk.complete ? 'Nothing is waiting.' : 'Whether anything is waiting could not be read.'} A payment is final
-          the moment you release it, and the job joins your record{' '}
-          {windowWords} later, once the payer&rsquo;s time to contest it has run out. That second step is open to anyone
-          to make. When one is outstanding it appears here, because a job outside the record does nothing for the
-          ceiling on your next one.
+          {desk.complete ? 'Nothing is waiting to be recorded.' : 'Could not read whether anything is waiting.'} You are
+          paid the moment you release a job. It can be recorded {windowWords} later, once the payer&rsquo;s contest window
+          closes, and only recorded jobs raise your ceiling. Jobs ready to record appear here.
         </p>
       </Card>
     );
@@ -64,14 +62,13 @@ export function RecordCard({
 
   return (
     <Card
-      title="Paid work that is not in your record yet"
-      description={`${unrecorded.length} ${unrecorded.length === 1 ? 'payment' : 'payments'} settled, ${unrecorded.length === 1 ? 'it is' : 'they are'} still outside the count your ceiling is built from.`}
+      title="Paid work to record"
+      description={`${unrecorded.length} paid ${unrecorded.length === 1 ? 'job' : 'jobs'} not yet counted toward your ceiling.`}
     >
       <div className="space-y-4">
         <p className="text-sm">
-          You were paid when you released each of these. The job joins your record separately, {windowWords}{' '}
-          after the release, once the payer&rsquo;s time to contest it has run out. That call is open to anyone and
-          nobody is obliged to make it, so work can sit here for as long as it takes someone to notice. {lift}
+          You were paid when you released each of these. Each can be recorded {windowWords} after release, once the
+          payer&rsquo;s contest window closes. {lift}
         </p>
 
         <ul className="divide-y divide-[color:var(--color-line)] border-y border-[color:var(--color-line)]">
@@ -82,7 +79,7 @@ export function RecordCard({
 
         {recordable.length === 0 && waiting.length > 0 && (
           <p className="text-detail text-[color:var(--color-muted)]">
-            Nothing can be recorded this minute. The first one opens <Countdown to={waiting[0]?.recordableAt} />.
+            Nothing is ready to record yet. The next one opens <Countdown to={waiting[0]?.recordableAt} />.
           </p>
         )}
       </div>

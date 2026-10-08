@@ -54,8 +54,8 @@ export function DeskView({ payee, owned }: { readonly payee: Address; readonly o
         title={owned ? 'Getting paid' : 'Payee desk'}
         description={
           owned
-            ? 'Read against the connected wallet, which is the address the escrow pays.'
-            : 'Read from the chain against this one address. No wallet is involved and nothing here is signed.'
+            ? 'For your connected wallet, the address the escrow pays.'
+            : 'Public payments and record for this address. No wallet needed.'
         }
         actions={
           <Button size="sm" onClick={refresh} disabled={isFetching}>
@@ -69,9 +69,8 @@ export function DeskView({ payee, owned }: { readonly payee: Address; readonly o
             <span className="text-note text-[color:var(--color-muted)]">
               {desk ? (
                 <>
-                  Read <Instant at={desk.readAt} relative />
-                  {desk.blockNumber !== undefined && <> at block {desk.blockNumber.toString()}</>}, in {desk.requests}{' '}
-                  {desk.requests === 1 ? 'request' : 'requests'}.
+                  Updated <Instant at={desk.readAt} relative />
+                  {desk.blockNumber !== undefined && <> at block {desk.blockNumber.toString()}</>}.
                 </>
               ) : (
                 <Skeleton width={220} />
@@ -90,8 +89,7 @@ export function DeskView({ payee, owned }: { readonly payee: Address; readonly o
 
       {desk && !desk.complete && (
         <Unread onRetry={refresh}>
-          The escrow did not answer this reading. Anything showing as empty below is unknown, not clear. Nothing has
-          changed on chain; only the reading failed.
+          Some payments could not be read right now, so the lists below may be incomplete.
         </Unread>
       )}
 
@@ -103,7 +101,7 @@ export function DeskView({ payee, owned }: { readonly payee: Address; readonly o
 
           <Section
             title={owned ? 'Your record' : 'The record'}
-            description="What settled work has earned, and what is still outside the count."
+            description="The score and the job ceiling it earns."
           >
             {owned ? (
               <RecordCard desk={desk} blockedBy={writeBlockers} onRecorded={refresh} />
@@ -149,7 +147,7 @@ function Onboarding({
         description={
           joined
             ? 'The registry holds your stake. Your desk opens when you continue.'
-            : 'The escrow gates every lock on the payee being listed and taking work. Neither is true of this address yet.'
+            : 'List this address to start taking jobs.'
         }
       >
         <RegisterCard
@@ -167,11 +165,10 @@ function Onboarding({
 
   if (registered === undefined) {
     return (
-      <Section title="Your listing" description="Whether the escrow will accept a payment to this address.">
+      <Section title="Your listing" description="Whether payers can pay this address.">
         <Card>
           <p className="text-sm text-[color:var(--color-muted)]">
-            The registry did not answer whether this address is listed, so no control is offered. Nothing has changed on
-            chain; only the reading failed. Press Read again above.
+            Could not read whether this address is listed. Press Read again above.
           </p>
         </Card>
       </Section>
@@ -179,7 +176,7 @@ function Onboarding({
   }
 
   return (
-    <Section title="Your stake" description="Collateral the registry holds, and the two ways it moves.">
+    <Section title="Your stake" description="The stake the registry holds for you.">
       <AvailabilityCard desk={desk} blockedBy={blockedBy} onDone={onDone} />
       <AddStakeCard desk={desk} blockedBy={blockedBy} onDone={onDone} />
       <WithdrawalCard desk={desk} blockedBy={blockedBy} onDone={onDone} />
@@ -199,7 +196,7 @@ export function DeskHeadline({ desk, owned }: { readonly desk: ProviderDesk; rea
           value={owedToYou}
           hint={
             desk.complete
-              ? `${desk.working.length} ${desk.working.length === 1 ? 'job' : 'jobs'} held against a deadline`
+              ? `${desk.working.length} open ${desk.working.length === 1 ? 'job' : 'jobs'}`
               : 'Not read'
           }
           level={desk.working.some((lock) => lock.stage === 'deadline-passed') ? 'blocked' : undefined}
@@ -207,14 +204,14 @@ export function DeskHeadline({ desk, owned }: { readonly desk: ProviderDesk; rea
         <Stat
           label="Largest single job"
           value={desk.record.cap === undefined ? '—' : usd(desk.record.cap)}
-          hint={`A payer cannot lock more than this against ${owned ? 'you' : 'this address'}`}
+          hint={`The largest job a payer can open with ${owned ? 'you' : 'this address'}`}
         />
         <Stat
           label="Paid, not yet recorded"
           value={unrecordedValue}
           hint={
             desk.complete
-              ? `${desk.unrecorded.length} ${desk.unrecorded.length === 1 ? 'payment' : 'payments'} outside the record`
+              ? `${desk.unrecorded.length} ${desk.unrecorded.length === 1 ? 'payment' : 'payments'} to record`
               : 'Not read'
           }
           level={desk.recordable.length > 0 ? 'attention' : undefined}
@@ -224,8 +221,8 @@ export function DeskHeadline({ desk, owned }: { readonly desk: ProviderDesk; rea
           value={desk.standing.stake === undefined ? '—' : usd(desk.standing.stake)}
           hint={
             desk.standing.minStake === undefined
-              ? 'Collateral a ruling is taken from'
-              : `Against a ${usd(desk.standing.minStake)} minimum`
+              ? 'What a ruling can take from'
+              : `Minimum ${usd(desk.standing.minStake)}`
           }
           level={
             desk.standing.stake !== undefined && desk.standing.minStake !== undefined && desk.standing.stake < desk.standing.minStake
@@ -284,12 +281,11 @@ function UnrecordedNote({ desk }: { readonly desk: ProviderDesk }) {
   if (desk.unrecorded.length === 0) return null;
 
   return (
-    <Card title="Paid work outside the record">
+    <Card title="Paid work not yet recorded">
       <p className="text-sm">
-        {desk.unrecorded.length} {desk.unrecorded.length === 1 ? 'payment has' : 'payments have'} settled without being
-        written into the count the ceiling is built from. The escrow takes that second call from anyone once the payer&rsquo;s
-        time to contest has run out, and nobody is obliged to make it, so the score below can sit lower than the work
-        behind it.
+        {desk.unrecorded.length} paid {desk.unrecorded.length === 1 ? 'job has' : 'jobs have'} not been recorded yet, so
+        the score below does not count {desk.unrecorded.length === 1 ? 'it' : 'them'}. Anyone can record a job once the
+        payer&rsquo;s contest window closes.
       </p>
     </Card>
   );
@@ -319,8 +315,8 @@ function Work({
     : lockColumns(desk, owned);
   return (
     <Section
-      title={owned ? 'Work held against you' : 'Work held against this address'}
-      description="Money a payer has locked, waiting on delivery."
+      title="Open jobs"
+      description="Payments locked in escrow, waiting on delivery."
     >
       <Card>
         <Table
@@ -330,13 +326,11 @@ function Work({
           columns={columns}
           empty={
             desk.complete ? (
-              <EmptyState title={`Nothing is locked against ${owned ? 'you' : 'this address'} right now.`}>
-                A payer opens a lock when an agent buys from a provider. It appears here the moment it lands.
+              <EmptyState title="No open jobs right now.">
+                A job appears here as soon as a payer locks a payment.
               </EmptyState>
             ) : (
-              <EmptyState title="This list was not read.">
-                The escrow did not answer, so whether anything is locked is unknown.
-              </EmptyState>
+              <EmptyState title="Open jobs could not be read.">Read the desk again.</EmptyState>
             )
           }
         />
@@ -359,8 +353,8 @@ function Disputes({ desk, owned }: { readonly desk: ProviderDesk; readonly owned
 
   return (
     <Section
-      title={owned ? 'Disputes against you' : 'Disputes against this address'}
-      description="A payer challenged these. Each states where the ruling stands and, once the resolvers have revealed, why."
+      title="Disputes"
+      description="Jobs a payer contested, and where each ruling stands."
     >
       <div className="space-y-6">
         <Card>
@@ -380,10 +374,12 @@ function Settled({ desk, owned }: { readonly desk: ProviderDesk; readonly owned:
       title="Settled"
       description={`${
         !desk.complete
-          ? 'The escrow did not answer how many jobs it holds.'
+          ? 'Past jobs could not be read right now.'
           : desk.scanned.truncated
-            ? `The most recent ${(desk.scanned.to - desk.scanned.from + 1n).toString()} jobs on the escrow, ending at job ${desk.scanned.to.toString()}.`
-            : `Everything the escrow has recorded against ${owned ? 'your address' : 'this address'}.`
+            ? `The latest ${(desk.scanned.to - desk.scanned.from + 1n).toString()} jobs, up to job ${desk.scanned.to.toString()}.`
+            : owned
+              ? 'Every job you have taken.'
+              : 'Every job this address has taken.'
       }${earlierNote(desk)}`}
     >
       <Card>
@@ -394,9 +390,9 @@ function Settled({ desk, owned }: { readonly desk: ProviderDesk; readonly owned:
           columns={lockColumns(desk, owned)}
           empty={
             desk.complete ? (
-              <EmptyState title="No settled jobs yet.">A job lands here once it reaches an outcome.</EmptyState>
+              <EmptyState title="No settled jobs yet.">A job moves here once it settles.</EmptyState>
             ) : (
-              <EmptyState title="This list was not read.">The escrow did not answer, so past jobs are unknown.</EmptyState>
+              <EmptyState title="Past jobs could not be read.">Read the desk again.</EmptyState>
             )
           }
         />
@@ -413,7 +409,7 @@ export function DeskStanding({ desk, owned }: { readonly desk: ProviderDesk; rea
   return (
     <Section
       title={owned ? 'Whether a payer can reach you' : 'Whether a payer can reach this address'}
-      description="Three separate conditions. Each one refuses a payment on its own."
+      description="All three must hold for a payment to land."
     >
       <Card>
         <div className="space-y-4">
@@ -423,12 +419,12 @@ export function DeskStanding({ desk, owned }: { readonly desk: ProviderDesk; rea
                 level={standing.registered === undefined ? 'unknown' : standing.registered ? 'ok' : 'blocked'}
                 text={
                   standing.registered === undefined
-                    ? 'The registry did not answer.'
+                    ? 'Could not read the registry.'
                     : standing.registered
                       ? standing.name
                         ? `Listed as ${standing.name}.`
                         : 'Listed.'
-                      : 'Not listed. The escrow refuses a lock naming an unlisted payee.'
+                      : 'Not listed. Payers cannot pay an unlisted address.'
                 }
               />
             </Field>
@@ -438,7 +434,7 @@ export function DeskStanding({ desk, owned }: { readonly desk: ProviderDesk; rea
               hint={
                 standing.stake === undefined
                   ? undefined
-                  : `Stake ${usd(standing.stake)}${standing.minStake === undefined ? '' : ` against a ${usd(standing.minStake)} minimum`}`
+                  : `Stake ${usd(standing.stake)}${standing.minStake === undefined ? '' : `, minimum ${usd(standing.minStake)}`}`
               }
             >
               <Condition
@@ -455,13 +451,13 @@ export function DeskStanding({ desk, owned }: { readonly desk: ProviderDesk; rea
                 }
                 text={
                   standing.barred
-                    ? 'Barred by the registry. No payer can open a lock naming this address.'
+                    ? 'Barred by the registry. Payers cannot pay this address.'
                     : standing.active === undefined
-                      ? 'The registry did not answer.'
+                      ? 'Could not read the registry.'
                       : standing.active
                         ? short
-                          ? `Taking work, and the stake sits under the minimum. ${owned ? 'Top it up before the registry stops accepting locks.' : 'The registry stops accepting locks once it falls short.'}`
-                          : 'Taking work, and payers can open locks against it.'
+                          ? `Taking work, but the stake is below the minimum.${owned ? ' Top it up to keep taking jobs.' : ''}`
+                          : 'Taking work.'
                         : owned
                           ? 'Stopped. Take work again from the stake panel above.'
                           : 'Stopped. Only this address can start it again.'
@@ -487,24 +483,24 @@ export function DeskStanding({ desk, owned }: { readonly desk: ProviderDesk; rea
                 // beside the word unknown.
                 text={
                   desk.tokenPaused
-                    ? 'USDG is paused by its issuer. Nothing settles while it stays that way.'
+                    ? 'USDG is paused by its issuer. No payment settles until it resumes.'
                     : desk.blocked
-                      ? 'The asset issuer has blocked this address. A payout to it reverts on the token, whatever the escrow decides.'
+                      ? 'The USDG issuer has blocked this address, so payouts to it fail.'
                       : desk.blocked === undefined
-                        ? 'The blocklist did not answer, so this one is unknown.'
+                        ? 'Could not read the USDG blocklist.'
                         : desk.tokenPaused === undefined
-                          ? 'The pause did not answer, so this one is unknown.'
-                          : 'Not blocked, and USDG is not paused. A payout can land here.'
+                          ? 'Could not read whether USDG is paused.'
+                          : 'Payouts can land here.'
                 }
               />
             </Field>
           </FieldGrid>
 
           <p className="text-detail text-[color:var(--color-muted)]">
-            The stake is what a ruling against {whose} is taken from. It is held in USDG by the registry at{' '}
-            {shortAddress(ADDRESSES.agentRegistry)} and returned through a withdrawal that matures on a delay.
+            The registry holds {whose === 'you' ? 'your' : 'this'} stake in USDG at {shortAddress(ADDRESSES.agentRegistry)}.
+            It comes back through a withdrawal after a waiting period.
             {standing.slashBps !== undefined &&
-              ` A single ruling can take up to ${bps(standing.slashBps)} of it${standing.maxSlash === undefined ? '' : `, which is ${usd(standing.maxSlash)} at the stake posted now`}.`}
+              ` One ruling can take up to ${bps(standing.slashBps)} of it${standing.maxSlash === undefined ? '' : `, ${usd(standing.maxSlash)} at today's stake`}.`}
           </p>
         </div>
       </Card>
@@ -520,40 +516,40 @@ function Terms({ desk }: { readonly desk: ProviderDesk }) {
   const examplePayout = terms.feeBps === undefined ? undefined : subMicro(EXAMPLE_JOB, mulBps(EXAMPLE_JOB, terms.feeBps));
 
   return (
-    <Section title="What a settlement costs" description={`Read from the escrow at ${shortAddress(ADDRESSES.escrow)} on ${RHC.name}.`}>
+    <Section title="What a settlement costs" description={`From the escrow at ${shortAddress(ADDRESSES.escrow)} on ${RHC.name}.`}>
       <Card>
         <FieldGrid columns={3}>
           <Field
             label="Settlement fee"
             hint={examplePayout === undefined ? undefined : `A ${usd(EXAMPLE_JOB)} job pays the payee ${usd(examplePayout)}.`}
           >
-            {terms.feeBps === undefined ? 'Reading' : `${bps(terms.feeBps)}, charged on the payee's side`}
+            {terms.feeBps === undefined ? 'Reading' : `${bps(terms.feeBps)}, paid by the payee`}
           </Field>
-          <Field label="Delivery window" hint="The range a payer may choose from when opening a lock.">
+          <Field label="Delivery window" hint="The deadlines a payer can choose from.">
             {ttlRange(terms) ?? 'Reading'}
           </Field>
-          <Field label="Time to contest" hint="After a payment, before the job joins the record.">
+          <Field label="Time to contest" hint="After payment, before the job can be recorded.">
             {terms.disputeWindow === undefined ? 'Reading' : formatDuration(Number(terms.disputeWindow))}
           </Field>
           <Field
             label="Cost of contesting"
-            hint="Posted as a bond by whoever opens a dispute, returned only if the ruling goes their way."
+            hint="A bond from whoever contests, returned if the ruling goes their way."
           >
             {terms.disputeBondBps === undefined ? 'Reading' : `${bps(terms.disputeBondBps)} of the locked amount`}
           </Field>
           <Field
             label="If the vote falls short"
-            hint="Anyone can close a vote once its reveal window ends, so a quiet panel never holds the money."
+            hint="Anyone can close a vote once its reveal window ends."
           >
-            The payment goes back on hold for the payee with a new deadline, and the bond is returned
+            The payment goes back on hold with a new deadline, and the bond is returned
           </Field>
           {terms.minLock !== undefined && (
-            <Field label="Smallest payment" hint="The escrow refuses any payment under this amount, so contesting one always costs a bond.">
+            <Field label="Smallest payment" hint="The escrow refuses payments below this.">
               <span className="tabular">{usdExact(terms.minLock)}</span>
             </Field>
           )}
-          <Field label="Transaction fees" hint="Paid in ETH out of the wallet that signs, never out of the payout.">
-            Paid by the payee on every transaction it sends, a release and a record included
+          <Field label="Transaction fees" hint="Paid in ETH by the wallet that signs, never from the payout.">
+            Paid by the payee for each release and record it sends
           </Field>
         </FieldGrid>
       </Card>
@@ -576,8 +572,8 @@ function earlierNote(desk: ProviderDesk): string {
   return desk.earlier
     .map((entry) =>
       entry.complete
-        ? ` Jobs on the earlier escrow are included and marked.`
-        : ` The earlier escrow did not answer.`,
+        ? ` Jobs on earlier contracts are included and marked.`
+        : ` Jobs on earlier contracts could not be read.`,
     )
     .join('');
 }
@@ -648,7 +644,7 @@ function Payout({ lock, owned }: { readonly lock: ProviderLock; readonly owned: 
     return (
       <div className="space-y-0.5">
         <div className="tabular text-sm text-[color:var(--color-muted)]">Not read</div>
-        <div className="text-note text-[color:var(--color-muted)]">what the escrow moved</div>
+        <div className="text-note text-[color:var(--color-muted)]">payout</div>
       </div>
     );
   }
@@ -663,7 +659,7 @@ function Payout({ lock, owned }: { readonly lock: ProviderLock; readonly owned: 
   }
 
   const note =
-    payout.kind === 'paid' ? 'received' : payout.kind === 'expected' ? 'if released' : 'held, the ruling decides';
+    payout.kind === 'paid' ? 'received' : payout.kind === 'expected' ? 'if released' : 'held until the ruling';
 
   return (
     <div className="space-y-0.5">

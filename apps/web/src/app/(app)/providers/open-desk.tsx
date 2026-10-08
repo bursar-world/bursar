@@ -35,7 +35,7 @@ export function OpenDesk({ label = 'Payee address' }: { readonly label?: string 
         label={label}
         value={text}
         onChange={setText}
-        hint="The address the escrow pays. Reading it signs nothing and needs no wallet."
+        hint="The address the escrow pays. No wallet needed."
         action={
           <Button type="submit" tone="primary" disabled={payee === undefined}>
             Open the desk

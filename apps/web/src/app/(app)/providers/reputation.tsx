@@ -28,13 +28,13 @@ export function ReputationPanel({ desk, owned }: { readonly desk: ProviderDesk; 
   const curve =
     record.baseCap === undefined || record.capPerScore === undefined || record.maxCap === undefined
       ? undefined
-      : `${usd(record.baseCap)} at a score of nothing, plus ${usd(record.capPerScore)} for every point, to a ceiling of ${usd(record.maxCap)}.`;
+      : `${usd(record.baseCap)} at a score of zero, plus ${usd(record.capPerScore)} per point, up to ${usd(record.maxCap)}.`;
 
   return (
     <div className="space-y-3">
       <Card>
         <StatGrid columns={4}>
-          <Stat label="Delivered" value={record.released?.toString() ?? '—'} hint="Releases written into the record" />
+          <Stat label="Delivered" value={record.released?.toString() ?? '—'} hint="Jobs recorded as delivered" />
           <Stat label="Contested" value={record.disputed?.toString() ?? '—'} hint="Jobs a payer challenged" />
           {/*
             Exact, and the sum of what the escrow moved rather than what the jobs were
@@ -46,14 +46,14 @@ export function ReputationPanel({ desk, owned }: { readonly desk: ProviderDesk; 
             value={desk.paidOut === undefined ? '—' : usdExact(desk.paidOut)}
             hint={
               desk.complete
-                ? `What reached this address, across the ${desk.locks.length === 1 ? 'job' : 'jobs'} read below`
+                ? `Received across the ${desk.locks.length === 1 ? 'job' : 'jobs'} below`
                 : 'Not read'
             }
           />
           <Stat
             label="Score"
             value={record.score === undefined ? '—' : `${record.score} / 100`}
-            hint={weighed ? 'Delivered as a share of settled, scaled by the credit earned' : 'Delivered as a share of settled'}
+            hint={weighed ? 'Delivered share of settled jobs, weighted by credit' : 'Delivered share of settled jobs'}
           />
         </StatGrid>
       </Card>
@@ -62,11 +62,11 @@ export function ReputationPanel({ desk, owned }: { readonly desk: ProviderDesk; 
 
       <Card
         title="What the score is worth"
-        description="The escrow refuses a lock larger than the ceiling, so this is the size of job a payer may open."
+        description="The largest single job a payer can open at each score."
       >
         <div className="space-y-4">
           <FieldGrid columns={4}>
-            <Field label="Returned to payer" hint="Locks that ran past their deadline">
+            <Field label="Returned to payer" hint="Jobs that missed their deadline">
               {record.timedOut?.toString() ?? 'Not read'}
             </Field>
             {SAMPLE_SCORES.map((score) => {
@@ -81,15 +81,15 @@ export function ReputationPanel({ desk, owned }: { readonly desk: ProviderDesk; 
           </FieldGrid>
 
           <p className="text-detail text-[color:var(--color-muted)]">
-            Score is the jobs {whose} delivered as a share of every job that reached an outcome
-            {weighed ? ', scaled by the credit that work has earned,' : ','} from 0 to 100. The largest single job a payer
-            may lock against {whose} follows from it by a published curve: {curve ?? 'the curve could not be read.'}{' '}
-            Changing that curve waits out the governance delay, so the number above is the one to plan against.
+            Score runs from 0 to 100: the share of jobs {whose} delivered
+            {weighed ? ', weighted by the credit that work earned' : ''}. It sets the largest job a payer can open:{' '}
+            {curve ?? 'the curve could not be read right now.'} The curve only changes through governance, after a public
+            delay.
           </p>
           <p className="text-detail text-[color:var(--color-muted)]">
-            A lock that runs past its deadline counts against {possessive} record whoever opened it, and returning a job
-            that cannot be taken costs the record nothing. Declining early is worth more than letting the clock run out.
-            A contested job counts as settled and not as delivered, which is what pulls the score down.
+            A missed deadline counts against {possessive} record. Returning a job you cannot take does not, so decline
+            early rather than let the clock run out. A contested job counts as settled but not delivered, which lowers the
+            score.
           </p>
         </div>
       </Card>
@@ -124,8 +124,8 @@ function CreditCard({ record, whose, possessive }: { readonly record: ProviderRe
       title="Credit toward a full score"
       description={
         weights === undefined
-          ? 'Delivered work earns it, each payer up to a cap.'
-          : `Delivered work earns it: each job of ${usd(weights.minScored)} or more, each payer for up to ${usd(weights.edgeCap)}.`
+          ? 'Earned by delivered work, up to a cap per payer.'
+          : `Earned by delivered jobs of ${usd(weights.minScored)} or more, up to ${usd(weights.edgeCap)} per payer.`
       }
     >
       <div className="space-y-4">
@@ -164,23 +164,23 @@ function creditStory({
   readonly whose: string;
   readonly possessive: string;
 }): string {
-  if (weights === undefined || earned === undefined) return 'The credit behind this score could not be read.';
-  if (settled === undefined) return 'The jobs behind this score could not be read.';
+  if (weights === undefined || earned === undefined) return 'The credit behind this score could not be read right now.';
+  if (settled === undefined) return 'The jobs behind this score could not be read right now.';
   const fullCredit = usd(weights.fullCredit);
   if (settled === 0n) {
     return (
-      `Nothing has settled for ${whose} yet. Every delivered job of ${usd(weights.minScored)} or more adds its amount ` +
+      `No jobs have settled for ${whose} yet. Each delivered job of ${usd(weights.minScored)} or more adds its amount ` +
       `here, and a full score takes ${fullCredit} from at least ${fewestPayers(weights.fullCredit, weights.edgeCap)} payers.`
     );
   }
   const score = record.score === undefined ? '' : `: ${record.score} of 100`;
   const next = full
     ? `The credit is full, so ${possessive} score now moves with the delivered share alone.`
-    : `A payer counts for up to ${usd(weights.edgeCap)}, so more work from a payer already there adds nothing, and work ` +
-      `from a new payer does. A job under ${usd(weights.minScored)} counts for nothing either way.`;
+    : `Each payer counts for up to ${usd(weights.edgeCap)}, so once a payer reaches that, only work from new payers ` +
+      `adds credit. Jobs under ${usd(weights.minScored)} do not count.`;
   return (
-    `${record.released} of ${settled} settled jobs were delivered, and that work has earned ${usd(earned)} of the ` +
-    `${fullCredit} a full score takes. The score is the first share scaled by the second${score}. ${next}`
+    `${record.released} of ${settled} settled jobs were delivered, earning ${usd(earned)} of the ${fullCredit} a ` +
+    `full score takes. The score combines the two${score}. ${next}`
   );
 }
 

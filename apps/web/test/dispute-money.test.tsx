@@ -314,10 +314,10 @@ describe('the payee reading back a dispute that is over', () => {
   it('says a vote with no centre refunded the payer with no fee taken', () => {
     const detail = stageDetail(providerLock(), NOW, 'public');
 
-    expect(detail).toContain('nothing to rule by');
-    expect(detail).toContain('with no resolver fee taken');
+    expect(detail).toContain('too far apart to rule on');
+    expect(detail).toContain('no resolver fee was taken');
     expect(detail).toContain('Nothing reached the payee');
-    expect(detail).not.toContain('less its resolver fee');
+    expect(detail).not.toContain('less the resolver fee');
   });
 
   it('tells a real ruling apart from a close, and says what it paid', () => {
@@ -343,8 +343,8 @@ describe('the payee reading back a dispute that is over', () => {
       'payee',
     );
 
-    expect(detail).toContain('returned the lock to the payer without one');
-    expect(detail).toContain('no fee was taken from it');
+    expect(detail).toContain('closed without a ruling and the payer got the amount back');
+    expect(detail).toContain('with no fee taken');
     expect(detail).not.toMatch(/timeout/i);
   });
 
@@ -355,7 +355,7 @@ describe('the payee reading back a dispute that is over', () => {
       'payee',
     );
 
-    expect(detail).toContain('unknown rather than nothing');
+    expect(detail).toContain('The result could not be read right now');
   });
 });
 
