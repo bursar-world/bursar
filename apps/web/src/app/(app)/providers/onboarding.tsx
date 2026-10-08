@@ -545,6 +545,8 @@ export function GateNote({ gate }: { readonly gate: Gate }): ReactNode {
     );
   }
 
+  if (gate.quiet === true) return <p className="text-detail text-[color:var(--color-muted)]">{gate.reason}</p>;
+
   return (
     <p className="flex items-start gap-2 text-detail">
       <span className="pt-1">

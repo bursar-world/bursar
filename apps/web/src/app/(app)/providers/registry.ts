@@ -20,7 +20,11 @@ export type Gate =
   | { readonly kind: 'ready' }
   /** The registry has to be allowed to move this much USDG first. */
   | { readonly kind: 'approve'; readonly amount: bigint }
-  | { readonly kind: 'blocked'; readonly reason: string }
+  /**
+   * `quiet` is a step the reader has not taken yet, or a wait that is running as it should. It is
+   * said in the muted voice: in red it reads as a refusal on a form nobody has touched.
+   */
+  | { readonly kind: 'blocked'; readonly reason: string; readonly quiet?: boolean }
   /** Named in the words a reader would use, because the sentence quotes it. */
   | { readonly kind: 'unread'; readonly missing: string };
 
@@ -95,7 +99,7 @@ export function registrationGate(facts: RegistryFacts, form: RegistrationForm): 
 
   const problem = nameProblem(form.name);
   if (problem) return { kind: 'blocked', reason: problem };
-  if (form.name === '') return { kind: 'blocked', reason: 'Choose a handle.' };
+  if (form.name === '') return { kind: 'blocked', reason: 'Choose a handle.', quiet: true };
 
   return fundingGate(facts, form.stake, facts.minStake);
 }
@@ -132,7 +136,7 @@ export function withdrawalRequestGate(facts: RegistryFacts, amount: bigint | und
   ]);
   if (unread) return unread;
 
-  if (amount === undefined || amount <= 0n) return { kind: 'blocked', reason: 'Enter an amount.' };
+  if (amount === undefined || amount <= 0n) return { kind: 'blocked', reason: 'Enter an amount.', quiet: true };
 
   const stake = facts.stake as Micro;
   const floor = facts.minStake as Micro;
@@ -153,7 +157,7 @@ export function withdrawalExecuteGate(facts: RegistryFacts): Gate {
   if (facts.withdrawal === undefined) return { kind: 'unread', missing: 'whether a request is waiting' };
   if (facts.withdrawal === null) return { kind: 'blocked', reason: 'No withdrawal has been requested.' };
   if (facts.withdrawal.matured === undefined) return { kind: 'unread', missing: 'how long the wait is' };
-  if (!facts.withdrawal.matured) return { kind: 'blocked', reason: 'The waiting period has not ended yet.' };
+  if (!facts.withdrawal.matured) return { kind: 'blocked', reason: 'The waiting period has not ended yet.', quiet: true };
   return { kind: 'ready' };
 }
 
@@ -211,7 +215,7 @@ function fundingGate(facts: RegistryFacts, amount: bigint | undefined, floor: Mi
   ]);
   if (unread) return unread;
 
-  if (amount === undefined || amount <= 0n) return { kind: 'blocked', reason: 'Enter an amount.' };
+  if (amount === undefined || amount <= 0n) return { kind: 'blocked', reason: 'Enter an amount.', quiet: true };
   if (floor !== undefined && amount < floor) return { kind: 'blocked', reason: 'Below the minimum stake.' };
   if (amount > (facts.balance as Micro)) return { kind: 'blocked', reason: 'More USDG than this wallet holds.' };
   if (amount > (facts.allowance as Micro)) return { kind: 'approve', amount };
