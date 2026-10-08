@@ -225,6 +225,9 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
 function StakeCard({ data, blockedBy }: { readonly data: TokenPageData; readonly blockedBy: readonly AnyState[] }) {
   const [text, setText] = useState('');
   const [atomic, setAtomic] = useState<bigint | undefined>(undefined);
+  // The allowance that just landed. Its receipt is the token saying yes, so Stake is offered on it
+  // rather than after a re-read the reader has to ask for.
+  const [approved, setApproved] = useState<bigint | undefined>(undefined);
   const { writeContractAsync } = useWriteContract();
 
   const balance = data.token?.balance;
@@ -237,7 +240,8 @@ function StakeCard({ data, blockedBy }: { readonly data: TokenPageData; readonly
   // wallet ends up signing a transaction that reverts on transferFrom. The balance and the brake
   // are the same story: each one decides whether this deposit can land at all.
   const allowanceKnown = allowance !== undefined;
-  const needsAllowance = allowanceKnown && amount > allowance;
+  const approvedNow = approved !== undefined && amount <= approved;
+  const needsAllowance = allowanceKnown && amount > allowance && !approvedNow;
   const ready = amount > 0n && !overBalance && paused === false && allowanceKnown && balance !== undefined;
 
   // Named only once both readings have landed, so a control that is off while the page is still
@@ -294,7 +298,10 @@ function StakeCard({ data, blockedBy }: { readonly data: TokenPageData; readonly
                 throw tokenFailure(caught, { action: 'Allow the staking contract', contract: 'staking' });
               })
             }
-            onContinue={data.refresh}
+            onConfirmed={() => {
+              setApproved(amount);
+              data.refresh();
+            }}
           />
         ) : (
           <TxButton
@@ -315,6 +322,7 @@ function StakeCard({ data, blockedBy }: { readonly data: TokenPageData; readonly
             onConfirmed={() => {
               setText('');
               setAtomic(undefined);
+              setApproved(undefined);
               data.refresh();
             }}
           />
