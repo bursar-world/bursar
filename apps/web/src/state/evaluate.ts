@@ -261,7 +261,7 @@ export function evaluateMandate(snapshot: ChainSnapshot | undefined, checkedAt: 
   // reported, with the amount that was asked about.
   const refusal = limitRefusal(snapshot?.permission);
   if (refusal) {
-    return report('mandate', 'Mandate', 'blocked', refusal.headline, `${refusal.detail} ${headroom}`, refusal.action, checks, facts, checkedAt, stale);
+    return report('mandate', 'Mandate', refusal.level ?? 'blocked', refusal.headline, `${refusal.detail} ${headroom}`, refusal.action, checks, facts, checkedAt, stale);
   }
 
   const closing = validUntil && secondsBetween(validUntil, now) < 48 * 3600;
@@ -556,7 +556,7 @@ function validityDetail(from: Date | null, until: Date | null, now: Date): strin
  */
 function limitRefusal(
   permission: ChainSnapshot['permission'],
-): { headline: string; detail: string; action: NextAction } | undefined {
+): { headline: string; detail: string; action: NextAction; level?: StateLevel } | undefined {
   const preview = permission?.preview;
   if (!preview || preview.allowed) return undefined;
 
@@ -592,6 +592,8 @@ function limitRefusal(
         headline: `${asked} needs the owner’s signature.`,
         detail: 'It is at or above the approval threshold, so the agent cannot pay it alone.',
         action: { label: 'Approve this payment', owner: 'principal', kind: 'transaction' },
+        // A payment waiting for its owner is the threshold working, not a refusal.
+        level: 'attention',
       };
     default:
       return undefined;
