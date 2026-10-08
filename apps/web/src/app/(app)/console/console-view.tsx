@@ -8,6 +8,7 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { isZeroAddress, shortAddress } from '@/chain/rhc';
+import { shieldedPayoutsOpen } from '@/chain/shielded';
 import { Address as AddressView } from '@/components/address';
 import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
@@ -116,9 +117,11 @@ export function ConsoleView() {
             <Link href="/console/private">
               <Button size="sm">Private mandates</Button>
             </Link>
-            <Link href="/console/shielded">
-              <Button size="sm">Shielded funds</Button>
-            </Link>
+            {shieldedPayoutsOpen() && (
+              <Link href="/console/shielded">
+                <Button size="sm">Shielded funds</Button>
+              </Link>
+            )}
             <Link href="/console/new">
               <Button tone="primary" size="sm">
                 Create a mandate

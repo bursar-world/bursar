@@ -15,6 +15,7 @@ import {
   PURPOSES,
   depositPrecommitment,
   depositProblem,
+  depositFeeLine,
   depositRoomLine,
   feeLine,
   fundsKeyContext,
@@ -286,12 +287,14 @@ function DepositForm({
     queryKey: ['shielded', 'wallet', wallet],
     queryFn: async () => {
       const client = rhcClient();
-      const [balance, allowance, room] = await Promise.all([
+      const { shieldedEntrypointAbi } = await import('@bursar/sdk');
+      const [balance, allowance, room, config] = await Promise.all([
         client.readContract({ address: contracts.asset, abi: erc20, functionName: 'balanceOf', args: [wallet] }),
         client.readContract({ address: contracts.asset, abi: erc20, functionName: 'allowance', args: [wallet, contracts.Entrypoint] }),
         readRoom(contracts, wallet),
+        client.readContract({ address: contracts.Entrypoint, abi: shieldedEntrypointAbi, functionName: 'assetConfig', args: [contracts.asset] }),
       ]);
-      return { balance, allowance, room };
+      return { balance, allowance, room, feeBps: config[2] };
     },
   });
   const problem = depositProblem({
@@ -304,6 +307,7 @@ function DepositForm({
   const roomLine = depositRoomLine(holdings.data?.room);
   const ready = amount !== undefined && amount > 0n && problem === undefined && holdings.data !== undefined;
   const needsAllowance = ready && (holdings.data?.allowance ?? 0n) < amount;
+  const screening = ready ? depositFeeLine(amount, holdings.data?.feeBps) : undefined;
 
   return (
     <div className="space-y-3">
@@ -318,6 +322,7 @@ function DepositForm({
         {...(problem ? { problem } : {})}
         hint={`Deposits are public: anyone can see this wallet put the amount in. What you withdraw later is not tied to it.${roomLine === undefined ? '' : ` ${roomLine}`}`}
       />
+      {screening && <p className="text-detail text-[color:var(--color-muted)]">{screening}</p>}
       <div className="flex flex-wrap gap-3">
         {/* Keyed apart: the two buttons share a slot, and a confirmed allowance would otherwise leave its
             "Done" face where the deposit button belongs. */}
@@ -382,7 +387,7 @@ function NoteList({
   const [last, setLast] = useState<Withdrawn | undefined>(undefined);
 
   return (
-    <Section title={open.length === 1 ? 'One deposit to spend from' : `${open.length} deposits to spend from`} description="Each deposit this wallet made, and what it still holds.">
+    <Section title={open.length === 0 ? 'Deposits to spend from' : open.length === 1 ? 'One deposit to spend from' : `${open.length} deposits to spend from`} description="Each deposit this wallet made, and what it still holds.">
       {last && (
         <Card>
           <div className="space-y-1 text-detail" role="status">
@@ -568,6 +573,14 @@ function WithdrawForm({
     }
   };
 
+  if (relayer === undefined) {
+    return (
+      <p className="border-t border-[color:var(--color-line)] pt-4 text-detail text-[color:var(--color-muted)]">
+        Payouts from the pool are not open in this console yet.
+      </p>
+    );
+  }
+
   return (
     <div className="space-y-3 border-t border-[color:var(--color-line)] pt-4">
       <div className="flex flex-wrap gap-2" role="group" aria-label="What the withdrawal is for">
@@ -595,9 +608,7 @@ function WithdrawForm({
         {...(amountProblem ? { problem: amountProblem } : {})}
         hint={feeLine(amount, quote.data, gasDrop)}
       />
-      {relayer === undefined ? (
-        <p className="text-detail">Withdrawals are not available in this console yet.</p>
-      ) : quote.error ? (
+      {quote.error ? (
         <p className="text-detail">The relayer did not answer. Try again shortly.</p>
       ) : null}
       <Button tone="primary" onClick={() => void send()} disabled={!ready}>

@@ -10,7 +10,7 @@ import type { TermsDocument } from '@bursar/sdk';
 
 import { rhcClient } from '@/chain/client';
 import { committedFactories, privateContracts, termsProblem } from '@/chain/private';
-import { fundsKeyContext, shieldedContracts, shieldedHref } from '@/chain/shielded';
+import { fundsKeyContext, shieldedHref, shieldedPayoutsOpen } from '@/chain/shielded';
 import { agentKeyFile, downloadFile, formatEth, ownerKeysFrom, scanOwnedMandates, sendFromStealth } from '@/chain/stealth';
 import type { OwnedPrivateMandate, OwnerKeys } from '@/chain/stealth';
 import { Address as AddressView } from '@/components/address';
@@ -269,7 +269,7 @@ function OwnedMandate({
           <Button size="sm" onClick={togglePause} disabled={busy || entry.revoked || entry.ownerGas === 0n}>
             {entry.paused ? 'Resume spending' : 'Pause spending'}
           </Button>
-          {shieldedContracts() && (
+          {shieldedPayoutsOpen() && (
             <>
               <Link href={shieldedHref('mandate', entry.mandate)}>
                 <Button size="sm">Fund from shielded funds</Button>

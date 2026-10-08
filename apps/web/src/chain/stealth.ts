@@ -16,6 +16,9 @@ import { CHAIN, CHAIN_ID, sameAddress } from './rhc';
 export const STEALTH_LIMIT_LINE =
   'Sending gas or USDG to the new addresses straight from this wallet links them to it on chain. Shielded funds avoid that link, except while you are the pool’s only depositor.';
 
+/** The same limit where shielded payouts are not open, so nothing offers a route the console cannot take. */
+export const STEALTH_LINK_LINE = 'Gas or USDG sent to the new addresses from this wallet links them to it on chain.';
+
 /** What the pool cannot hide, said wherever shielded funding is offered, before anyone commits. */
 export const SHIELDED_TIMING_LINE =
   'A payout hides its source among everyone who has deposited, so while you are the only depositor it can be matched to your deposit. Leave time between deposit and payout, and use a different amount.';

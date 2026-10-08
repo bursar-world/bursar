@@ -12,11 +12,12 @@ import {
 import { encodeAbiParameters, encodeEventTopics } from 'viem';
 import type { Address, Log } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { StealthToggle } from '@/app/(app)/console/new/stealth-create';
 import {
   STEALTH_LIMIT_LINE,
+  STEALTH_LINK_LINE,
   agentGasWei,
   agentKeyFile,
   createGasWei,
@@ -85,11 +86,22 @@ describe('the stealth create steps', () => {
     expect(remainingSteps(new Set(['announce-owner', 'announce-agent', 'create'] as const))).toEqual([]);
   });
 
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('states the funding limit where the option is offered, without an em dash', () => {
     const html = renderToStaticMarkup(<StealthToggle on={false} onChange={() => undefined} />);
     expect(html).toContain('Hide the owner and the agent.');
-    expect(html).toContain(STEALTH_LIMIT_LINE.replace(/'/g, '&#x27;'));
+    expect(html).toContain(STEALTH_LINK_LINE);
+    expect(html).not.toMatch(/shielded/i);
     expect(html).not.toContain('—');
+  });
+
+  it('offers shielded funds as the way around the link only where payouts are open', () => {
+    vi.stubEnv('NEXT_PUBLIC_BURSAR_RELAYER_URL', 'https://relay.example');
+    const html = renderToStaticMarkup(<StealthToggle on={false} onChange={() => undefined} />);
+    expect(html).toContain(STEALTH_LIMIT_LINE.replace(/'/g, '&#x27;'));
   });
 
   it('keeps /console/private off the mandate-address route', () => {

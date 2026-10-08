@@ -9,6 +9,7 @@ import { SHIELDED_TIMING_LINE, STEALTH_LIMIT_LINE } from '@/chain/stealth';
 import {
   PURPOSES,
   depositProblem,
+  depositFeeLine,
   depositRoomLine,
   feeLine,
   gasDropProblem,
@@ -174,6 +175,14 @@ describe('arriving from another page', () => {
   it('keeps /console/shielded off the mandate-address route', () => {
     const consoleRoute = ADDRESS_ROUTES.find((route) => route.prefix === 'console');
     expect(consoleRoute && addressSegment('/console/shielded', consoleRoute)).toBeUndefined();
+  });
+});
+
+describe('deposit fee', () => {
+  it('says what the pool keeps and what the deposit holds, as the entrypoint deducts it', () => {
+    expect(depositFeeLine(1_000_000n, 10n)).toBe('The pool keeps 0.001 USDG (0.1%) to screen it, so the deposit holds 0.999 USDG.');
+    expect(depositFeeLine(1_000_000n, 0n)).toBeUndefined();
+    expect(depositFeeLine(undefined, 10n)).toBeUndefined();
   });
 });
 

@@ -14,9 +14,10 @@ import { rhcClient } from '@/chain/client';
 import { randomSalt } from '@/chain/mandates';
 import { privateContracts } from '@/chain/private';
 import { CHAIN_ID } from '@/chain/rhc';
-import { fundsKeyContext, shieldedContracts, shieldedHref } from '@/chain/shielded';
+import { fundsKeyContext, shieldedHref, shieldedPayoutsOpen } from '@/chain/shielded';
 import {
   STEALTH_LIMIT_LINE,
+  STEALTH_LINK_LINE,
   STEALTH_STEP_LABEL,
   agentGasWei,
   agentKeyFile,
@@ -57,7 +58,7 @@ export function StealthToggle({ on, onChange, disabled = false }: { readonly on:
           The owner and the agent get new addresses that never name your wallet. Your wallet finds them again from two
           signatures.
         </span>
-        <span className="block text-[color:var(--color-muted)]">{STEALTH_LIMIT_LINE}</span>
+        <span className="block text-[color:var(--color-muted)]">{shieldedPayoutsOpen() ? STEALTH_LIMIT_LINE : STEALTH_LINK_LINE}</span>
       </span>
     </label>
   );
@@ -264,8 +265,9 @@ function GasFor({
       {!ready && reading.data && (
         <div className="space-y-3">
           <p className="text-detail text-[color:var(--color-muted)]">
-            Send {formatEth(topUp)} to the owner address. Sending from this wallet is quickest and links
-            the two on chain. Sending from your shielded funds leaves no direct link.
+            {shieldedPayoutsOpen()
+              ? `Send ${formatEth(topUp)} to the owner address. Sending from this wallet is quickest and links the two on chain. Sending from your shielded funds leaves no direct link.`
+              : `Send ${formatEth(topUp)} to the owner address from any wallet. Sending from this one is quickest and links the two on chain.`}
           </p>
           <div className="flex flex-wrap items-start gap-4">
             <TxButton
@@ -274,7 +276,7 @@ function GasFor({
               send={() => sendTransactionAsync({ to: address, value: topUp, chainId: CHAIN_ID })}
               onConfirmed={() => void reading.refetch()}
             />
-            {shieldedContracts() && (
+            {shieldedPayoutsOpen() && (
               <Link href={shieldedHref('stealth-owner', address)} target="_blank" className="mt-2.5 text-sm underline underline-offset-2">
                 Send it from your shielded funds
               </Link>
@@ -353,7 +355,10 @@ export function StealthCreated({ created, prepared }: StealthCreation) {
       <Card>
         <div className="space-y-4">
           <FieldGrid columns={2}>
-            <Field label="Mandate address" hint="Send USDG here. Funding from your shielded funds avoids a direct link to your wallet.">
+            <Field
+              label="Mandate address"
+              hint={shieldedPayoutsOpen() ? 'Send USDG here. Funding from your shielded funds avoids a direct link to your wallet.' : 'Send USDG here.'}
+            >
               <AddressView value={created.mandate} full />
             </Field>
             <Field label="Created in">
@@ -381,7 +386,7 @@ export function StealthCreated({ created, prepared }: StealthCreation) {
           {sent && <TxHash hash={sent} />}
           {problem && <Problem text={problem} />}
           <div className="flex flex-wrap gap-x-5 gap-y-2 border-t border-[color:var(--color-line)] pt-4 text-sm">
-            {shieldedContracts() && (
+            {shieldedPayoutsOpen() && (
               <Link href={shieldedHref('mandate', created.mandate)} className="underline underline-offset-2">
                 Fund it from your shielded funds
               </Link>

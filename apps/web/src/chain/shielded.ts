@@ -22,6 +22,11 @@ export function shieldedContracts(): ShieldedDeployment | undefined {
   return privateContracts()?.shielded;
 }
 
+/** Payouts go out through the relayer. Without one the pool takes deposits and returns them, and that is all. */
+export function shieldedPayoutsOpen(env: Record<string, string | undefined> = publicEnv()): boolean {
+  return shieldedContracts() !== undefined && shieldedServices(env).relayer !== undefined;
+}
+
 /**
  * What a funds-key signature is bound to: the wallet and this chain, and no contract, so the same
  * signature keeps finding the same deposits and hidden owners after a redeploy.
@@ -183,6 +188,13 @@ export function setMatchesChain(set: Pick<AssociationSet, 'root'> | undefined, l
 
 export function labelInSet(set: Pick<AssociationSet, 'labels'> | undefined, label: bigint): boolean {
   return set?.labels.includes(label.toString()) ?? false;
+}
+
+/** What a deposit holds once the pool keeps its screening fee, as the entrypoint computes it. */
+export function depositFeeLine(amount: bigint | undefined, feeBps: bigint | undefined): string | undefined {
+  if (amount === undefined || amount === 0n || feeBps === undefined || feeBps === 0n) return undefined;
+  const fee = (amount * feeBps) / 10_000n;
+  return `The pool keeps ${usdgText(fee)} USDG (${Number(feeBps) / 100}%) to screen it, so the deposit holds ${usdgText(amount - fee)} USDG.`;
 }
 
 /** The relayer's fee on an amount, as the relay contract computes it. */
