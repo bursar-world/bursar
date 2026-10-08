@@ -248,6 +248,10 @@ function GasFor({
   const balance = reading.data?.balance ?? 0n;
   const required = reading.data?.required ?? 0n;
   const ready = reading.data !== undefined && balance >= required;
+  // Sent with a quarter more than today's figure: a tick in the gas price before the owner's
+  // transactions would otherwise leave it a sliver short and ask for a second send. What is left
+  // over is the agent's gas.
+  const topUp = required > balance ? (required * 5n) / 4n - balance : 0n;
 
   return (
     <div className="space-y-4">
@@ -257,7 +261,7 @@ function GasFor({
       {!ready && reading.data && (
         <div className="space-y-2">
           <p className="text-detail text-[color:var(--color-muted)]">
-            Send at least {formatEth(required - balance)} to the owner address. Sending from this wallet is quickest and links
+            Send {formatEth(topUp)} to the owner address. Sending from this wallet is quickest and links
             the two on chain. Sending from your shielded funds leaves no direct link.
           </p>
           {shieldedContracts() && (
@@ -266,9 +270,9 @@ function GasFor({
             </Link>
           )}
           <TxButton
-            label={`Send ${formatEth(required - balance)} from this wallet`}
+            label={`Send ${formatEth(topUp)} from this wallet`}
             tone="secondary"
-            send={() => sendTransactionAsync({ to: address, value: required - balance, chainId: CHAIN_ID })}
+            send={() => sendTransactionAsync({ to: address, value: topUp, chainId: CHAIN_ID })}
             onConfirmed={() => void reading.refetch()}
           />
         </div>
