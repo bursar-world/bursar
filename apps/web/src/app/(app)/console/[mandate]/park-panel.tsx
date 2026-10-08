@@ -162,7 +162,7 @@ function OwnerForms({ rwa, onChange }: { readonly rwa: RwaState; readonly onChan
   // Opens on the first holding that earns; the USDG position is a reserve and earns nothing.
   const [parkSymbol, setParkSymbol] = useState(rwa.positions.find((p) => p.symbol !== RESERVE)?.symbol ?? rwa.positions[0]?.symbol ?? '');
   const [parkText, setParkText] = useState('');
-  const [unparkSymbol, setUnparkSymbol] = useState(rwa.positions.find((p) => (p.raw ?? 0n) > 0n)?.symbol ?? '');
+  const [unparkPick, setUnparkPick] = useState('');
   const [unparkText, setUnparkText] = useState('');
   const [bufferText, setBufferText] = useState('');
 
@@ -183,7 +183,10 @@ function OwnerForms({ rwa, onChange }: { readonly rwa: RwaState; readonly onChan
   });
   const shortfall = park.value === undefined ? 0n : park.value > vaultHeld ? park.value - vaultHeld : 0n;
 
-  const source = rwa.positions.find((p) => p.symbol === unparkSymbol);
+  // Follows the holdings as they change, so the first one parked is the choice without a reselect.
+  const held = rwa.positions.filter((p) => (p.raw ?? 0n) > 0n);
+  const unparkSymbol = held.some((p) => p.symbol === unparkPick) ? unparkPick : (held[0]?.symbol ?? '');
+  const source = held.find((p) => p.symbol === unparkSymbol);
   const sourceValue = source?.raw !== undefined && source.priceE8 ? holdingValue(source.raw, source.priceE8, decimalsOf(source)) : undefined;
   const unpark = readUsdgAmount(unparkText, {
     ...(sourceValue === undefined ? {} : { ceiling: { most: sourceValue as Micro, over: `The position is worth ${usdExact(sourceValue as Micro)}.` } }),
@@ -203,8 +206,9 @@ function OwnerForms({ rwa, onChange }: { readonly rwa: RwaState; readonly onChan
 
   const buffer = readUsdgAmount(bufferText);
 
-  const select = (value: string, onSelect: (value: string) => void, rows: readonly ParkPosition[]) => (
+  const select = (label: string, value: string, onSelect: (value: string) => void, rows: readonly ParkPosition[]) => (
     <select
+      aria-label={label}
       value={value}
       onChange={(event) => onSelect(event.target.value)}
       className="h-11 w-full border border-[color:var(--color-line)] bg-surface px-3 text-sm"
@@ -225,7 +229,7 @@ function OwnerForms({ rwa, onChange }: { readonly rwa: RwaState; readonly onChan
           hint="Two steps: move USDG into the parking vault, then buy the holding."
         >
           <div className="space-y-3">
-            {select(parkSymbol, setParkSymbol, rwa.positions)}
+            {select('Holding to park', parkSymbol, setParkSymbol, rwa.positions)}
             <AmountInput
               label="Amount"
               asset="USDG"
@@ -284,43 +288,47 @@ function OwnerForms({ rwa, onChange }: { readonly rwa: RwaState; readonly onChan
         </Field>
 
         <Field label="Unpark" hint="Sells the holding for USDG, paid into the mandate.">
-          <div className="space-y-3">
-            {select(unparkSymbol, setUnparkSymbol, rwa.positions.filter((p) => (p.raw ?? 0n) > 0n))}
-            <AmountInput
-              label="Amount"
-              asset="USDG"
-              value={unparkText}
-              onChange={setUnparkText}
-              {...(sourceValue === undefined ? {} : { max: { atomic: sourceValue, label: 'All of it' } })}
-              {...(unparkText.trim() === '' || unpark.problem === undefined ? {} : { problem: unpark.problem })}
-              hint={
-                unparkRaw === undefined
-                  ? 'Valued at the feed price.'
-                  : `Sells ${tokenAmount(unparkRaw, source ? decimalsOf(source) : USDG_DECIMALS)} ${unparkSymbol} for at least ${usdExact(minUsdg as Micro)}.`
-              }
-            />
-            <TxButton
-              label="Unpark"
-              tone="secondary"
-              disabled={unparkRaw === undefined || unparkRaw === 0n || source === undefined}
-              blockedBy={callGates(system)}
-              context={writeContext}
-              send={async () => {
-                const request = {
-                  address: rwa.lane.TreasuryPark,
-                  abi: treasuryParkAbi as Abi,
-                  functionName: 'unpark',
-                  args: [address, source?.adapter, unparkRaw, minUsdg],
-                } as const;
-                await refuseEarly({ ...request, account: connected as `0x${string}` });
-                return writeContractAsync(request);
-              }}
-              onConfirmed={() => {
-                setUnparkText('');
-                done();
-              }}
-            />
-          </div>
+          {held.length === 0 ? (
+            <p className="pt-1 text-detail text-[color:var(--color-muted)]">Nothing is parked.</p>
+          ) : (
+            <div className="space-y-3">
+              {select('Holding to unpark', unparkSymbol, setUnparkPick, held)}
+              <AmountInput
+                label="Amount"
+                asset="USDG"
+                value={unparkText}
+                onChange={setUnparkText}
+                {...(sourceValue === undefined ? {} : { max: { atomic: sourceValue, label: 'All of it' } })}
+                {...(unparkText.trim() === '' || unpark.problem === undefined ? {} : { problem: unpark.problem })}
+                hint={
+                  unparkRaw === undefined
+                    ? 'Valued at the feed price.'
+                    : `Sells ${tokenAmount(unparkRaw, source ? decimalsOf(source) : USDG_DECIMALS)} ${unparkSymbol} for at least ${usdExact(minUsdg as Micro)}.`
+                }
+              />
+              <TxButton
+                label="Unpark"
+                tone="secondary"
+                disabled={unparkRaw === undefined || unparkRaw === 0n || source === undefined}
+                blockedBy={callGates(system)}
+                context={writeContext}
+                send={async () => {
+                  const request = {
+                    address: rwa.lane.TreasuryPark,
+                    abi: treasuryParkAbi as Abi,
+                    functionName: 'unpark',
+                    args: [address, source?.adapter, unparkRaw, minUsdg],
+                  } as const;
+                  await refuseEarly({ ...request, account: connected as `0x${string}` });
+                  return writeContractAsync(request);
+                }}
+                onConfirmed={() => {
+                  setUnparkText('');
+                  done();
+                }}
+              />
+            </div>
+          )}
         </Field>
       </FieldGrid>
 
