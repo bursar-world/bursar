@@ -131,6 +131,8 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
   // itself out on the receipt never paints the confirmation for the deployment just paid for.
   const [opened, setOpened] = useState(false);
   const [privateMode, setPrivateMode] = useState(false);
+  // Once a private mandate exists the toggle above it has nothing left to switch.
+  const [privateCreated, setPrivateCreated] = useState(false);
 
   // Stopped the moment the account exists. The screen below this point is `OpenTheGates`, which
   // reads the same five states scoped to the new address; leaving this one running would poll the
@@ -236,8 +238,8 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
   if (privateMode && owner !== undefined) {
     return (
       <div className="space-y-8">
-        <PrivateToggle on onChange={setPrivateMode} />
-        <PrivateCreate owner={owner} />
+        {!privateCreated && <PrivateToggle on onChange={setPrivateMode} />}
+        <PrivateCreate owner={owner} onCreated={() => setPrivateCreated(true)} />
       </div>
     );
   }

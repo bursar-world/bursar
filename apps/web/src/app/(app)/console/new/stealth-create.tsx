@@ -344,7 +344,7 @@ function StealthCreated({ created, prepared }: { readonly created: Created; read
   };
 
   return (
-    <Section title="The private mandate exists" description="Fund it, then give your agent its key and some gas.">
+    <Section title="Private mandate created" description="Fund it, then give your agent its key and some gas.">
       <Card>
         <div className="space-y-4">
           <FieldGrid columns={2}>

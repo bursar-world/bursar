@@ -42,7 +42,7 @@ type Created = { readonly address: Address; readonly hash: Hex; readonly terms: 
  * factory will give the account, before anything leaves the browser. The factory receives a
  * commitment, a starting counter and the sealed copy, and no cap, capability or provider in the clear.
  */
-export function PrivateCreate({ owner }: { readonly owner: Address }) {
+export function PrivateCreate({ owner, onCreated }: { readonly owner: Address; readonly onCreated?: () => void }) {
   const contracts = privateContracts();
   const { signMessageAsync } = useSignMessage();
   const { writeContractAsync } = useWriteContract();
@@ -122,6 +122,7 @@ export function PrivateCreate({ owner }: { readonly owner: Address }) {
       saved = true;
     }
     setCreated({ address, hash: receipt.transactionHash, terms, saved });
+    onCreated?.();
   };
 
   return (
@@ -263,7 +264,7 @@ function PrivateCreated({ created }: { readonly created: Created }) {
   const download = () => downloadTerms(created.address, created.terms);
 
   return (
-    <Section title="The private mandate exists" description="Fund it with USDG and hand the terms to your agent.">
+    <Section title="Private mandate created" description="Fund it with USDG and hand the terms to your agent.">
       <Card>
         <div className="space-y-4">
           <Field label="Mandate address" hint="Send USDG here to fund it.">
