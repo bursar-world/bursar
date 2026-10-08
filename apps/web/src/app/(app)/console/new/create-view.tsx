@@ -81,6 +81,8 @@ const GATE_REFETCH_MS = 15_000;
  * limits alone. Nothing is unsafe in between: a mandate refuses every payee and every capability it
  * has not been told to allow, so a setup abandoned halfway spends nothing.
  */
+const CREATE_DESCRIPTION = 'One account for one agent. Its limits are set when it is created, so it never holds funds without them.';
+
 export function CreateMandateView({ draftId, lane: askedLane }: { readonly draftId?: string; readonly lane?: FundingLane } = {}) {
   const { address: owner, isConnected } = useWalletAccount();
   const { writeContractAsync } = useWriteContract();
@@ -236,7 +238,9 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
   if (privateMode && owner !== undefined) {
     return (
       <div className="space-y-8">
-        <PrivateToggle on onChange={setPrivateMode} />
+        <Section title="Create a mandate" description={CREATE_DESCRIPTION}>
+          <PrivateToggle on onChange={setPrivateMode} />
+        </Section>
         <PrivateCreate owner={owner} />
       </div>
     );
@@ -250,12 +254,9 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
 
   return (
     <div className="space-y-8">
-      {created === undefined && <PrivateToggle on={false} onChange={setPrivateMode} disabled={frozen} />}
       <fieldset disabled={frozen} className="min-w-0 space-y-8">
-        <Section
-          title="Create a mandate"
-          description="One account for one agent. Its limits are set when it is created, so it never holds funds without them."
-        >
+        <Section title="Create a mandate" description={CREATE_DESCRIPTION}>
+          {created === undefined && <PrivateToggle on={false} onChange={setPrivateMode} disabled={frozen} />}
           <Card title="Who spends" description="Your agent signs with this address. It can only pay through the escrow.">
             <div className="space-y-3">
               <FieldGrid columns={2}>

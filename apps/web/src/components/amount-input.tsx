@@ -1,6 +1,6 @@
 'use client';
 
-import { useId } from 'react';
+import { useId, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { BRSR_DECIMALS, formatBrsrExact, parseAmount, usd } from '../money';
@@ -50,13 +50,18 @@ export function AmountInput({
   autoFocus = false,
 }: AmountInputProps) {
   const id = useId();
+  // An empty field nobody has touched yet is not wrong; it is unfilled. The caller's problem shows
+  // once the field has been typed in or left, so a fresh form does not open in red.
+  const [touched, setTouched] = useState(false);
+  const pristine = !touched && value.trim() === '';
   const decimals = asset === 'USDG' ? MICRO_DECIMALS : BRSR_DECIMALS;
   const parsed = value.trim() === '' ? undefined : parseAmount(value, decimals);
   const atomic = parsed?.ok ? parsed.value : undefined;
   const overMax = max !== undefined && atomic !== undefined && atomic > max.atomic;
 
-  const note = problem
-    ? problem
+  const shownProblem = pristine ? undefined : problem;
+  const note = shownProblem
+    ? shownProblem
     : overMax
       ? `That is more than the ${format(max.atomic, asset)} available.`
       : parsed && !parsed.ok
@@ -65,7 +70,7 @@ export function AmountInput({
           ? `Reads as ${format(atomic, asset)}`
           : undefined;
 
-  const bad = Boolean(problem) || overMax || (parsed !== undefined && !parsed.ok);
+  const bad = Boolean(shownProblem) || overMax || (parsed !== undefined && !parsed.ok);
 
   return (
     <div className="space-y-1.5">
@@ -87,7 +92,9 @@ export function AmountInput({
           value={value}
           aria-invalid={bad}
           aria-describedby={note ? `${id}-note` : undefined}
+          onBlur={() => setTouched(true)}
           onChange={(event) => {
+            setTouched(true);
             const text = event.target.value;
             const next = text.trim() === '' ? undefined : parseAmount(text, decimals);
             onChange(text, next?.ok ? next.value : undefined);

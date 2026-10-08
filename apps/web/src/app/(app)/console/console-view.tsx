@@ -127,6 +127,8 @@ export function ConsoleView() {
           </>
         }
       >
+        {/* A wallet with no mandates gets the empty state below, not three zeroes. */}
+        {!(reading.state === 'read' && list.mandates.length === 0) && (
         <Card>
           <StatGrid columns={3}>
             <Stat
@@ -149,6 +151,7 @@ export function ConsoleView() {
             />
           </StatGrid>
         </Card>
+        )}
       </Section>
 
       <Section title="Your mandates" description="What each one has left right now.">

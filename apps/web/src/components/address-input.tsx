@@ -46,7 +46,8 @@ export function AddressInput({
   const id = useId();
   const reading = readAddress(value);
   const shown = problem ?? reading.problem;
-  const note = shown ?? (reading.value ? `Reads as ${reading.value}` : undefined);
+  // The echo only earns its place when the reading differs from what was typed beyond letter case.
+  const note = shown ?? (reading.value && reading.value.toLowerCase() !== value.trim().toLowerCase() ? `Reads as ${reading.value}` : undefined);
 
   return (
     <div className="space-y-1.5">
