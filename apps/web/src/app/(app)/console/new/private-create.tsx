@@ -20,6 +20,8 @@ import { Button } from '@/components/button';
 import { DateField, SelectField, TextField } from '@/components/fields';
 import { Card, EmptyState, Field, FieldGrid, Section } from '@/components/layout';
 import { TxButton } from '@/components/tx-button';
+import { usd } from '@/money';
+import type { Micro } from '@bursar/core';
 import { useWriteContract } from '@/wallet/write';
 import { useWorkspace } from '@/workspace/context';
 import { newDraft, upsert } from '@/workspace/model';
@@ -215,6 +217,7 @@ export function PrivateCreate({ owner }: { readonly owner: Address }) {
       >
         <Card>
           <div className="space-y-4">
+            {reading.terms && <p className="text-sm">{termsLine(reading.terms)}</p>}
             <p className="text-detail text-[color:var(--color-muted)]">
               {stealth
                 ? 'Neither signature costs anything. Your wallet shows the second as controlling funds, which it does, so sign it only on this page. Signing both again from this wallet finds the mandate on any device.'
@@ -239,6 +242,20 @@ export function PrivateCreate({ owner }: { readonly owner: Address }) {
         </Card>
       </Section>
     </div>
+  );
+}
+
+type ReadTerms = NonNullable<ReturnType<typeof readPrivateForm>['terms']>;
+
+/** The terms read back in one line, so the review shows what is about to be sealed. */
+function termsLine(terms: ReadTerms): string {
+  const period = PERIODS.find((entry) => entry.seconds === terms.periodLen)?.label.toLowerCase() ?? 'period';
+  const ends = new Date(terms.expiry * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  return (
+    `${usd(terms.perCallCap as Micro)} per payment, ${usd(terms.periodCap as Micro)} per ${period}, ` +
+    `${usd(terms.totalCap as Micro)} in total, until the end of ${ends}. ` +
+    `Pays ${count(terms.counterparties.length, 'provider', 'providers')} for ${count(terms.capabilities.length, 'capability', 'capabilities')}.`
   );
 }
 
