@@ -52,7 +52,7 @@ import { ConnectButton } from '@/wallet/connect-button';
 import { useWriteContract } from '@/wallet/write';
 import { readUsdgAmount } from '../lib/amount';
 import { ShareWithResolver } from '../lib/share-with-resolver';
-import { PRIVATE_LIMIT_LINE } from '../new/private-create';
+import { PRIVATE_PAGE_LINE } from '../new/private-create';
 
 const STATUS_WORD: Record<number, string> = {
   [LockStatus.Locked]: 'Held in escrow',
@@ -107,7 +107,7 @@ export function CommittedMandateView({ mandate, onRefresh }: { readonly mandate:
           {mandate.paused && <Badge>Paused</Badge>}
           {mandate.revoked && <Badge>Revoked</Badge>}
         </div>
-        <p className="max-w-3xl text-detail text-[color:var(--color-muted)]">{PRIVATE_LIMIT_LINE}</p>
+        <p className="max-w-3xl text-detail text-[color:var(--color-muted)]">{PRIVATE_PAGE_LINE}</p>
       </div>
 
       <Section title="On chain" description="What anyone can see about this mandate.">
