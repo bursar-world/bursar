@@ -31,7 +31,8 @@ export function Address({ value, label, full = false, copy = true, explorer = tr
   return (
     <span className={`inline-flex max-w-full items-center gap-1.5 ${className}`}>
       <span className={`tabular text-detail ${full ? 'min-w-0 break-all' : ''}`} title={value}>
-        {label ?? (full ? value : shortAddress(value))}
+        {/* An unregistered name reads back as an empty string, which is no label at all. */}
+        {label || (full ? value : shortAddress(value))}
       </span>
       {copy && <CopyControl value={value} />}
       {link !== undefined && (
