@@ -11,7 +11,7 @@ import type { TermsDocument } from '@bursar/sdk';
 import { rhcClient } from '@/chain/client';
 import { committedFactories, privateContracts, termsProblem } from '@/chain/private';
 import { fundsKeyContext, shieldedContracts, shieldedHref } from '@/chain/shielded';
-import { SHIELDED_TIMING_LINE, STEALTH_LIMIT_LINE, agentKeyFile, downloadFile, formatEth, ownerKeysFrom, scanOwnedMandates, sendFromStealth } from '@/chain/stealth';
+import { agentKeyFile, downloadFile, formatEth, ownerKeysFrom, scanOwnedMandates, sendFromStealth } from '@/chain/stealth';
 import type { OwnedPrivateMandate, OwnerKeys } from '@/chain/stealth';
 import { Address as AddressView } from '@/components/address';
 import { Badge } from '@/components/badge';
@@ -54,8 +54,6 @@ export function PrivateOwnersView() {
       <p className="max-w-3xl text-detail text-[color:var(--color-muted)]">
         Mandates whose owner and agent are stealth addresses derived from your wallet’s keys. Only your wallet can find them.
       </p>
-      <p className="max-w-3xl text-detail text-[color:var(--color-muted)]">{STEALTH_LIMIT_LINE}</p>
-      {shieldedContracts() && <p className="max-w-3xl text-detail text-[color:var(--color-muted)]">{SHIELDED_TIMING_LINE}</p>}
     </div>
   );
 
