@@ -287,10 +287,9 @@ function OwnerForms({ rwa, onChange }: { readonly rwa: RwaState; readonly onChan
           </div>
         </Field>
 
-        <Field label="Unpark" hint="Sells the holding for USDG, paid into the mandate.">
-          {held.length === 0 ? (
-            <p className="pt-1 text-detail text-[color:var(--color-muted)]">Nothing is parked.</p>
-          ) : (
+        {/* The positions table already says when nothing is parked. */}
+        {held.length > 0 && (
+          <Field label="Unpark" hint="Sells the holding for USDG, paid into the mandate.">
             <div className="space-y-3">
               {select('Holding to unpark', unparkSymbol, setUnparkPick, held)}
               <AmountInput
@@ -328,8 +327,8 @@ function OwnerForms({ rwa, onChange }: { readonly rwa: RwaState; readonly onChan
                 }}
               />
             </div>
-          )}
-        </Field>
+          </Field>
+        )}
       </FieldGrid>
 
       <FieldGrid columns={2}>
