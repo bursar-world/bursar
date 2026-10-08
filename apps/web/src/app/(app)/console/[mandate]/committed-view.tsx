@@ -116,7 +116,7 @@ export function CommittedMandateView({ mandate, onRefresh }: { readonly mandate:
             <Field label="Agent">
               <AddressView value={mandate.agent} />
             </Field>
-            <Field label="Proven payments" hint="Each payment proved it met the private terms before any money moved.">
+            <Field label="Proven payments" hint="Each payment proves it meets the private terms before any money moves.">
               <span className="tabular">{mandate.nonce.toString()}</span>
             </Field>
             <Field label="Terms commitment" hint={`Version ${mandate.version.toString()}. A fingerprint of the terms, which stay private.`}>
@@ -188,7 +188,7 @@ export function CommittedMandateView({ mandate, onRefresh }: { readonly mandate:
         </Card>
       </Section>
 
-      <Section title="Payments" description="Amounts and providers are public, because the escrow holds the payments.">
+      <Section title="Payments" description="Each payment waits in escrow, where its amount and provider are public.">
         <Card>
           {payments.isLoading ? (
             <Skeleton height={18} />
@@ -319,8 +319,7 @@ function Unlock({
     <div className="space-y-3">
       <p className="text-sm font-medium">Terms are private.</p>
       <p className="text-detail text-[color:var(--color-muted)]">
-        Your wallet signs a fixed message, and this page uses the signature to open the terms. The key is forgotten when
-        you leave. Signing is free and moves no funds.
+        Your wallet signs a message to open them. Signing is free and moves no funds.
       </p>
       {!sameAddress(connected, mandate.principal) && (
         <p className="text-detail text-[color:var(--color-muted)]">
@@ -455,6 +454,7 @@ export function AmendTerms({
         <Field label="Ends on">
           <input
             type="date"
+            aria-label="Ends on"
             className="w-full rounded-md border border-[color:var(--color-line)] bg-transparent px-3 py-2 text-sm"
             value={form.expiry}
             onChange={(event) => set({ expiry: event.target.value })}
@@ -479,32 +479,40 @@ export function AmendTerms({
  * no allowance. What it sends shows on chain, which is the funding link the page states above.
  */
 function Fund({ mandate, onDone }: { readonly mandate: CommittedRead; readonly onDone: () => void }) {
+  const { address: connected } = useWalletAccount();
   const { writeContractAsync } = useWriteContract();
   const [text, setText] = useState('');
   const amount = readUsdgAmount(text);
+  const wallet = useQuery({
+    queryKey: ['console', 'wallet-usdg', connected],
+    enabled: connected !== undefined,
+    queryFn: () =>
+      rhcClient().readContract({ address: ADDRESSES.usdg, abi: erc20Abi, functionName: 'balanceOf', args: [connected as Address] }),
+  });
+  const held = `This mandate holds ${usd(micro(mandate.balance))}.`;
 
   return (
     <Section title="Add funds" description="Send USDG from your wallet. The agent can spend it only within the private terms.">
       <Card>
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="min-w-[14rem] flex-1">
-            <AmountInput
-              label="Amount"
-              asset="USDG"
-              value={text}
-              onChange={setText}
-              {...(amount.problem === undefined ? {} : { problem: amount.problem })}
-            />
-          </div>
+        <div className="max-w-md space-y-3">
+          <AmountInput
+            label="Amount"
+            asset="USDG"
+            value={text}
+            onChange={setText}
+            hint={wallet.data === undefined ? held : `${held} Your wallet holds ${usd(micro(wallet.data))}.`}
+            {...(amount.problem === undefined ? {} : { problem: amount.problem })}
+          />
           <TxButton
             label="Send it to the mandate"
             disabled={amount.value === undefined || amount.value <= 0n}
             send={() =>
               writeContractAsync({ address: ADDRESSES.usdg, abi: erc20Abi, functionName: 'transfer', args: [mandate.address, amount.value as bigint] })
             }
-            onContinue={() => {
+            onConfirmed={() => {
               setText('');
               onDone();
+              void wallet.refetch();
             }}
           />
         </div>

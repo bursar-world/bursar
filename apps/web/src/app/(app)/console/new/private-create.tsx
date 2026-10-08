@@ -134,6 +134,7 @@ export function PrivateCreate({ owner }: { readonly owner: Address }) {
             )}
             <Field label="Name" hint="Kept inside the sealed terms. Nobody else reads it.">
               <input
+                aria-label="Name"
                 className="w-full rounded-md border border-[color:var(--color-line)] bg-transparent px-3 py-2 text-sm"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
@@ -152,6 +153,7 @@ export function PrivateCreate({ owner }: { readonly owner: Address }) {
             <AmountInput asset="USDG" label="Per period" value={form.periodCap} onChange={(periodCap) => set({ periodCap })} />
             <Field label="Period" hint="How often the period cap refills.">
               <select
+                aria-label="Period"
                 className="w-full rounded-md border border-[color:var(--color-line)] bg-transparent px-3 py-2 text-sm"
                 value={form.periodLen}
                 onChange={(event) => set({ periodLen: Number(event.target.value) })}
@@ -166,6 +168,7 @@ export function PrivateCreate({ owner }: { readonly owner: Address }) {
             <Field label="Ends on" hint="Your agent cannot pay after this date.">
               <input
                 type="date"
+                aria-label="Ends on"
                 className="w-full rounded-md border border-[color:var(--color-line)] bg-transparent px-3 py-2 text-sm"
                 value={form.expiry}
                 onChange={(event) => set({ expiry: event.target.value })}
@@ -228,11 +231,8 @@ export function PrivateCreate({ owner }: { readonly owner: Address }) {
                 ? 'Neither signature costs anything. Your wallet shows the second as controlling funds, which it does, so sign it only on this page. Signing both again from this wallet finds the mandate on any device.'
                 : 'The signature is free and moves nothing. Signing it again from this wallet opens the terms on any device.'}
             </p>
-            {workspace.view.status !== 'unlocked' && (
-              <p className="text-detail text-[color:var(--color-muted)]">
-                Your workspace is locked, so the terms will not be saved there. You can download them after creating the
-                mandate.
-              </p>
+            {workspace.view.status === 'unlocked' && (
+              <p className="text-detail text-[color:var(--color-muted)]">A copy of the terms is saved to your workspace.</p>
             )}
             {stealth ? (
               <StealthCreate owner={owner} terms={reading.terms} label={name.trim()} />
@@ -267,12 +267,13 @@ function PrivateCreated({ created }: { readonly created: Created }) {
             <TxHash hash={created.hash} />
           </Field>
           <p className="text-detail">
-            {created.saved
-              ? 'The terms are saved in your workspace.'
-              : 'The terms are not in your workspace. Download them now: your agent needs this file to prove each payment.'}
+            Your agent proves each payment with the terms file. It holds the terms and the secret that keeps them private,
+            so give it to your agent only.
           </p>
           <p className="text-detail text-[color:var(--color-muted)]">
-            The file holds the readable terms and the secret that hides them. Give it to your agent only.
+            {created.saved
+              ? 'A copy is saved in your workspace, and you can download it again from the mandate page.'
+              : 'You can download it again from the mandate page.'}
           </p>
           <div className="flex flex-wrap gap-3">
             <Button onClick={download}>Download the terms for your agent</Button>
@@ -296,6 +297,7 @@ export function PrivateCapabilities({
 }) {
   return (
     <SpendClassFields
+      sealed
       only={PRIVATE_CLASSES}
       classes={{ ...form.classes, rwa: false }}
       capabilities={form.capabilities}

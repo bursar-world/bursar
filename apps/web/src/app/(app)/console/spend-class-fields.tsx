@@ -40,6 +40,7 @@ export function SpendClassFields({
   disabled = false,
   only = SPEND_CLASSES,
   note,
+  sealed = false,
 }: {
   readonly classes: ClassSelection;
   readonly capabilities: readonly ClassedCapability[];
@@ -47,6 +48,8 @@ export function SpendClassFields({
   readonly disabled?: boolean;
   readonly only?: readonly SpendClass[];
   readonly note?: ReactNode;
+  /** The capabilities are sealed with private terms rather than written on chain one by one. */
+  readonly sealed?: boolean;
 }) {
   return (
     <div className="space-y-4">
@@ -57,6 +60,7 @@ export function SpendClassFields({
           on={classes[id]}
           capabilities={capabilities.filter((entry) => entry.spendClass === id)}
           disabled={disabled}
+          sealed={sealed}
           onToggle={(on) => onChange({ ...classes, [id]: on }, capabilities)}
           onAdd={(label) => {
             if (capabilities.some((entry) => entry.spendClass === id && entry.label === label)) return;
@@ -83,6 +87,7 @@ function ClassRow({
   on,
   capabilities,
   disabled,
+  sealed,
   onToggle,
   onAdd,
   onRemove,
@@ -91,6 +96,7 @@ function ClassRow({
   readonly on: boolean;
   readonly capabilities: readonly ClassedCapability[];
   readonly disabled: boolean;
+  readonly sealed: boolean;
   readonly onToggle: (on: boolean) => void;
   readonly onAdd: (label: string) => void;
   readonly onRemove: (label: string) => void;
@@ -180,7 +186,7 @@ function ClassRow({
             </Button>
           </div>
           <p id={`${inputId}-note`} className="tabular text-note" style={{ color: problem ? 'var(--color-state-blocked)' : 'var(--color-muted)' }}>
-            {problem ?? (label === undefined ? `Written on chain as ${info.prefix}<name>.` : `Written on chain as ${info.prefix}${label}.`)}
+            {problem ?? `${sealed ? 'Sealed as' : 'Written on chain as'} ${info.prefix}${label ?? '<name>'}.`}
           </p>
           <ChipList
             items={capabilities.map((entry) => ({ key: entry.label, label: chainLabel(entry) }))}
