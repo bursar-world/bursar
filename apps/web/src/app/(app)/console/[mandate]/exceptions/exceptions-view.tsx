@@ -3,7 +3,7 @@
 import { isTotalBudgetWindow, mulBps } from '@bursar/core';
 import type { ContractSet } from '@bursar/core';
 import type { Micro } from '@bursar/core';
-import { LockStatus } from '@bursar/sdk';
+import { LockStatus, isSealedURI } from '@bursar/sdk';
 import { useQuery } from '@tanstack/react-query';
 import type { Address } from 'viem';
 
@@ -235,7 +235,7 @@ export function ExceptionsView() {
                         }
                         onContinue={refresh}
                       />
-                    ) : isOwner && lock.status === LockStatus.Disputed ? (
+                    ) : isOwner && lock.status === LockStatus.Disputed && isSealedURI(lock.inputURI) ? (
                       <ShareWithResolver
                         escrow={account?.escrow ?? ADDRESSES.escrow}
                         lockId={lock.id}
@@ -270,7 +270,7 @@ export function ExceptionsView() {
           description={
             bondBps === undefined
               ? 'Contesting a payment sends it to the resolvers.'
-              : `Contesting an unclaimed payment posts a ${bondBps / 100}% bond from this mandate. You get it back if the ruling goes your way.`
+              : `Contesting a payment the escrow still holds posts a ${bondBps / 100}% bond from this mandate. You get it back if the ruling goes your way.`
           }
         >
           <Card>
@@ -311,7 +311,8 @@ export function ExceptionsView() {
 
                   return (
                     <div key={lock.id.toString()} className="flex flex-wrap items-start justify-between gap-3 border-b border-[color:var(--color-line)] pb-4 last:border-0 last:pb-0">
-                      <div className="min-w-0 space-y-1">
+                      {/* A zero basis keeps the text from pushing the button onto a line of its own. */}
+                      <div className="min-w-0 flex-1 basis-0 space-y-1">
                         <p className="text-sm font-medium">
                           Payment #{lock.id.toString()} · {usd(lock.amount)} to {shortAddress(lock.payee)}
                         </p>
@@ -326,7 +327,7 @@ export function ExceptionsView() {
                             <>
                               Held in escrow. The provider has to deliver <Countdown to={lock.deadline} />. Contesting
                               posts a bond of {bond === undefined ? 'the escrow’s rate' : usdExact(bond)} from this
-                              mandate. {feeWarning(lock.amount, resolverFeeBps, account.contractSet)}
+                              mandate.
                             </>
                           ) : (
                             <>
@@ -352,7 +353,7 @@ export function ExceptionsView() {
                         confirmTitle={`Contest payment #${lock.id.toString()}`}
                         confirmDescription={
                           lock.status === LockStatus.Locked
-                            ? `A bond is posted from this mandate and the resolvers decide how the amount is split. ${feeWarning(
+                            ? `${bond === undefined ? 'A bond is' : `A bond of ${usdExact(bond)} is`} posted from this mandate and the resolvers decide how the amount is split. ${feeWarning(
                                 lock.amount,
                                 resolverFeeBps,
                                 account.contractSet,
