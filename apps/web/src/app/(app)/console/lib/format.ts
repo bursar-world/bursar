@@ -184,7 +184,7 @@ export function returnable(
  */
 export const OVERDUE_WORD = 'Past its deadline';
 
-export const OVERDUE_DETAIL = 'The provider did not deliver by the deadline. The money is held until you take it back.';
+export const OVERDUE_DETAIL = 'Not delivered in time. The money is yours to take back.';
 
 export function gateWord(gate: MerchantGate): string {
   return gate === MerchantGate.MerkleRoot ? 'Published list' : 'Your own list';

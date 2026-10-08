@@ -110,7 +110,7 @@ export function ExceptionsView() {
                   key: 'when',
                   header: 'When',
                   cell: (row) => (
-                    <span className="text-detail">
+                    <span className="whitespace-nowrap text-detail">
                       <Instant at={row.transaction.at} relative />
                     </span>
                   ),
@@ -132,9 +132,6 @@ export function ExceptionsView() {
                     <span className="text-detail">
                       <span className="font-medium">{row.cause.headline}. </span>
                       <span className="text-[color:var(--color-muted)]">{row.cause.detail}</span>
-                      {row.cause.errorName && (
-                        <span className="tabular block text-note text-[color:var(--color-muted)]">{row.cause.errorName}</span>
-                      )}
                     </span>
                   ),
                 },
@@ -143,7 +140,11 @@ export function ExceptionsView() {
                   header: 'On chain',
                   align: 'right',
                   secondary: true,
-                  cell: (row) => <TxHash hash={row.transaction.hash} />,
+                  cell: (row) => (
+                    <span className="whitespace-nowrap">
+                      <TxHash hash={row.transaction.hash} />
+                    </span>
+                  ),
                 },
               ]}
             />
@@ -184,7 +185,15 @@ export function ExceptionsView() {
               caption="Payments that did not end in a delivery"
               columns={[
                 { key: 'id', header: 'Payment', cell: (lock) => <span className="tabular text-detail">#{lock.id.toString()}</span> },
-                { key: 'payee', header: 'Provider', cell: (lock) => <AddressView value={lock.payee} /> },
+                {
+                  key: 'payee',
+                  header: 'Provider',
+                  cell: (lock) => (
+                    <span className="whitespace-nowrap">
+                      <AddressView value={lock.payee} />
+                    </span>
+                  ),
+                },
                 { key: 'amount', header: 'Amount', align: 'right', cell: (lock) => <span className="tabular">{usd(lock.amount)}</span> },
                 {
                   key: 'outcome',
@@ -219,6 +228,7 @@ export function ExceptionsView() {
                   align: 'right',
                   cell: (lock) =>
                     isOwner && returnable(lock, chainTime) ? (
+                      <span className="whitespace-nowrap">
                       <TxButton
                         label="Return the money"
                         tone="secondary"
@@ -235,6 +245,7 @@ export function ExceptionsView() {
                         }
                         onContinue={refresh}
                       />
+                      </span>
                     ) : isOwner && lock.status === LockStatus.Disputed ? (
                       <ShareWithResolver
                         escrow={account?.escrow ?? ADDRESSES.escrow}
