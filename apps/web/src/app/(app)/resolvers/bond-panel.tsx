@@ -52,13 +52,13 @@ export function BondPanel({
   return (
     <Card
       title="Your bond"
-      description="BRSR posted against the registry. It is what a vote costs when it goes wrong, and it is the only thing at risk here."
+      description="The BRSR you post to vote on disputes. A vote that goes wrong costs part of it, and nothing else is at risk."
     >
       <StatGrid columns={4}>
         <Stat
           label="Bonded"
           value={standing?.bond === undefined ? unread : `${formatBrsr(standing.bond)} BRSR`}
-          hint={account === undefined ? 'Connect a wallet to read a bond' : statusWord(standing?.status)}
+          hint={account === undefined ? 'Connect a wallet to see your bond' : statusWord(standing?.status)}
           level={levelFor(standing?.bond, floor, standing?.barred)}
         />
         <Stat
@@ -67,7 +67,7 @@ export function BondPanel({
           hint={
             standing?.floor !== undefined && desk?.minBond !== undefined && standing.floor > desk.minBond
               ? `Raised above the global floor of ${formatBrsr(desk.minBond)} BRSR for this address`
-              : 'Held in the staking pool and read on every vote'
+              : 'The smallest bond that can vote, set by the staking pool'
           }
         />
         <Stat
@@ -85,17 +85,17 @@ export function BondPanel({
       <div className="mt-5 space-y-4">
         {standing?.barred === true && (
           <p className="text-detail" style={{ color: 'var(--color-state-blocked)' }}>
-            Governance has barred this address from bonding, so the registry refuses any amount from it. The bar is held
-            in the staking pool and only governance lifts it.
+            Governance has barred this address from bonding, so it cannot post any amount. Only governance can lift the
+            bar.
           </p>
         )}
 
         {desk !== undefined && desk.bondAsset !== undefined && desk.bondPool !== undefined && (
           <FieldGrid columns={3}>
-            <Field label="Bond asset" hint="Bonds are BRSR. Rewards arrive in USDG, and the two balances never meet.">
+            <Field label="Bond asset" hint="Bonds are in BRSR. Rewards are paid in USDG.">
               <AddressLine value={desk.bondAsset} label="BRSR" />
             </Field>
-            <Field label="Floor held by" hint="The staking pool answers the floor and the bar for every address.">
+            <Field label="Floor held by" hint="The staking pool sets the floor and any bar for each address.">
               <AddressLine value={desk.bondPool} />
             </Field>
             <Field label="Bonded across the bench" hint={`${desk.resolverCount ?? 0} resolvers registered`}>
@@ -112,7 +112,7 @@ export function BondPanel({
             mode={active ? 'increase' : 'register'}
             disabledReason={
               unbonding
-                ? 'This address has asked to unbond. An unbonding resolver takes no top-ups. Cancel the exit first, which returns the bond to work without moving it.'
+                ? 'This address is unbonding, so it cannot add to the bond. Cancel the exit first to put the bond back to work.'
                 : undefined
             }
           />
@@ -167,7 +167,7 @@ function BondForm({
         : !allowanceKnown
           ? 'what the registry may already move from this wallet'
           : floor === undefined
-            ? 'the bond floor the staking pool holds for this address'
+            ? 'the floor for this address'
             : undefined;
 
   const ready =
@@ -212,8 +212,8 @@ function BondForm({
           }
           hint={
             mode === 'register'
-              ? 'Posting a bond does not commit you to any dispute. Voting does, and a vote is what puts it at risk.'
-              : 'The floor is checked against the total, so a top-up short of it is refused whole.'
+              ? 'Posting a bond commits you to nothing. Only a vote puts it at risk.'
+              : 'The bond after the top-up has to reach the floor.'
           }
           disabled={disabledReason !== undefined}
         />
@@ -222,7 +222,7 @@ function BondForm({
       <div className="mt-4">
         {registry === undefined ? (
           <p className="text-detail text-[color:var(--color-muted)]">
-            The registry address could not be resolved for this build, so nothing can be sent.
+            The registry could not be found, so bonding is unavailable.
           </p>
         ) : needsAllowance ? (
           <TxButton
@@ -272,30 +272,26 @@ function BondForm({
         {disabledReason !== undefined && <p className="text-detail text-[color:var(--color-muted)]">{disabledReason}</p>}
         {short > 0n && bond !== undefined && bond > 0n && (
           <p className="text-detail" style={{ color: 'var(--color-state-attention)' }}>
-            This bond is {formatBrsr(short as Brsr)} BRSR under the floor, so the registry will not take a vote from it.
-            Adding that much puts it back on the bench.
+            This bond is {formatBrsr(short as Brsr)} BRSR below the floor, so it cannot vote. Add that much to vote again.
           </p>
         )}
         {needsAllowance && (
           <p className="text-detail text-[color:var(--color-muted)]">
-            Two transactions. The first lets the registry move the BRSR, the second posts it. Nothing leaves the wallet
-            on the first.
+            Two transactions: allow the registry to move the BRSR, then post it. The first moves nothing.
           </p>
         )}
         {allowance !== undefined && allowance > 0n && !needsAllowance && (
           <p className="text-detail text-[color:var(--color-muted)]">
-            The registry may currently move {formatBrsr(allowance)} BRSR from this wallet.
+            The registry can already move {formatBrsr(allowance)} BRSR from this wallet.
           </p>
         )}
         {unreadReason !== undefined && (
           <p className="text-detail text-[color:var(--color-muted)]">
-            Bonding is held back because {unreadReason} could not be read. Nothing has changed on chain; only the reading
-            failed.
+            Could not read {unreadReason}. Read again before bonding.
           </p>
         )}
         <p className="text-detail text-[color:var(--color-muted)]">
-          These contracts have had no external review. The bond is BRSR, its price moves, and nothing in the registry
-          reads that price. What the bond is worth against the settlements it backs is yours to watch.
+          Bonds are held in BRSR, so their value moves with the BRSR price.
         </p>
       </div>
     </div>
@@ -306,9 +302,7 @@ function floorProblem(mode: 'register' | 'increase', total: bigint, floor: bigin
   if (floor === undefined) return 'The floor could not be read.';
   return mode === 'register'
     ? `The floor is ${formatBrsr(floor as Brsr)} BRSR. This would post ${formatBrsr(total as Brsr)} BRSR.`
-    : `The floor is checked against the total. This would leave ${formatBrsr(total as Brsr)} BRSR against a floor of ${formatBrsr(
-        floor as Brsr,
-      )} BRSR.`;
+    : `This would bring the bond to ${formatBrsr(total as Brsr)} BRSR, below the ${formatBrsr(floor as Brsr)} BRSR floor.`;
 }
 
 function bondTokenOr(desk: ResolverDesk | undefined): Address {
@@ -323,7 +317,7 @@ function statusWord(status: number | undefined): string {
     case ResolverStatus.Active:
       return 'Active and able to vote';
     case ResolverStatus.Unbonding:
-      return 'Leaving. No new votes are taken';
+      return 'Unbonding, so no new votes';
     case ResolverStatus.Exited:
       return 'Exited. The bond has been returned';
     case ResolverStatus.None:

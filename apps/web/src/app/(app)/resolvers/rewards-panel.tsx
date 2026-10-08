@@ -43,27 +43,26 @@ export function RewardsPanel({
   return (
     <Card
       title="What ruling pays"
-      description="A cut of every settlement a panel rules on, split between the scores that held."
+      description="The resolver fee on each ruling, split between the scores that held."
     >
       <div className="space-y-4">
         <FieldGrid columns={3}>
-          <Field label="Yours to claim" hint="Accrued across disputes that have settled. Paid in USDG.">
+          <Field label="Yours to claim" hint="Earned on settled disputes, paid in USDG.">
             <span className="tabular">{claimable === undefined ? (account === undefined ? 'No wallet' : unread) : usdExact(claimable)}</span>
           </Field>
-          <Field label="The resolver fee" hint="Taken off a settlement the panel ruled on and returned to the registry.">
+          <Field label="The resolver fee" hint="Taken from each settlement the panel rules on.">
             <span className="tabular">{desk?.resolverFeeBps === undefined ? unread : bps(desk.resolverFeeBps)}</span>
           </Field>
-          <Field label="Reward asset" hint="USDG, the asset the disputed settlement was denominated in.">
+          <Field label="Reward asset" hint="The same USDG the settlement was paid in.">
             {desk?.rewardAsset === undefined ? unread : <AddressLine value={desk.rewardAsset} label="USDG" />}
           </Field>
         </FieldGrid>
 
         <p className="text-sm">
-          When a dispute is finalised the escrow deducts the resolver fee from the lock it settles and hands it back to
-          the registry, where it is split evenly between the resolvers who revealed a score inside the deviation band.
-          Silence and outlier scores earn nothing, which is the same test that decides slashing. A dispute that closes
-          without a ruling pays nobody. Nothing here is a rate and nothing accrues over time: what arrives depends on
-          how many disputes are opened and ruled on.
+          When a dispute is ruled on, the resolver fee is split evenly between the resolvers whose revealed scores
+          held. Unrevealed and outlying scores earn nothing, the same test that decides slashing. A dispute closed
+          without a ruling pays no one. There is no fixed rate. What you receive depends on how many disputes are
+          opened and ruled on.
         </p>
 
         {account !== undefined && registry !== undefined && (
@@ -77,7 +76,7 @@ export function RewardsPanel({
                 abi: oracleRegistryAbi,
                 functionName: 'claimRewards',
               }).catch((caught: unknown) => {
-                throw resolverFailure(caught, { action: 'Claim what ruling has paid' });
+                throw resolverFailure(caught, { action: 'Claim rewards' });
               })
             }
             onConfirmed={onDone}
@@ -86,18 +85,17 @@ export function RewardsPanel({
 
         {account !== undefined && claimable === 0n && (
           <p className="text-detail text-[color:var(--color-muted)]">
-            Nothing to claim. A reward lands on a resolver only when a dispute it ruled on settles. An address that has
-            left the bench still collects what it earned while bonded.
+            Nothing to claim yet. Rewards arrive when a dispute you ruled on settles, and stay claimable after you leave
+            the bench.
           </p>
         )}
 
         {unallocated !== undefined && unallocated > 0n && registry !== undefined && (
           <div className="space-y-2 border-t border-[color:var(--color-line)] pt-4">
             <p className="text-sm">
-              {usdExact(unallocated)} of resolver fees reached nobody. That happens when a dispute closes without a
-              ruling, or when the fee is smaller than the number of resolvers it would divide between. It belongs to the
-              slash sink{desk?.slashSink === undefined ? '' : ' at the address below'}, and sending it there is open to
-              anyone because none of it is discretionary.
+              {usdExact(unallocated)} in resolver fees went to no resolver. That happens when a dispute closes without a
+              ruling, or when a fee is too small to divide between the resolvers. It belongs to the slash sink
+              {desk?.slashSink === undefined ? '' : ' at the address below'}, and anyone can send it there.
             </p>
             {desk?.slashSink !== undefined && (
               <div className="text-detail">

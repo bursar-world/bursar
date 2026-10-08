@@ -12,10 +12,10 @@ import type { ResolverDesk } from './desk';
  * believed it is slashed for silence on a dispute that was there all along.
  */
 
-const COUNT_UNREAD = 'The registry did not answer how many disputes exist, so the panel below is unknown rather than empty.';
+const COUNT_UNREAD = 'Could not read how many disputes exist, so the list below may be incomplete.';
 
 const RULES_UNREAD =
-  'The registry did not answer its voting configuration, so no dispute can be placed in a phase and the panel below is unknown rather than empty.';
+  'Could not read the voting rules, so the list below may be incomplete.';
 
 export function deskReading(desk: ResolverDesk | undefined, error: unknown): Reading {
   return readingOf(desk !== undefined, error);

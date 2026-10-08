@@ -141,7 +141,7 @@ export function EvidenceForm({ lock }: { readonly lock: ProviderLock }) {
             </Link>
           </p>
         )}
-        <ErrorSurface error={failure} action="send the evidence" onRetry={() => void send()} />
+        <ErrorSurface error={failure} action="Sending the evidence" onRetry={() => void send()} />
       </div>
     </Card>
   );

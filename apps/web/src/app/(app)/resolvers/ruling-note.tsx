@@ -35,8 +35,8 @@ export function RulingNoteView({ reading }: { readonly reading: RulingReading })
     return (
       <Note title="Ruling sealed">
         The resolvers&rsquo; score stays sealed until the reveal
-        {reading.revealsFrom === null ? '' : <> opens <Instant at={reading.revealsFrom} relative /></>}. Their reasons are published here
-        once it has. {policy}.
+        {reading.revealsFrom === null ? '' : <> opens <Instant at={reading.revealsFrom} relative /></>}. Their reasons appear here
+        after that. {policy}.
       </Note>
     );
   }
@@ -44,7 +44,7 @@ export function RulingNoteView({ reading }: { readonly reading: RulingReading })
   if (reading.kind === 'none') {
     return (
       <Note title="No published ruling">
-        The ruling service holds no record of this dispute. The outcome above is the chain&rsquo;s. {policy}.
+        No reasons were published for this dispute. The outcome above comes from the chain. {policy}.
       </Note>
     );
   }
@@ -52,7 +52,7 @@ export function RulingNoteView({ reading }: { readonly reading: RulingReading })
   if (reading.kind === 'unavailable') {
     return (
       <Note title="Published ruling not read">
-        The ruling service did not answer, so the reasons are not shown. The outcome above is read from the chain and is unaffected.
+        The reasons could not be loaded right now. The outcome above comes from the chain and is unaffected.
       </Note>
     );
   }

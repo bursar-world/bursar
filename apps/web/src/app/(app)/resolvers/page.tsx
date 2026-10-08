@@ -4,7 +4,7 @@ import { ResolverView } from './resolver-view';
 export const metadata: Metadata = {
   title: 'Ruling on disputes · BURSAR',
   description:
-    'For bonded resolvers: contested settlements, the window on each one, and the sealed vote that decides how much of the locked money goes back.',
+    'Rule on contested payments. Bonded resolvers seal a score, reveal it, and the median sets how much goes back to the payer.',
 };
 
 export default function ResolversPage() {

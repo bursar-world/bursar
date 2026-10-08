@@ -176,26 +176,26 @@ describe('the three renderings on screen', () => {
   it('says nothing about what is open while the reading is in flight', () => {
     const markup = list();
     expect(markup).not.toContain('No dispute is open.');
-    expect(markup).not.toContain('unknown rather than empty');
+    expect(markup).not.toContain('Open disputes could not be read right now');
   });
 
   it('says the panel is unknown when the reading failed, and offers the reading again', () => {
     const markup = list({ error: new Error('429 Too Many Requests') });
-    expect(markup).toContain('unknown rather than empty');
+    expect(markup).toContain('Open disputes could not be read right now');
     expect(markup).toContain('Read again');
     expect(markup).not.toContain('No dispute is open.');
   });
 
   it('says the panel is unknown when the count alone failed', () => {
     const markup = list({ desk: desk({ disputesReadable: false }) });
-    expect(markup).toContain('unknown rather than empty');
+    expect(markup).toContain('Open disputes could not be read right now');
     expect(markup).not.toContain('No dispute is open.');
   });
 
   it('calls the bench clear only from a reading that landed', () => {
     const markup = list({ desk: desk() });
     expect(markup).toContain('No dispute is open.');
-    expect(markup).not.toContain('unknown rather than empty');
+    expect(markup).not.toContain('Open disputes could not be read right now');
   });
 
   it('renders a dispute with the money, the phase and the deadline on it', () => {
@@ -223,7 +223,7 @@ describe('the three renderings on screen', () => {
 
   it('says the amount is unknown when the escrow did not answer for the settlement', () => {
     const markup = list({ desk: desk({ disputes: [dispute({ settlement: undefined })] }) });
-    expect(markup).toContain('the amount at stake is unknown');
+    expect(markup).toContain('The amount at stake could not be read right now');
     expect(markup).not.toContain('$0.00');
   });
 });

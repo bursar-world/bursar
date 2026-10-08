@@ -111,7 +111,7 @@ export function CommitForm({
   return (
     <Card
       title="Seal a score"
-      description="Nobody can read your score until you reveal it, which is what stops the later votes copying the earlier ones."
+      description="Your score stays hidden until you reveal it, so no one can copy it."
     >
       <div className="space-y-4">
         <div className="max-w-md space-y-1">
@@ -167,11 +167,10 @@ export function CommitForm({
           className="rounded-md border px-4 py-3 text-detail"
           style={{ borderColor: 'var(--color-state-attention)', color: 'var(--color-state-attention)' }}
         >
-          Sealing a score starts a clock you have to come back for. The reveal window is{' '}
-          {formatDuration(Number(config.revealWindow))} long and it opens when the commit window closes. A sealed score
-          that is never revealed loses {(config.slashBps / 100).toFixed(config.slashBps % 100 === 0 ? 0 : 2)}% of your
-          bond, and nobody can reveal it for you. Your bond also stays locked until this dispute is closed, whatever you
-          do about unbonding in the meantime.
+          After sealing, you have to come back to reveal. The reveal window opens when the sealing window closes and
+          lasts {formatDuration(Number(config.revealWindow))}. A sealed score that is never revealed loses{' '}
+          {(config.slashBps / 100).toFixed(config.slashBps % 100 === 0 ? 0 : 2)}% of your bond, and only you can reveal
+          it. Your bond stays locked until this dispute closes, even if you start unbonding.
         </div>
 
         {/*
@@ -182,7 +181,7 @@ export function CommitForm({
           <label className="flex cursor-pointer items-start gap-2 text-detail">
             <input type="checkbox" checked={kept} onChange={(event) => setKept(event.target.checked)} className="mt-0.5" />
             <span>
-              I understand that signing that message again from this wallet is how I reveal, and that losing the
+              I understand that I reveal by signing the same message from this wallet again, and that losing this
               wallet loses the score.
             </span>
           </label>
@@ -191,10 +190,10 @@ export function CommitForm({
         {salt !== undefined && salt.source !== 'wallet' && (
           <p className="text-detail" style={{ color: downloaded ? 'var(--color-state-ok)' : 'var(--color-state-blocked)' }}>
             {downloaded
-              ? 'The copy has been taken. Keep it until this dispute is closed: it is the only thing that can reveal this score.'
+              ? 'Copy downloaded. Keep it until this dispute closes. It is the only way to reveal this score.'
               : salt.source === 'wallet-unstable'
-                ? 'This wallet signed the same message two different ways, so signing it again will not give this salt back. The copy has to be taken before the score is sealed. That is what the seal below is waiting for.'
-                : 'This salt cannot be produced again, so the copy has to be taken before the score is sealed. That is what the seal below is waiting for.'}
+                ? 'This wallet signed the same message two different ways, so signing again will not recover this salt. Download the copy before sealing.'
+                : 'This salt cannot be recreated. Download the copy before sealing.'}
           </p>
         )}
 
@@ -228,7 +227,7 @@ export function CommitForm({
             <>
               You are sealing {score ?? 0} on dispute {dispute.id.toString()}.{' '}
               {score === undefined ? '' : `${scoreMeaning(score)} `}
-              Revealing needs this score and the salt behind it, and a sealed score that is never revealed costs{' '}
+              You need this score and its salt to reveal, and a sealed score that is never revealed costs{' '}
               {(config.slashBps / 100).toFixed(config.slashBps % 100 === 0 ? 0 : 2)}% of your bond.
             </>
           }
@@ -281,8 +280,8 @@ function SaltPanel({
         <>
           <p className="text-detail text-[color:var(--color-muted)]">
             The salt is the secret that opens your sealed score. Drawing it asks the wallet at {shortAddress(account)}{' '}
-            to sign one fixed message. Nothing is sent anywhere and there is no fee. The same wallet signing that same
-            message gives the same salt on any machine, so you can reveal from a browser that has never seen this page.
+            to sign a fixed message, with no transaction and no fee. The same wallet gives the same salt on any machine,
+            so you can reveal from another browser.
           </p>
           <div className="flex flex-wrap items-center gap-3">
             <Button size="sm" onClick={onDraw} disabled={drawing}>
@@ -298,13 +297,13 @@ function SaltPanel({
           <p className="tabular break-all text-detail">{salt.value}</p>
           <p className="text-detail text-[color:var(--color-muted)]">
             {salt.source === 'wallet'
-              ? `Drawn from ${shortAddress(account)}, and this wallet signed that message the same way twice, so signing it again is how you reveal from another machine. Take the copy as well if you may reveal from a different wallet.`
+              ? `Drawn from ${shortAddress(account)}, which signed the message the same way twice, so signing again recovers it on any machine. Download the copy too if you might reveal from a different wallet.`
               : salt.source === 'wallet-unstable'
-                ? `Drawn from ${shortAddress(account)}, but this wallet signed that message two different ways, so nothing can produce this salt again. The copy below is the only way back to it.`
-                : 'Drawn at random in this browser. Nothing can produce it again, so the copy below is the only way back to it.'}
+                ? `Drawn from ${shortAddress(account)}, but this wallet signed the message two different ways, so signing cannot recover it. The copy below is the only way back to it.`
+                : 'Drawn at random in this browser. It cannot be recreated, so the copy below is the only way back to it.'}
             {storage
-              ? ' It is also written into this browser when you seal, which is a convenience and not a backup.'
-              : ' This browser will not keep site data, so nothing here will hold it for you.'}
+              ? ' This browser also saves it when you seal. Do not rely on that as a backup.'
+              : ' This browser does not keep site data, so it will not save the salt.'}
           </p>
           <div className="flex flex-wrap items-center gap-3">
             <Button size="sm" tone="secondary" onClick={onKeep} disabled={!scored}>
@@ -312,7 +311,7 @@ function SaltPanel({
             </Button>
             {!scored && (
               <span className="text-note text-[color:var(--color-muted)]">
-                Enter the score first. The copy carries both halves of the reveal.
+                Enter the score first. The copy holds both the score and the salt.
               </span>
             )}
           </div>
@@ -337,8 +336,8 @@ function ScoreScale() {
   return (
     <div>
       <p className="text-detail text-[color:var(--color-muted)]">
-        The panel takes the median of the revealed scores and the median lands in one of four bands. Two resolvers who
-        disagree on a number can still agree on an outcome, which is why the scale is stepped.
+        The median of the revealed scores falls in one of four bands, so resolvers a few points apart still reach the
+        same outcome.
       </p>
       <ul className="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-2">
         {bands.map((band) => (
@@ -354,7 +353,7 @@ function ScoreScale() {
 
 function refundWord(refundBps: number): string {
   if (refundBps === 10_000) return 'The payer is refunded in full.';
-  if (refundBps === 0) return 'The payee keeps the whole lock.';
+  if (refundBps === 0) return 'The payee keeps the whole payment.';
   return `The payer gets ${refundBps / 100}% back.`;
 }
 

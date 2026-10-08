@@ -102,7 +102,7 @@ function RegistryTerms() {
     >
       <Card>
         <div className="space-y-4">
-          <ErrorSurface error={error} action="read the registry terms" onRetry={refresh} />
+          <ErrorSurface error={error} action="Reading the registry terms" onRetry={refresh} />
           <FieldGrid columns={4}>
             <Field label="Stake to join" hint="Paid in USDG and held by the registry">
               {show(lines.minStake)}

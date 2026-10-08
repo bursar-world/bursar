@@ -239,10 +239,10 @@ export function refundBpsForScore(score: number): number {
 /** What a score means for the payer's money, in the words the payer would use. */
 export function scoreMeaning(score: number): string {
   const refund = refundBpsForScore(score);
-  if (refund === 10_000) return 'The payer gets the whole lock back.';
+  if (refund === 10_000) return 'The payer gets the whole payment back.';
   if (refund === 7_500) return 'The payer gets three quarters back and the payee keeps a quarter.';
   if (refund === 3_500) return 'The payer gets 35% back and the payee keeps the rest.';
-  return 'The payee keeps the whole lock.';
+  return 'The payee keeps the whole payment.';
 }
 
 /** The score the reveal panel refuses above. `scoreMax()` on the registry, checked on chain. */

@@ -49,12 +49,10 @@ export function UnbondPanel({
 
   if (account === undefined) {
     return (
-      <Card title="Leaving the bench" description="What it takes to get a bond back.">
+      <Card title="Leaving the bench" description="How to take your bond back.">
         <p className="text-sm">
-          A resolver leaves in three steps: ask to unbond, wait out the cooldown
-          {period === undefined ? '' : ` of ${period}`}, then complete it. The wait has to outlast the longest dispute a
-          live vote could still be slashed by, which is why it is longer than a commit and reveal window put together.
-          Connect a wallet to see a position.
+          Leaving takes three steps: ask to unbond, wait out the cooldown
+          {period === undefined ? '' : ` of ${period}`}, then complete the exit. Connect a wallet to see your bond.
         </p>
       </Card>
     );
@@ -64,7 +62,7 @@ export function UnbondPanel({
     return (
       <Card title="Leaving the bench">
         <p className="text-sm text-[color:var(--color-muted)]">
-          {desk === undefined ? 'Reading this position.' : 'The registry did not answer this position, so what is bonded is unknown.'}
+          {desk === undefined ? 'Reading your bond.' : 'Could not read your bond. Read again.'}
         </p>
       </Card>
     );
@@ -72,10 +70,10 @@ export function UnbondPanel({
 
   if (!waiting && !active) {
     return (
-      <Card title="Leaving the bench" description="Nothing is bonded from this wallet, so there is nothing to withdraw.">
+      <Card title="Leaving the bench" description="This wallet has no bond to withdraw.">
         <p className="text-sm">
-          Leaving takes three steps once there is a bond: ask to unbond, wait out the cooldown
-          {period === undefined ? '' : ` of ${period}`}, then complete it.
+          With a bond, leaving takes three steps: ask to unbond, wait out the cooldown
+          {period === undefined ? '' : ` of ${period}`}, then complete the exit.
         </p>
       </Card>
     );
@@ -84,17 +82,17 @@ export function UnbondPanel({
   return (
     <Card
       title="Leaving the bench"
-      description={waiting ? 'An exit is in progress.' : 'Three steps, and the first one does not release anything.'}
+      description={waiting ? 'Your exit is in progress.' : 'Ask to unbond, wait out the cooldown, then complete the exit.'}
     >
       <div className="space-y-4">
         <FieldGrid columns={3}>
           <Field label="Bonded">
             <span className="tabular">{standing.bond === undefined ? 'Not read' : `${formatBrsr(standing.bond)} BRSR`}</span>
           </Field>
-          <Field label="Votes still open" hint="Sealed scores on disputes that have not been closed.">
+          <Field label="Votes still open" hint="Sealed scores on disputes still open.">
             <span className="tabular">{openVotes === undefined ? 'Not read' : openVotes.toString()}</span>
           </Field>
-          <Field label={waiting ? (matured ? 'Ready since' : 'Cooldown ends') : 'Cooldown'} hint={waiting ? 'From the moment the request was made.' : 'Starts when you ask.'}>
+          <Field label={waiting ? (matured ? 'Ready since' : 'Cooldown ends') : 'Cooldown'} hint={waiting ? 'Counted from your request.' : 'Starts when you ask.'}>
             {waiting ? (
               standing.maturesAt === null ? (
                 'Not read'
@@ -110,9 +108,8 @@ export function UnbondPanel({
         </FieldGrid>
 
         <p className="text-sm">
-          Asking to unbond stops the registry taking new votes from this address and starts the cooldown. It releases
-          nothing you have already committed to. Every sealed score you have not seen through still has to be revealed,
-          and the bond behind it stays locked until that dispute is closed, whether or not the cooldown has run out.
+          Asking to unbond stops new votes from this address and starts the cooldown. Any score you sealed still has to
+          be revealed, and the bond stays locked until those disputes close, even after the cooldown ends.
         </p>
 
         {waiting ? (
@@ -167,9 +164,9 @@ export function UnbondPanel({
             confirmTitle="Ask to unbond"
             confirmDescription={
               <>
-                This stops the registry taking new votes from this address and starts a cooldown
-                {period === undefined ? '' : ` of ${period}`}. It does not release any sealed score you still owe a
-                reveal on. Cancelling puts you back on the bench without moving the bond.
+                This stops new votes from this address and starts a cooldown
+                {period === undefined ? '' : ` of ${period}`}. You still have to reveal any score you sealed. Cancelling
+                puts you back on the bench without moving the bond.
               </>
             }
           />
@@ -177,24 +174,24 @@ export function UnbondPanel({
 
         {waiting && openVotes !== undefined && openVotes > 0 && (
           <p className="text-detail" style={{ color: 'var(--color-state-attention)' }}>
-            {openVotes} {openVotes === 1 ? 'vote is' : 'votes are'} still open, so the bond cannot leave yet however long
-            the cooldown has run. Reveal what you sealed and wait for those disputes to be closed.
+            {openVotes} {openVotes === 1 ? 'vote is' : 'votes are'} still open, so the bond cannot leave until those
+            disputes close. Reveal any score you sealed.
           </p>
         )}
         {waiting && !matured && openVotes === 0 && (
           <p className="text-detail text-[color:var(--color-muted)]">
-            Nothing is holding the bond except the cooldown. The exit opens when the countdown above runs out.
+            Only the cooldown is left. You can complete the exit when the countdown ends.
           </p>
         )}
         {waiting && (
           <p className="text-detail text-[color:var(--color-muted)]">
-            The cooldown is measured from the request against the period governance holds now, not against the period at
-            the time you asked. Shortening it moves this date.
+            The cooldown uses the period governance sets now, counted from your request. If governance shortens it, this
+            date moves.
           </p>
         )}
         {!waiting && (
           <p className="text-detail text-[color:var(--color-muted)]">
-            You can cancel at any point before completing, which returns the bond to work without moving it.
+            You can cancel any time before completing, and the bond goes back to work without moving.
           </p>
         )}
       </div>

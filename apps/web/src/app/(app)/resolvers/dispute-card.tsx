@@ -74,7 +74,7 @@ export function DisputeCard({
       }
       description={
         settlement === undefined ? (
-          `Settlement ${dispute.escrowId.toString()}. The escrow did not answer for it, so the amount at stake is unknown.`
+          `Settlement ${dispute.escrowId.toString()}. The amount at stake could not be read right now.`
         ) : (
           <>
             {usd(settlement.amount)} locked on settlement {settlement.id.toString()}, contested by{' '}
@@ -94,7 +94,7 @@ export function DisputeCard({
     >
       <div className="space-y-5">
         <FieldGrid columns={4}>
-          <Field label="At stake" hint="Held by the escrow until this dispute is closed.">
+          <Field label="At stake" hint="Held in escrow until the dispute closes.">
             <span className="tabular">{settlement === undefined ? 'Not read' : usd(settlement.amount)}</span>
           </Field>
           <Field label="Paid to" hint="The party that took the job.">
@@ -108,7 +108,7 @@ export function DisputeCard({
             nothing. The escrow held 0.005 USDG against dispute 1 and this field read $0.00, which
             tells a resolver the disputer has staked nothing when they have.
           */}
-          <Field label="Contest bond" hint="Staked by the disputer. The ruling decides whether it comes back.">
+          <Field label="Contest bond" hint="Posted by whoever contested, and the ruling decides whether it comes back.">
             <span className="tabular">{settlement === undefined ? 'Not read' : usdExact(settlement.bond)}</span>
           </Field>
         </FieldGrid>
@@ -117,7 +117,7 @@ export function DisputeCard({
           <Field label="Sealed scores" hint={config === undefined ? 'Panel size not read' : panelHint(config)}>
             <span className="tabular">{dispute.commitCount}</span>
           </Field>
-          <Field label="Revealed" hint="Published scores. The median of these decides the refund.">
+          <Field label="Revealed" hint="The median of the revealed scores sets the refund.">
             <span className="tabular">{dispute.revealCount}</span>
           </Field>
           <Field label="Opened">
@@ -130,7 +130,7 @@ export function DisputeCard({
 
         {settlement !== undefined && (settlement.inputURI !== '' || settlement.outputURI !== '') && (
           <FieldGrid columns={2}>
-            <Field label="What was asked for" hint="Published by the payer when the lock was made.">
+            <Field label="What was asked for" hint="Published by the payer when the payment was locked.">
               <Evidence uri={settlement.inputURI} />
             </Field>
             <Field label="What was delivered" hint="Published by the payee at release.">
@@ -145,8 +145,8 @@ export function DisputeCard({
 
         {!dispute.deployment.current && dispute.phase !== 'finalized' && dispute.phase !== 'failed' && (
           <p className="border-t border-[color:var(--color-line)] pt-4 text-detail text-[color:var(--color-muted)]">
-            This dispute is on the earlier registry at {shortAddress(registry)}. It runs to
-            its ruling there under that registry&rsquo;s rules. This page shows it and takes no vote or closing call on it.
+            This dispute runs on the earlier registry at {shortAddress(registry)}, under its rules. This page shows it but
+            cannot vote on it or close it.
           </p>
         )}
 
@@ -251,15 +251,13 @@ function Outcome({ dispute, resolverFeeBps }: { readonly dispute: DisputeRow; re
   if (dispute.phase === 'failed' && dispute.deployment.contractSet !== 'v1') {
     return dispute.settlement?.status === LockStatus.Resolved ? (
       <p className="text-sm">
-        Closed without a ruling. Most of the revealed scores sat far from the median, so the vote had no centre to rule
-        by, and the escrow refunded the payer the whole payment with no resolver fee taken. The contest bond went back
-        to whoever opened the dispute.
+        Closed without a ruling. The revealed scores were too far apart to rule on, so the payer got the whole payment
+        back and no resolver fee was taken. The contest bond went back to whoever contested.
       </p>
     ) : (
       <p className="text-sm">
-        Closed without a ruling, because too few resolvers revealed a score to reach the quorum. The payment went back
-        on hold for the payee with a new deadline, the contest bond went back to whoever opened the dispute, and no
-        resolver fee was taken.
+        Closed without a ruling because too few resolvers revealed a score. The payment went back on hold for the payee
+        with a new deadline, the contest bond was returned, and no resolver fee was taken.
       </p>
     );
   }
@@ -267,24 +265,23 @@ function Outcome({ dispute, resolverFeeBps }: { readonly dispute: DisputeRow; re
   const settlement = dispute.settlement;
   const money =
     settlement === undefined || resolverFeeBps === undefined
-      ? 'The escrow takes its resolver fee off the lock before the refund is worked out, so the payer was refunded the lock less that fee. The amounts behind it were not read here.'
+      ? 'The resolver fee comes off the payment before the refund, so the payer got the refund less that fee. The amounts could not be read right now.'
       : refundSentence(settlement.amount, dispute.refundBps, resolverFeeBps);
 
   if (dispute.phase === 'finalized') {
     return (
       <p className="text-sm">
-        The panel ruled. Median score <span className="tabular font-semibold">{dispute.medianScore}</span>, which sets
-        the refund at {bps(dispute.refundBps)} and leaves the rest with the payee. {money} The fee splits between the{' '}
-        {dispute.rewardShares} {dispute.rewardShares === 1 ? 'score' : 'scores'} that held.
+        The panel ruled with a median score of <span className="tabular font-semibold">{dispute.medianScore}</span>,
+        setting the refund at {bps(dispute.refundBps)}. The payee keeps the rest. {money} The fee is split between
+        the {dispute.rewardShares} {dispute.rewardShares === 1 ? 'score' : 'scores'} that held.
       </p>
     );
   }
 
   return (
     <p className="text-sm">
-      Closed without a ruling, which is what happens when the panel produces no usable result. The refund was set to{' '}
-      {bps(dispute.refundBps)}. {money} No resolver earned a share of that fee, so it sits on the registry until
-      somebody sweeps it to the slash sink.
+      Closed without a ruling. The refund was set to {bps(dispute.refundBps)}. {money} No resolver earned a share of the
+      fee, so it stays on the registry until it is swept to the slash sink.
     </p>
   );
 }
@@ -293,7 +290,7 @@ function refundSentence(amount: Micro, refundBps: number, resolverFeeBps: number
   const split = splitSettlement(amount, refundBps, resolverFeeBps, 0);
   return `The payer was refunded ${usdExact(split.refunded)} of the ${usd(amount)} held, after a ${bps(
     resolverFeeBps,
-  )} resolver fee of ${usdExact(split.resolverFee)} came off the top.`;
+  )} resolver fee of ${usdExact(split.resolverFee)}.`;
 }
 
 function YourPart({ dispute }: { readonly dispute: DisputeRow }) {
@@ -301,7 +298,7 @@ function YourPart({ dispute }: { readonly dispute: DisputeRow }) {
   if (yours === undefined) return null;
 
   if (yours.committed === undefined) {
-    return <p className="text-detail text-[color:var(--color-muted)]">Whether this wallet sealed a score here could not be read.</p>;
+    return <p className="text-detail text-[color:var(--color-muted)]">Could not read whether this wallet sealed a score here.</p>;
   }
 
   if (!yours.committed) {
@@ -319,7 +316,7 @@ function YourPart({ dispute }: { readonly dispute: DisputeRow }) {
 
   return (
     <p className="text-detail" style={{ color: 'var(--color-state-attention)' }}>
-      You have a sealed score on this dispute and it is not revealed yet.
+      Your sealed score on this dispute is not revealed yet.
     </p>
   );
 }
@@ -362,8 +359,8 @@ function Action({
         ))}
         {account === undefined ? (
           <p className="text-detail text-[color:var(--color-muted)]">
-            Connect a wallet to make this call. Anyone can, bonded or not. Until somebody does, the money stays locked
-            and the bonds behind every sealed score stay locked with it.
+            Connect a wallet to close it. Anyone can, bonded or not. Until someone does, the payment and the bonds behind
+            each sealed score stay locked.
           </p>
         ) : (
           <CloseForm dispute={dispute} registry={registry} blockedBy={blockedBy} onDone={onDone} />
@@ -375,7 +372,7 @@ function Action({
   if (account === undefined) {
     return (
       <p className="text-detail text-[color:var(--color-muted)]">
-        Connect a bonded wallet to take part. Everything above is public and needs no wallet.
+        Connect a bonded wallet to take part.
       </p>
     );
   }
@@ -463,8 +460,8 @@ function CloseForm({
         onContinue={onDone}
       />
       <p className="text-detail text-[color:var(--color-muted)]">
-        Anyone can make this call, resolver or not. Until somebody does, the money stays locked and the bonds behind
-        every sealed score stay locked with it.
+        Anyone can close it, resolver or not. Until someone does, the payment and the bonds behind each sealed score
+        stay locked.
       </p>
     </div>
   );
@@ -487,16 +484,16 @@ function closeLines(
 ): readonly string[] {
   if (dispute.exit === 'finalize') {
     return [
-      `${dispute.revealCount} of ${dispute.commitCount} sealed scores are revealed, which clears the quorum of ${config.quorum}. Finalising takes the median of them, sets the payer's refund from it, and releases the lock.`,
-      feeLine(dispute, resolverFeeBps, 'The median decides how much of what is left goes back to the payer.'),
-      `A resolver who sealed a score and never revealed it is slashed here, and so is one whose revealed score sits more than ${config.maxDeviation} points from the median. If most of the revealed scores sit outside that band the panel is treated as having no centre, nobody is slashed for disagreeing, and the payer is refunded the whole payment with no resolver fee taken.`,
+      `${dispute.revealCount} of ${dispute.commitCount} sealed scores are revealed, which meets the quorum of ${config.quorum}. Finalising takes their median, sets the payer's refund from it, and releases the payment.`,
+      feeLine(dispute, resolverFeeBps, 'The median sets how much of the rest goes back to the payer.'),
+      `Finalising slashes any sealed score that was never revealed, and any revealed score more than ${config.maxDeviation} points from the median. If most revealed scores fall outside that band, the scores are too far apart to rule on: nobody is slashed for disagreeing, and the payer gets the whole payment back with no resolver fee.`,
     ];
   }
 
   return [
     dispute.commitCount < config.quorum
-      ? `Only ${dispute.commitCount} ${dispute.commitCount === 1 ? 'resolver' : 'resolvers'} sealed a score and the quorum is ${config.quorum}, so this panel can never reach a result. Closing it puts the payment back on hold for the payee.`
-      : `${dispute.revealCount} of ${dispute.commitCount} sealed scores were revealed and the quorum is ${config.quorum}, so there is no median to rule on. Closing it puts the payment back on hold for the payee.`,
+      ? `Only ${dispute.commitCount} ${dispute.commitCount === 1 ? 'resolver' : 'resolvers'} sealed a score against a quorum of ${config.quorum}, so this vote cannot reach a ruling. Closing it puts the payment back on hold for the payee.`
+      : `${dispute.revealCount} of ${dispute.commitCount} sealed scores were revealed, short of the quorum of ${config.quorum}, so there is no median to rule on. Closing it puts the payment back on hold for the payee.`,
     reopenLine(dispute),
     slashLine(dispute, config, now),
   ];
@@ -508,20 +505,20 @@ function reopenLine(dispute: DisputeRow): string {
   const bondBack =
     settlement === undefined || settlement.bond === 0n
       ? ''
-      : ` The ${usdExact(settlement.bond)} contest bond goes back to the disputer in full.`;
+      : ` The ${usdExact(settlement.bond)} contest bond is returned in full.`;
 
-  return `Nothing is refunded and no resolver fee is taken. The lock gets a new deadline, the payee can still deliver against it, and the payer can take the money back once that deadline passes.${bondBack}`;
+  return `Nothing is refunded and no resolver fee is taken. The payment gets a new deadline: the payee can still deliver, and the payer can take the money back once it passes.${bondBack}`;
 }
 
 /** The same fee, on the branch where the median has not been taken yet. */
 function feeLine(dispute: DisputeRow, resolverFeeBps: number | undefined, tail: string): string {
   const settlement = dispute.settlement;
   if (settlement === undefined || resolverFeeBps === undefined) {
-    return `The escrow takes its resolver fee off the lock before it applies the refund the median sets. The amounts behind it were not read here. ${tail}`;
+    return `The resolver fee comes off the payment before the refund. The amounts could not be read right now. ${tail}`;
   }
 
   const split = splitSettlement(settlement.amount, 10_000, resolverFeeBps, 0);
-  return `The escrow takes a ${bps(resolverFeeBps)} resolver fee, ${usdExact(split.resolverFee)} of the ${usd(settlement.amount)} held, off the lock before it applies the refund. ${tail}`;
+  return `A ${bps(resolverFeeBps)} resolver fee, ${usdExact(split.resolverFee)} of the ${usd(settlement.amount)} held, comes off first. ${tail}`;
 }
 
 /** Whose bond closing this dispute costs, decided by the clock the registry reads. */
@@ -531,18 +528,18 @@ function slashLine(dispute: DisputeRow, config: OracleConfig, now: Date): string
   const scores = silent === 1 ? 'sealed score' : 'sealed scores';
 
   if (silent === 0) {
-    return 'Nobody is slashed. Every sealed score on this dispute was revealed, and a revealed score is never slashed on a close that produces no median.';
+    return 'Nobody is slashed. Every sealed score was revealed, and closing without a ruling never slashes a revealed score.';
   }
 
   if (dispute.revealEndsAt === null) {
-    return `The reveal window on this dispute did not read. The registry slashes a sealed score that was never revealed once that window has closed, so closing now may cost the ${silent} silent ${scores} ${share} of the bond behind each.`;
+    return `The reveal window could not be read. Once it closes, a sealed score that was never revealed is slashed, so closing now may cost the ${silent} unrevealed ${scores} ${share} of the bond behind each.`;
   }
 
   if (counted) {
-    return `The reveal window closed ${formatRelative(dispute.revealEndsAt, now)}, so silence counts. Closing now slashes the ${silent} ${scores} that ${silent === 1 ? 'was' : 'were'} never revealed, ${share} of the bond behind each.`;
+    return `The reveal window closed ${formatRelative(dispute.revealEndsAt, now)}. Closing now slashes the ${silent} ${scores} that ${silent === 1 ? 'was' : 'were'} never revealed, ${share} of the bond behind each.`;
   }
 
-  return `Nobody is slashed by closing it now: the reveal window runs for another ${formatRelative(dispute.revealEndsAt, now).replace(/^in /u, '')} and a resolver cannot be silent in a window they can still speak in. Closing it after that moment slashes the ${silent} ${scores} still unrevealed, ${share} of the bond behind each.`;
+  return `Closing now slashes nobody, because the reveal window has ${formatRelative(dispute.revealEndsAt, now).replace(/^in /u, '')} left. Closing after it ends slashes the ${silent} ${scores} still unrevealed, ${share} of the bond behind each.`;
 }
 
 /**
@@ -551,26 +548,26 @@ function slashLine(dispute: DisputeRow, config: OracleConfig, now: Date): string
  */
 function panelHint(config: OracleConfig): string {
   return config.maxVoters >= ROSTER_SEATS
-    ? `Every seated resolver may vote, quorum is ${config.quorum}`
-    : `Panel takes ${config.maxVoters}, quorum is ${config.quorum}`;
+    ? `Quorum of ${config.quorum}, open to every bonded resolver`
+    : `Panel of ${config.maxVoters}, quorum of ${config.quorum}`;
 }
 
 function commitBlockerLine(blocker: CommitBlocker | null, config: OracleConfig): string {
   switch (blocker) {
     case 'already-committed':
-      return 'You have already sealed a score on this dispute. Come back to reveal it when the commit window closes.';
+      return 'You have sealed a score on this dispute. Reveal it once the sealing window closes.';
     case 'panel-full':
-      return `The panel is full at ${config.maxVoters} sealed scores. Nothing frees a seat on this dispute.`;
+      return `The panel is full at ${config.maxVoters} sealed scores. No seat will open on this dispute.`;
     case 'not-active':
       return 'This wallet is not an active resolver. Post a bond, or cancel an exit in progress, before sealing a score.';
     case 'bond-short':
-      return 'This wallet’s bond is under the floor the staking pool holds for it, so the registry will not take a vote. Top the bond back up first.';
+      return 'This wallet’s bond is below its floor, so it cannot vote. Top up the bond first.';
     case 'barred':
       return 'Governance has barred this address from bonding, so it cannot vote at any amount.';
     case 'window-closed':
-      return 'The commit window on this dispute has closed.';
+      return 'The sealing window on this dispute has closed.';
     case 'unread':
-      return 'This wallet’s standing on the registry could not be read, so whether it can vote here is unknown. Nothing has changed on chain; only the reading failed.';
+      return 'Could not read whether this wallet can vote here. Read again.';
     default:
       return '';
   }
@@ -579,15 +576,15 @@ function commitBlockerLine(blocker: CommitBlocker | null, config: OracleConfig):
 function revealBlockerLine(blocker: RevealBlocker | null): string {
   switch (blocker) {
     case 'nothing-sealed':
-      return 'This wallet sealed no score on this dispute, so there is nothing to reveal. Only the resolvers who committed in time take part in the ruling.';
+      return 'This wallet sealed no score on this dispute, so there is nothing to reveal.';
     case 'already-revealed':
-      return 'Your score is revealed and on the registry. Nothing further is owed here until somebody closes the dispute.';
+      return 'Your score is revealed. Nothing more is needed until the dispute closes.';
     case 'commit-window-open':
-      return 'The commit window is still open, so nothing can be revealed yet.';
+      return 'The sealing window is still open. Reveals start when it closes.';
     case 'window-closed':
       return 'The reveal window has closed.';
     case 'unread':
-      return 'Whether this wallet sealed a score here could not be read. Nothing has changed on chain; only the reading failed.';
+      return 'Could not read whether this wallet sealed a score here.';
     default:
       return '';
   }

@@ -59,8 +59,7 @@ export function RevealForm({
       title="Reveal your score"
       description={
         <>
-          The reveal window closes <Countdown to={dispute.revealEndsAt} />. A sealed score left unrevealed after that is
-          slashed, and no transaction can open it once the window is shut.
+          The reveal window closes <Countdown to={dispute.revealEndsAt} />. A score not revealed by then is slashed.
         </>
       }
     >
@@ -79,15 +78,14 @@ export function RevealForm({
 
         {note !== undefined && !noteOpens && (
           <p className="text-detail" style={{ color: 'var(--color-state-attention)' }}>
-            This browser holds a salt for dispute {dispute.id.toString()}, and it does not open the commitment the
-            registry has from this address. It belongs to a different score, a different wallet or a different
-            deployment. Enter the salt you kept instead.
+            The salt saved in this browser for dispute {dispute.id.toString()} does not match what this address sealed.
+            Enter the salt you kept instead.
           </p>
         )}
 
         {note === undefined && !manual && (
           <p className="text-detail text-[color:var(--color-muted)]">
-            This browser holds no salt for dispute {dispute.id.toString()}. Draw it from the wallet that sealed the
+            This browser has no salt saved for dispute {dispute.id.toString()}. Draw it from the wallet that sealed the
             score, or enter the copy you kept.
           </p>
         )}
@@ -209,9 +207,8 @@ function WalletReveal({
   if (sealed === undefined) {
     return (
       <p className="text-detail text-[color:var(--color-muted)]">
-        The commitment this address holds could not be read, so a salt drawn from the wallet cannot be checked against
-        it and the score behind it cannot be found. Nothing has changed on chain; only the reading failed. Read the
-        desk again, or reveal with the copy you kept.
+        Could not read what this address sealed, so a salt from the wallet cannot be checked. Read again, or reveal
+        with the copy you kept.
       </p>
     );
   }
@@ -260,9 +257,8 @@ function WalletReveal({
 
       {drawn !== undefined && drawn.score === undefined && (
         <p className="text-detail" style={{ color: 'var(--color-state-attention)' }}>
-          This wallet signed that message and the salt it gives does not open the commitment this address sealed. Either
-          the score was sealed from a different wallet, or this wallet signs the same message a different way each time,
-          which some do. Reveal with the copy you kept instead.
+          The salt from this wallet does not match what this address sealed. The score may have been sealed from another
+          wallet, or this wallet signs the message differently each time. Reveal with the copy you kept instead.
         </p>
       )}
 
@@ -374,14 +370,14 @@ function verdict(
 ): string {
   if (scoreIssue !== undefined) return scoreIssue;
   if (saltIssue !== undefined) return saltIssue;
-  if (!complete) return 'Enter the score you sealed and the salt that went with it. Both have to match exactly.';
+  if (!complete) return 'Enter the score you sealed and its salt, exactly as sealed.';
   if (sealed === undefined) {
-    return 'The commitment this address holds could not be read, so the pair cannot be checked here. Sending it will still work if they are right.';
+    return 'Could not read what this address sealed, so this pair cannot be checked here. The reveal still works if both are right.';
   }
   if (!opens) {
-    return 'These do not open the commitment this address sealed on this dispute. The registry would refuse the reveal. Check the score and every character of the salt.';
+    return 'These do not match what this address sealed, so the reveal would be refused. Check the score and every character of the salt.';
   }
-  return `This opens the commitment the registry holds. ${score === undefined ? '' : scoreMeaning(score)}`;
+  return `This matches your sealed score. ${score === undefined ? '' : scoreMeaning(score)}`;
 }
 
 function verdictColour(

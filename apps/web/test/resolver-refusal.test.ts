@@ -26,7 +26,7 @@ describe('resolverFailure', () => {
     const failure = resolverFailure(reverted('0x3388f4fc'), { action: 'Seal a score' });
     expect(failure).toBeInstanceOf(ResolverRefusedError);
     expect(messageOf(failure)).toContain('under the floor');
-    expect(messageOf(failure)).toContain('Governance owns that floor');
+    expect(messageOf(failure)).toContain('the floor governance sets');
     expect(messageOf(failure)).toContain('Top the bond back up');
   });
 
@@ -54,13 +54,13 @@ describe('resolverFailure', () => {
       { action: 'Post the bond' },
     );
     expect(messageOf(barred)).toContain('barred this address');
-    expect(messageOf(barred)).toContain('only governance lifts it');
+    expect(messageOf(barred)).toContain('Only governance can lift the bar');
   });
 
   it('tells a resolver whose exit is held by a live vote what releases it', () => {
     const failure = resolverFailure(reverted('0x1caa378c'), { action: 'Complete the exit' });
-    expect(messageOf(failure)).toContain('has not settled');
-    expect(messageOf(failure)).toContain('Reveal the scores you sealed');
+    expect(messageOf(failure)).toContain('is still open');
+    expect(messageOf(failure)).toContain('Reveal any score you sealed');
   });
 
   /**
@@ -69,8 +69,8 @@ describe('resolverFailure', () => {
    */
   it('says what a failed reveal costs and what it does not', () => {
     const failure = resolverFailure(reverted('0x8ff14e0d'), { action: 'Reveal your score' });
-    expect(messageOf(failure)).toContain('do not hash to the commitment');
-    expect(messageOf(failure)).toContain('bond is not touched');
+    expect(messageOf(failure)).toContain('do not match what this address sealed');
+    expect(messageOf(failure)).toContain('does not touch the bond');
     expect(messageOf(failure)).toContain('reveal window keeps running');
   });
 
@@ -86,13 +86,13 @@ describe('resolverFailure', () => {
   it('tells a party to the payment, or the principal behind it, that it cannot vote on it', () => {
     const failure = resolverFailure(reverted(toFunctionSelector('PartyCannotVote()')), { action: 'Seal a score' });
     expect(messageOf(failure)).toContain('the principal the paying account named when the dispute opened');
-    expect(messageOf(failure)).toContain('Another resolver has to rule');
+    expect(messageOf(failure)).toContain('cannot vote on this dispute');
   });
 
   it('says a full roster frees a seat on an exit or an eviction, not on a panel settling', () => {
     const failure = resolverFailure(reverted(toFunctionSelector('RosterFull()')), { action: 'Bond' });
-    expect(messageOf(failure)).toContain('every one of them may vote on every dispute');
-    expect(messageOf(failure)).toContain('governance evicts one');
+    expect(messageOf(failure)).toContain('All 64 resolver seats are taken');
+    expect(messageOf(failure)).toContain('governance removes one');
   });
 
   it('explains the approval step behind a bond rather than quoting the token', () => {
@@ -102,8 +102,8 @@ describe('resolverFailure', () => {
       ),
       { action: 'Post the bond' },
     );
-    expect(messageOf(failure)).toContain('Approve the amount first');
-    expect(messageOf(failure)).toContain('two transactions');
+    expect(messageOf(failure)).toContain('Allow the amount first');
+    expect(messageOf(failure)).toContain('then post the bond');
   });
 
   it('covers every refusal the live registry answered these calls with', () => {

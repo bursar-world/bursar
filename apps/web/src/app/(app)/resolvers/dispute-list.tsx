@@ -39,7 +39,7 @@ export function DisputeList({
   return (
     <Section
       title="Open disputes"
-      description="Every contested settlement the registry has not closed, with the phase it is in and the clock on that phase."
+      description="Contested settlements still open, soonest deadline first."
       actions={desk === undefined ? undefined : <ScanNote desk={desk} />}
     >
       {state === 'loading' && (
@@ -56,8 +56,7 @@ export function DisputeList({
                 <LevelDot level="unknown" />
               </span>
               <span>
-                The registry did not answer this reading, so what is open is unknown rather than empty. Nothing has
-                changed on chain; only the reading failed. Read it again before you decide there is nothing due.
+                Open disputes could not be read right now. Read again before assuming nothing is due.
               </span>
             </p>
             <Button size="sm" onClick={onRetry}>
@@ -69,8 +68,7 @@ export function DisputeList({
 
       {state === 'empty' && (
         <EmptyState title="No dispute is open.">
-          Disputes are opened by the escrow when a payer contests a settlement. Until one is, there is nothing to rule
-          on and a bond sits idle. Keeping it bonded is what puts you on the panel for the next one.
+          A dispute opens when a payer contests a settlement. Keep your bond posted to vote on the next one.
         </EmptyState>
       )}
 
@@ -110,7 +108,7 @@ export function SettledList({ desk }: { readonly desk: ResolverDesk | undefined 
   if (desk === undefined || desk.settled.length === 0) return null;
 
   return (
-    <Section title="Closed" description="Disputes the registry has already settled, newest first.">
+    <Section title="Closed" description="Settled disputes, newest first.">
       <div className="space-y-6">
         {desk.settled.map((row) => (
           <DisputeCard
@@ -141,14 +139,14 @@ function ScanNote({ desk }: { readonly desk: ResolverDesk }) {
 
   const current =
     desk.scanned.to === 0n
-      ? 'No dispute has been opened on the current contracts.'
+      ? 'No disputes on the current contracts.'
       : desk.scanned.truncated
-        ? `Disputes ${desk.scanned.from.toString()} to ${desk.scanned.to.toString()}, the newest ${(desk.scanned.to - desk.scanned.from + 1n).toString()}.`
-        : `All ${desk.scanned.to.toString()} disputes read.`;
+        ? `Showing disputes ${desk.scanned.from.toString()} to ${desk.scanned.to.toString()}, the latest ${(desk.scanned.to - desk.scanned.from + 1n).toString()}.`
+        : `All ${desk.scanned.to.toString()} disputes shown.`;
   const earlier = desk.earlier.map((entry) =>
     !entry.disputesReadable
-      ? 'The earlier dispute registry did not answer.'
-      : `${entry.scanned.to.toString()} on the earlier registry.`,
+      ? 'Disputes on earlier contracts could not be read.'
+      : `${entry.scanned.to.toString()} on earlier contracts.`,
   );
 
   return <span className="text-note text-[color:var(--color-muted)]">{[current, ...earlier].join(' ')}</span>;

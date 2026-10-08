@@ -44,7 +44,7 @@ export function ResolverView() {
     <div className="space-y-10">
       <Section
         title="Ruling on disputes"
-        description="Bonded resolvers decide contested settlements by sealed vote. This is the desk that runs it."
+        description="Bonded resolvers decide contested settlements by sealed vote."
         actions={
           <div className="flex items-center gap-2">
             {account === undefined && (
@@ -61,9 +61,10 @@ export function ResolverView() {
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="max-w-2xl text-sm">
-              A payer who disputes a settlement freezes it. Resolvers who have posted a BRSR bond seal a score, reveal
-              it, and the median decides how much of the locked money goes back. Ruling well pays a cut of the
-              settlement. Staying silent after sealing a score, or landing far from the panel, costs part of the bond.
+              When a payer contests a settlement, the money stays locked until the dispute closes. Each resolver posts a
+              BRSR bond, seals a score, then reveals it, and the median sets how much goes back to the payer. Resolvers
+              whose scores hold share the resolver fee. A sealed score that is never revealed, or one far from the
+              median, loses part of the bond.
             </p>
             {/*
               The chain clock, not the browser's. Every window on this page is judged against it,
@@ -73,8 +74,7 @@ export function ResolverView() {
             <span className="text-note text-[color:var(--color-muted)]">
               {desk ? (
                 <>
-                  Read <Instant at={desk.readAt} relative /> against a chain clock of{' '}
-                  <Instant at={desk.chainTime} />, in {desk.requests} {desk.requests === 1 ? 'request' : 'requests'}.
+                  Updated <Instant at={desk.readAt} relative />. Chain time <Instant at={desk.chainTime} />.
                 </>
               ) : (
                 <Skeleton width={220} />
@@ -82,7 +82,7 @@ export function ResolverView() {
             </span>
           </div>
         </Card>
-        <ErrorSurface error={error} action="read the dispute registry" onRetry={refresh} />
+        <ErrorSurface error={error} action="Reading open disputes" onRetry={refresh} />
       </Section>
 
       {isLoading && desk === undefined && (
@@ -93,9 +93,7 @@ export function ResolverView() {
 
       {desk !== undefined && !desk.complete && (
         <Unread onRetry={refresh}>
-          {desk.failures} {desk.failures === 1 ? 'call in this reading went' : 'calls in this reading went'} unanswered.
-          Anything showing as empty or zero below is unknown, not clear. Nothing has changed on chain; only the reading
-          failed.
+          Part of this page could not be read right now, so empty lists and zeros below may be incomplete.
         </Unread>
       )}
 
@@ -138,9 +136,9 @@ function Operator({ commitWindow }: { readonly commitWindow: bigint | undefined 
     <Card title="Who rules today">
       <div className="max-w-3xl space-y-3 text-sm">
         <p>
-          All three bonded resolvers on this registry are operated by Bursar, so Bursar is the arbiter of every dispute it hears.
-          Each ruling follows the published policy, all three resolvers cast the same score, and the reasons are published on
-          the dispute once the votes are revealed.
+          Bursar operates all three bonded resolvers, so Bursar decides every dispute here. Each ruling follows the
+          published policy, the three resolvers cast the same score, and the reasons are published on the dispute once
+          the votes are revealed.
         </p>
         <p>
           A provider who delivered can send signed evidence from its desk until {cutoff}. Bursar never
@@ -173,32 +171,31 @@ function Headline({ desk, account }: { readonly desk: ResolverDesk | undefined; 
         <Stat
           label="Open disputes"
           value={open === undefined ? unread : open.toString()}
-          hint={open === 0 ? 'Nothing is contested right now' : 'Contested settlements the registry has not closed'}
+          hint={open === 0 ? 'Nothing is contested right now' : 'Contested settlements not yet closed'}
           level={open === undefined ? 'unknown' : undefined}
         />
         <Stat
           label="Reveals you owe"
           value={account ? (owed === undefined ? unread : owed.toString()) : 'No wallet'}
-          hint="Sealed scores whose reveal window is open. Missing one is slashed."
+          hint="Sealed scores to reveal now. A missed reveal costs part of the bond."
           level={owed !== undefined && owed > 0 ? 'blocked' : undefined}
         />
         <Stat
           label="Ready to close"
           value={closable === undefined ? unread : closable.toString()}
-          hint="The vote is over and the money is still locked. Anyone can close these."
+          hint="Voting is over. Anyone can close these to release the money."
           level={closable !== undefined && closable > 0 ? 'attention' : undefined}
         />
         <Stat
           label="Yours to claim"
           value={account ? (standing?.rewards === undefined ? unread : usdExact(standing.rewards)) : 'No wallet'}
-          hint="Resolver fees from disputes that have settled, in USDG"
+          hint="Resolver fees earned on settled disputes, in USDG"
         />
       </StatGrid>
 
       {account && standing?.status === ResolverStatus.None && (
         <p className="mt-4 text-detail text-[color:var(--color-muted)]">
-          This wallet holds no bond, so it cannot seal a score. Everything on this page is still readable, and closing a
-          dispute that has finished voting is open to anyone, bonded or not.
+          This wallet has no bond, so it cannot seal a score. Anyone can still close a dispute once voting ends.
         </p>
       )}
     </Card>
@@ -217,13 +214,13 @@ function Rules({ desk }: { readonly desk: ResolverDesk | undefined }) {
   const unread = desk === undefined ? 'Reading' : 'Not read';
 
   return (
-    <Section title="How a ruling works" description="Every figure here is read from the registry on this page load.">
+    <Section title="How a ruling works" description="Live from the dispute registry.">
       <Card>
         <StatGrid columns={4}>
           <Stat
             label="Sealing window"
             value={config === undefined ? unread : formatDuration(Number(config.commitWindow))}
-            hint="From the moment the payer disputes"
+            hint="Opens when the payer contests"
           />
           <Stat
             label="Reveal window"
@@ -235,45 +232,41 @@ function Rules({ desk }: { readonly desk: ResolverDesk | undefined }) {
             value={config === undefined ? unread : config.quorum.toString()}
             hint={
               config === undefined || config.maxVoters >= ROSTER_SEATS
-                ? 'Revealed scores needed for a ruling. Every seated resolver may vote on every dispute.'
-                : `Revealed scores needed for a ruling, from a panel of at most ${config.maxVoters}`
+                ? 'Revealed scores a ruling needs'
+                : `Revealed scores a ruling needs, from a panel of up to ${config.maxVoters}`
             }
           />
           <Stat
             label="Slash"
             value={config === undefined ? unread : bps(config.slashBps)}
-            hint={config === undefined ? 'Of the bond' : `Of the bond, for silence or a score over ${config.maxDeviation} points from the median`}
+            hint={config === undefined ? 'Of the bond' : `Of the bond, for an unrevealed score or one over ${config.maxDeviation} points from the median`}
           />
         </StatGrid>
 
         <div className="mt-5 max-w-3xl space-y-3 text-sm">
           <p>
-            A dispute has two exits, and once the reveal window closes one of them is always open to anyone. Finalising
-            takes the median of the revealed scores and splits the money by it, after the resolver fee
-            {desk?.resolverFeeBps === undefined ? '' : ` of ${bps(desk.resolverFeeBps)}`} comes off the top. Closing
-            without a ruling is what happens when too few resolvers revealed: the payment goes back on hold for the
-            payee with a new deadline, the contest bond is returned and no fee is taken. A vote whose scores have no
-            centre refunds the payer in full, also with no fee. A payout the token issuer blocks is kept by the escrow
-            for its recipient to claim, so no party to a payment can hold up the ruling on it.
+            A dispute ends one of two ways, and once the reveal window closes, anyone can end it. A ruling takes the
+            median of the revealed scores and splits the money by it, after the resolver fee
+            {desk?.resolverFeeBps === undefined ? '' : ` of ${bps(desk.resolverFeeBps)}`}. If too few resolvers reveal,
+            the dispute closes without a ruling: the payment goes back on hold for the payee with a new deadline, the
+            contest bond is returned, and no fee is taken. If the scores are too far apart to rule on, the payer gets the
+            full amount back, also with no fee. If the USDG issuer blocks a payout, the escrow holds it for the recipient
+            to claim, so no party can hold up a ruling.
           </p>
           <p>
-            Every bonded resolver may vote on every dispute. The registry seats up to {ROSTER_SEATS}, so nobody can
-            fill a panel ahead of the rest, and the payer, the payee and the principal behind the paying account are
-            barred from voting on their own dispute.
+            Every bonded resolver can vote on every dispute, up to {ROSTER_SEATS} resolvers, so no one can fill a panel
+            ahead of the rest. The payer, the payee and the principal behind the paying account cannot vote on their own
+            dispute.
           </p>
           <p>
-            The bond is BRSR and the floor that admits it lives in the staking pool, read live on every vote. Governance
-            can raise that floor for everyone or for one address, which benches a resolver in the block the change lands
-            without touching the bond itself. Topping up is how they return. Nothing in the registry reads the price of
-            BRSR, so what a bond is worth against the settlements it backs is yours to watch.
-          </p>
-          <p>
-            These contracts have had no external review.{' '}
+            Bonds are posted in BRSR. The staking pool sets the floor, the smallest bond that can vote, and every vote
+            checks it. Governance can raise the floor for everyone or for one address, which benches a resolver at once
+            without touching their bond. Topping up brings them back.
             {desk?.totalBonded === undefined
               ? ''
-              : `${formatBrsr(desk.totalBonded)} BRSR is bonded across ${desk.resolverCount ?? 0} ${
+              : ` ${formatBrsr(desk.totalBonded)} BRSR is bonded across ${desk.resolverCount ?? 0} ${
                   desk.resolverCount === 1 ? 'resolver' : 'resolvers'
-                } today.`}
+                }.`}
           </p>
         </div>
       </Card>

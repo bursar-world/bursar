@@ -206,33 +206,34 @@ describe('the resolver desk, before a dispute is closed without a ruling', () =>
 
     expect(html).toContain('Closing it puts the payment back on hold for the payee');
     expect(html).toContain('Nothing is refunded and no resolver fee is taken');
-    expect(html).toContain('once that deadline passes');
+    expect(html).toContain('the payer can take the money back once it passes');
     expect(html).not.toContain('$0.0995');
   });
 
   it('says the contest bond comes back whole, because it does', () => {
-    expect(card(dispute(), NOW)).toContain('$0.005 contest bond goes back to the disputer in full');
+    expect(card(dispute(), NOW)).toContain('$0.005 contest bond is returned in full');
   });
 
   it('promises nobody is slashed only while the reveal window is open', () => {
     const html = card(dispute(), new Date('2026-09-24T01:00:00Z'));
 
-    expect(html).toContain('Nobody is slashed by closing it now');
-    expect(html).toContain('Closing it after that moment slashes');
+    expect(html).toContain('Closing now slashes nobody');
+    expect(html).toContain('Closing after it ends slashes');
   });
 
   it('says who is slashed once that window has closed', () => {
     const html = card(dispute(), NOW);
 
-    expect(html).toContain('so silence counts');
+    expect(html).toContain('The reveal window closed');
     expect(html).toContain('never revealed, 10% of the bond behind each');
     expect(html).not.toContain('Nobody is slashed');
+    expect(html).not.toContain('slashes nobody');
   });
 
   it('spares a panel that revealed everything it sealed', () => {
     const html = card(dispute({ commitCount: 1, revealCount: 1 }), NOW);
 
-    expect(html).toContain('Every sealed score on this dispute was revealed');
+    expect(html).toContain('Every sealed score was revealed');
   });
 
   it('keeps an unread fee apart from a fee of nothing', () => {
@@ -248,7 +249,7 @@ describe('the resolver desk, before a dispute is closed without a ruling', () =>
       />,
     );
 
-    expect(html).toContain('The amounts behind it were not read here');
+    expect(html).toContain('The amounts could not be read right now');
     expect(html).not.toContain('$0.0995');
   });
 });
