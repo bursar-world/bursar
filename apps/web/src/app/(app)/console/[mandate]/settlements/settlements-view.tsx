@@ -185,7 +185,8 @@ export function SettlementsView() {
                   cell: (row) => (
                     <span className="inline-flex flex-col items-end gap-1">
                       <span className="text-note text-[color:var(--color-muted)]">
-                        Paid <TxHash hash={row.spent.transactionHash} />
+                        {/* The agent's transaction moves the money into the escrow; the provider is paid only on its claim. */}
+                        Sent <TxHash hash={row.spent.transactionHash} />
                       </span>
                       {row.events?.released && (
                         <span className="text-note text-[color:var(--color-muted)]">
