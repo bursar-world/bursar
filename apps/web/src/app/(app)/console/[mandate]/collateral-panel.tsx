@@ -18,7 +18,7 @@ import { Card, Field, FieldGrid, Section } from '@/components/layout';
 import { Stat, StatGrid } from '@/components/stat';
 import { Table } from '@/components/table';
 import { TxButton } from '@/components/tx-button';
-import { bps, parseAmount, usdExact } from '@/money';
+import { bps, parseAmount, usd, usdExact } from '@/money';
 import { formatRelative } from '@/lib/time';
 import { readUsdgAmount } from '../lib/amount';
 import { checkFirst, useCollateral } from '../lib/collateral';
@@ -69,13 +69,13 @@ function CollateralBody({ state, onChange }: { readonly state: CollateralAccount
           <StatGrid columns={4}>
             <Stat
               label="Collateral value"
-              value={state.value === undefined ? 'Unread' : usdExact(state.value as Micro)}
+              value={state.value === undefined ? 'Unread' : usd(state.value as Micro)}
               hint="Valued at the price feed. A position counts as zero while its price is stale, it is paused, or its market trades out of line."
             />
             <Stat label="Debt" value={state.debt === undefined ? 'Unread' : usdExact(state.debt as Micro)} hint="Borrowed USDG plus interest." />
             <Stat
               label="Can still borrow"
-              value={state.headroom === undefined ? 'Unread' : usdExact(state.headroom as Micro)}
+              value={state.headroom === undefined ? 'Unread' : usd(state.headroom as Micro)}
               hint="Uses the after-hours haircut at all times, so a draw still stands when markets close. Credit limits also apply."
             />
             <Stat
@@ -132,7 +132,7 @@ function CollateralBody({ state, onChange }: { readonly state: CollateralAccount
                   </span>
                 ),
               },
-              { key: 'value', header: 'Value', align: 'right', cell: (row) => <span className="tabular">{usdExact(row.value as Micro)}</span> },
+              { key: 'value', header: 'Value', align: 'right', cell: (row) => <span className="tabular">{usd(row.value as Micro)}</span> },
               {
                 key: 'haircut',
                 header: 'Haircut',

@@ -15,7 +15,7 @@ import { Card, Field, FieldGrid, Section } from '@/components/layout';
 import { Stat, StatGrid } from '@/components/stat';
 import { Table } from '@/components/table';
 import { TxButton } from '@/components/tx-button';
-import { bps, usd, usdExact } from '@/money';
+import { bps, usd } from '@/money';
 import { formatRelative } from '@/lib/time';
 import { readUsdgAmount } from '../lib/amount';
 import {
@@ -83,7 +83,7 @@ function StockBody({ rwa, onChange }: { readonly rwa: RwaState; readonly onChang
             />
             <Stat
               label="Stocks held, at feed price"
-              value={usdExact(heldValue as Micro)}
+              value={usd(heldValue as Micro)}
               hint="Valued at the feed price."
             />
           </StatGrid>
@@ -137,7 +137,7 @@ function StockBody({ rwa, onChange }: { readonly rwa: RwaState; readonly onChang
                       {tokenAmount(row.held ?? 0n, row.config?.decimals)} {row.symbol}
                       {row.priceE8 !== undefined && (
                         <span className="block text-note text-[color:var(--color-muted)]">
-                          {usdExact(holdingValue(row.held ?? 0n, row.priceE8, row.config?.decimals) as Micro)}
+                          {usd(holdingValue(row.held ?? 0n, row.priceE8, row.config?.decimals) as Micro)}
                         </span>
                       )}
                     </span>

@@ -58,17 +58,17 @@ function ParkBody({ rwa, onChange }: { readonly rwa: RwaState; readonly onChange
           <StatGrid columns={4}>
             <Stat
               label="Parked value"
-              value={rwa.parkedTotal === undefined ? 'Unread' : usdExact(rwa.parkedTotal as Micro)}
+              value={rwa.parkedTotal === undefined ? 'Unread' : usd(rwa.parkedTotal as Micro)}
               hint="Valued at the feed price. Holdings with a stale price are left out."
             />
             <Stat
               label="Counted toward spending power"
-              value={rwa.parkedCounted === undefined ? 'Unread' : usdExact(rwa.parkedCounted as Micro)}
+              value={rwa.parkedCounted === undefined ? 'Unread' : usd(rwa.parkedCounted as Micro)}
               hint="Parked value after each holding’s haircut."
             />
             <Stat
               label="Spending power"
-              value={rwa.spendingPower === undefined ? 'Unread' : usdExact(rwa.spendingPower as Micro)}
+              value={rwa.spendingPower === undefined ? 'Unread' : usd(rwa.spendingPower as Micro)}
               hint={
                 draws.data === false
                   ? 'USDG in the mandate and its vault, plus counted parked value. This mandate pays only from USDG on hand, so unpark before a payment needs it.'
@@ -112,7 +112,7 @@ function ParkBody({ rwa, onChange }: { readonly rwa: RwaState; readonly onChange
                 key: 'value',
                 header: 'Value',
                 align: 'right',
-                cell: (row) => <span className="tabular">{row.value === undefined ? 'Unread' : usdExact(row.value as Micro)}</span>,
+                cell: (row) => <span className="tabular">{row.value === undefined ? 'Unread' : usd(row.value as Micro)}</span>,
               },
               {
                 key: 'counts',
