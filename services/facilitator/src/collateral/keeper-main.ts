@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { RHC_MAINNET, collateralDeployment } from '@bursar/core';
-import { createPublicClient, createWalletClient, defineChain, http } from 'viem';
+import { RHC_MAINNET, RHC_MAINNET_DEFAULT_FALLBACK_RPC, collateralDeployment, createIndexClient } from '@bursar/core';
+import { createPublicClient, createWalletClient, defineChain, fallback, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
 import { createKeeperChain, runKeeper } from './keeper.js';
@@ -10,6 +10,10 @@ import { loadKeeperKey } from './keystore.js';
  * One keeper pass over the collateral lane, printed as JSON on stdout.
  *
  *   RHC_RPC_URL                           endpoint (defaults to the public mainnet one)
+ *   RHC_RPC_FALLBACK                      a second provider, asked when the first refuses (defaults to dRPC,
+ *                                         or to the public endpoint when the first is dRPC). The scan for
+ *                                         open lines needs one that answers a long log range in one call
+ *   BLOCKSCOUT_API_KEY                    the index key; the scan falls back to the index with it
  *   BURSAR_KEEPER_EXECUTE=1               send readings, liquidations and sweeps; anything else is a dry run
  *   BURSAR_KEEPER_KEYSTORE                path to the keeper's encrypted keystore (version 3, as cast wallet
  *                                         import writes it); the key that pays gas and takes the bounty
@@ -33,14 +37,18 @@ async function main(): Promise<void> {
   const lane = collateralDeployment(RHC_MAINNET.chainId);
   if (lane === undefined) throw new Error(`no collateral lane is recorded for chain ${RHC_MAINNET.chainId}`);
 
+  const urls = endpoints(env['RHC_RPC_URL'] ?? RHC_MAINNET.rpcUrl, env['RHC_RPC_FALLBACK']);
   const chain = defineChain({
     id: RHC_MAINNET.chainId,
     name: RHC_MAINNET.name,
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-    rpcUrls: { default: { http: [env['RHC_RPC_URL'] ?? RHC_MAINNET.rpcUrl] } },
+    rpcUrls: { default: { http: urls } },
   });
-  const transport = http(env['RHC_RPC_URL'] ?? RHC_MAINNET.rpcUrl);
+  // A pass that cannot read misses its readings, and the guard halts draws an hour later. The public
+  // endpoint has refused the scheduler's host outright before, so every pass has a second provider.
+  const transport = fallback(urls.map((url) => http(url)));
   const publicClient = createPublicClient({ chain, transport });
+  const index = env['BLOCKSCOUT_API_KEY'] ? createIndexClient({ source: env }) : undefined;
 
   const key = loadKeeperKey(env, (line) => process.stderr.write(`${line}\n`));
   const account = key === undefined ? undefined : privateKeyToAccount(key);
@@ -52,6 +60,7 @@ async function main(): Promise<void> {
       publicClient,
       lane,
       chain,
+      ...(index === undefined ? {} : { index }),
       ...(account === undefined ? {} : { account, walletClient: createWalletClient({ account, chain, transport }) }),
     }),
     fromBlock: BigInt(lane.fromBlock),
@@ -59,6 +68,12 @@ async function main(): Promise<void> {
     sweepMinMicro: BigInt(env['BURSAR_KEEPER_SWEEP_MIN_MICRO'] ?? '100000'),
   });
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+}
+
+function endpoints(primary: string, second: string | undefined): string[] {
+  const host = (url: string): string => new URL(url).hostname;
+  const backup = second ?? (host(primary) === host(RHC_MAINNET_DEFAULT_FALLBACK_RPC) ? RHC_MAINNET.rpcUrl : RHC_MAINNET_DEFAULT_FALLBACK_RPC);
+  return host(backup) === host(primary) ? [primary] : [primary, backup];
 }
 
 main().catch((error: unknown) => {

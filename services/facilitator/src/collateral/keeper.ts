@@ -1,6 +1,6 @@
 import { assetRegistryAbi, collateralVaultAbi, creditPoolAbi, drawHaltOf, priceGuardAbi } from '@bursar/core';
-import type { CollateralDeployment, DrawHalt } from '@bursar/core';
-import { BaseError, ContractFunctionRevertedError, ContractFunctionZeroDataError, getAbiItem } from 'viem';
+import type { CollateralDeployment, DrawHalt, IndexClient } from '@bursar/core';
+import { BaseError, ContractFunctionRevertedError, ContractFunctionZeroDataError, getAbiItem, getAddress, toEventSelector } from 'viem';
 import type { Abi, Account, Address, Chain, Hex, PublicClient, WalletClient } from 'viem';
 
 import { fromAccountTuple } from '../lanes/onchain-collateral.js';
@@ -235,15 +235,18 @@ export async function runKeeper(options: KeeperOptions): Promise<KeeperReport> {
   const { chain, execute } = options;
   const now = options.now ?? (() => new Date());
 
-  const [mandates, inSession, rule] = await Promise.all([chain.lines(options.fromBlock), chain.inSession(), chain.observationRule()]);
+  const [inSession, rule] = await Promise.all([chain.inSession(), chain.observationRule()]);
   const lines: LineSnapshot[] = [];
   const actions: KeeperAction[] = [];
 
   // Readings first: a liquidation reads the same vault, and a line whose draws are halted for want
-  // of a reading is better served by the reading than by anything else this pass can send.
+  // of a reading is better served by the reading than by anything else this pass can send. They go
+  // before the scan for lines too, so a scan that fails costs the pass its liquidations and never
+  // the lane its prices.
   const observed = rule === null ? null : await observeAssets(chain, rule, execute);
   if (observed !== null) actions.push(...observed.actions);
 
+  const mandates = await chain.lines(options.fromBlock);
   for (const mandate of mandates) {
     const position = await chain.account(mandate);
     lines.push(snapshot(position, !inSession));
@@ -531,8 +534,28 @@ export function revertName(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-const LOG_CHUNK = 50_000n;
 const lineOpened = getAbiItem({ abi: collateralVaultAbi, name: 'LineOpened' });
+const LINE_OPENED = toEventSelector(lineOpened);
+const INDEX_PAGES = 200;
+
+type IndexedLogs = {
+  readonly items: readonly { readonly topics: readonly (string | null)[] }[];
+  readonly next_page_params: Record<string, string | number> | null;
+};
+
+/** Every mandate the vault has opened a line for. The mandate is the event's first indexed topic. */
+async function indexedLines(index: IndexClient, vault: Address): Promise<Address[]> {
+  const seen = new Set<Address>();
+  let cursor: Record<string, string | number> | null = {};
+  for (let page = 0; cursor !== null && page < INDEX_PAGES; page += 1) {
+    const body: IndexedLogs = await index.get(`/addresses/${vault}/logs`, { ...cursor, topic: LINE_OPENED });
+    for (const { topics } of body.items) {
+      if (topics[0] === LINE_OPENED && topics[1]) seen.add(getAddress(`0x${topics[1].slice(-40)}`));
+    }
+    cursor = body.next_page_params;
+  }
+  return [...seen];
+}
 const stakingAbi = [
   {
     type: 'function',
@@ -550,6 +573,12 @@ export type ViemKeeperOptions = {
   readonly walletClient?: WalletClient;
   readonly account?: Account;
   readonly chain?: Chain;
+  /**
+   * The Blockscout index, asked for the lane's lines when no provider answers the scan. dRPC's free
+   * plan serves logs 100 blocks at a time, and the public endpoint answers Node with a Cloudflare
+   * challenge, so the scan rests on the one provider that pages nothing.
+   */
+  readonly index?: IndexClient;
 };
 
 /** A guard from before v4 has no `MIN_OBSERVATION_AGE`, and viem reports the call as answering nothing. */
@@ -594,14 +623,15 @@ export function createKeeperChain(options: ViemKeeperOptions): KeeperChain {
 
   return {
     async lines(fromBlock) {
-      const head = await publicClient.getBlockNumber();
-      const seen = new Set<Address>();
-      for (let start = fromBlock; start <= head; start += LOG_CHUNK) {
-        const end = start + LOG_CHUNK - 1n < head ? start + LOG_CHUNK - 1n : head;
-        const logs = await publicClient.getLogs({ address: vault, event: lineOpened, fromBlock: start, toBlock: end });
-        for (const log of logs) if (log.args.mandate) seen.add(log.args.mandate);
+      // One query over the lane's history. Alchemy and the public endpoint answer three million
+      // blocks in one call; paging it by 50,000 cost sixty calls a pass and grew by twenty a day.
+      try {
+        const logs = await publicClient.getLogs({ address: vault, event: lineOpened, fromBlock, toBlock: 'latest' });
+        return [...new Set(logs.flatMap((log) => (log.args.mandate ? [log.args.mandate] : [])))];
+      } catch (error) {
+        if (options.index === undefined) throw error;
+        return indexedLines(options.index, vault);
       }
-      return [...seen];
     },
     async account(mandate) {
       const tuple = await publicClient.readContract({ address: vault, abi: collateralVaultAbi, functionName: 'account', args: [mandate] });
