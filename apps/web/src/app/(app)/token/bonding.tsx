@@ -1,6 +1,6 @@
 'use client';
 
-import { ADDRESSES, TOKEN_ADDRESSES } from '@/chain';
+import { ADDRESSES, BRSR_SUPPLY, TOKEN_ADDRESSES } from '@/chain';
 import { isZeroAddress, sameAddress } from '@/chain/rhc';
 import { Address } from '@/components/address';
 import { Card, Field, FieldGrid, Section } from '@/components/layout';
@@ -35,6 +35,10 @@ export function BondingSection({ data }: { readonly data: TokenPageData }) {
   const unread = data.extras === undefined ? 'Reading' : 'Not read';
   const floor = bond?.minBondBrsr;
   const floorSet = floor !== undefined && floor > 0n;
+  // A floor above the whole supply is how the pool says no to anyone governance has not admitted:
+  // each admitted resolver carries its own floor. Printed as a number it reads as a billion BRSR
+  // to vote.
+  const byAdmission = floor !== undefined && floor >= BRSR_SUPPLY.total;
   const wired = bond?.bondAsset !== undefined && !isZeroAddress(bond.bondAsset);
   const bondsInBrsr = wired && sameAddress(bond?.bondAsset, TOKEN_ADDRESSES.BRSR);
   const registered = bond?.yourStatus !== undefined && bond.yourStatus !== 0;
@@ -43,9 +47,12 @@ export function BondingSection({ data }: { readonly data: TokenPageData }) {
     <Section title="Resolver bonds" description="Resolvers bond BRSR to rule on disputes, and a bad ruling costs part of it.">
       <Card title="Bonds today" description="Held by the dispute registry.">
         <FieldGrid columns={4}>
-          <Field label="Minimum bond" hint="Below this a resolver cannot register or vote.">
+          <Field
+            label="Minimum bond"
+            hint={byAdmission ? 'Governance admits each resolver with a floor of its own.' : 'Below this a resolver cannot register or vote.'}
+          >
             <span className="tabular">
-              {floor === undefined ? unread : floorSet ? `${formatBrsr(floor)} BRSR` : 'None set'}
+              {floor === undefined ? unread : byAdmission ? 'Set per resolver' : floorSet ? `${formatBrsr(floor)} BRSR` : 'None set'}
             </span>
           </Field>
           <Field label="Bonded across all resolvers">
@@ -82,8 +89,11 @@ export function BondingSection({ data }: { readonly data: TokenPageData }) {
 
       <Card title="The bond is BRSR" description="Governance sets the floor in the staking contract, and every vote checks it.">
         <FieldGrid columns={3}>
-          <Field label="BRSR floor" hint="A floor of zero refuses every bond.">
-            <span className="tabular">{floor === undefined ? unread : `${formatBrsr(floor)} BRSR`}</span>
+          <Field
+            label="BRSR floor"
+            hint={byAdmission ? 'Above the whole supply, so only an address governance admits can bond.' : 'A floor of zero refuses every bond.'}
+          >
+            <span className="tabular">{floor === undefined ? unread : byAdmission ? 'Above the supply' : `${formatBrsr(floor)} BRSR`}</span>
           </Field>
           <Field label="Bonding in BRSR" hint="Open once the registry holds BRSR as its bond asset and the floor is above zero.">
             {bond?.minBondBrsr === undefined || bond.bondAsset === undefined
@@ -92,9 +102,11 @@ export function BondingSection({ data }: { readonly data: TokenPageData }) {
                 ? 'No bond asset set'
                 : !bondsInBrsr
                   ? 'The registry bonds in another token'
-                  : floorSet
-                    ? 'Open'
-                    : 'Refused at any amount'}
+                  : byAdmission
+                    ? 'By admission'
+                    : floorSet
+                      ? 'Open'
+                      : 'Refused at any amount'}
           </Field>
           <Field label="Where the floor lives">
             <Address value={TOKEN_ADDRESSES.Staking} label="Staking contract" />
@@ -138,7 +150,9 @@ export function BondingSection({ data }: { readonly data: TokenPageData }) {
 
           {!registered && bond?.yourStatus !== undefined && (
             <p className="mt-4 text-detail text-[color:var(--color-muted)]">
-              This wallet is not a resolver. Register from the Resolvers page with at least the minimum bond above.
+              {byAdmission
+                ? 'This wallet is not a resolver. Resolvers are admitted by governance, each with a floor of its own.'
+                : 'This wallet is not a resolver. Register from the Resolvers page with at least the minimum bond above.'}
             </p>
           )}
         </Card>
