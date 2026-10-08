@@ -25,7 +25,7 @@ describe('usd', () => {
 
 describe('tokenAmountText', () => {
   it('reads a stock token in its own unit, never as dollars', () => {
-    expect(tokenAmountText(64_961_527_959_563n, SPY)).toBe('0.000064961528 SPY');
+    expect(tokenAmountText(64_961_527_959_563n, SPY)).toBe('0.000065 SPY');
     expect(tokenAmountText(64_961_527_959_563n, SPY)).not.toContain('$');
   });
 

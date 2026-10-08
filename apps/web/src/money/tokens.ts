@@ -29,7 +29,7 @@ export function tokenAmountText(raw: bigint, token: Address): string {
   const info = tokenInfo(token);
   if (info === undefined) return `${raw.toString()} units of ${shortAddress(token)}`;
   if (info.settlement) return usd(raw as Micro);
-  return `${roundedUnits(raw, info.decimals, 8)} ${info.symbol}`;
+  return `${roundedUnits(raw, info.decimals, 3)} ${info.symbol}`;
 }
 
 /** A decimal string of `raw`, rounded half up to `places` significant fraction digits once leading zeros end. */
