@@ -154,10 +154,13 @@ function BufferNote({ rwa }: { readonly rwa: RwaState }) {
   return <p className="text-detail text-[color:var(--color-muted)]">{bufferSentence(account.balance, rwa.buffer ?? 0n)}</p>;
 }
 
+const RESERVE = 'USDG';
+
 function OwnerForms({ rwa, onChange }: { readonly rwa: RwaState; readonly onChange: () => void }) {
   const { address, account, connected, system, writeContext, refresh } = useMandateScope();
   const { writeContractAsync } = useWriteContract();
-  const [parkSymbol, setParkSymbol] = useState(rwa.positions[0]?.symbol ?? '');
+  // Opens on the first holding that earns; the USDG position is a reserve and earns nothing.
+  const [parkSymbol, setParkSymbol] = useState(rwa.positions.find((p) => p.symbol !== RESERVE)?.symbol ?? rwa.positions[0]?.symbol ?? '');
   const [parkText, setParkText] = useState('');
   const [unparkSymbol, setUnparkSymbol] = useState(rwa.positions.find((p) => (p.raw ?? 0n) > 0n)?.symbol ?? '');
   const [unparkText, setUnparkText] = useState('');
@@ -208,7 +211,7 @@ function OwnerForms({ rwa, onChange }: { readonly rwa: RwaState; readonly onChan
     >
       {rows.map((row) => (
         <option key={row.adapter} value={row.symbol}>
-          {row.symbol}
+          {row.symbol === RESERVE ? 'USDG, as a reserve' : row.symbol}
         </option>
       ))}
     </select>
@@ -254,7 +257,7 @@ function OwnerForms({ rwa, onChange }: { readonly rwa: RwaState; readonly onChan
               />
             ) : (
               <TxButton
-                label={`Park in ${parkSymbol}`}
+                label={parkSymbol === RESERVE ? 'Set it aside as a reserve' : `Park in ${parkSymbol}`}
                 disabled={park.value === undefined || target === undefined}
                 blockedBy={transferGates(system)}
                 context={{ ...writeContext, ...(park.value === undefined ? {} : { amount: park.value }) }}
