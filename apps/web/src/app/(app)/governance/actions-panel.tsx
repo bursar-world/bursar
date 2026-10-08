@@ -254,6 +254,13 @@ export function GuardianPanel({
   );
 }
 
+/** "the escrow", or "the escrow and the buyback": what the confirmation is about to stop. */
+function namesOf(targets: readonly BrakeTarget[], chosen: readonly Address[]): string {
+  const names = targets.filter((target) => chosen.some((entry) => sameAddress(entry, target.address))).map((target) => target.name);
+  if (names.length <= 1) return names[0] ?? 'these contracts';
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
 function BrakeGroup({
   tag,
   targets,
@@ -311,8 +318,8 @@ function BrakeGroup({
           disabled={chosen.length === 0}
           blockedBy={blockedBy}
           confirmPhrase="PAUSE"
-          confirmTitle="Stop these contracts now"
-          confirmDescription="This lands in the next block with no approvals and no delay. Starting them again is a proposal, which takes two signatures and the full delay."
+          confirmTitle={`Stop ${namesOf(targets, chosen)} now`}
+          confirmDescription={`This lands in the next block with no approvals and no delay. Starting ${chosen.length > 1 ? 'them' : 'it'} again is a proposal, which takes two signatures and the full delay.`}
           send={() =>
             writeContractAsync({
               address: tag.address,
