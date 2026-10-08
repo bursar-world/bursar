@@ -65,10 +65,10 @@ describe('stealth gas', () => {
     expect(agentGasWei(GWEI)).toBe(900_000n * 5n * GWEI * 2n);
   });
 
-  it('passes the agent what the owner address can spare after the transfer fee', () => {
+  it('passes the agent what the owner address can spare after the transfer fee and its pause reserve', () => {
     expect(spareForAgent(10n ** 15n, GWEI, 10n ** 14n)).toBe(10n ** 14n);
-    expect(spareForAgent(50_000n * GWEI, GWEI, 10n ** 14n)).toBe(8_000n * GWEI);
-    expect(spareForAgent(10_000n * GWEI, GWEI, 10n ** 14n)).toBe(0n);
+    expect(spareForAgent(450_000n * GWEI, GWEI, 10n ** 14n)).toBe(8_000n * GWEI);
+    expect(spareForAgent(400_000n * GWEI, GWEI, 10n ** 14n)).toBe(0n);
   });
 
   it('prints small ETH amounts readably', () => {

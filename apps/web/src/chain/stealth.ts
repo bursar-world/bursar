@@ -35,10 +35,13 @@ export function agentGasWei(gasPrice: bigint): bigint {
   return AGENT_SPEND_GAS * AGENT_PAYMENTS_FUNDED * gasPrice * 2n;
 }
 
-/** How much of a top-up the owner-side address can pass to the agent and still send the transfer. */
+/** Left on the owner-side address after it passes gas to the agent, so pausing and resuming still work. */
+export const OWNER_RESERVE_GAS = 200_000n;
+
+/** How much of a top-up the owner-side address can pass to the agent, keeping the transfer fee and its own reserve. */
 export function spareForAgent(balance: bigint, gasPrice: bigint, wanted: bigint): bigint {
-  const fee = 21_000n * gasPrice * 2n;
-  const spare = balance > fee ? balance - fee : 0n;
+  const keep = (21_000n + OWNER_RESERVE_GAS) * gasPrice * 2n;
+  const spare = balance > keep ? balance - keep : 0n;
   return spare < wanted ? spare : wanted;
 }
 
