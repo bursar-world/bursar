@@ -3,7 +3,7 @@ import type { Metadata } from 'next';
 import { SettlementsView } from './settlements-view';
 
 export const metadata: Metadata = {
-  title: 'Settlements · BURSAR',
+  title: 'Settlements · Bursar',
   description: 'Every payment this mandate has made and where each one stands.',
 };
 

@@ -70,7 +70,7 @@ describe('a look-alike contract', () => {
   it('gets a screen that says so, and no controls', () => {
     const html = chrome('foreign');
 
-    expect(html).toContain('This address is not a BURSAR mandate.');
+    expect(html).toContain('This address is not a Bursar mandate.');
     expect(html).not.toContain('Pause the mandate');
     expect(html).not.toContain('Approvals');
     expect(html).not.toContain('Check again');
@@ -81,7 +81,7 @@ describe('a look-alike contract', () => {
 
     expect(html).not.toContain('Pause the mandate');
     expect(html).not.toContain('Approvals');
-    expect(html).not.toContain('not a BURSAR mandate');
+    expect(html).not.toContain('not a Bursar mandate');
   });
 });
 
@@ -108,7 +108,7 @@ describe('an address with no mandate account at all', () => {
   it('says it is not a mandate and offers the way back', () => {
     const html = chrome('absent');
 
-    expect(html).toContain('This address is not a BURSAR mandate.');
+    expect(html).toContain('This address is not a Bursar mandate.');
     expect(html).toContain('Check the address, or create a mandate from the console.');
     expect(html).not.toContain('Pause the mandate');
   });

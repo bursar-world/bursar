@@ -33,7 +33,7 @@ export function configProblems(env: BuildEnv): readonly ConfigProblem[] {
       {
         variable: 'NEXT_PUBLIC_RHC_NETWORK',
         condition: `Set to "${configured}". This build talks to one Robinhood Chain network, and the two it knows are mainnet and testnet.`,
-        nextAction: 'Leave it unset to build against mainnet, which is the network BURSAR settles on.',
+        nextAction: 'Leave it unset to build against mainnet, which is the network Bursar settles on.',
       },
     ];
   }

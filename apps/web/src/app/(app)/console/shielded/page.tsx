@@ -4,7 +4,7 @@ import { Suspense } from 'react';
 import { ShieldedView } from './shielded-view';
 
 export const metadata: Metadata = {
-  title: 'Shielded funds · BURSAR',
+  title: 'Shielded funds · Bursar',
   description: 'Fund mandates and pay providers from a shared USDG pool instead of straight from your wallet.',
 };
 

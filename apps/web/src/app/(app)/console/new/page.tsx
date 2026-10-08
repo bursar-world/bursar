@@ -4,7 +4,7 @@ import { readFundingLane } from '@/chain/mandates';
 import { CreateMandateView } from './create-view';
 
 export const metadata: Metadata = {
-  title: 'Create a mandate · BURSAR',
+  title: 'Create a mandate · Bursar',
   description: "Set your agent's limits and payees, and see the mandate's address before it exists.",
 };
 

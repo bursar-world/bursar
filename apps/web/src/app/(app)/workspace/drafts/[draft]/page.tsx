@@ -3,7 +3,7 @@ import type { Metadata } from 'next';
 import { DraftView } from './draft-view';
 
 export const metadata: Metadata = {
-  title: 'Draft · Workspace · BURSAR',
+  title: 'Draft · Workspace · Bursar',
   description: 'Edit a mandate draft and check a payment against it before you create the mandate.',
 };
 

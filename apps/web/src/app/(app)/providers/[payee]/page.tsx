@@ -13,11 +13,11 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { payee } = await params;
 
   if (!readsAsAddress(payee)) {
-    return { title: 'Not an address · BURSAR', description: 'This link does not contain a valid address.' };
+    return { title: 'Not an address · Bursar', description: 'This link does not contain a valid address.' };
   }
 
   return {
-    title: `Payee ${shortAddress(getAddress(payee))} · BURSAR`,
+    title: `Payee ${shortAddress(getAddress(payee))} · Bursar`,
     description:
       'Public payment record and job ceiling for this provider on Bursar.',
   };

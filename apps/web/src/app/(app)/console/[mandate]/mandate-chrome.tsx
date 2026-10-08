@@ -131,14 +131,14 @@ export function Unvouched({
   if (standing === 'foreign') {
     return (
       <EmptyState
-        title="This address is not a BURSAR mandate."
+        title="This address is not a Bursar mandate."
         action={
           <Link href="/console" className="text-detail underline underline-offset-2">
             Open the console
           </Link>
         }
       >
-        BURSAR did not create the contract at this address, so the console shows no controls for it. If someone sent
+        Bursar did not create the contract at this address, so the console shows no controls for it. If someone sent
         you this link, confirm the address with them before you fund or sign anything.
       </EmptyState>
     );
@@ -147,7 +147,7 @@ export function Unvouched({
   if (standing === 'absent') {
     return (
       <EmptyState
-        title="This address is not a BURSAR mandate."
+        title="This address is not a Bursar mandate."
         action={
           <Link href="/console" className="text-detail underline underline-offset-2">
             Open the console
