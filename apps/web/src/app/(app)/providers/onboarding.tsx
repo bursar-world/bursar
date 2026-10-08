@@ -185,6 +185,8 @@ export function RegisterCard({
 export function AddStakeCard({ desk, blockedBy, onDone }: PanelProps) {
   const [text, setText] = useState('');
   const [atomic, setAtomic] = useState<bigint | undefined>(undefined);
+  // Cleared by a confirmed top-up; the empty field's note would read as a refusal under it.
+  const [added, setAdded] = useState(false);
   const { writeContractAsync } = useWriteContract();
 
   const facts = factsOf(desk);
@@ -202,6 +204,7 @@ export function AddStakeCard({ desk, blockedBy, onDone }: PanelProps) {
           onChange={(next, value) => {
             setText(next);
             setAtomic(value);
+            setAdded(false);
           }}
           max={desk.balance === undefined ? undefined : { atomic: desk.balance, label: 'All of it' }}
           hint="Only your score raises the job ceiling."
@@ -247,12 +250,13 @@ export function AddStakeCard({ desk, blockedBy, onDone }: PanelProps) {
             onConfirmed={() => {
               setText('');
               setAtomic(undefined);
+              setAdded(true);
               onDone();
             }}
           />
         )}
 
-        <GateNote gate={gate} />
+        {!added && <GateNote gate={gate} />}
 
         {pending && (
           <p className="text-detail" style={{ color: 'var(--color-state-attention)' }}>
@@ -276,6 +280,8 @@ export function AddStakeCard({ desk, blockedBy, onDone }: PanelProps) {
 export function WithdrawalCard({ desk, blockedBy, onDone }: PanelProps) {
   const [text, setText] = useState('');
   const [atomic, setAtomic] = useState<bigint | undefined>(undefined);
+  // Cleared by a confirmed request; the empty field's note would read as a refusal under it.
+  const [asked, setAsked] = useState(false);
   const { writeContractAsync } = useWriteContract();
 
   const facts = factsOf(desk);
@@ -385,6 +391,7 @@ export function WithdrawalCard({ desk, blockedBy, onDone }: PanelProps) {
           onChange={(next, value) => {
             setText(next);
             setAtomic(value);
+            setAsked(false);
           }}
           max={standing.stake === undefined ? undefined : { atomic: standing.stake, label: 'All of it' }}
           hint={
@@ -412,11 +419,12 @@ export function WithdrawalCard({ desk, blockedBy, onDone }: PanelProps) {
           onConfirmed={() => {
             setText('');
             setAtomic(undefined);
+            setAsked(true);
           }}
           onContinue={onDone}
         />
 
-        <GateNote gate={requestGate} />
+        {!asked && <GateNote gate={requestGate} />}
 
         <p className="text-detail text-[color:var(--color-muted)]">{caveat}</p>
       </form>
