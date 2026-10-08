@@ -13,6 +13,7 @@ import { Card, EmptyState, Section } from '@/components/layout';
 import { Modal } from '@/components/modal';
 import { Table } from '@/components/table';
 import { formatInstant } from '@/lib/time';
+import { parseUsdgInput, usd } from '@/money';
 import { useWorkspace } from '@/workspace/context';
 import { draftTitle, newDraft, newId, upsert } from '@/workspace/model';
 import type { MandateDraft, Workspace, WorkspaceAgent } from '@/workspace/model';
@@ -114,7 +115,7 @@ function Drafts({ workspace }: { readonly workspace: Workspace }) {
               header: 'Total budget',
               align: 'right',
               cell: (row) => (
-                <span className="tabular">{isTotalDraft(row.limits) && row.limits.monthly !== '' ? `${row.limits.monthly} USDG` : '—'}</span>
+                <span className="tabular">{draftBudget(row)}</span>
               ),
             },
             {
@@ -404,4 +405,11 @@ function FieldChecklist<T extends string>({
       ))}
     </fieldset>
   );
+}
+
+/** The total budget as the console prints money, or a dash where the draft has none. */
+function draftBudget(draft: MandateDraft): string {
+  if (!isTotalDraft(draft.limits) || draft.limits.monthly === '') return '—';
+  const parsed = parseUsdgInput(draft.limits.monthly);
+  return parsed.ok ? usd(parsed.value) : `${draft.limits.monthly} USDG`;
 }

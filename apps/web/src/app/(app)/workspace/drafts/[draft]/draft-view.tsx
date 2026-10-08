@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useId, useState } from 'react';
+import { useId, useState } from 'react';
 import type { FormEvent } from 'react';
 
 import { SPEND_CLASSES, SPEND_CLASS_INFO } from '@/chain/capabilities';
@@ -64,12 +64,6 @@ function DraftEditor({ saved, workspace }: { readonly saved: MandateDraft; reado
     ...workspace.agents.map((entry) => ({ value: entry.address, label: `${entry.name} · ${entry.address.slice(0, 8)}…` })),
   ];
 
-  useEffect(() => {
-    if (status !== 'saved') return;
-    const timer = setTimeout(() => setStatus('idle'), 2_500);
-    return () => clearTimeout(timer);
-  }, [status]);
-
   const save = async (event?: FormEvent) => {
     event?.preventDefault();
     setStatus('saving');
@@ -107,7 +101,7 @@ function DraftEditor({ saved, workspace }: { readonly saved: MandateDraft; reado
           actions={
             <div className="flex items-center gap-3">
               <span aria-live="polite" className="text-detail text-[color:var(--color-muted)]">
-                {status === 'saving' ? 'Saving…' : status === 'saved' ? 'Saved' : dirty ? 'Unsaved changes' : ''}
+                {status === 'saving' ? 'Saving…' : dirty ? 'Unsaved changes' : status === 'saved' ? 'Saved' : ''}
               </span>
               <Button type="submit" tone="primary" size="sm" disabled={!dirty || status === 'saving'}>
                 Save draft
@@ -354,7 +348,7 @@ function RuleResult({ result }: { readonly result: RuleCheckResult }) {
   const tone =
     result.outcome === 'allowed' ? 'var(--color-state-ok)' : result.outcome === 'approval' ? 'var(--color-state-attention)' : 'var(--color-state-blocked)';
   const headline =
-    result.outcome === 'allowed' ? 'Within the rules' : result.outcome === 'approval' ? 'Needs your approval' : `Refused by the ${result.rule.toLowerCase()} rule`;
+    result.outcome === 'allowed' ? 'Would go through' : result.outcome === 'approval' ? 'Would wait for your approval' : 'Would be refused';
 
   return (
     <div className="border p-4" style={{ borderColor: tone }} data-outcome={result.outcome} data-rule={result.outcome === 'allowed' ? '' : result.rule}>
