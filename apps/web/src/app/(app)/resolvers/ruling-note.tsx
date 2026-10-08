@@ -5,19 +5,27 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 
 import { Instant } from '@/components/instant';
+import { isPast } from '@/lib';
 
 import { POLICY_PATH, readRuling, ruleLabel } from './ruling';
 import type { RulingReading } from './ruling';
 
 /** A sealed score becomes readable at the reveal, so the note asks again at the pace of the desk. */
 const REFETCH_MS = 60_000;
+/** Once the reveal is open, Bursar's reveals and the reasons are seconds away. */
+const REVEALING_REFETCH_MS = 5_000;
+
+function revealOpen(reading: RulingReading | undefined): boolean {
+  return reading?.kind === 'sealed' && reading.revealsFrom !== null && isPast(reading.revealsFrom);
+}
 
 /** The published reasons behind a dispute, under the on-chain outcome they explain. */
 export function RulingNote({ disputeId, registry }: { readonly disputeId: bigint; readonly registry?: string }) {
   const query = useQuery({
     queryKey: ['bursar', 'ruling', registry ?? 'current', disputeId.toString()],
     queryFn: ({ signal }) => readRuling(disputeId, signal, registry),
-    refetchInterval: (state) => (state.state.data?.kind === 'published' ? false : REFETCH_MS),
+    refetchInterval: (state) =>
+      state.state.data?.kind === 'published' ? false : revealOpen(state.state.data) ? REVEALING_REFETCH_MS : REFETCH_MS,
   });
 
   if (query.data === undefined) return null;
@@ -30,6 +38,14 @@ export function RulingNoteView({ reading }: { readonly reading: RulingReading })
       How rulings are made
     </Link>
   );
+
+  if (reading.kind === 'sealed' && revealOpen(reading)) {
+    return (
+      <Note title="Ruling sealed">
+        The reveal is open. The resolvers&rsquo; reasons appear here as soon as their scores are revealed. {policy}.
+      </Note>
+    );
+  }
 
   if (reading.kind === 'sealed') {
     return (
