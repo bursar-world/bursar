@@ -50,23 +50,23 @@ export function governanceNotice(roles: Roles): RoleNotice | undefined {
     return {
       headline: 'Connect a signer key to act on a proposal.',
       detail:
-        'Everything on this page is read from the contract and needs no wallet. Proposing, approving, cancelling and executing need one of the three signer keys; the pause needs the guardian key.',
+        'Everything on this page is public and needs no wallet. Proposing, approving, cancelling and executing need a signer key, and pausing needs the guardian key.',
     };
   }
 
   if (roles.signer === 'unread' || roles.guardian === 'unread') {
     return {
-      headline: 'The signer set could not be read, so what this wallet may do is unknown.',
+      headline: 'Could not read the signer set, so this wallet’s role is unknown.',
       detail:
-        'The controls below are still offered. The timelock refuses a caller that is not a signer, so pressing one costs a refused simulation and no gas. Read again before you rely on what is on screen.',
+        'The controls below are still offered. If this wallet is not a signer, the timelock refuses the call before anything is sent, at no cost. Read again to confirm.',
     };
   }
 
   if (roles.signer === 'no' && roles.guardian === 'no') {
     return {
-      headline: 'This wallet is neither a signer nor the guardian, so it can read this page and change nothing on it.',
+      headline: 'This wallet is not a signer or the guardian, so it can read this page but not change anything.',
       detail:
-        'Proposing, approving, cancelling and executing are limited to the three signers listed above. The pause is limited to the guardian. Connect one of those keys to act here.',
+        'Only the three signers above can propose, approve, cancel and execute, and only the guardian can pause. Connect one of those keys to act here.',
     };
   }
 
@@ -74,13 +74,9 @@ export function governanceNotice(roles: Roles): RoleNotice | undefined {
     return {
       headline: 'This wallet holds the brake and nothing else.',
       detail:
-        'The guardian can stop an administered contract in the same block. It cannot propose, approve, cancel or execute: the contract bars the guardian from the signer set on purpose, so a key kept warm for an incident never carries one of the two approvals a change needs.',
+        'It can pause an administered contract at once. It cannot propose, approve, cancel or execute: the contract bars the guardian from the signer set, so a key kept ready for incidents never counts toward the two approvals a change needs.',
     };
   }
 
   return undefined;
 }
-
-/** The one sentence the page owes a reader about how these three keys are held. */
-export const CUSTODY_LINE =
-  'Today the three signers and the guardian are plain keys. The contract enforces two of three; the keys move into a multisig after public launch.';

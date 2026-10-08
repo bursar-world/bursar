@@ -183,7 +183,7 @@ describe('what staking exposes a staker to', () => {
 
     expect(sentence).toContain('at most 10% of the pool');
     expect(sentence).toContain('refills evenly over 7d');
-    expect(sentence).toContain('stake already on its way out included');
+    expect(sentence).toContain('including stake waiting to exit');
   });
 
   it('says nothing can take stake while no slasher is named', () => {
@@ -200,7 +200,7 @@ describe('what staking exposes a staker to', () => {
   it('does not call an unread slasher empty', () => {
     const sentence = slasherSentence(pool({ slasher: undefined }), CREDIT_POOL, false);
 
-    expect(sentence).toContain('could not be read');
+    expect(sentence).toContain('Could not read which address can take stake');
     expect(sentence).not.toContain('No slasher is named');
   });
 });
@@ -244,7 +244,7 @@ describe('whether a buy can run', () => {
   });
 
   it('keeps an unread keeper apart from an absent one', () => {
-    expect(buybackTrigger(buyback({ keeper: undefined, available: micro(0n) }), KEEPER, false, NOW).hold).toContain('could not be read');
+    expect(buybackTrigger(buyback({ keeper: undefined, available: micro(0n) }), KEEPER, false, NOW).hold).toContain('Could not read which address can trigger a buy');
   });
 });
 
@@ -264,11 +264,11 @@ describe('what the staking pool and the buyback say no for', () => {
     const text = message(tokenFailure(refused('ExitsHeld', [lapsedAt]), { action: 'Complete the withdrawal', contract: 'staking' }));
 
     expect(text).toContain('keeps exits from completing until');
-    expect(text).toContain('costs nothing');
+    expect(text).toContain('you lose nothing by waiting');
   });
 
   it('explains a pool that takes no new stake after a near-total loss', () => {
-    expect(message(tokenFailure(refused('PoolCollapsed'), { action: 'Stake', contract: 'staking' }))).toContain('takes no new stake');
+    expect(message(tokenFailure(refused('PoolCollapsed'), { action: 'Stake', contract: 'staking' }))).toContain('not taking new stake');
   });
 
   it('names the keeper and a stale ceiling in the buyback’s words', () => {

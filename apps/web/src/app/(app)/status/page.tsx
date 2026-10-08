@@ -3,7 +3,7 @@ import { StatusView } from './status-view';
 
 export const metadata: Metadata = {
   title: 'Status · BURSAR',
-  description: 'Asset, mandate, permission, funding and connectivity, each reported on its own terms.',
+  description: 'Live conditions for payments on Bursar: connectivity, the settlement asset, and each account’s mandate, permissions and funding.',
 };
 
 export default function StatusPage() {

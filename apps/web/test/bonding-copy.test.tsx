@@ -78,8 +78,8 @@ describe('a registry with no collateral wired', () => {
   it('says so rather than naming a token it does not hold', () => {
     const markup = page({ bondAsset: ZERO });
 
-    expect(markup).toContain('No collateral wired');
-    expect(markup).toContain('None wired');
+    expect(markup).toContain('No bond asset set');
+    expect(markup).toContain('None set');
   });
 
   it('says so when the registry bonds in something other than BRSR', () => {

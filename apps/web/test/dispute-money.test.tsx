@@ -418,7 +418,7 @@ describe('why a staked balance earns the rebate it earns', () => {
     const reason = rebateReason(TIERS, { rebateBps: undefined, activeStake: brsr(0n), stakedValue: brsr(0n) });
 
     expect(reason.kind).toBe('unread');
-    expect(rebateSentence(reason)).toContain('only the reading failed');
+    expect(rebateSentence(reason)).toContain('Could not read the rebate on this position');
   });
 
   it('says so when the whole position is on its way out', () => {
@@ -429,6 +429,6 @@ describe('why a staked balance earns the rebate it earns', () => {
     });
 
     expect(reason.kind).toBe('all-exiting');
-    expect(rebateSentence(reason)).toContain('has been asked back');
+    expect(rebateSentence(reason)).toContain('is waiting to exit');
   });
 });

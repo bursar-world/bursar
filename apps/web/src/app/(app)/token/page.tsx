@@ -5,7 +5,7 @@ import { TokenView } from './token-view';
 export const metadata: Metadata = {
   title: 'Token · BURSAR',
   description:
-    'BRSR supply and who holds it, the path the settlement fee takes to a staker, the staking position and its loss exposure, and the bond a resolver posts.',
+    'BRSR supply and holders, where settlement fees go, staking, and the bond resolvers post.',
 };
 
 export default function TokenPage() {

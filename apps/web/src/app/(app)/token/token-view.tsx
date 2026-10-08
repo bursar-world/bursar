@@ -34,7 +34,7 @@ export function TokenView() {
     <div className="space-y-10">
       <Section
         title="$BRSR"
-        description="The bond a resolver posts to rule on a dispute, and the stake that stands behind collateral-backed credit and earns its spread and the BRSR the buyback buys."
+        description="Resolvers bond BRSR to rule on disputes, and stakers put it behind collateral-backed credit."
         actions={
           <Button size="sm" onClick={data.refresh} disabled={data.isFetching}>
             {data.isFetching ? 'Reading' : 'Read again'}
@@ -44,13 +44,12 @@ export function TokenView() {
         <Card>
           <StatusStrip system={system} />
           <p className="mt-4 max-w-3xl text-sm">
-            BRSR is not a claim on Robinhood, on Robinhood Chain, on Paxos or on USDG, and none of them endorses this. It is not a deposit and it is
-            not a share. Debt in this system exists only in collateral-backed credit, so nothing here
-            lends, borrows or pays interest outside it.
+            BRSR is not a deposit, a share, or a claim on Robinhood, Robinhood Chain, Paxos or USDG, and none of them
+            endorses it. Outside collateral-backed credit, nothing here lends, borrows or pays interest.
           </p>
           {data.extras && (
             <p className="mt-3 text-note text-[color:var(--color-muted)]">
-              Read <Instant at={data.extras.readAt} relative />
+              Updated <Instant at={data.extras.readAt} relative />
               {data.extras.blockNumber !== undefined && <> at block {data.extras.blockNumber.toString()}</>} on{' '}
               {RHC.name}.
             </p>
@@ -58,11 +57,10 @@ export function TokenView() {
         </Card>
         {partial && (
           <Unread onRetry={data.refresh}>
-            Some of these contracts did not answer this reading. Anything below that shows as not read is unknown, and
-            unknown is not zero. Nothing has changed on chain; only the reading failed.
+            Part of this page could not be read right now. A figure marked Not read is unknown, not zero.
           </Unread>
         )}
-        <ErrorSurface error={data.error} action="reading the token contracts" onRetry={data.refresh} />
+        <ErrorSurface error={data.error} action="Reading the token" onRetry={data.refresh} />
       </Section>
 
       <SupplySection data={data} blockedBy={blockedBy} />
@@ -70,13 +68,12 @@ export function TokenView() {
       <StakingSection data={data} blockedBy={blockedBy} />
       <BondingSection data={data} />
 
-      <Section title="Governance" description="Every token parameter named on this page is behind a two-of-three signature and a governance delay.">
+      <Section title="Governance" description="Every token setting on this page changes only by governance proposal: two of three signatures, then a delay.">
         <Card>
           <p className="max-w-3xl text-sm">
-            The tier table, the bond floor, the buyback&rsquo;s limits, its keeper and how long its ceiling stays usable,
-            and the staking contract&rsquo;s credit manager, slasher, slash cap and exit windows are all set by proposal.
-            Pending proposals, who has approved them, each delay and when each proposal becomes executable are on the
-            governance page.
+            Proposals set the rebate tiers, the bond floor, the buyback&rsquo;s limits, keeper and ceiling age, and the
+            staking contract&rsquo;s credit manager, slasher, slash cap and exit windows. The governance page shows
+            pending proposals, who has approved them, and when each can run.
           </p>
           <div className="mt-4">
             <Link href="/governance" className="text-sm font-medium underline underline-offset-4">

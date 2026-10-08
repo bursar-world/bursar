@@ -43,7 +43,7 @@ export function SupplySection({ data, blockedBy }: { readonly data: TokenPageDat
       allocation: BRSR_SUPPLY.community,
       holder: TOKEN_ROLES.community,
       holderLabel: 'Token governance delay',
-      terms: 'Staking rewards, resolver incentives and integration grants. Each release is a proposal that waits out this delay.',
+      terms: 'Staking rewards, resolver incentives and integration grants. Spending it takes a governance proposal and its delay.',
       heldNow: extras?.holders.community,
     },
     {
@@ -52,7 +52,7 @@ export function SupplySection({ data, blockedBy }: { readonly data: TokenPageDat
       allocation: BRSR_SUPPLY.team,
       holder: TOKEN_ADDRESSES.Vesting,
       holderLabel: 'Vesting contract',
-      terms: 'One grant on a four-year term with a one-year cliff. The contract holds it for the whole term.',
+      terms: 'One grant over a four-year term, with a one-year cliff. The vesting contract holds it throughout.',
       heldNow: extras?.holders.team,
     },
     {
@@ -70,7 +70,7 @@ export function SupplySection({ data, blockedBy }: { readonly data: TokenPageDat
       allocation: BRSR_SUPPLY.liquidity,
       holder: TOKEN_ROLES.liquidity,
       holderLabel: 'Liquidity key',
-      terms: 'Reserved for the BRSR/USDG pool. What has not gone into the pool waits on this key.',
+      terms: 'Reserved for the BRSR/USDG pool. This key holds any amount not yet in the pool.',
       heldNow: extras?.holders.liquidity,
     },
   ];
@@ -78,13 +78,12 @@ export function SupplySection({ data, blockedBy }: { readonly data: TokenPageDat
   return (
     <Section
       title="Supply"
-      description="One billion BRSR, created in the token's constructor and split four ways in the same transaction."
+      description="One billion BRSR, all created at once and split four ways."
     >
       <Card>
         <p className="max-w-3xl text-sm">
-          The token has no owner, no minter, no pauser and no upgrade path. The whole supply exists already, and a mint
-          is refused once the supply is non-zero. What changes over time is who holds each share, and each figure under
-          Held today is that holder&rsquo;s balance, read from the token.
+          BRSR has no owner, no minter, no pauser and no upgrade path, and the token refuses any further mint. The Held
+          today column shows each holder&rsquo;s current balance.
         </p>
 
         <div className="mt-4">
@@ -142,14 +141,14 @@ export function SupplySection({ data, blockedBy }: { readonly data: TokenPageDat
         </div>
 
         <FieldGrid columns={3}>
-          <Field label="Total supply" hint="Read from the token, not from this file.">
+          <Field label="Total supply" hint="Live from the token contract.">
             {total === undefined ? (
               <span className="text-[color:var(--color-muted)]">{unread}</span>
             ) : (
               <span className="tabular">{formatBrsr(total, { maxDecimals: 0 })} BRSR</span>
             )}
           </Field>
-          <Field label="Decimals" hint="USDG carries six. The two are never mixed.">
+          <Field label="Decimals" hint="USDG uses six.">
             18
           </Field>
           <Field label="Token address">
@@ -197,8 +196,8 @@ function GrantCard({ data, blockedBy }: { readonly data: TokenPageData; readonly
 
       {grant.revokedAt && (
         <p className="mt-4 text-sm">
-          This grant was revoked on <Instant at={grant.revokedAt} />. The schedule froze at the amount vested that
-          instant, and what had already vested is still claimable.
+          This grant was revoked on <Instant at={grant.revokedAt} />. Vesting stopped then, and what had vested by that
+          point is still claimable.
         </p>
       )}
 
@@ -212,8 +211,7 @@ function GrantCard({ data, blockedBy }: { readonly data: TokenPageData; readonly
         />
         {claimable === undefined && (
           <p className="mt-3 text-detail text-[color:var(--color-muted)]">
-            The vesting contract did not answer what is claimable, so the claim is held back until the next reading
-            lands.
+            Could not read what is claimable. Read again to claim.
           </p>
         )}
       </div>

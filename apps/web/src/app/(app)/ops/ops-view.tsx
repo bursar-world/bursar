@@ -23,7 +23,7 @@ import { useSystemState } from '@/state';
 import type { AnyState } from '@/state';
 
 import { ProposePanel } from '../governance/actions-panel';
-import { CUSTODY_LINE, permits } from '../governance/roles';
+import { permits } from '../governance/roles';
 import type { Roles } from '../governance/roles';
 import { NEEDS, TREASURY_WARNING, answerWord, canSweep, needFor, opsAccess, seizedLine, sweepLine } from './gate';
 import type { OpsRead, StakingTier } from './read';
@@ -79,7 +79,7 @@ export function OpsView() {
               <Field label="Timelock signer" hint="Proposes, approves, cancels and executes.">
                 {answerWord(ops.roles.signer)}
               </Field>
-              <Field label="Guardian" hint="Stops an administered contract. Nothing else.">
+              <Field label="Guardian" hint="Pauses an administered contract, and nothing else.">
                 {answerWord(ops.roles.guardian)}
               </Field>
               <Field label="Escrow treasury" hint="Receives swept fees and names its own successor.">
@@ -94,21 +94,20 @@ export function OpsView() {
           <div className="mt-4">
             {data && (
               <p className="text-note text-[color:var(--color-muted)]">
-                Read <Instant at={data.readAt} relative />
+                Updated <Instant at={data.readAt} relative />
                 {data.blockNumber !== undefined && <> at block {data.blockNumber.toString()}</>}. Every figure below is
                 from that block.
               </p>
             )}
           </div>
 
-          <p className="mt-5 max-w-3xl text-detail text-[color:var(--color-muted)]">{CUSTODY_LINE}</p>
         </Card>
 
         <Card title="What each action needs" description="Four of these go straight to the contract. The rest wait out the governance delay.">
           <Table
             rows={[...NEEDS]}
             rowKey={(row) => row.id}
-            caption="Operator actions and the key each one needs"
+            caption="Actions and the key each one needs"
             columns={[
               { key: 'title', header: 'Action', cell: (row) => row.title },
               { key: 'call', header: 'Call', cell: (row) => <span className="font-mono text-detail">{row.call}</span> },
@@ -129,14 +128,13 @@ export function OpsView() {
                 <LevelDot level="unknown" />
               </span>
               <span>
-                {data.failures} {data.failures === 1 ? 'reading' : 'readings'} on this page did not come back. Anything
-                marked not read is unknown, not zero and not empty. Nothing has changed on chain; only the reading failed.
+                Part of this page could not be read right now. Anything marked Not read is unknown, not zero or empty.
               </span>
             </p>
           </Card>
         )}
 
-        <ErrorSurface error={ops.error} action="reading the operator surface" onRetry={ops.refresh} />
+        <ErrorSurface error={ops.error} action="Reading operations" onRetry={ops.refresh} />
       </Section>
 
       <FeesSection data={data} roles={ops.roles} admitted={access.admitted} blockedBy={blockedBy} onDone={ops.refresh} />
@@ -252,16 +250,16 @@ function FeesSection({
   const unread = data === undefined ? 'Reading' : NOT_READ;
 
   return (
-    <Section title="Settlement fees" description="The settlement fee from every release, held in the escrow until somebody sweeps it to the treasury.">
+    <Section title="Settlement fees" description="The fee from every released payment, held in the escrow until someone sweeps it to the treasury.">
       <Card>
         <FieldGrid columns={3}>
-          <Field label="Accrued and unswept" hint="Owed to the treasury. It sits in the escrow until the sweep runs.">
+          <Field label="Accrued and unswept" hint="Owed to the treasury and held in the escrow until swept.">
             {accrued === undefined ? unread : <span className="tabular">{formatUsdg(accrued)}</span>}
           </Field>
-          <Field label="Fee on a release" hint="Fixed at construction. Nobody can change it, governance included.">
+          <Field label="Fee on a release" hint="Fixed for the life of the escrow, and governance cannot change it.">
             {data?.fees.feeBps === undefined ? unread : formatBps(BigInt(data.fees.feeBps))}
           </Field>
-          <Field label="Escrow holds in total" hint="Locked payments sit in the same balance. Only the accrued figure is sweepable.">
+          <Field label="Escrow holds in total" hint="Includes locked payments. Only the accrued fees can be swept.">
             {data?.fees.escrowBalance === undefined ? unread : <span className="tabular">{formatUsdg(data.fees.escrowBalance)}</span>}
           </Field>
         </FieldGrid>
@@ -270,7 +268,7 @@ function FeesSection({
 
         <div className="mt-3">
           <FieldGrid columns={2}>
-            <Field label="Destination" hint="Fixed by the escrow's own treasury slot. The sweep cannot be pointed anywhere else.">
+            <Field label="Destination" hint="The escrow's treasury. A sweep cannot go anywhere else.">
               {data?.treasury.current === undefined ? unread : <AddressLabel value={data.treasury.current} />}
             </Field>
             <Field label="Who may call it" hint={need.needs}>
@@ -281,7 +279,8 @@ function FeesSection({
 
         {roles.treasury === 'yes' && (
           <p className="mt-3 text-detail text-[color:var(--color-muted)]">
-            This wallet is the treasury, so a sweep sent from it pays it. Gas comes out of this wallet either way.
+            This wallet is the treasury, so a sweep sent from it pays itself. The network fee comes from this wallet
+            either way.
           </p>
         )}
 
@@ -296,14 +295,14 @@ function FeesSection({
             />
             {accrued === 0n && (
               <p className="mt-2 text-detail text-[color:var(--color-muted)]">
-                The escrow refuses a sweep of zero. Come back once a lock has released.
+                The escrow refuses a sweep of zero.
               </p>
             )}
           </div>
         ) : (
           <p className="mt-5 text-detail text-[color:var(--color-muted)]">
-            The call itself is permissionless and pays the treasury whoever sends it. This page asks for a signer, the
-            guardian or the treasury key before it offers the control.
+            Anyone can make this call, and it always pays the treasury. This page offers the control to a signer, the
+            guardian or the treasury key.
           </p>
         )}
       </Card>
@@ -366,7 +365,7 @@ function TreasurySection({
               label="New treasury address"
               value={successor}
               onChange={setSuccessor}
-              help="Point it at a multisig while the current key is still in hand. Nothing here can recover that key later."
+              help="Use a multisig, and name it while the current key is still available. Nothing here can recover a lost key."
               problem={problem ?? (namingSelf ? 'That is the address already receiving. Naming it again changes nothing.' : undefined)}
               placeholder="0x…"
               mono
@@ -377,7 +376,7 @@ function TreasurySection({
               blockedBy={blockedBy}
               confirmPhrase="ROTATE"
               confirmTitle="Name a successor to the escrow treasury"
-              confirmDescription="This names the address. It starts receiving only once it calls acceptTreasury from its own key. If that key does not exist, nothing here and no proposal can undo it once the new address accepts."
+              confirmDescription="This names the address. It starts receiving only after it accepts from its own key, and once it accepts, nothing here and no proposal can undo it."
               send={() =>
                 writeContractAsync({
                   address: ADDRESSES.escrow,
@@ -406,12 +405,12 @@ function TreasurySection({
       <Card title="Step two, accept it" description={needFor('accept-treasury').needs}>
         {!handoverOpen ? (
           <EmptyState
-            title={data === undefined ? 'Reading the escrow.' : pending === undefined ? 'This was not read.' : 'No handover is open.'}
+            title={data === undefined ? 'Reading the escrow.' : pending === undefined ? 'Could not read the handover.' : 'No handover is open.'}
           >
             {data === undefined
-              ? 'Whether a successor has been named is on its way.'
+              ? 'Checking whether a successor has been named.'
               : pending === undefined
-                ? 'Whether a successor has been named could not be read. Nothing here says there is none, and the escrow has not changed; only the reading failed.'
+                ? 'Could not read whether a successor has been named. Read again.'
                 : 'Step one names a successor. Until one is named there is nothing to accept, and the address receiving now keeps receiving.'}
           </EmptyState>
         ) : (
@@ -438,7 +437,7 @@ function TreasurySection({
             ) : (
               <p className="text-detail text-[color:var(--color-muted)]">
                 Connect <AddressLabel value={pending} /> to accept. The escrow refuses this call from every other
-                address, the current treasury and the timelock included.
+                address, including the current treasury and governance.
               </p>
             )}
           </div>
@@ -474,11 +473,11 @@ function ParameterSections({
 
   return (
     <>
-      <Section title="Staking and the buyback" description="The timelock administers both contracts, so every setting below goes through governance.">
-        <Card title="Where these two stand today" description="Read from the contracts, not from a plan.">
+      <Section title="Staking and the buyback" description="Governance administers both contracts, so every setting below takes a proposal.">
+        <Card title="Where these two stand today" description="Live from both contracts.">
           <FieldGrid columns={3}>
-            <Field label="Fee rebate tiers" hint="An empty table means every rebate reads zero, whatever anyone has staked.">
-              {tiers === undefined ? unread : tiers.length === 0 ? 'Empty' : `${tiers.length} rungs`}
+            <Field label="Fee rebate tiers" hint="With no tiers, every rebate is zero.">
+              {tiers === undefined ? unread : tiers.length === 0 ? 'Empty' : `${tiers.length} tiers`}
             </Field>
             <Field label="Credit manager" hint="The address the staking pool takes spread from. It cannot take stake.">
               {data?.staking.creditManager === undefined ? unread : isZeroAddress(data.staking.creditManager) ? 'Not named' : <AddressLabel value={data.staking.creditManager} />}
@@ -486,13 +485,13 @@ function ParameterSections({
             <Field label="Slasher" hint="The only address that can take stake, up to the slash cap. Nothing can be slashed while none is named.">
               {data?.staking.slasher === undefined ? unread : isZeroAddress(data.staking.slasher) ? 'Not named' : <AddressLabel value={data.staking.slasher} />}
             </Field>
-            <Field label="Buyback keeper" hint="The only address that can trigger a buy. None named means no buy runs.">
+            <Field label="Buyback keeper" hint="The only address that can trigger a buy. With none named, no buy runs.">
               {data?.buyback.keeper === undefined ? unread : isZeroAddress(data.buyback.keeper) ? 'Not named' : <AddressLabel value={data.buyback.keeper} />}
             </Field>
             <Field label="Buyback price ceiling" hint="The most it will pay for one whole BRSR. Zero refuses every trade.">
               {params === undefined ? unread : params.maxPricePerBrsr === 0n ? 'Unset, so every buy is refused' : formatUsdg(params.maxPricePerBrsr)}
             </Field>
-            <Field label="Ceiling usable until" hint="Every change to the buyback's limits restates the ceiling. Past this date every buy is refused.">
+            <Field label="Ceiling usable until" hint="Any change to the buyback's limits resets this. After it, every buy is refused.">
               {data?.buyback.ceilingStaleAt === undefined ? unread : <Instant at={data.buyback.ceilingStaleAt} />}
             </Field>
           </FieldGrid>
@@ -523,9 +522,8 @@ function ParameterSections({
           )}
 
           <p className="mt-4 max-w-3xl text-detail text-[color:var(--color-muted)]">
-            A ceiling is the most the buyback will pay for one whole BRSR. Set it against the pool&rsquo;s price, and set it
-            again before the date above: past it every buy is refused until governance restates it. Everything pending is
-            listed on{' '}
+            Set the ceiling against the pool&rsquo;s price, and set it again before the date above, or every buy is refused
+            until governance does. Pending proposals are on{' '}
             <Link href="/governance" className="underline underline-offset-2">
               the governance page
             </Link>
@@ -549,7 +547,7 @@ function ParameterSections({
             'buyback.setMaxCeilingAge',
           ]}
           title="Propose one of these"
-          description="The same builder the governance page uses, narrowed to the two contracts on this surface. It needs one of the three signer keys and then the full delay."
+          description="The governance page’s proposal form, limited to these two contracts. It needs one of the three signer keys, a second signer and the full delay."
         />
       ) : (
         <Card title="Propose one of these">

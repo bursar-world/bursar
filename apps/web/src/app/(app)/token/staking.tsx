@@ -44,38 +44,37 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
   return (
     <Section
       title="Staking"
-      description="Stake that stands behind collateral-backed credit, where that credit’s spread and the buyback arrive, and the fee rebate a staked balance earns."
+      description="Staked BRSR stands behind collateral-backed credit, and the pool receives that credit’s spread and the BRSR the buyback buys."
     >
-      <Card title="What staking here exposes you to">
+      <Card title="How staking works">
         <div className="max-w-3xl space-y-3 text-sm">
           <p>
             Staked BRSR stands behind collateral-backed credit: USDG lent from a separate credit pool against posted
-            stock and treasury tokens. When a line&rsquo;s collateral cannot repay its debt, the vault seizes the
-            collateral for the lender first, up to what the debt was worth at the feed. Where the staking contract
-            names that pool as its slasher, the write-off then takes stake for the part the collateral did not cover:
-            that loss is converted to BRSR at the buyback&rsquo;s price ceiling and sent to the slash sink. The lender
-            carries the uncovered part in USDG; the stake is a penalty, not a payout to the lender.
+            stock and treasury tokens. If a line&rsquo;s collateral cannot repay its debt, the vault seizes the
+            collateral for the lender first, up to the debt&rsquo;s value at the price feed. Where the staking contract
+            names that pool as its slasher, stake is then taken for the part the collateral did not cover, converted to
+            BRSR at the buyback&rsquo;s price ceiling and sent to the slash sink. The lender carries the uncovered part
+            in USDG. Slashed stake is a penalty and does not repay the lender.
           </p>
           <p>{capSentence(pool)}</p>
           <p>{slasherSentence(pool, creditPool, data.token === undefined)}</p>
           <p>
-            In exchange the pool is where the spread on that credit is paid, in USDG, and where the buyback compounds
-            the BRSR it buys, which raises what each earning share is worth. A staked balance also takes a rebate off
-            the settlement fee on the staker&rsquo;s own payouts. None of these is a rate. None is
-            promised. What arrives depends on how much the system is used. Staking also carries the BRSR price itself,
-            which can fall, and the exit wait below.
+            The pool receives the spread on that credit, in USDG, and the BRSR the buyback buys, which raises what each
+            earning share is worth. A staked balance also earns a rebate off the facilitator fee on the staker&rsquo;s
+            own payouts. None of this is a fixed or promised rate, and it depends on how much Bursar is used. Staking
+            also carries the BRSR price, which can fall, and the exit wait below.
           </p>
         </div>
       </Card>
 
-      <Card title="What is switched on today" description="Read from the staking contract, not from a plan.">
+      <Card title="What is switched on today" description="Live from the staking contract.">
         <FieldGrid columns={3}>
           <Field
             label="Spread from collateral-backed credit"
             hint={
               spreadReachesStakers
-                ? 'The credit pool is named here, so its spread is paid to stakers in USDG.'
-                : 'The credit pool is lending. Its spread waits there until governance names the pool here; that proposal is on the governance page.'
+                ? 'The credit pool is connected, so its spread is paid to stakers in USDG.'
+                : 'The credit pool is lending, and its spread waits there until governance names the pool here. That proposal is on the governance page.'
             }
           >
             {creditLane === undefined ? (
@@ -94,10 +93,10 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
             anywhere on the page, so a staker reading 0% beside it was told the wrong cause. What a
             tier is measured against is the part that is not obvious, and it belongs here.
           */}
-          <Field label="Fee rebate tiers" hint="Each tier is measured against earning stake, so stake behind an exit request does not count toward it.">
+          <Field label="Fee rebate tiers" hint="Tiers count earning stake only, not stake waiting to exit.">
             {pool?.tiers === undefined ? unread : pool.tiers.length === 0 ? 'None set' : `${pool.tiers.length} tiers`}
           </Field>
-          <Field label="Slasher" hint="The one address that can take stake to cover a write-off.">
+          <Field label="Slasher" hint="The one address that can take stake after a write-off.">
             {pool?.slasher === undefined ? (
               unread
             ) : isZeroAddress(pool.slasher) ? (
@@ -109,19 +108,19 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
           <Field label="Slash allowance" hint={allowanceHint(pool)}>
             <span className="tabular">{amountOr(pool?.slashAllowance, unread)}</span>
           </Field>
-          <Field label="Exit wait" hint="How long an exit request waits before it can complete. It earns nothing while it waits.">
+          <Field label="Exit wait" hint="How long an exit request waits before it can complete, earning nothing.">
             {pool?.unbondingPeriod === undefined ? unread : formatDuration(Number(pool.unbondingPeriod))}
           </Field>
-          <Field label="Time to complete" hint="How long a request stays open once it is ready. After that it lapses until it is put back to work.">
+          <Field label="Time to complete" hint="How long a ready request stays open before it lapses.">
             {pool?.unbondWindow === undefined ? unread : formatDuration(Number(pool.unbondWindow))}
           </Field>
-          <Field label="In the pool" hint="Earning stake and stake behind exit requests together.">
+          <Field label="In the pool" hint="Earning stake plus stake waiting to exit.">
             <span className="tabular">{amountOr(pool?.totalStaked, unread)}</span>
           </Field>
           <Field label="Behind exit requests" hint="Earns nothing, and takes its share of any slash until it leaves.">
             <span className="tabular">{amountOr(pool?.unbondingStaked, unread)}</span>
           </Field>
-          <Field label="Reward asset" hint="Spread is distributed in the settlement asset, not in BRSR.">
+          <Field label="Reward asset" hint="Spread is paid in USDG.">
             {pool?.rewardToken === undefined ? unread : <Address value={pool.rewardToken} label="USDG" />}
           </Field>
           <Field label="Brake" hint={brakeHint(pool)}>
@@ -155,8 +154,8 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
       </Card>
 
       {data.account === undefined ? (
-        <EmptyState title="Connect a wallet to stake or to see a position.">
-          Everything above is read from the contract and does not need a wallet. A position does.
+        <EmptyState title="Connect a wallet to stake or see your position.">
+          Everything above is public and needs no wallet.
         </EmptyState>
       ) : (
         <>
@@ -165,22 +164,22 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
               <Stat
                 label="Earning stake"
                 value={amountOr(position?.activeStake, unread)}
-                hint="Earning spread and compounds, and counted for the rebate."
+                hint="Receives spread and buyback BRSR, and counts toward your rebate."
               />
               <Stat
                 label="Held in the pool"
                 value={amountOr(position?.stakedValue, unread)}
-                hint="Including an exit on its way out, which earns nothing and still takes losses."
+                hint="Includes stake waiting to exit, which earns nothing and still shares losses."
               />
               <Stat
                 label="Spread to claim"
                 value={position?.pendingRewards === undefined ? unread : usdExact(position.pendingRewards)}
-                hint="Paid in USDG. Claimable while the pool is paused."
+                hint="Paid in USDG, and claimable even while the pool is paused."
               />
               <Stat
                 label="Your fee rebate"
                 value={position?.rebateBps === undefined ? unread : bps(position.rebateBps)}
-                hint="Taken off the facilitator fee on payouts you receive through it. The escrow's settlement fee is not rebated."
+                hint="Off the facilitator fee on payouts you receive through it, not the escrow's settlement fee."
               />
             </StatGrid>
 
@@ -204,7 +203,7 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
                 <Field label="In your wallet">
                   <span className="tabular">{amountOr(data.token?.balance, unread)}</span>
                 </Field>
-                <Field label="Earning shares" hint="What you own is a fraction of the pool, not a balance inside it.">
+                <Field label="Earning shares" hint="Your fraction of the pool.">
                   <span className="tabular">{position?.shares === undefined ? unread : position.shares.toString()}</span>
                 </Field>
                 <Field label="Staking contract">
@@ -255,7 +254,7 @@ function StakeCard({ data, blockedBy }: { readonly data: TokenPageData; readonly
       : undefined;
 
   return (
-    <Card title="Stake" description="Two steps: let the contract move the tokens, then deposit them.">
+    <Card title="Stake" description="Two transactions: allow the staking contract to move the BRSR, then stake it.">
       <div className="max-w-md">
         <AmountInput
           label="Amount to stake"
@@ -267,7 +266,7 @@ function StakeCard({ data, blockedBy }: { readonly data: TokenPageData; readonly
           }}
           max={balance === undefined ? undefined : { atomic: balance, label: 'All of it' }}
           problem={overBalance ? 'More than this wallet holds.' : undefined}
-          hint="Once staked, leaving takes the exit wait above, and the stake takes its share of any slash until it leaves."
+          hint="Leaving takes the exit wait above, and staked BRSR shares any slash until it leaves."
           disabled={paused === true}
         />
       </div>
@@ -325,13 +324,12 @@ function StakeCard({ data, blockedBy }: { readonly data: TokenPageData; readonly
       {paused === true && <p className="mt-3 text-detail text-[color:var(--color-muted)]">Deposits are stopped while the pool is paused.</p>}
       {unreadReason !== undefined && (
         <p className="mt-3 text-detail text-[color:var(--color-muted)]">
-          Staking is held back because {unreadReason} could not be read. Nothing has changed on chain; only the reading
-          failed.
+          Could not read {unreadReason}. Read again before staking.
         </p>
       )}
       {allowance !== undefined && allowance > 0n && (
         <p className="mt-3 text-detail text-[color:var(--color-muted)]">
-          The contract may currently move {formatBrsr(allowance)} BRSR from this wallet.
+          The staking contract can already move {formatBrsr(allowance)} BRSR from this wallet.
         </p>
       )}
     </Card>
@@ -351,8 +349,8 @@ function ExitCard({ data, blockedBy }: { readonly data: TokenPageData; readonly 
       <Card title="Leaving">
         <p className="text-sm text-[color:var(--color-muted)]">
           {data.token === undefined
-            ? 'Reading this position.'
-            : 'The staking contract did not answer whether an exit is open for this wallet, so leaving stays off until the next reading lands.'}
+            ? 'Reading your position.'
+            : 'Could not read whether this wallet has an exit open. Read again before leaving.'}
         </p>
       </Card>
     );
@@ -366,7 +364,7 @@ function ExitCard({ data, blockedBy }: { readonly data: TokenPageData; readonly 
   if (shares === 0n) {
     return (
       <Card title="Leaving">
-        <p className="text-sm text-[color:var(--color-muted)]">Nothing staked, so there is nothing to withdraw.</p>
+        <p className="text-sm text-[color:var(--color-muted)]">Nothing is staked, so there is nothing to withdraw.</p>
       </Card>
     );
   }
@@ -379,7 +377,7 @@ function ExitCard({ data, blockedBy }: { readonly data: TokenPageData; readonly 
     earning === undefined || shares === undefined || earning === ZERO_BRSR || requested === 0n ? 0n : min((requested * shares) / earning, shares);
 
   return (
-    <Card title="Leaving" description="A request, then the wait, then the withdrawal.">
+    <Card title="Leaving" description="Request a withdrawal, wait, then complete it.">
       <div className="max-w-md">
         <AmountInput
           label="Amount to withdraw"
@@ -390,8 +388,8 @@ function ExitCard({ data, blockedBy }: { readonly data: TokenPageData; readonly 
             setAtomic(value);
           }}
           max={earning === undefined ? undefined : { atomic: earning, label: 'Everything' }}
-          problem={overHeld ? 'More than this position has in earning stake.' : undefined}
-          hint="Priced when the request is filed. From then it earns nothing, and completing pays that amount less any slash while it waits."
+          problem={overHeld ? 'More than your earning stake.' : undefined}
+          hint="Priced when you request it. It then earns nothing, and completing pays that amount less any slash while it waits."
           disabled={earning === undefined || shares === undefined}
         />
       </div>
@@ -405,15 +403,14 @@ function ExitCard({ data, blockedBy }: { readonly data: TokenPageData; readonly 
       {pool?.unbondingPeriod !== undefined && pool.unbondWindow !== undefined && (
         <p className="mt-3 text-detail text-[color:var(--color-muted)]">
           It can complete after {formatDuration(Number(pool.unbondingPeriod))} and stays open for{' '}
-          {formatDuration(Number(pool.unbondWindow))} after that. A request left past then lapses and earns nothing until it
-          is put back to work.
+          {formatDuration(Number(pool.unbondWindow))} after that. If it is not completed by then, it lapses and earns
+          nothing until you put it back to work.
         </p>
       )}
 
       {(earning === undefined || shares === undefined) && (
         <p className="mt-3 text-detail text-[color:var(--color-muted)]">
-          What this position holds in earning stake could not be read, and an amount cannot be priced into shares without
-          it. The request stays off until the next reading lands.
+          Could not read your earning stake, so this amount cannot be priced into shares. Read again to continue.
         </p>
       )}
 
@@ -471,22 +468,22 @@ function PendingExitCard({
   return (
     <Card title="Leaving" description="One exit request at a time.">
       <FieldGrid columns={4}>
-        <Field label="On its way out" hint="What completing pays now: its value when filed, less any slash since.">
+        <Field label="On its way out" hint="What completing pays now: its value when requested, less any slash since.">
           <span className="tabular">{formatBrsr(exit.amount)} BRSR</span>
         </Field>
         <Field label="Requested">{exit.requestedAt === undefined ? unread : <Instant at={exit.requestedAt} />}</Field>
         <Field label={matured ? 'Ready since' : 'Can complete'}>
           {matured ? <Instant at={exit.maturesAt} /> : <Countdown to={exit.maturesAt} />}
         </Field>
-        <Field label={lapsed ? 'Lapsed' : 'Lapses'} hint="Time a pause spends holding exits is added to this.">
+        <Field label={lapsed ? 'Lapsed' : 'Lapses'} hint="Any time a pause holds exits is added to this.">
           {lapsed ? <Instant at={exit.lapsesAt} /> : <Countdown to={exit.lapsesAt} />}
         </Field>
       </FieldGrid>
 
       <p className="mt-4 max-w-3xl text-sm">
         {lapsed
-          ? 'This request lapsed without being completed. The stake is still yours and still in the pool, earning nothing. Put it back to work, then ask to leave again if you still want to.'
-          : 'This stake no longer earns spread or compounds, and it takes its share of any slash until the withdrawal completes. Complete it once it is ready and before it lapses.'}
+          ? 'This request lapsed without being completed. The stake is still yours, in the pool and earning nothing. Put it back to work, then request the withdrawal again.'
+          : 'This stake no longer receives spread or buyback BRSR, and it shares any slash until the withdrawal completes. Complete it once it is ready and before it lapses.'}
       </p>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -521,8 +518,8 @@ function PendingExitCard({
       </div>
 
       <p className="mt-3 max-w-3xl text-detail text-[color:var(--color-muted)]">
-        Going back to work is priced at today&rsquo;s share price. Anything the buyback compounded while this stake was out
-        stays with the stakers who were earning, so it comes back as fewer shares than it left as.
+        Going back to work is priced at today&rsquo;s share price. Buyback BRSR added while this stake was out stays
+        with the stakers who were earning, so it comes back as fewer shares than it left as.
       </p>
 
       {stage === 'held' && heldUntil && (
@@ -534,8 +531,8 @@ function PendingExitCard({
       {stage === 'unknown-hold' && (
         <p className="mt-3 text-detail text-[color:var(--color-muted)]">
           {pool?.paused === true
-            ? 'The pool is paused, and how long the pause holds exits could not be read, so completing stays off until the next reading lands. Restarting the pool is a governance proposal.'
-            : 'Whether the pool is paused could not be read, and a pause can hold exits from completing, so completing stays off until the next reading lands.'}
+            ? 'The pool is paused, and how long it holds exits could not be read. Read again to complete.'
+            : 'Could not read whether the pool is paused, and a pause can hold exits. Read again to complete.'}
         </p>
       )}
     </Card>
@@ -547,13 +544,13 @@ function ClaimCard({ data, blockedBy }: { readonly data: TokenPageData; readonly
   const owed = data.token?.position?.pendingRewards;
   const note =
     owed !== undefined
-      ? 'Spread earned by your shares and not yet taken.'
+      ? 'Spread your shares have earned and not yet claimed.'
       : data.token === undefined
       ? 'Reading what your shares have earned.'
-      : 'The staking contract did not answer what your shares have earned, so the claim stays off until the next reading lands.';
+      : 'Could not read what your shares have earned. Read again to claim.';
 
   return (
-    <Card title="Spread" description="Distribution is in USDG and stays claimable while the pool is paused.">
+    <Card title="Spread" description="Paid in USDG, and claimable even while the pool is paused.">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="text-sm">
           <span className="tabular text-xl">{owed === undefined ? unreadWord(data) : usdExact(owed)}</span>

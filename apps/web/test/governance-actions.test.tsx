@@ -11,7 +11,7 @@ import { CallPreview } from '@/app/(app)/governance/builder';
 import { governanceTimelocks, statusOf } from '@/app/(app)/governance/read';
 import { TOKEN_ROLES } from '@/chain';
 import { contractSetAtLeast, contractSetOf, deploymentByContract, deploymentForChain } from '@bursar/core';
-import { CUSTODY_LINE, answerInList, answerIs, governanceNotice, permits } from '@/app/(app)/governance/roles';
+import { answerInList, answerIs, governanceNotice, permits } from '@/app/(app)/governance/roles';
 import type { Roles } from '@/app/(app)/governance/roles';
 
 const SIGNER_ONE = '0xb51c63568324848DfC88A09f91F06fA86771aB69' as Address;
@@ -73,14 +73,14 @@ describe('what the page tells a wallet it may do', () => {
   it('says plainly that a stranger can change nothing, and says which keys can', () => {
     const notice = governanceNotice(roles({ address: STRANGER }));
 
-    expect(notice?.headline).toContain('neither a signer nor the guardian');
+    expect(notice?.headline).toContain('not a signer or the guardian');
     expect(notice?.detail).toContain('Connect one of those keys');
   });
 
   it('never tells a wallet it is not a signer when the signer set was not read', () => {
     const notice = governanceNotice(roles({ address: SIGNER_ONE, signer: 'unread', guardian: 'unread' }));
 
-    expect(notice?.headline).toContain('could not be read');
+    expect(notice?.headline).toContain('Could not read the signer set');
     expect(notice?.headline).not.toContain('is neither');
     expect(notice?.detail).toContain('still offered');
   });
@@ -96,11 +96,11 @@ describe('what the page tells a wallet it may do', () => {
     expect(governanceNotice(roles({ address: SIGNER_ONE, signer: 'yes' }))).toBeUndefined();
   });
 
-  it('states how the keys are held once, without hedging', () => {
-    expect(CUSTODY_LINE).toContain('plain keys');
-    expect(CUSTODY_LINE).toContain('multisig after public launch');
-    expect(CUSTODY_LINE).not.toMatch(/Release \d|operator decision/);
-    expect(CUSTODY_LINE).not.toContain('audit');
+  it('keeps key custody and launch plans out of the page copy', () => {
+    for (const path of ['src/app/(app)/governance/governance-view.tsx', 'src/app/(app)/governance/roles.ts', 'src/app/(app)/ops/ops-view.tsx']) {
+      const text = readFileSync(fileURLToPath(new URL(`../${path}`, import.meta.url)), 'utf8');
+      expect(text, path).not.toMatch(/plain keys|multisig after public launch|Release \d|operator decision/);
+    }
   });
 });
 

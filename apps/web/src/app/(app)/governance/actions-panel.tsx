@@ -56,13 +56,13 @@ function useProposingTimelock(action: AdminAction | undefined): {
   if (self) return { timelock: self, problem: undefined };
   if (admin.isPending) return { timelock: undefined, problem: `Reading which governance delay administers ${contract.name}.` };
   if (admin.data === undefined) {
-    return { timelock: undefined, problem: `Which governance delay administers ${contract.name} could not be read. Read again before proposing.` };
+    return { timelock: undefined, problem: `Could not read which governance delay administers ${contract.name}. Read again before proposing.` };
   }
   const match = timelocks.find((entry) => sameAddress(entry.address, admin.data));
   if (!match) {
     return {
       timelock: undefined,
-      problem: `${capitalise(contract.name)} is administered by ${admin.data}, which is not one of the governance delays, so a proposal from here could not change it.`,
+      problem: `${capitalise(contract.name)} is administered by ${admin.data}, which is not one of the governance delays, so a proposal from here cannot change it.`,
     };
   }
   return { timelock: match, problem: undefined };
@@ -97,7 +97,7 @@ export function ProposePanel({
       title={title}
       description={
         description ??
-        `Proposing counts as your own approval. One more signer and the delay of the governance contract that administers the change stand between this and it taking effect${
+        `Proposing counts as your approval. The change then needs one more signer and the delay that administers it${
           delaySeconds === undefined ? '' : `: ${formatDuration(Number(delaySeconds))} on the current contracts, longer on the token and staking`
         }.`
       }
@@ -196,22 +196,21 @@ export function GuardianPanel({
   return (
     <Section
       title="The brake"
-      description="Stops a contract in the same block. No approvals, no delay, and no other call this key can make."
+      description="Pauses a contract at once, with no approvals and no delay. This key can do nothing else."
     >
       <Card>
         <div className="max-w-3xl space-y-3 text-sm">
           <p>
-            The guardian key pauses and does nothing else. The call it sends is built inside a governance delay contract
-            and is always <code>pause()</code>, so the key cannot be talked into anything adjacent to a pause. Restarting
-            is an ordinary proposal: two signatures and{' '}
+            The guardian key only pauses. The governance delay builds the call itself, and it is always{' '}
+            <code>pause()</code>. Restarting is an ordinary proposal: two signatures and{' '}
             {delaySeconds === undefined ? 'the full delay' : formatDuration(Number(delaySeconds))} on the current
-            contracts. Stopping is instant and starting is not, so a stolen guardian key costs an outage rather than a
-            loss.
+            contracts. Stopping is instant and starting is not, so a stolen guardian key can cause an outage but cannot
+            move funds.
           </p>
           <p className="text-[color:var(--color-muted)]">
-            The escrow, the dispute registry, the provider registry, the staking pool and the buyback carry a pause.
-            Reputation, the mandate factories and the token carry none. Each contract answers the brake only through the
-            delay that administers it, so they are grouped by that delay below.
+            The escrow, the dispute registry, the provider registry, the staking pool and the buyback can be paused.
+            Reputation, the mandate factories and the token cannot. Each contract can only be paused through the delay
+            that administers it, so they are grouped by delay below.
           </p>
         </div>
 
@@ -234,8 +233,8 @@ export function GuardianPanel({
             ))}
             {outOfReach.length > 0 && (
               <p className="text-detail" style={{ color: 'var(--color-state-attention)' }}>
-                A contract marked out of reach answers its pause to an address that is not a governance delay, so the
-                brake cannot stop it.
+                A contract marked Out of reach is paused through an address that is not a governance delay, so the brake
+                cannot stop it.
               </p>
             )}
           </div>
@@ -278,7 +277,7 @@ function BrakeGroup({
       {tag.brake !== undefined && (
         <p className="text-detail text-[color:var(--color-muted)]">
           {tag.brake === 'each-target'
-            ? 'Each contract is stopped on its own. One that refuses, because it is already stopped or does not answer the brake, is skipped and the rest still stop; it keeps showing as running below.'
+            ? 'Each contract stops on its own. One that refuses, because it is already stopped or cannot be paused, is skipped and the rest still stop. A skipped contract keeps showing as running below.'
             : 'On this delay the brake is all or nothing: if one of the chosen contracts refuses the pause, none of them stop. Choose only contracts that are running.'}
         </p>
       )}

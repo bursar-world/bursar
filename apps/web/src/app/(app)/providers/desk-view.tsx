@@ -78,7 +78,7 @@ export function DeskView({ payee, owned }: { readonly payee: Address; readonly o
             </span>
           </div>
         </Card>
-        <ErrorSurface error={error} action={owned ? 'read your payments' : 'read this desk'} onRetry={refresh} />
+        <ErrorSurface error={error} action={owned ? 'Reading your payments' : 'Reading this desk'} onRetry={refresh} />
       </Section>
 
       {isLoading && !desk && (

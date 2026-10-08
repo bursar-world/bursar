@@ -40,10 +40,10 @@ export function BondingSection({ data }: { readonly data: TokenPageData }) {
   const registered = bond?.yourStatus !== undefined && bond.yourStatus !== 0;
 
   return (
-    <Section title="Resolver bonds" description="What a resolver stands to lose for ruling badly on a disputed delivery.">
-      <Card title="Bonds today" description="Held by the dispute registry, in the currency it names.">
+    <Section title="Resolver bonds" description="Resolvers bond BRSR to rule on disputes, and a bad ruling costs part of it.">
+      <Card title="Bonds today" description="Held by the dispute registry.">
         <FieldGrid columns={4}>
-          <Field label="Minimum bond" hint="Below this a resolver cannot register and cannot vote.">
+          <Field label="Minimum bond" hint="Below this a resolver cannot register or vote.">
             <span className="tabular">
               {floor === undefined ? unread : floorSet ? `${formatBrsr(floor)} BRSR` : 'None set'}
             </span>
@@ -68,28 +68,28 @@ export function BondingSection({ data }: { readonly data: TokenPageData }) {
           <Field label="Dispute registry">
             <Address value={ADDRESSES.oracleRegistry} />
           </Field>
-          <Field label="Bond asset" hint="Read from the registry, never assumed. Bonds and rewards are different tokens.">
+          <Field label="Bond asset" hint="Bonds and rewards use different tokens.">
             {bond?.bondAsset === undefined ? (
               unread
             ) : wired ? (
               <Address value={bond.bondAsset} label={bondsInBrsr ? 'BRSR' : undefined} />
             ) : (
-              'None wired'
+              'None set'
             )}
           </Field>
         </FieldGrid>
       </Card>
 
-      <Card title="The bond is BRSR" description="Governance sets the floor at the staking contract, and the registry reads it on every vote.">
+      <Card title="The bond is BRSR" description="Governance sets the floor in the staking contract, and every vote checks it.">
         <FieldGrid columns={3}>
-          <Field label="BRSR floor" hint="A floor of zero refuses a bond at any amount, whatever else is wired.">
+          <Field label="BRSR floor" hint="A floor of zero refuses every bond.">
             <span className="tabular">{floor === undefined ? unread : `${formatBrsr(floor)} BRSR`}</span>
           </Field>
           <Field label="Bonding in BRSR" hint="Open once the registry holds BRSR as its bond asset and the floor is above zero.">
             {bond?.minBondBrsr === undefined || bond.bondAsset === undefined
               ? unread
               : !wired
-                ? 'No collateral wired'
+                ? 'No bond asset set'
                 : !bondsInBrsr
                   ? 'The registry bonds in another token'
                   : floorSet
@@ -103,22 +103,18 @@ export function BondingSection({ data }: { readonly data: TokenPageData }) {
 
         <div className="mt-4 max-w-3xl space-y-3 text-sm">
           <p>
-            Putting the bond in BRSR makes the token the security budget of the dispute layer. A resolver who rules
-            badly loses BRSR, which is the version of &ldquo;the token secures the network&rdquo; that can be checked
-            against a contract.
+            With bonds in BRSR, a resolver who rules badly loses BRSR. The penalty is enforced by contract and
+            verifiable on-chain.
           </p>
           <p>
-            The cost of that is real. A bond denominated in a volatile asset can fall below the value it secures, and
-            governance can raise the floor after the fact but cannot raise it faster than a price moves. The answer here
-            is a floor governance tunes, plus a higher floor it can set against an individual resolver. A price feed
-            would make adjudication depend on an oracle the dispute layer otherwise does not need, which is the
-            dependency it exists to avoid.
+            A bond&rsquo;s value moves with the BRSR price. Governance sets the floor, and can set a higher one for an
+            individual resolver.
           </p>
         </div>
       </Card>
 
       {data.account !== undefined && (
-        <Card title="Your resolver record" description="Read against the connected wallet.">
+        <Card title="Your resolver record" description="For the connected wallet.">
           <FieldGrid columns={4}>
             <Field label="Standing">{bond?.yourStatus === undefined ? unread : (STATUS_WORD[bond.yourStatus] ?? 'Unknown')}</Field>
             <Field label="Bond posted">
@@ -130,7 +126,7 @@ export function BondingSection({ data }: { readonly data: TokenPageData }) {
             <Field label="Times slashed">
               <span className="tabular">{bond?.yourSlashes ?? unread}</span>
             </Field>
-            <Field label="BRSR floor set against you" hint="Governance can require more from one resolver than from the roster.">
+            <Field label="BRSR floor set against you" hint="Governance can set a higher floor for one resolver.">
               <span className="tabular">
                 {bond?.yourFloorBrsr === undefined ? unread : `${formatBrsr(bond.yourFloorBrsr)} BRSR`}
               </span>
@@ -142,8 +138,7 @@ export function BondingSection({ data }: { readonly data: TokenPageData }) {
 
           {!registered && bond?.yourStatus !== undefined && (
             <p className="mt-4 text-detail text-[color:var(--color-muted)]">
-              This wallet is not a resolver. Registering happens at the dispute registry and needs a bond at or above
-              the minimum above, in the currency named there.
+              This wallet is not a resolver. Register from the Resolvers page with at least the minimum bond above.
             </p>
           )}
         </Card>
@@ -154,6 +149,6 @@ export function BondingSection({ data }: { readonly data: TokenPageData }) {
 
 function votersHint(maxVoters: number | undefined): string {
   return maxVoters !== undefined && maxVoters >= ROSTER
-    ? `Every seated resolver may vote on every dispute. The roster holds at most ${ROSTER}.`
-    : `At most this many resolvers may commit on one dispute. The roster holds at most ${ROSTER}.`;
+    ? `Every bonded resolver can vote on every dispute, up to ${ROSTER}.`
+    : `At most this many resolvers can vote on one dispute, from a roster of up to ${ROSTER}.`;
 }

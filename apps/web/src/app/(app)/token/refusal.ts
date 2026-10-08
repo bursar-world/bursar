@@ -39,47 +39,47 @@ export function tokenFailure(error: unknown, context: { readonly action: string;
 function sentenceFor(revert: RevertInfo, contract: TokenContract): string | undefined {
   switch (revert.errorName) {
     case 'UnbondLapsed':
-      return `${at('This request lapsed', revert.args[0])} without being completed. The stake is still yours and still in the pool, earning nothing. Put it back to work, then ask to leave again if you still want to.`;
+      return `${at('This request lapsed', revert.args[0])} without being completed. The stake is still yours, in the pool and earning nothing. Put it back to work, then request the withdrawal again.`;
     case 'ExitsHeld':
-      return `${at('The pool is paused, and the pause keeps exits from completing until', revert.args[0])}. The same time is added to this request before it lapses, so waiting it out costs nothing.`;
+      return `${at('The pool is paused, and the pause keeps exits from completing until', revert.args[0])}. The same time is added before this request lapses, so you lose nothing by waiting.`;
     case 'UnbondNotMatured':
-      return 'The exit wait on this request has not run out, and nothing shortens it. The countdown on this card is the moment it can complete.';
+      return 'The exit wait has not ended yet. You can complete the withdrawal when the countdown on this card runs out.';
     case 'UnbondAlreadyRequested':
-      return 'An exit request is already open, and there is one at a time. Complete it once it is ready, or cancel it to put the stake back to work.';
+      return 'An exit request is already open, and only one is allowed at a time. Complete it once it is ready, or cancel it to put the stake back to work.';
     case 'UnbondNotRequested':
-      return 'No exit request is open for this wallet, so there is nothing to complete or cancel. The reading on this page is behind the chain; read it again.';
+      return 'No exit request is open for this wallet. Read the page again to see the latest.';
     case 'InsufficientShares':
-      return 'That is more than this wallet has earning in the pool. The figure on this card is what it holds right now.';
+      return 'That is more than this wallet has earning in the pool.';
     case 'DustAmount':
       return 'That amount is too small to count as a share of the pool at its current price. Enter a larger amount.';
     case 'PoolCollapsed':
-      return 'A loss has taken almost all of the pool, and it takes no new stake until it recovers: a deposit now would be priced against almost nothing. Exits and claims are unaffected.';
+      return 'The pool is not taking new stake after a loss took almost all of it. Exits and claims still work.';
     case 'EnforcedPause':
       return contract === 'buyback'
         ? 'The buyback is paused, so it cannot spend. Governance restarts it by proposal.'
         : 'The staking pool is paused, so it takes no new stake. Exit requests, cancellations and claims stay open. Governance lifts a pause by proposal.';
     case 'NothingToClaim':
-      return 'There is no spread to claim yet. Spread reaches earning stake only when the credit pool pays it in.';
+      return 'There is no spread to claim yet. It arrives when the credit pool pays it in.';
     case 'NotSlasher':
       return 'Only the slasher governance names can take stake, and this wallet is not it.';
     case 'NotKeeper':
-      return 'Only the keeper governance names can trigger a buy, and this wallet is not it. The keeper is shown on this card.';
+      return 'Only the keeper governance names can trigger a buy, and this wallet is not the keeper.';
     case 'PriceCeilingUnset':
       return 'The buyback has no price ceiling, so it refuses every buy. Governance sets one by proposal.';
     case 'PriceCeilingStale':
-      return `${at('The price ceiling went stale on', revert.args[0])}, and the buyback refuses to trade on a price nobody has restated. Governance sets it again by proposal, and buys resume from then.`;
+      return `${at('The price ceiling went stale on', revert.args[0])}, so the buyback refuses every buy. Buys resume once governance sets it again.`;
     case 'TooSoon':
       return `${at('The last buy was too recent. The next one can run from', revert.args[0])}.`;
     case 'BelowMinimumSpend':
       return belowMinimum(revert);
     case 'NoStakeToDistributeTo':
-      return 'Nothing is earning in the staking pool, so a buy would have nobody to compound into. It can run once stake is earning again.';
+      return 'No stake is earning in the pool, so a buy would have nobody to pay into. It can run once stake is earning again.';
     case 'MinimumOutNotMet':
-      return 'The pool would have filled this buy above the price ceiling, so it was refused rather than overpaying. Nothing was spent.';
+      return 'This buy would have paid more than the price ceiling, so it was refused. Nothing was spent.';
     case 'ERC20InsufficientAllowance':
-      return 'This wallet has not let the staking contract move that much BRSR. Allow the amount first, then stake it.';
+      return 'The staking contract is not allowed to move that much BRSR yet. Allow the amount first, then stake it.';
     case 'ERC20InsufficientBalance':
-      return 'This wallet does not hold that much BRSR. The balance on this page is what it holds right now.';
+      return 'This wallet does not hold that much BRSR.';
     default:
       return undefined;
   }
@@ -93,9 +93,9 @@ function at(lead: string, value: unknown): string {
 function belowMinimum(revert: RevertInfo): string {
   const [available, minimum] = revert.args;
   if (typeof available !== 'bigint' || typeof minimum !== 'bigint') {
-    return 'There is too little to spend right now for a buy to be worth making, so it was refused.';
+    return 'There is too little to spend right now, so the buy was refused.';
   }
-  return `A buy could spend ${usdExact(micro(available))} right now and the buyback refuses anything under ${usdExact(
+  return `A buy could spend ${usdExact(micro(available))} right now, and the minimum is ${usdExact(
     micro(minimum),
-  )}. It waits for the balance or the window to allow more.`;
+  )}. It can run once the balance or the window allows more.`;
 }

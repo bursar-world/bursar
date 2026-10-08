@@ -42,13 +42,13 @@ export function buybackTrigger(buyback: BuybackState | undefined, account: Addre
 
   const hold =
     buyback === undefined
-      ? 'The buyback contract did not answer this reading, so a buy cannot be triggered from here until it does.'
+      ? 'Could not read the buyback contract. Read again to trigger a buy.'
       : buyback.paused === undefined
-        ? 'Whether the buyback is paused could not be read, and a buy is refused while it is.'
+        ? 'Could not read whether the buyback is paused. A paused buyback refuses every buy.'
         : buyback.paused
           ? 'The buyback is paused, so it cannot spend.'
           : keeper === undefined
-            ? 'Which address may trigger a buy could not be read, so the trigger stays off until the next reading lands.'
+            ? 'Could not read which address can trigger a buy. Read again.'
             : !keeperNamed
               ? 'No keeper is named, so no buy can run. Governance names one by proposal.'
               : buyback.ceiling === 0n
@@ -56,9 +56,9 @@ export function buybackTrigger(buyback: BuybackState | undefined, account: Addre
                 : stale
                   ? 'The price ceiling has gone stale, so every buy is refused until governance sets it again.'
                   : buyback.available === undefined
-                    ? 'What a buy could spend could not be read, so the trigger stays off until the next reading lands.'
+                    ? 'Could not read what a buy could spend. Read again.'
                     : buyback.available === 0n
-                      ? 'There is nothing a buy could spend right now: the balance, the window cap or the wait between buys holds it at zero.'
+                      ? 'A buy could spend nothing right now, because of the balance, the window cap or the wait between buys.'
                       : 'Only the keeper can trigger a buy, and this wallet is not it.';
 
   return { isKeeper, canTrigger, hold };
@@ -83,37 +83,37 @@ export function exitStage(exit: PendingExit, pool: StakingPool | undefined, now:
 
 export function capSentence(pool: StakingPool | undefined): string {
   if (pool?.slashCapBps === undefined || pool.slashWindow === undefined) {
-    return 'Losses arrive at a capped rate: one slash takes at most a set share of the pool, and the allowance it uses refills over a set window. Every staker loses the same share, stake already on its way out included.';
+    return 'Losses arrive at a capped rate: one slash takes at most a set share of the pool, and that allowance refills over a set window. Every staker loses the same share, including stake waiting to exit.';
   }
-  return `Losses arrive at a capped rate. One slash takes at most ${bps(pool.slashCapBps)} of the pool, and the allowance it uses refills evenly over ${formatDuration(
+  return `Losses arrive at a capped rate. One slash takes at most ${bps(pool.slashCapBps)} of the pool, and that allowance refills evenly over ${formatDuration(
     Number(pool.slashWindow),
-  )}. Every staker loses the same share, stake already on its way out included.`;
+  )}. Every staker loses the same share, including stake waiting to exit.`;
 }
 
 export function slasherSentence(pool: StakingPool | undefined, creditPool: Address | undefined, reading: boolean): string {
   const slasher = pool?.slasher;
   if (slasher === undefined) {
     return reading
-      ? 'Reading whom the staking contract lets take stake.'
-      : 'Whom the staking contract lets take stake could not be read, so whether a write-off reaches stakers today is unknown.';
+      ? 'Reading which address can take stake.'
+      : 'Could not read which address can take stake, so whether a write-off reaches stakers today is unknown.';
   }
   if (isZeroAddress(slasher)) {
-    return 'No slasher is named today, so nothing can take stake and the lender carries every write-off. Naming one is a proposal that waits out the governance delay and appears on the governance page before it can run.';
+    return 'No slasher is named today, so nothing can take stake and the lender carries every write-off. Naming one takes a governance proposal, shown on the governance page before it can run.';
   }
   if (creditPool !== undefined && sameAddress(slasher, creditPool)) {
-    return 'The credit pool is the slasher today. A write-off takes no stake while the buyback’s price ceiling is unset or stale, and the lender then carries all of it. Changing the slasher is a proposal that waits out the governance delay.';
+    return 'The credit pool is the slasher today. While the buyback’s price ceiling is unset or stale, a write-off takes no stake and the lender carries all of it. Changing the slasher takes a governance proposal and its delay.';
   }
-  return 'The slasher today is an address other than the credit pool, shown below. Changing it is a proposal that waits out the governance delay and appears on the governance page before it can run.';
+  return 'The slasher today is an address other than the credit pool, shown below. Changing it takes a governance proposal, shown on the governance page before it can run.';
 }
 
 export function allowanceHint(pool: StakingPool | undefined): string {
-  if (pool?.slashCapBps === undefined || pool.slashWindow === undefined) return 'What the slasher could take in this block.';
-  return `What the slasher could take in this block: up to ${bps(pool.slashCapBps)} of the pool, less what recent slashes used, refilling over ${formatDuration(
+  if (pool?.slashCapBps === undefined || pool.slashWindow === undefined) return 'What the slasher could take right now.';
+  return `What the slasher could take right now: up to ${bps(pool.slashCapBps)} of the pool, less recent slashes, refilling over ${formatDuration(
     Number(pool.slashWindow),
   )}.`;
 }
 
 export function brakeHint(pool: StakingPool | undefined): string {
   const hold = pool?.maxExitHold === undefined ? 'for a set time' : `for at most ${formatDuration(Number(pool.maxExitHold))}`;
-  return `Paused, the pool takes no new stake and keeps exits from completing ${hold}. Exit requests, cancellations and claims stay open.`;
+  return `When paused, the pool takes no new stake and keeps exits from completing ${hold}. Exit requests, cancellations and claims stay open.`;
 }

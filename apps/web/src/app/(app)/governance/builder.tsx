@@ -90,7 +90,7 @@ export function CalldataBuilder({ only, initialActionId, label = 'Change to prop
         value={selected}
         onChange={choose}
         options={catalogue.map((entry) => ({ value: entry.id, label: entry.label, group: governedByKey(entry.contract).name }))}
-        help="Every entry here is a call one of the governance delays administers. The proposal goes to the delay that administers the contract it changes."
+        help="Each option changes a contract under one of the governance delays, and the proposal goes to that delay."
       />
 
       <p className="max-w-3xl text-sm">{action.consequence}</p>
@@ -250,7 +250,7 @@ export function CallPreview({ built }: { readonly built: BuiltCall }) {
       )}
 
       <div className="mt-4">
-        <Field label="Calldata" hint="The bytes the proposal carries. The sentence above is decoded from exactly these.">
+        <Field label="Calldata" hint="The raw call the proposal carries. The sentence above is decoded from it.">
           <p className="break-all font-mono text-note">{built.data}</p>
         </Field>
       </div>

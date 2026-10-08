@@ -62,7 +62,7 @@ describe('the gate', () => {
 
     expect(access.admitted).toBe(true);
     expect(access.accepting).toBe(true);
-    expect(access.headline).toContain('could not be read');
+    expect(access.headline).toContain('Could not read this wallet’s roles');
     expect(access.headline).not.toContain('holds none');
   });
 });
@@ -132,7 +132,7 @@ describe('every action names the key it needs and whether it waits', () => {
   });
 
   it('says the sweep is permissionless and still pays the treasury', () => {
-    expect(needFor('sweep-fees').needs).toContain('permissionless');
+    expect(needFor('sweep-fees').needs).toContain('Anyone can call it');
     expect(needFor('sweep-fees').route).toBe('direct');
   });
 
@@ -142,7 +142,7 @@ describe('every action names the key it needs and whether it waits', () => {
   });
 
   it('says the timelock cannot make the treasury call', () => {
-    expect(needFor('transfer-treasury').needs).toContain('timelock cannot make this call');
+    expect(needFor('transfer-treasury').needs).toContain('Governance cannot make this call');
   });
 
   it('routes every administered setting through governance rather than a direct call', () => {
@@ -179,18 +179,18 @@ describe('what has been seized', () => {
   });
 
   it('names where a claim pays when something waits', () => {
-    expect(seizedLine({ assets: [{}], complete: true }, true)).toContain('to the lender below and to nowhere else');
+    expect(seizedLine({ assets: [{}], complete: true }, true)).toContain('to the lender below, and nowhere else');
   });
 });
 
 describe('the treasury warning', () => {
   it('says the key names its own successor and that no proposal can move it', () => {
-    expect(TREASURY_WARNING).toContain('only address that can name its successor');
-    expect(TREASURY_WARNING).toContain('no proposal, no delay and no quorum');
+    expect(TREASURY_WARNING).toContain('Only the escrow treasury can name its successor');
+    expect(TREASURY_WARNING).toContain('no proposal, delay or quorum');
   });
 
   it('says what the two steps mean while one is pending', () => {
-    expect(TREASURY_WARNING).toContain('until the new address accepts, the current one keeps receiving');
+    expect(TREASURY_WARNING).toContain('keeps receiving every swept fee until the new address accepts');
   });
 
   it('says what losing the key costs', () => {
@@ -207,14 +207,14 @@ describe('what has accrued', () => {
 
   it('does not report a reading still in flight as a reading that failed', () => {
     expect(sweepLine(undefined, TREASURY, false)).toContain('Reading');
-    expect(sweepLine(undefined, TREASURY, false)).not.toContain('could not be read');
+    expect(sweepLine(undefined, TREASURY, false)).not.toContain('Could not read');
   });
 
   it('does not report an unread balance as nothing to sweep', () => {
     const line = sweepLine(undefined, TREASURY, true);
 
-    expect(line).toContain('could not be read');
-    expect(line).toContain('Nothing here says the balance is zero');
+    expect(line).toContain('Could not read what has accrued');
+    expect(line).toContain('may not be zero');
     expect(line).not.toContain('Nothing has accrued');
   });
 
@@ -224,11 +224,11 @@ describe('what has accrued', () => {
   });
 
   it('names the destination when there is something to sweep', () => {
-    expect(sweepLine(1_000_000n, TREASURY, true)).toContain('to the treasury below and to nowhere else');
+    expect(sweepLine(1_000_000n, TREASURY, true)).toContain('to the treasury below, and nowhere else');
   });
 
   it('says the destination is unknown when the treasury slot did not come back', () => {
-    expect(sweepLine(1_000_000n, undefined, true)).toContain('Where they go could not be read');
+    expect(sweepLine(1_000_000n, undefined, true)).toContain('Could not read the treasury they go to');
   });
 
   it('keeps the control offered on an unread balance and withholds it on a read zero', () => {

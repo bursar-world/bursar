@@ -52,9 +52,9 @@ export function rebateForStake(tiers: readonly RebateTier[], value: Brsr): numbe
 }
 
 export function rebateReason(tiers: readonly RebateTier[] | undefined, position: RebatePosition): RebateReason {
-  if (tiers === undefined) return { kind: 'unread', missing: 'the rebate table' };
+  if (tiers === undefined) return { kind: 'unread', missing: 'the rebate tiers' };
   if (position.rebateBps === undefined) return { kind: 'unread', missing: 'the rebate on this position' };
-  if (position.activeStake === undefined) return { kind: 'unread', missing: 'the active stake' };
+  if (position.activeStake === undefined) return { kind: 'unread', missing: 'your earning stake' };
   if (position.stakedValue === undefined) return { kind: 'unread', missing: 'what this position holds in the pool' };
   if (tiers.length === 0) return { kind: 'no-table' };
 
@@ -100,33 +100,33 @@ export function rebateReason(tiers: readonly RebateTier[] | undefined, position:
 export function rebateSentence(reason: RebateReason): string {
   switch (reason.kind) {
     case 'unread':
-      return `Why this reads as it does cannot be said yet: ${reason.missing} did not come back. Nothing has changed on chain; only the reading failed.`;
+      return `Could not read ${reason.missing}, so this rebate cannot be explained yet.`;
 
     case 'no-table':
-      return 'The staking contract holds no rebate tiers, so every staked balance earns zero until governance writes them.';
+      return 'The staking contract holds no rebate tiers, so every staked balance earns zero until governance sets them.';
 
     case 'nothing-staked':
-      return 'Nothing is staked here, and the rebate is earned by a staked balance.';
+      return 'Nothing is staked here. The rebate comes from a staked balance.';
 
     case 'all-exiting':
-      return `All ${formatBrsr(reason.held)} BRSR in this position has been asked back, and the rebate is measured against active stake rather than against everything held in the pool. Cancelling the exit would earn ${bps(
+      return `All ${formatBrsr(reason.held)} BRSR in this position is waiting to exit, and the rebate counts earning stake only. Cancelling the exit would earn ${bps(
         reason.ifCancelled,
       )}.`;
 
     case 'exit-dropped-a-tier':
-      return `The rebate is measured against active stake, which is ${formatBrsr(
+      return `The rebate counts earning stake only, which is ${formatBrsr(
         reason.atRisk,
-      )} BRSR here, and the first tier starts at ${formatBrsr(reason.floor)} BRSR. The withdrawal already requested is what put it under: the pool still holds ${formatBrsr(
+      )} BRSR here, and the first tier starts at ${formatBrsr(reason.floor)} BRSR. Your pending withdrawal put it under: the pool still holds ${formatBrsr(
         reason.held,
-      )} BRSR for this address, and cancelling the exit would earn ${bps(reason.ifCancelled)}.`;
+      )} BRSR for you, and cancelling the exit would earn ${bps(reason.ifCancelled)}.`;
 
     case 'under-the-first-tier':
-      return `The rebate is measured against active stake, which is ${formatBrsr(
+      return `The rebate counts earning stake only, which is ${formatBrsr(
         reason.atRisk,
       )} BRSR here. The first tier starts at ${formatBrsr(reason.floor)} BRSR.`;
 
     case 'earning':
-      return `${formatBrsr(reason.atRisk)} BRSR of active stake clears the ${formatBrsr(reason.tier)} BRSR tier.${
+      return `${formatBrsr(reason.atRisk)} BRSR of earning stake clears the ${formatBrsr(reason.tier)} BRSR tier.${
         reason.nextTier === undefined ? '' : ` The next one starts at ${formatBrsr(reason.nextTier)} BRSR.`
       }`;
   }

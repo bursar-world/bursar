@@ -121,7 +121,7 @@ export function contractGroups(): readonly ContractGroup[] {
       note: 'Still settling the payments and disputes opened on them. The console only reads them. New mandates use the contracts above.',
       rows: [
         { name: 'Mandate accounts', address: d.contracts.MandateAccountFactory, role: 'Created the mandates on these contracts, which still hold funds and history.' },
-        { name: 'Escrow', address: d.contracts.Escrow, role: 'Serves the locks opened against it until they close.' },
+        { name: 'Escrow', address: d.contracts.Escrow, role: 'Holds the payments opened on it until they close.' },
         { name: 'Provider registry', address: d.contracts.AgentRegistry, role: 'Providers registered here.' },
         { name: 'Reputation', address: d.contracts.Reputation, role: 'Scores earned here.' },
         { name: 'Disputes', address: d.contracts.OracleRegistry, role: 'Rules on the disputes opened against this escrow until they close.' },
@@ -190,7 +190,7 @@ export function StatusView() {
     <div className="space-y-10">
       <Section
         title="Conditions right now"
-        description="Five conditions stand between an agent and a settled payment. Each is reported on its own, because each has a different owner and a different fix."
+        description="Five conditions decide whether an agent’s payment settles. Each is shown separately, because each has a different owner and fix."
         actions={
           <Button size="sm" onClick={system.refresh} disabled={system.isFetching}>
             {system.isFetching ? 'Checking' : 'Check again'}
@@ -200,25 +200,23 @@ export function StatusView() {
         <Card>
           <StatusList system={system} detailed />
         </Card>
-        <ErrorSurface error={system.error} action="read the network" onRetry={system.refresh} />
+        <ErrorSurface error={system.error} action="Reading the network" onRetry={system.refresh} />
         <p className="text-note text-[color:var(--color-muted)]">
-          Connectivity and the asset apply to everyone on the network. The mandate, its permissions and its funding are
-          answered per account, so they read as not in use until an account is named. Sign in to the console to see them
-          for yours.
+          Connectivity and the asset apply to everyone. The mandate, its permissions and its funding are per account, so
+          they read as not in use until an account is named. Sign in to the console to see yours.
           {system.snapshot && (
             <>
               {' '}
-              This reading was taken <Instant at={system.snapshot.readAt} relative /> at block{' '}
-              {system.snapshot.blockNumber.toString()}, in{' '}
-              {system.snapshot.calls} contract reads and one request.
+              Updated <Instant at={system.snapshot.readAt} relative /> at block{' '}
+              {system.snapshot.blockNumber.toString()}.
             </>
           )}
         </p>
       </Section>
 
       <Section
-        title="Two controls on the settlement asset, and neither is ours"
-        description="Operating facts about USDG that a payment can fail on. Both are read live from the token."
+        title="The issuer’s controls on USDG"
+        description="The USDG issuer can pause the token or block an address, and either stops a payment. Both are read live from the token."
       >
         <Card>
           <div className="space-y-3 text-sm">
@@ -231,19 +229,18 @@ export function StatusView() {
               still confirm while the token is frozen.
             </p>
             <p>
-              A transfer also reverts when either address is on the blocklist, whatever the balance shows and whatever
-              the mandate allows.
+              A transfer also fails when either address is on the blocklist, whatever the balance or the mandate allows.
             </p>
             <p className="text-[color:var(--color-muted)]">
-              Neither control belongs to BURSAR and neither can be worked around. Both are read from the token at{' '}
-              <span className="tabular break-all">{ADDRESSES.usdg}</span> on every refresh of this page and reported above as
+              Bursar does not control either one, and neither can be worked around. Both are read from the token at{' '}
+              <span className="tabular break-all">{ADDRESSES.usdg}</span> each time this page refreshes, and shown above as
               their own condition.
             </p>
           </div>
         </Card>
       </Section>
 
-      <Section title="Check an address" description="Whether the asset issuer has blocked it. Reads the token directly and signs nothing.">
+      <Section title="Check an address" description="See whether the USDG issuer has blocked an address. Nothing is signed.">
         <Card>
           <div className="space-y-3">
             <label className="block text-detail">
@@ -264,8 +261,7 @@ export function StatusView() {
             <p id="blocklist-answer" className="flex items-start gap-2 text-detail">
               {typed.trim().length === 0 ? (
                 <span className="text-[color:var(--color-muted)]">
-                  Paste an address to check it. Any address can be checked. The token itself answers, so nothing here
-                  is a stale copy of the list.
+                  Paste any address to check it against the live blocklist.
                 </span>
               ) : checked === undefined ? (
                 <span className="text-[color:var(--color-muted)]">That is not a valid address yet.</span>
@@ -278,8 +274,8 @@ export function StatusView() {
                     {blocked === undefined
                       ? 'Reading the token.'
                       : blocked
-                        ? 'Blocked. Transfers to and from this address revert on the token, and no mandate can change that.'
-                        : 'Not blocked. The token will move funds to and from this address.'}
+                        ? 'Blocked. USDG cannot move to or from this address, and no mandate can change that.'
+                        : 'Not blocked. USDG can move to and from this address.'}
                   </span>
                 </>
               )}
@@ -288,7 +284,7 @@ export function StatusView() {
         </Card>
       </Section>
 
-      <Section title="Contracts" description={`Deployed on ${RHC.name}, chain ${RHC.chainId}. Every address below is public and can be read by anyone.`}>
+      <Section title="Contracts" description={`On ${RHC.name}, chain ID ${RHC.chainId}. Every address below is public.`}>
         {contractGroups().map((group) => (
           <Card key={group.title} title={group.title} description={group.note}>
             <Table
@@ -305,13 +301,13 @@ export function StatusView() {
         ))}
       </Section>
 
-      <Section title="Parameters" description="Read from the contracts on this page load, not from a configuration file.">
+      <Section title="Parameters" description="Live from the contracts.">
         <Card>
           <FieldGrid columns={3}>
-            <Field label="Settlement fee" hint="Charged on the payee's side. A refund, a timeout and a cancellation return the payer's funds whole.">
+            <Field label="Settlement fee" hint="Paid by the payee. Refunds, timeouts and cancellations return the payer's funds in full.">
               {escrow?.feeBps === undefined ? 'Reading' : bps(escrow.feeBps)}
             </Field>
-            <Field label="Delivery window" hint="The range a payer may choose from when opening a payment.">
+            <Field label="Delivery window" hint="The deadlines a payer can choose from.">
               {escrow?.minTtl === undefined || escrow.maxTtl === undefined
                 ? 'Reading'
                 : `${formatDuration(Number(escrow.minTtl))} to ${formatDuration(Number(escrow.maxTtl))}`}
@@ -319,18 +315,18 @@ export function StatusView() {
             <Field label="Time to contest" hint="After a payment, how long the payer has to challenge it.">
               {escrow?.disputeWindow === undefined ? 'Reading' : formatDuration(Number(escrow.disputeWindow))}
             </Field>
-            <Field label="Cost of contesting" hint="Posted as a bond by whoever opens a dispute, returned only if the ruling goes their way.">
+            <Field label="Cost of contesting" hint="A bond from whoever contests, returned if the ruling goes their way.">
               {escrow?.disputeBondBps === undefined ? 'Reading' : `${bps(escrow.disputeBondBps)} of the payment`}
             </Field>
             {escrow?.minLock !== undefined && (
-              <Field label="Smallest payment" hint="The escrow opens no payment under this, so contesting one always costs a bond.">
+              <Field label="Smallest payment" hint="The escrow refuses payments below this.">
                 {usdExact(escrow.minLock)}
               </Field>
             )}
-            <Field label="Governance delay" hint="Every parameter change a key can make waits this out first.">
+            <Field label="Governance delay" hint="Every setting change waits this long first.">
               {timelockPeriod === undefined ? 'Reading' : formatDuration(Number(timelockPeriod))}
             </Field>
-            <Field label="Settlement asset" hint="Read from the token itself. Transaction fees are paid in ETH and are never added to this.">
+            <Field label="Settlement asset" hint="Transaction fees are paid separately, in ETH.">
               {asset?.symbol === undefined || asset.decimals === undefined
                 ? 'Reading'
                 : `${asset.symbol}, ${asset.decimals} decimals`}
@@ -339,20 +335,20 @@ export function StatusView() {
         </Card>
       </Section>
 
-      <Section title="What a transaction costs" description="Taken from real transactions on this network.">
+      <Section title="What a transaction costs" description="Measured from real transactions on this network.">
         <Card>
           <StatGrid columns={3}>
-            <Stat label="One payment" value={formatEth(ROUND_TRIP_FEE)} hint={`${ROUND_TRIP_GAS.toLocaleString('en-US')} gas, locked and released, at the observed price`} />
-            <Stat label="One mandate account" value={formatEth(DEPLOY_FEE)} hint={`${DEPLOY_GAS.toLocaleString('en-US')} gas to deploy an account at its computed address`} />
+            <Stat label="One payment" value={formatEth(ROUND_TRIP_FEE)} hint={`${ROUND_TRIP_GAS.toLocaleString('en-US')} gas to lock and release, at the observed price`} />
+            <Stat label="One mandate account" value={formatEth(DEPLOY_FEE)} hint={`${DEPLOY_GAS.toLocaleString('en-US')} gas to create an account at its computed address`} />
             <Stat
               label={`Fee on a ${usd(EXAMPLE_PAYMENT)} payment`}
               value={escrow?.feeBps === undefined ? '—' : usd(mulBps(EXAMPLE_PAYMENT, escrow.feeBps))}
-              hint="Taken from the payee's side at settlement"
+              hint="Paid by the payee at settlement"
             />
           </StatGrid>
           <p className="mt-4 text-detail text-[color:var(--color-muted)]">
-            Transaction fees are paid in ETH by whichever wallet signs. Payments are made in USDG out of the mandate
-            account. They are two assets and two balances, and funding one does nothing for the other.
+            Transaction fees are paid in ETH by the wallet that signs. Payments are made in USDG from the mandate
+            account. These are separate balances, and funding one does not fund the other.
           </p>
         </Card>
       </Section>
@@ -361,14 +357,14 @@ export function StatusView() {
         <Card>
           <div className="space-y-3 text-sm">
             <p>
-              The escrow&rsquo;s fee and its windows were fixed when it was deployed. No key can raise the fee on a
-              payment that is already open, and no key can shorten a window under a job in progress.
+              The escrow&rsquo;s fee and windows are fixed for its lifetime. No key can raise the fee on an open payment
+              or shorten a window on a job in progress.
             </p>
             <p>
-              The parameters that can move, the reputation curve and the dispute settings among them, wait{' '}
+              Settings that can change, including the reputation curve and the dispute settings, wait{' '}
               {timelockPeriod === undefined ? 'a fixed period' : formatDuration(Number(timelockPeriod))} before a change
-              takes effect. Each one is published when it is proposed, so anyone relying on the old value has that long
-              to act.
+              takes effect. Each change is public from the moment it is proposed, so anyone relying on the old value has
+              that long to act.
             </p>
           </div>
         </Card>

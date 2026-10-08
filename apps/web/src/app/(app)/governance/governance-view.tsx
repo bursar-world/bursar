@@ -19,7 +19,7 @@ import { useWalletAccount } from '@/wallet/account';
 
 import { GuardianPanel, ProposePanel } from './actions-panel';
 import type { Proposal, ProposalStatus, TimelockReading } from './read';
-import { CUSTODY_LINE, governanceNotice, permits } from './roles';
+import { governanceNotice, permits } from './roles';
 import type { Roles } from './roles';
 import { useGovernance } from './use-governance';
 import { useWriteContract } from '@/wallet/write';
@@ -55,7 +55,7 @@ export function GovernanceView() {
     <div className="space-y-10">
       <Section
         title="Governance"
-        description="Every parameter that decides what a mandate can do sits behind two of three signatures and a fixed delay."
+        description="Every setting that decides what a mandate can do changes only with two of three signatures and a fixed delay."
         actions={
           <Button size="sm" onClick={governance.refresh} disabled={governance.isFetching}>
             {governance.isFetching ? 'Reading' : 'Read again'}
@@ -65,23 +65,20 @@ export function GovernanceView() {
         <Card>
           <div className="max-w-3xl space-y-3 text-sm">
             <p>
-              Two signers agreeing is what authorises a change. The wait between that and the change taking effect is
-              what gives anyone relying on the system time to read it and leave. Any single signer can cancel a proposal
-              before it lands, because blocking a change should cost less than making one.
+              A change needs two of the three signers. The delay before it takes effect gives anyone relying on Bursar
+              time to read it and leave. Any one signer can cancel a proposal before it runs, so blocking a change is
+              easier than making one.
             </p>
             <p>
-              More than one governance delay contract is live. Each set of payment contracts deployed on this chain brought
-              its own, and the token, staking and the buyback answer to one of them. A change goes to the one that
-              administers its target, and every proposal below says which. Each delay, and what it administers, is listed
-              below.
+              Each governance delay is a timelock: a contract that holds an approved change until its wait is over. More
+              than one is live, one for each set of payment contracts on this chain, and the token, staking and the
+              buyback answer to one of them. Each delay is listed below with what it administers, and every proposal
+              says which delay governs it.
             </p>
             <p>
-              The pause is the exception, and it has to be. A brake that takes hours is not a brake, so the guardian
-              key can stop an administered contract in the same block with no approvals and no wait. It can do nothing
-              else: the call it sends is built inside the timelock and is always <code>pause()</code>. Restarting is a
-              proposal like any other. That is what makes a stolen guardian key an outage rather than a loss.
+              The pause is the one exception. The guardian key can pause an administered contract at once, with no
+              approvals and no wait, and it can do nothing else.
             </p>
-            <p className="text-[color:var(--color-muted)]">{CUSTODY_LINE}</p>
           </div>
 
           {data === undefined ? (
@@ -95,20 +92,20 @@ export function GovernanceView() {
 
         {data && !data.complete && (
           <Unread onRetry={governance.refresh}>
-            The timelock did not answer this reading. A field below that shows as not read tells you nothing about
-            whether a proposal is pending. Nothing has changed on chain; only the reading failed.
+            Part of this page could not be read right now. A field marked Not read says nothing about whether a
+            proposal is pending.
           </Unread>
         )}
 
-        <ErrorSurface error={governance.error} action="reading governance" onRetry={governance.refresh} />
+        <ErrorSurface error={governance.error} action="Reading governance" onRetry={governance.refresh} />
       </Section>
 
       <Section
         title="Proposals"
         description={
           data?.blockNumber === undefined
-            ? 'Newest first. Read from the contract.'
-            : `Newest first, from both governance delays. Read at block ${data.blockNumber.toString()}. Countdowns run against the chain's clock.`
+            ? 'Newest first.'
+            : `Newest first, from both governance delays, as of block ${data.blockNumber.toString()}. Countdowns use chain time.`
         }
       >
         {data === undefined ? (
@@ -116,14 +113,10 @@ export function GovernanceView() {
             <p className="text-sm text-[color:var(--color-muted)]">Reading the governance contract.</p>
           </Card>
         ) : !data.complete ? (
-          <EmptyState title="This list was not read.">
-            A governance delay did not answer how many proposals it holds, so whether anything is pending is unknown.
-            Nothing has changed on chain; only the reading failed.
-          </EmptyState>
+          <EmptyState title="Proposals could not be read.">Read again to see whether anything is pending.</EmptyState>
         ) : data.proposals.length === 0 ? (
           <EmptyState title="Nothing is pending.">
-            A change to any governed parameter shows up here the moment a signer proposes it, and sits for the full
-            delay before it can execute.
+            A change appears here as soon as a signer proposes it, and waits the full delay before it can run.
           </EmptyState>
         ) : (
           <div className="space-y-4">
@@ -157,12 +150,12 @@ export function GovernanceView() {
 
       <Card title="Fees and the treasury are elsewhere">
         <p className="max-w-3xl text-sm">
-          Sweeping settlement fees and rotating the escrow treasury are not timelock calls, because the escrow has no admin
-          role. They live on the{' '}
+          Sweeping settlement fees and changing the escrow treasury are not proposals, because the escrow has no admin
+          role. They are on the{' '}
           <Link href="/ops" className="underline underline-offset-2">
-            operator surface
+            Operations page
           </Link>
-          , which also builds the staking and buyback proposals through this same form.
+          , which also drafts staking and buyback proposals with this same form.
         </p>
       </Card>
     </div>
@@ -180,7 +173,7 @@ function TimelockFacts({ reading }: { readonly reading: TimelockReading }) {
     <div className="mt-5">
       <p className="mb-2 text-sm font-medium">{reading.tag.name}</p>
       <FieldGrid columns={4}>
-        <Field label="Delay" hint="Fixed at deployment. There is no setter for it.">
+        <Field label="Delay" hint="Fixed for the life of the contract. Nothing can change it.">
           {reading.delaySeconds === undefined ? NOT_READ : formatDuration(Number(reading.delaySeconds))}
         </Field>
         <Field label="Approvals needed" hint="Proposing counts as the proposer's approval.">
@@ -188,7 +181,7 @@ function TimelockFacts({ reading }: { readonly reading: TimelockReading }) {
             ? NOT_READ
             : `${reading.requiredApprovals} of ${reading.signerCount}`}
         </Field>
-        <Field label="Window to execute" hint="After the delay. A proposal left past this has to be made again.">
+        <Field label="Window to execute" hint="Opens after the delay. A proposal not executed in time must be proposed again.">
           {reading.graceSeconds === undefined ? NOT_READ : formatDuration(Number(reading.graceSeconds))}
         </Field>
         <Field label="Governance contract">
@@ -197,12 +190,12 @@ function TimelockFacts({ reading }: { readonly reading: TimelockReading }) {
       </FieldGrid>
       <div className="mt-3">
         <FieldGrid columns={2}>
-          <Field label="Signers" hint="Approvals are counted over this set, so a rotated key stops carrying what it approved.">
+          <Field label="Signers" hint="Only current signers' approvals count, so a replaced key's approvals stop counting.">
             <div className="space-y-1">
               {reading.signers === undefined ? NOT_READ : reading.signers.map((signer) => <Address key={signer} value={signer} />)}
             </div>
           </Field>
-          <Field label="Guardian" hint="Holds the pause and nothing else, and is barred from the signer set.">
+          <Field label="Guardian" hint="Can pause and nothing else. It can never be a signer.">
             {reading.guardian === undefined ? NOT_READ : <Address value={reading.guardian} />}
           </Field>
         </FieldGrid>
@@ -223,7 +216,7 @@ function ConnectedAs({ roles }: { readonly roles: Roles }) {
           </span>
           <span>
             This wallet is one of the three signers. It can propose, approve, cancel and execute from this page.{' '}
-            <span className="text-[color:var(--color-muted)]">The guardian key is a separate one and cannot do any of those.</span>
+            <span className="text-[color:var(--color-muted)]">The guardian is a separate key and can do none of these.</span>
           </span>
         </p>
       </Card>
@@ -287,7 +280,7 @@ function ProposalCard({
         </Field>
         <Field
           label={proposal.status === 'waiting-out-the-delay' ? 'Executable in' : 'Executable from'}
-          hint={proposal.status === 'waiting-out-the-delay' ? 'Nothing can make this land sooner.' : undefined}
+          hint={proposal.status === 'waiting-out-the-delay' ? 'Nothing can make this run sooner.' : undefined}
         >
           {proposal.status === 'waiting-out-the-delay' ? (
             <Countdown to={proposal.executeAfter} />
@@ -295,7 +288,7 @@ function ProposalCard({
             <Instant at={proposal.executeAfter} />
           )}
         </Field>
-        <Field label={proposal.status === 'expired' ? 'Expired' : 'Expires'} hint="Unexecuted past this, it has to be proposed again.">
+        <Field label={proposal.status === 'expired' ? 'Expired' : 'Expires'} hint="If not executed by then, it must be proposed again.">
           {proposal.expiresAt === undefined ? (
             NOT_READ
           ) : proposal.status === 'executable' ? (
@@ -377,7 +370,7 @@ function ProposalCard({
             tone="destructive"
             confirmPhrase="CANCEL"
             confirmTitle={`Cancel proposal ${proposal.id}`}
-            confirmDescription={`${call.sentence} A cancelled proposal cannot be revived. Making the same change again means proposing it again and waiting out the full delay.`}
+            confirmDescription={`${call.sentence} A cancelled proposal cannot be restored. To make the same change, propose it again and wait the full delay.`}
             blockedBy={blockedBy}
             send={send('cancel')}
             onContinue={onChanged}
@@ -387,7 +380,7 @@ function ProposalCard({
 
       {!canSign && open && (
         <p className="mt-5 text-detail text-[color:var(--color-muted)]">
-          Approving, executing and cancelling need one of the three signer keys of this proposal&rsquo;s governance delay.
+          Approving, executing and cancelling need one of the three signer keys for this proposal&rsquo;s delay.
         </p>
       )}
     </Card>
