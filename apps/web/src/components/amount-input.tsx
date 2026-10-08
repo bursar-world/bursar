@@ -3,7 +3,7 @@
 import { useId, useState } from 'react';
 import type { ReactNode } from 'react';
 
-import { BRSR_DECIMALS, formatBrsrExact, parseAmount, usd } from '../money';
+import { BRSR_DECIMALS, formatBrsrExact, parseAmount, usdExact } from '../money';
 import type { Brsr } from '../money';
 import { formatMicro, MICRO_DECIMALS } from '@bursar/core';
 import type { Micro } from '@bursar/core';
@@ -125,8 +125,9 @@ export function AmountInput({
   );
 }
 
+// Exact, not to the cent: an echo that rounds 0.010007 to $0.01 is itself a misread.
 function format(atomic: bigint, asset: AmountAsset): string {
-  return asset === 'USDG' ? usd(atomic as Micro) : `${formatBrsrExact(atomic as Brsr)} BRSR`;
+  return asset === 'USDG' ? usdExact(atomic as Micro) : `${formatBrsrExact(atomic as Brsr)} BRSR`;
 }
 
 /** The value written back into the field, which has to round-trip through the parser unchanged. */
