@@ -404,7 +404,7 @@ function Action({
     const check = revealCheck(
       { status: dispute.status, commitEndsAt: dispute.commitEndsAt, revealEndsAt: dispute.revealEndsAt, commitCount: dispute.commitCount, revealCount: dispute.revealCount },
       { committed: dispute.yours?.committed, revealed: dispute.yours?.revealed },
-      new Date(),
+      chainTime,
     );
 
     if (!check.allowed) {

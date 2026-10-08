@@ -459,7 +459,7 @@ function PendingExitCard({
   readonly blockedBy: readonly AnyState[];
 }) {
   const { writeContractAsync } = useWriteContract();
-  const stage = exitStage(exit, pool, Date.now());
+  const stage = exitStage(exit, pool, (data.token?.chainTime ?? new Date()).getTime());
   const lapsed = stage === 'lapsed';
   const matured = stage !== 'waiting';
   const heldUntil = pool?.exitsHeldUntil;
