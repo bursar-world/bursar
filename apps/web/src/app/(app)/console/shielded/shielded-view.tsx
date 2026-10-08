@@ -105,9 +105,7 @@ export function ShieldedView() {
         Deposit USDG into a shared pool, then fund mandates, hidden owners and providers from it. Payouts come from the pool,
         so they do not name the wallet that deposited.
       </p>
-      <p className="max-w-3xl text-detail" style={{ color: 'var(--color-state-attention)' }}>
-        {SHIELDED_TIMING_LINE}
-      </p>
+      <p className="max-w-3xl text-detail text-[color:var(--color-muted)]">{SHIELDED_TIMING_LINE}</p>
     </div>
   );
 
@@ -155,7 +153,9 @@ function PoolPanel({ contracts }: { readonly contracts: ShieldedDeployment }) {
   const pool = usePool(contracts);
   const set = useSet(contracts, pool.data);
   const limits = poolLimits(contracts);
-  const ready = setMatchesChain(set.data, pool.data?.latestRoot);
+  const deposits = pool.data?.events.deposits.length ?? 0;
+  // An empty pool has nothing waiting: the posted list and the chain only disagree once a deposit lands.
+  const ready = deposits === 0 || setMatchesChain(set.data, pool.data?.latestRoot);
 
   return (
     <Section title="The pool" description="USDG only. These limits apply while the pool is new.">
@@ -175,7 +175,7 @@ function PoolPanel({ contracts }: { readonly contracts: ShieldedDeployment }) {
           />
           <Stat
             label="Approved deposits"
-            value={set.data ? `${set.data.labels.length} of ${pool.data?.events.deposits.length ?? 0}` : 'Loading'}
+            value={set.data ? (deposits === 0 ? 'None yet' : `${set.data.labels.length} of ${deposits}`) : 'Loading'}
             hint={
               set.data === undefined
                 ? 'Loading approved deposits.'
