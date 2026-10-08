@@ -42,7 +42,16 @@ export function ControlPanel() {
             <Field label="Agent" hint={seated ? 'Spends inside the limits and can do nothing else.' : 'Nothing can spend from this mandate.'}>
               {seated ? <AddressView value={account.agent} /> : 'No agent seated'}
             </Field>
-            <Field label="Mandate" hint={account.paused ? 'Payments are refused until you resume.' : 'Payments go through within the limits.'}>
+            <Field
+              label="Mandate"
+              hint={
+                account.paused
+                  ? 'Payments are refused until you resume.'
+                  : seated
+                    ? 'Payments go through within the limits.'
+                    : 'Nothing is spent until you seat an agent.'
+              }
+            >
               {account.paused ? 'Paused' : 'Running'}
             </Field>
           </FieldGrid>
