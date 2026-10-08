@@ -42,6 +42,7 @@ import { Address as AddressView, TxHash } from '@/components/address';
 import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
 import { ClaimOwedButton, owedExplanation } from '@/components/claim-owed';
+import { DateField } from '@/components/fields';
 import { Instant } from '@/components/instant';
 import { Card, EmptyState, Field, FieldGrid, Section, Skeleton } from '@/components/layout';
 import { TxButton } from '@/components/tx-button';
@@ -478,15 +479,7 @@ export function AmendTerms({
         <AmountInput asset="USDG" label="Per payment" value={form.perCall} onChange={(perCall) => set({ perCall })} />
         <AmountInput asset="USDG" label="Total budget" value={form.total} onChange={(total) => set({ total })} />
         <AmountInput asset="USDG" label={`Per ${periodLabel(form.periodLen)}`} value={form.periodCap} onChange={(periodCap) => set({ periodCap })} />
-        <Field label="Ends on">
-          <input
-            type="date"
-            aria-label="Ends on"
-            className="w-full rounded-md border border-[color:var(--color-line)] bg-transparent px-3 py-2 text-sm"
-            value={form.expiry}
-            onChange={(event) => set({ expiry: event.target.value })}
-          />
-        </Field>
+        <DateField label="Ends on" value={form.expiry} onChange={(expiry) => set({ expiry })} />
       </FieldGrid>
       <Button onClick={() => void amend()} disabled={busy || reading.terms === undefined}>
         {busy ? 'Amending' : 'Amend the terms'}

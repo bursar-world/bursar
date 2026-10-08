@@ -118,3 +118,33 @@ export function SelectField({ label, value, options, onChange, help, disabled = 
     </div>
   );
 }
+
+export type DateFieldProps = {
+  readonly label: ReactNode;
+  /** ISO date, as the input holds it. */
+  readonly value: string;
+  readonly onChange: (value: string) => void;
+  readonly help?: ReactNode;
+  readonly disabled?: boolean;
+};
+
+export function DateField({ label, value, onChange, help, disabled = false }: DateFieldProps) {
+  const id = useId();
+
+  return (
+    <div className="space-y-1.5">
+      <label htmlFor={id} className="block text-label uppercase tracking-wide text-[color:var(--color-muted)]">
+        {label}
+      </label>
+      <input
+        id={id}
+        type="date"
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+        className={`${CONTROL} tabular border border-[color:var(--color-line)]`}
+      />
+      {help && <p className="text-note text-[color:var(--color-muted)]">{help}</p>}
+    </div>
+  );
+}

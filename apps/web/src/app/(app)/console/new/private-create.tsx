@@ -17,6 +17,7 @@ import { Address as AddressView, TxHash } from '@/components/address';
 import { AddressInput, readAddress } from '@/components/address-input';
 import { AmountInput } from '@/components/amount-input';
 import { Button } from '@/components/button';
+import { DateField, SelectField, TextField } from '@/components/fields';
 import { Card, EmptyState, Field, FieldGrid, Section } from '@/components/layout';
 import { TxButton } from '@/components/tx-button';
 import { useWriteContract } from '@/wallet/write';
@@ -132,15 +133,13 @@ export function PrivateCreate({ owner }: { readonly owner: Address }) {
             {!stealth && (
               <AddressInput label="Agent address" value={agentText} onChange={setAgentText} hint="The address your agent signs with." />
             )}
-            <Field label="Name" hint="Kept inside the sealed terms. Nobody else reads it.">
-              <input
-                aria-label="Name"
-                className="w-full rounded-md border border-[color:var(--color-line)] bg-transparent px-3 py-2 text-sm"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Research agent: data and inference"
-              />
-            </Field>
+            <TextField
+              label="Name"
+              value={name}
+              onChange={setName}
+              placeholder="Research agent: data and inference"
+              help="Kept inside the sealed terms. Nobody else reads it."
+            />
           </FieldGrid>
         </Card>
       </Section>
@@ -151,29 +150,19 @@ export function PrivateCreate({ owner }: { readonly owner: Address }) {
             <AmountInput asset="USDG" label="Per payment" value={form.perCall} onChange={(perCall) => set({ perCall })} />
             <AmountInput asset="USDG" label="Total budget" value={form.total} onChange={(total) => set({ total })} />
             <AmountInput asset="USDG" label="Per period" value={form.periodCap} onChange={(periodCap) => set({ periodCap })} />
-            <Field label="Period" hint="How often the period cap refills.">
-              <select
-                aria-label="Period"
-                className="w-full rounded-md border border-[color:var(--color-line)] bg-transparent px-3 py-2 text-sm"
-                value={form.periodLen}
-                onChange={(event) => set({ periodLen: Number(event.target.value) })}
-              >
-                {PERIODS.map((period) => (
-                  <option key={period.seconds} value={period.seconds}>
-                    {period.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Ends on" hint="Your agent cannot pay after this date.">
-              <input
-                type="date"
-                aria-label="Ends on"
-                className="w-full rounded-md border border-[color:var(--color-line)] bg-transparent px-3 py-2 text-sm"
-                value={form.expiry}
-                onChange={(event) => set({ expiry: event.target.value })}
-              />
-            </Field>
+            <SelectField
+              label="Period"
+              value={String(form.periodLen)}
+              options={PERIODS.map((period) => ({ value: String(period.seconds), label: period.label }))}
+              onChange={(value) => set({ periodLen: Number(value) })}
+              help="How often the period cap refills."
+            />
+            <DateField
+              label="Ends on"
+              value={form.expiry}
+              onChange={(expiry) => set({ expiry })}
+              help="Your agent cannot pay after this date."
+            />
           </FieldGrid>
         </Card>
       </Section>
@@ -307,12 +296,7 @@ export function PrivateCapabilities({
           capabilities: capabilities.filter((entry): entry is PrivateCapability => entry.spendClass !== 'rwa'),
         })
       }
-      note={
-        <>
-          Sealed with the terms, for example <code className="font-mono">service:gpu.render:1</code>. A payment can only
-          name a capability on this list.
-        </>
-      }
+      note="A payment reveals only the capability it uses. The rest of the list stays sealed."
     />
   );
 }
@@ -333,7 +317,7 @@ export function PrivateToggle({
       <span>
         <span className="font-medium">Private terms.</span>
         <span className="block text-[color:var(--color-muted)]">
-          Your terms stay off chain. Each payment proves it fits them.
+          The terms are sealed on chain, and only your wallet opens them. Each payment proves it fits them.
         </span>
       </span>
     </label>
