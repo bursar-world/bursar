@@ -53,7 +53,7 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
             stock and treasury tokens. If a line&rsquo;s collateral cannot repay its debt, the vault seizes the
             collateral for the lender first, up to the debt&rsquo;s value at the price feed. Where the staking contract
             names that pool as its slasher, stake is then taken for the part the collateral did not cover, converted to
-            BRSR at the buyback&rsquo;s price ceiling and sent to the slash sink. The lender carries the uncovered part
+            BRSR at the buyback&rsquo;s price ceiling and sent to the penalty account. The lender carries the uncovered part
             in USDG. Slashed stake is a penalty and does not repay the lender.
           </p>
           <p>{capSentence(pool)}</p>

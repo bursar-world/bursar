@@ -46,10 +46,12 @@ export function RewardsPanel({
       description="The resolver fee on each ruling, split between the scores that held."
     >
       <div className="space-y-4">
-        <FieldGrid columns={3}>
-          <Field label="Yours to claim" hint="Earned on settled disputes, paid in USDG.">
-            <span className="tabular">{claimable === undefined ? (account === undefined ? 'No wallet' : unread) : usdExact(claimable)}</span>
-          </Field>
+        <FieldGrid columns={account === undefined ? 2 : 3}>
+          {account !== undefined && (
+            <Field label="Yours to claim" hint="Earned on settled disputes, paid in USDG.">
+              <span className="tabular">{claimable === undefined ? unread : usdExact(claimable)}</span>
+            </Field>
+          )}
           <Field label="The resolver fee" hint="Taken from each settlement the panel rules on.">
             <span className="tabular">{desk?.resolverFeeBps === undefined ? unread : bps(desk.resolverFeeBps)}</span>
           </Field>
@@ -94,7 +96,7 @@ export function RewardsPanel({
           <div className="space-y-2 border-t border-[color:var(--color-line)] pt-4">
             <p className="text-sm">
               {usdExact(unallocated)} in resolver fees went to no resolver. That happens when a dispute closes without a
-              ruling, or when a fee is too small to divide between the resolvers. It belongs to the slash sink
+              ruling, or when a fee is too small to divide between the resolvers. It belongs to the penalty account
               {desk?.slashSink === undefined ? '' : ' at the address below'}, and anyone can send it there.
             </p>
             {desk?.slashSink !== undefined && (
