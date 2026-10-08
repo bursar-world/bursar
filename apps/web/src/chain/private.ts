@@ -17,6 +17,7 @@ import type { Address } from 'viem';
 import { rhcClient } from './client';
 import { CHAIN_ID, sameAddress } from './rhc';
 import { parseUsdgInput } from '@/money';
+import { endOfDay, localDate } from '../lib/time';
 
 /**
  * Private mandates: the terms sit behind a commitment on chain, and the readable copy is sealed to
@@ -91,7 +92,7 @@ export function formFromTerms(terms: TermsDocument): PrivateForm {
     classes: { service: capabilities.some((c) => c.spendClass === 'service'), hire: capabilities.some((c) => c.spendClass === 'hire') },
     capabilities,
     counterparties: terms.counterparties,
-    expiry: new Date(terms.expiry * 1000).toISOString().slice(0, 10),
+    expiry: localDate(new Date(terms.expiry * 1000)),
   };
 }
 
@@ -129,7 +130,7 @@ export function readPrivateForm(form: PrivateForm, now: number = Date.now()): Pr
   else if (capabilities.length === 0) problems.push('Name at least one capability this mandate may pay for.');
   if (form.counterparties.length === 0) problems.push('Name at least one provider this mandate may pay.');
 
-  const expiryMs = Date.parse(form.expiry);
+  const expiryMs = endOfDay(form.expiry);
   let expiry: number | undefined;
   if (form.expiry === '' || Number.isNaN(expiryMs)) problems.push('Choose the date the mandate ends.');
   else if (expiryMs <= now) problems.push('The end date has to be in the future.');

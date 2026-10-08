@@ -47,7 +47,7 @@ describe('the private terms form', () => {
       periodLen: 86_400,
       capabilities: ['service:gpu.render:1'],
     });
-    expect(terms?.expiry).toBe(Date.parse('2026-12-31') / 1000);
+    expect(terms?.expiry).toBe(new Date(2026, 11, 31, 23, 59, 59).getTime() / 1000);
     expect(readPrivateForm({ ...filled, classes: { service: true, hire: true } }, NOW).terms?.capabilities).toEqual([
       'service:gpu.render:1',
       'hire:research.summarize:1',

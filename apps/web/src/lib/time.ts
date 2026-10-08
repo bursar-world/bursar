@@ -55,6 +55,19 @@ export function isPast(date: Date, now: Date = new Date()): boolean {
   return date.getTime() <= now.getTime();
 }
 
+/** A date picked as the day something ends is good for the whole of that day, in the reader's own zone. */
+export function endOfDay(iso: string): number {
+  const [year, month, day] = iso.split('-').map(Number);
+  if (!year || !month || !day) return Number.NaN;
+  return new Date(year, month - 1, day, 23, 59, 59).getTime();
+}
+
+/** The reader's own calendar date for an instant, in the form a date input holds. */
+export function localDate(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 /** Unix seconds as the chain holds them. Zero means "no deadline", which is not 1970. */
 export function fromUnix(seconds: bigint): Date | null {
   return seconds === 0n ? null : new Date(Number(seconds) * 1000);

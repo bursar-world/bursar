@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { erc20Abi } from 'viem';
 import type { Address, Hex } from 'viem';
 import { useSignMessage } from 'wagmi';
@@ -41,6 +42,7 @@ import { Address as AddressView, TxHash } from '@/components/address';
 import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
 import { ClaimOwedButton, owedExplanation } from '@/components/claim-owed';
+import { Instant } from '@/components/instant';
 import { Card, EmptyState, Field, FieldGrid, Section, Skeleton } from '@/components/layout';
 import { TxButton } from '@/components/tx-button';
 import { usd, usdExact } from '@/money';
@@ -116,6 +118,9 @@ export function CommittedMandateView({ mandate, onRefresh }: { readonly mandate:
             <Field label="Agent">
               <AddressView value={mandate.agent} />
             </Field>
+            <Field label="Balance" hint="USDG the agent can spend, only within the private terms.">
+              <span className="tabular">{usd(micro(mandate.balance))}</span>
+            </Field>
             <Field label="Proven payments" hint="Each payment proves it meets the private terms before any money moves.">
               <span className="tabular">{mandate.nonce.toString()}</span>
             </Field>
@@ -152,34 +157,39 @@ export function CommittedMandateView({ mandate, onRefresh }: { readonly mandate:
 
       {connected !== undefined && !mandate.revoked && <Fund mandate={mandate} onDone={onRefresh} />}
 
-      <Section title="Terms" description="Only the wallet that created this mandate can open them.">
+      <Section title="Terms" description="The limits, capabilities and providers, sealed on chain.">
         <Card>
           {opened ? (
             <div className="space-y-4">
-              <TermsView terms={opened.terms} onLock={() => setOpened(undefined)} />
-              {isOwner && (
-                <>
-                  <Button size="sm" onClick={() => downloadTerms(mandate.address, opened.terms)}>
-                    Download the terms for your agent
-                  </Button>
-                  {!mandate.revoked && (
-                    <AmendTerms
-                      mandate={mandate.address}
-                      opened={opened}
-                      version={mandate.version}
-                      fromBlock={fromBlock}
-                      send={async (args) => {
-                        const hash = await writeContractAsync({ address: mandate.address, abi: committedMandateAccountAbi, functionName: 'amend', args });
-                        const receipt = await rhcClient().waitForTransactionReceipt({ hash });
-                        if (receipt.status !== 'success') throw new Error(`the transaction was refused (${hash})`);
-                      }}
-                      onAmended={(next) => {
-                        setOpened({ terms: next, termsKey: opened.termsKey });
-                        onRefresh();
-                      }}
-                    />
-                  )}
-                </>
+              <TermsView
+                terms={opened.terms}
+                onLock={() => setOpened(undefined)}
+                {...(isOwner
+                  ? {
+                      actions: (
+                        <Button size="sm" onClick={() => downloadTerms(mandate.address, opened.terms)}>
+                          Download the terms for your agent
+                        </Button>
+                      ),
+                    }
+                  : {})}
+              />
+              {isOwner && !mandate.revoked && (
+                <AmendTerms
+                  mandate={mandate.address}
+                  opened={opened}
+                  version={mandate.version}
+                  fromBlock={fromBlock}
+                  send={async (args) => {
+                    const hash = await writeContractAsync({ address: mandate.address, abi: committedMandateAccountAbi, functionName: 'amend', args });
+                    const receipt = await rhcClient().waitForTransactionReceipt({ hash });
+                    if (receipt.status !== 'success') throw new Error(`the transaction was refused (${hash})`);
+                  }}
+                  onAmended={(next) => {
+                    setOpened({ terms: next, termsKey: opened.termsKey });
+                    onRefresh();
+                  }}
+                />
               )}
             </div>
           ) : (
@@ -213,7 +223,9 @@ export function CommittedMandateView({ mandate, onRefresh }: { readonly mandate:
               ))}
             </ul>
           ) : (
-            <p className="text-detail text-[color:var(--color-muted)]">No payments yet. Add funds and your agent can start.</p>
+            <p className="text-detail text-[color:var(--color-muted)]">
+              {mandate.balance > 0n ? 'No payments yet.' : 'No payments yet. Add funds and your agent can start.'}
+            </p>
           )}
         </Card>
       </Section>
@@ -343,7 +355,15 @@ function Unlock({
   );
 }
 
-export function TermsView({ terms, onLock }: { readonly terms: TermsDocument; readonly onLock?: () => void }) {
+export function TermsView({
+  terms,
+  onLock,
+  actions,
+}: {
+  readonly terms: TermsDocument;
+  readonly onLock?: () => void;
+  readonly actions?: ReactNode;
+}) {
   const classes = PRIVATE_CLASSES.filter((id) => terms.capabilities.some((label) => label.startsWith(`${id}:`)))
     .map((id) => (id === 'service' ? 'Services' : 'Agent hires'))
     .join(' and ');
@@ -360,7 +380,9 @@ export function TermsView({ terms, onLock }: { readonly terms: TermsDocument; re
         <Field label="Total budget">
           <span className="tabular">{usd(micro(BigInt(terms.totalCap)))}</span>
         </Field>
-        <Field label="Ends on">{new Date(terms.expiry * 1000).toISOString().slice(0, 10)}</Field>
+        <Field label="Ends on">
+          <Instant at={new Date(terms.expiry * 1000)} />
+        </Field>
         <Field label="Allowed payments">{classes}</Field>
         <Field label="Capabilities" hint="Each payment proves its work is one of these.">
           <ul className="space-y-1">
@@ -381,10 +403,15 @@ export function TermsView({ terms, onLock }: { readonly terms: TermsDocument; re
           </ul>
         </Field>
       </FieldGrid>
-      {onLock && (
-        <Button size="sm" tone="quiet" onClick={onLock}>
-          Hide the terms
-        </Button>
+      {(actions || onLock) && (
+        <div className="flex flex-wrap items-center gap-3">
+          {actions}
+          {onLock && (
+            <Button size="sm" tone="quiet" onClick={onLock}>
+              Hide the terms
+            </Button>
+          )}
+        </div>
       )}
     </div>
   );
@@ -489,7 +516,6 @@ function Fund({ mandate, onDone }: { readonly mandate: CommittedRead; readonly o
     queryFn: () =>
       rhcClient().readContract({ address: ADDRESSES.usdg, abi: erc20Abi, functionName: 'balanceOf', args: [connected as Address] }),
   });
-  const held = `This mandate holds ${usd(micro(mandate.balance))}.`;
 
   return (
     <Section title="Add funds" description="Send USDG from your wallet. The agent can spend it only within the private terms.">
@@ -500,7 +526,7 @@ function Fund({ mandate, onDone }: { readonly mandate: CommittedRead; readonly o
             asset="USDG"
             value={text}
             onChange={setText}
-            hint={wallet.data === undefined ? held : `${held} Your wallet holds ${usd(micro(wallet.data))}.`}
+            {...(wallet.data === undefined ? {} : { hint: `Your wallet holds ${usd(micro(wallet.data))}.` })}
             {...(amount.problem === undefined ? {} : { problem: amount.problem })}
           />
           <TxButton
