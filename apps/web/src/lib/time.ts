@@ -40,6 +40,20 @@ export function formatDuration(seconds: number): string {
   return rest === 0 ? `${days}d` : `${days}d ${rest}h`;
 }
 
+/** "7 days", "1 hour", "1 hour 30 minutes": a span written for a sentence. Tables keep the short form. */
+export function formatSpan(seconds: number): string {
+  const value = Math.max(0, Math.floor(seconds));
+  const unit = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
+  if (value < MINUTE) return unit(value, 'second');
+  if (value < HOUR) return unit(Math.floor(value / MINUTE), 'minute');
+  if (value < DAY) {
+    const minutes = Math.floor((value % HOUR) / MINUTE);
+    return minutes === 0 ? unit(Math.floor(value / HOUR), 'hour') : `${unit(Math.floor(value / HOUR), 'hour')} ${unit(minutes, 'minute')}`;
+  }
+  const hours = Math.floor((value % DAY) / HOUR);
+  return hours === 0 ? unit(Math.floor(value / DAY), 'day') : `${unit(Math.floor(value / DAY), 'day')} ${unit(hours, 'hour')}`;
+}
+
 /**
  * How far the chain's clock runs from this browser's, as the last read that carried a block time
  * found it. Windows on chain open and close by block time, so a countdown to one counts on the

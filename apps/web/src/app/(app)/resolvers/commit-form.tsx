@@ -10,7 +10,7 @@ import { Button } from '@/components/button';
 import { ErrorSurface } from '@/components/error-surface';
 import { Card } from '@/components/layout';
 import { TxButton } from '@/components/tx-button';
-import { formatDuration } from '@/lib';
+import { formatSpan } from '@/lib';
 import type { AnyState } from '@/state';
 
 import type { DisputeRow, OracleConfig } from './desk';
@@ -168,7 +168,7 @@ export function CommitForm({
           style={{ borderColor: 'var(--color-state-attention)', color: 'var(--color-state-attention)' }}
         >
           After sealing, you have to come back to reveal. The reveal window opens when the sealing window closes and
-          lasts {formatDuration(Number(config.revealWindow))}. A sealed score that is never revealed loses{' '}
+          lasts {formatSpan(Number(config.revealWindow))}. A sealed score that is never revealed loses{' '}
           {(config.slashBps / 100).toFixed(config.slashBps % 100 === 0 ? 0 : 2)}% of your bond, and only you can reveal
           it. Your bond stays locked until this dispute closes, even if you start unbonding.
         </div>

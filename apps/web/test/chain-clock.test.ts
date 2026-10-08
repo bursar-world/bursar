@@ -40,3 +40,15 @@ describe('the chain clock behind countdowns', () => {
     expect(formatRelative(new Date('2026-10-09T02:00:00.000Z'), new Date('2026-10-09T00:00:00.000Z'))).toBe('in 2h');
   });
 });
+
+describe('a span in a sentence', () => {
+  it('writes whole units as words', async () => {
+    const { formatSpan } = await import('@/lib/time');
+
+    expect(formatSpan(604_800)).toBe('7 days');
+    expect(formatSpan(3_600)).toBe('1 hour');
+    expect(formatSpan(1_800)).toBe('30 minutes');
+    expect(formatSpan(5_400)).toBe('1 hour 30 minutes');
+    expect(formatSpan(172_800)).toBe('2 days');
+  });
+});

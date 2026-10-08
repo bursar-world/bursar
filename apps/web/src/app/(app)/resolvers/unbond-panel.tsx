@@ -6,7 +6,7 @@ import { oracleRegistryAbi } from '@/chain';
 import { Countdown, Instant } from '@/components/instant';
 import { Card, Field, FieldGrid } from '@/components/layout';
 import { TxButton } from '@/components/tx-button';
-import { formatDuration, isPast } from '@/lib';
+import { formatSpan, isPast } from '@/lib';
 import { formatBrsr } from '@/money';
 import type { AnyState } from '@/state';
 
@@ -40,7 +40,7 @@ export function UnbondPanel({
   const registry = desk?.registry;
   const config = desk?.config;
 
-  const period = config === undefined ? undefined : formatDuration(Number(config.unbondingPeriod));
+  const period = config === undefined ? undefined : formatSpan(Number(config.unbondingPeriod));
   const waiting = standing?.status === ResolverStatus.Unbonding;
   const active = standing?.status === ResolverStatus.Active;
   const openVotes = standing?.openVotes;
@@ -108,8 +108,9 @@ export function UnbondPanel({
         </FieldGrid>
 
         <p className="text-sm">
-          Asking to unbond stops new votes from this address and starts the cooldown. Any score you sealed still has to
-          be revealed, and the bond stays locked until those disputes close, even after the cooldown ends.
+          {waiting
+            ? 'This address takes no new votes. Any score you sealed still has to be revealed, and the bond stays locked until those disputes close, even after the cooldown ends.'
+            : 'Asking to unbond stops new votes from this address and starts the cooldown. Any score you sealed still has to be revealed, and the bond stays locked until those disputes close, even after the cooldown ends.'}
         </p>
 
         {waiting ? (

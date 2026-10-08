@@ -9,7 +9,7 @@ import { Instant } from '@/components/instant';
 import { Card, Section, Skeleton } from '@/components/layout';
 import { Stat, StatGrid } from '@/components/stat';
 import { Unread } from '@/components/status';
-import { formatDuration } from '@/lib';
+import { formatDuration, formatSpan } from '@/lib';
 import { bps, formatBrsr, usdExact } from '@/money';
 import { useSystemState } from '@/state';
 import { ConnectModal } from '@/wallet';
@@ -136,7 +136,7 @@ const WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eig
  */
 function Operator({ commitWindow, bench }: { readonly commitWindow: bigint | undefined; readonly bench: number | undefined }) {
   // The ruling service stops counting evidence halfway through the sealing window.
-  const cutoff = commitWindow === undefined ? 'halfway through the sealing window' : `${formatDuration(Number(commitWindow) / 2)} after the dispute opens`;
+  const cutoff = commitWindow === undefined ? 'halfway through the sealing window' : `${formatSpan(Number(commitWindow) / 2)} after the dispute opens`;
   const shared = bench !== undefined && bench > OPERATED;
   return (
     <Card title="Who rules today">
