@@ -11,6 +11,7 @@ import { Card, Field, FieldGrid, Section } from '@/components/layout';
 import { Countdown, Instant } from '@/components/instant';
 import { LimitBar, Stat, StatGrid } from '@/components/stat';
 import { TxButton } from '@/components/tx-button';
+import type { TxPhase } from '@/components/tx-button';
 import { usd } from '@/money';
 import { fromUnix } from '@/lib/time';
 import { describeApproval, windowWord } from '../lib/format';
@@ -34,6 +35,8 @@ export function SpendPanel() {
   // The version the account was on when the last limit change was sent. It is what turns the
   // counter into a read-back: the new set is on chain only once the account reports a higher one.
   const [rewroteFrom, setRewroteFrom] = useState<bigint | undefined>(undefined);
+  // Once the write lands there is nothing left to cancel, only the editor to close.
+  const [writePhase, setWritePhase] = useState<TxPhase>('idle');
   // The version at the moment the wallet was asked. It becomes `rewroteFrom` only on a receipt: a
   // signature the reader declined, or a call that reverted, rewrote nothing and must not say so if a
   // later poll happens to see the version move for some other reason.
@@ -58,6 +61,7 @@ export function SpendPanel() {
   const startEditing = () => {
     setDraft(draftFromLimits(account.limits, account.contractSet));
     setRewroteFrom(undefined);
+    setWritePhase('idle');
     setEditing(true);
   };
 
@@ -149,14 +153,18 @@ export function SpendPanel() {
                         });
                   }}
                   onConfirmed={() => setRewroteFrom(sentFrom.current)}
+                  onPhaseChange={setWritePhase}
+                  continueLabel="Done"
                   onContinue={() => {
                     setEditing(false);
                     refresh();
                   }}
                 />
-                <Button tone="secondary" onClick={() => setEditing(false)}>
-                  Cancel
-                </Button>
+                {writePhase !== 'confirmed' && (
+                  <Button tone="secondary" onClick={() => setEditing(false)}>
+                    Cancel
+                  </Button>
+                )}
               </div>
 
               {reading && reading.problems.length > 0 && (
