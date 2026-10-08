@@ -7,7 +7,7 @@ import { parseEventLogs } from 'viem';
 import type { Address, Hex, TransactionReceipt } from 'viem';
 
 import { currentDeployment } from '@/chain/deployments';
-import { ZERO_ADDRESS, shortAddress } from '@/chain/rhc';
+import { ZERO_ADDRESS, explorerTx, shortAddress } from '@/chain/rhc';
 import { mandateAccountAbi, mandateAccountFactoryAbi } from '@/chain/abi';
 import { toLimitsTuple } from '@/chain/limits';
 import { laneAvailable, laneParkOf, laneValue, newMandateFactory, predictMandateSlot, randomSalt } from '@/chain/mandates';
@@ -522,7 +522,7 @@ function OpenTheGates({
 
   return (
     <div className="space-y-8">
-      <Section title="The mandate exists" description="It holds nothing and pays nobody yet.">
+      <Section title="Mandate created" description="It holds nothing and pays nobody yet.">
         <Card>
           <div className="space-y-4">
             <Field label="Mandate address" hint="Send USDG here to fund it. The owner can take it back at any time.">
@@ -638,19 +638,41 @@ function GateRow({
   readonly blockedBy: readonly AnyState[];
   readonly context: TxContext;
 }) {
+  // A successful receipt for the allow call is the chain saying yes, so the row flips on it rather
+  // than waiting for the next read, and keeps the transaction as the evidence.
+  const [landed, setLanded] = useState<Hex | undefined>(undefined);
+
   return (
     <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[color:var(--color-line)] pb-4 last:border-0 last:pb-0">
       <div className="min-w-0">
         <p className="text-sm font-medium">{title}</p>
         <p className="text-detail text-[color:var(--color-muted)]">{detail}</p>
       </div>
-      {allowed === true ? (
+      {allowed === true || landed !== undefined ? (
         <span className="text-detail" style={{ color: 'var(--color-state-ok)' }}>
           Allowed
+          {landed !== undefined && (
+            <>
+              .{' '}
+              <a href={explorerTx(landed)} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+                View the transaction
+              </a>
+            </>
+          )}
         </span>
       ) : (
         <div className="space-y-1 text-right">
-          <TxButton label="Send" tone="secondary" send={send} onContinue={onDone} blockedBy={blockedBy} context={context} />
+          <TxButton
+            label="Allow"
+            tone="secondary"
+            send={send}
+            onConfirmed={(receipt) => {
+              setLanded(receipt.transactionHash);
+              onDone();
+            }}
+            blockedBy={blockedBy}
+            context={context}
+          />
           {allowed === undefined && (
             <p className="text-note text-[color:var(--color-muted)]">Checking the mandate.</p>
           )}
