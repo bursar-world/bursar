@@ -43,7 +43,7 @@ describe('a previewed payment and the escrow floor', () => {
   it('is refused under the floor even when every limit clears it', () => {
     const html = preview(micro(5_000n), micro(10_000n));
 
-    expect(html).toContain('A payment of $0.005 would be refused by the escrow, which opens no payment under $0.01.');
+    expect(html).toContain('A payment of $0.005 is below the $0.01 minimum and would be refused.');
     expect(html).not.toContain('would go through');
   });
 

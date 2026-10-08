@@ -64,20 +64,20 @@ export function lockWord(status: LockStatus): string {
 export function lockDetail(status: LockStatus): string {
   switch (status) {
     case LockStatus.Locked:
-      return 'The escrow holds the money until the provider delivers or the deadline passes.';
+      return 'Held in escrow until the provider delivers or the deadline passes.';
     case LockStatus.Released:
       return 'The provider delivered and was paid.';
     case LockStatus.TimedOut:
-      return 'The provider did not answer in time. The money went back to the mandate and the allowance was credited back.';
+      return 'Not delivered in time. The money and the budget went back to the mandate.';
     case LockStatus.Disputed:
-      return 'One of the two sides contested the delivery. A bonded resolver decides where the money goes.';
+      return 'The delivery was contested. Resolvers decide where the money goes.';
     case LockStatus.Cancelled:
-      return 'The payment was called off before it settled.';
+      return 'Called off before it settled.';
     case LockStatus.Resolved:
-      return 'A resolver ruled and split the locked amount between the two sides.';
+      return 'Resolvers ruled and split the amount between the two sides.';
     case LockStatus.None:
     default:
-      return 'The escrow holds no record under this id.';
+      return 'No payment found under this id.';
   }
 }
 
@@ -160,17 +160,16 @@ export function returnable(
  */
 export const OVERDUE_WORD = 'Past its deadline';
 
-export const OVERDUE_DETAIL =
-  'The provider never answered and the deadline has gone. The escrow holds the money until somebody asks for it back.';
+export const OVERDUE_DETAIL = 'The provider did not deliver by the deadline. The money is held until you take it back.';
 
 export function gateWord(gate: MerchantGate): string {
-  return gate === MerchantGate.MerkleRoot ? 'Published roster' : 'Your own list';
+  return gate === MerchantGate.MerkleRoot ? 'Published list' : 'Your own list';
 }
 
 export function gateDetail(gate: MerchantGate): string {
   return gate === MerchantGate.MerkleRoot
-    ? 'Payees are checked against a roster published as a single root, and each payment carries a proof. The per-address list on this account is not read while that is true.'
-    : 'Payees are checked against the list held on this account. Anything not on it is refused.';
+    ? 'Payees are checked against a published list. Each payment proves its payee is on it.'
+    : 'Payees are checked against the list on this mandate. Anyone else is refused.';
 }
 
 /**

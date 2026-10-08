@@ -24,14 +24,13 @@ export function ActivityList({ events, limit }: { readonly events: readonly Mand
   const shown = limit === undefined ? events : events.slice(0, limit);
 
   if (ledger.timeline.state === 'loading') {
-    return <p className="text-detail text-[color:var(--color-muted)]">Reading the history of this mandate.</p>;
+    return <p className="text-detail text-[color:var(--color-muted)]">Loading activity.</p>;
   }
 
   if (ledger.timeline.state === 'unreadable') {
     return (
       <p className="text-detail text-[color:var(--color-muted)]">
-        The history could not be read. The index this list draws from did not answer, and the record the account keeps
-        is unaffected. Check again at the top of the page.
+        Activity could not be loaded. Balances and limits are unaffected. Use Check again at the top of the page.
       </p>
     );
   }
@@ -43,15 +42,14 @@ export function ActivityList({ events, limit }: { readonly events: readonly Mand
     return (
       <p className="text-detail text-[color:var(--color-muted)]">
         {refusal === undefined
-          ? 'The index this list draws from refused the read.'
-          : `${refusal.condition} ${refusal.nextAction}`}{' '}
-        The record the account keeps is unaffected.
+          ? 'Activity could not be loaded. Balances and limits are unaffected.'
+          : `${refusal.condition} ${refusal.nextAction}`}
       </p>
     );
   }
 
   if (shown.length === 0) {
-    return <p className="text-detail text-[color:var(--color-muted)]">Nothing has happened on this mandate yet.</p>;
+    return <p className="text-detail text-[color:var(--color-muted)]">No activity yet.</p>;
   }
 
   return (
@@ -74,13 +72,13 @@ function describe(event: MandateEvent, labelFor: (id: Hex) => string | undefined
     case 'spent':
       return `Paid ${usd(event.amount)} to ${shortAddress(event.merchant)} for ${capability(event.capabilityId, labelFor)}`;
     case 'credited':
-      return `${usd(event.amount)} returned to the allowance from payment ${event.escrowId.toString()}`;
+      return `${usd(event.amount)} returned to the budget from payment ${event.escrowId.toString()}`;
     case 'approval-granted':
-      return `Consent registered for up to ${usd(event.amount)} to ${shortAddress(event.merchant)}`;
+      return `Approval for up to ${usd(event.amount)} to ${shortAddress(event.merchant)}`;
     case 'approval-revoked':
-      return `Consent ${shortAddress(event.approvalId, 8, 6)} withdrawn`;
+      return `Approval ${shortAddress(event.approvalId, 8, 6)} withdrawn`;
     case 'approval-consumed':
-      return `Consent ${shortAddress(event.approvalId, 8, 6)} used on payment ${event.escrowId.toString()}`;
+      return `Approval ${shortAddress(event.approvalId, 8, 6)} used on payment ${event.escrowId.toString()}`;
     case 'deposited':
       return `${usd(event.amount)} added by ${shortAddress(event.from)}`;
     case 'withdrawn':
@@ -92,7 +90,7 @@ function describe(event: MandateEvent, labelFor: (id: Hex) => string | undefined
     case 'park-updated':
       return event.park === ZERO ? 'Parking switched off' : `Idle funds now park at ${shortAddress(event.park)}`;
     case 'limits-updated':
-      return `Limits rewritten, now version ${event.version.toString()}`;
+      return `Limits changed, now version ${event.version.toString()}`;
     case 'paused':
       return event.paused ? 'Mandate paused' : 'Mandate resumed';
     case 'agent-seated':
@@ -104,9 +102,9 @@ function describe(event: MandateEvent, labelFor: (id: Hex) => string | undefined
     case 'capability-updated':
       return `${capability(event.capabilityId, labelFor)} ${event.allowed ? 'allowed' : 'removed'}`;
     case 'gate-updated':
-      return event.gate === 1 ? 'Payee list switched to a published roster' : 'Payee list switched to the account’s own list';
+      return event.gate === 1 ? 'Payee list switched to a published list' : 'Payee list switched to the mandate’s own list';
     case 'document-anchored':
-      return 'Mandate document anchored';
+      return 'Mandate document saved';
     case 'owner-transfer-started':
       return `Ownership offered to ${shortAddress(event.to)}`;
     case 'owner-transferred':

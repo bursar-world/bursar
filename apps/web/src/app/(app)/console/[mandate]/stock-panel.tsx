@@ -63,7 +63,7 @@ function StockBody({ rwa, onChange }: { readonly rwa: RwaState; readonly onChang
   return (
     <Section
       title="Stock purchases"
-      description={`The agent buys listed stocks with USDG from this mandate, at the feed price and inside the slippage limit.${
+      description={`The agent can buy listed stocks with this mandate’s USDG, at the feed price within your slippage limit.${
         tradeStaleness === undefined ? '' : ` Prices older than ${hours(tradeStaleness)} are refused.`
       }`}
     >
@@ -74,17 +74,17 @@ function StockBody({ rwa, onChange }: { readonly rwa: RwaState; readonly onChang
               label="Stock purchases"
               value={classOn ? 'Allowed' : 'Off'}
               level={classOn ? 'ok' : 'blocked'}
-              hint={classOn ? 'Eligible stocks is on in this mandate’s spend classes.' : 'The owner turns on eligible stocks in the limits.'}
+              hint={classOn ? 'Turned on in this mandate’s limits.' : 'The owner can turn them on in the limits.'}
             />
             <Stat
               label="Slippage limit"
               value={rwa.slippageBps === undefined ? 'Unread' : rwa.slippageBps === 0 ? 'Asset band' : bps(rwa.slippageBps)}
-              hint="The most a fill may fall below the feed price. It never goes wider than the asset’s own band."
+              hint="How far below the feed price a purchase may fill. Never wider than the asset’s band."
             />
             <Stat
               label="Stocks held, at feed price"
               value={usdExact(heldValue as Micro)}
-              hint="Each holding valued at its raw amount times the feed price."
+              hint="Valued at the feed price."
             />
           </StatGrid>
 
@@ -152,7 +152,7 @@ function StockBody({ rwa, onChange }: { readonly rwa: RwaState; readonly onChang
             <BuyForm rwa={rwa} stocks={stocks} classOn={classOn} onChange={onChange} />
           ) : (
             <p className="text-detail text-[color:var(--color-muted)]">
-              Purchases are sent by the agent wallet on this mandate. Connect it to buy.
+              Purchases are made by this mandate’s agent. Connect the agent wallet to buy.
             </p>
           )}
         </div>
@@ -183,14 +183,14 @@ function PolicyForm({ rwa, stocks, onChange }: { readonly rwa: RwaState; readonl
       <div>
         <h3 className="text-sm font-semibold">Purchase policy</h3>
         <p className="mt-0.5 text-detail text-[color:var(--color-muted)]">
-          Which stocks the agent may buy for this mandate, and how far below the feed price a fill may land.
+          Choose which stocks the agent may buy and how far below the feed price a purchase may fill.
         </p>
       </div>
 
       {!routerSet(rwa.router) && (
         <div className="space-y-2">
           <p className="text-detail" style={{ color: 'var(--color-state-blocked)' }}>
-            No purchase router is set on this mandate, so every purchase is refused.
+            Set the purchase router once to turn on stock purchases.
           </p>
           <TxButton
             label="Set the purchase router"
@@ -216,7 +216,7 @@ function PolicyForm({ rwa, stocks, onChange }: { readonly rwa: RwaState; readonl
           onChange={setSlippageText}
           suffix="%"
           {...(slippageProblem === undefined ? {} : { problem: slippageProblem })}
-          help="0 uses the asset’s own band. A wider limit is held to the band."
+          help="0 uses the asset’s band. A wider limit is capped at the band."
         />
         <Field label="Allowed stocks">
           <div className="flex flex-wrap gap-4 pt-1">
@@ -280,8 +280,8 @@ function BuyForm({
   });
 
   const refusals: string[] = [];
-  if (!classOn) refusals.push('This mandate does not allow stock purchases. The owner turns on eligible stocks in the limits.');
-  if (!routerSet(rwa.router)) refusals.push('No purchase router is set on this mandate. The owner sets it in the purchase policy.');
+  if (!classOn) refusals.push('Stock purchases are off for this mandate. The owner can turn them on in the limits.');
+  if (!routerSet(rwa.router)) refusals.push('The purchase router is not set. The owner sets it in the purchase policy.');
   if (asset?.allowed === false) refusals.push(`The owner has not allowed ${symbol} for this mandate.`);
   if (config && !config.eligible) refusals.push(`${symbol} is not eligible for purchase right now.`);
   if (asset?.tradeRefusal) refusals.push(asset.tradeRefusal);
@@ -289,7 +289,7 @@ function BuyForm({
     refusals.push(`${symbol} purchases are capped at ${usd(config.perTradeCap as Micro)} each.`);
   }
   if (amount.value !== undefined && amount.value > account.remaining.perCall) {
-    refusals.push(`The most this mandate allows per payment right now is ${usd(account.remaining.perCall)}.`);
+    refusals.push(`This mandate allows up to ${usd(account.remaining.perCall)} per payment right now.`);
   }
 
   const floor =
@@ -302,7 +302,7 @@ function BuyForm({
       <div>
         <h3 className="text-sm font-semibold">Buy a stock</h3>
         <p className="mt-0.5 text-detail text-[color:var(--color-muted)]">
-          Counted against the mandate’s limits like any payment. A fill is final and is never credited back.
+          Counts against the mandate’s limits like any payment. Purchases are final.
         </p>
       </div>
       <FieldGrid columns={2}>
@@ -330,7 +330,7 @@ function BuyForm({
           hint={
             floor === undefined || !config
               ? `This mandate holds ${usd(account.balance)}.`
-              : `At least ${tokenAmount(floor, config.decimals)} ${symbol}, or the purchase is refused.`
+              : `You receive at least ${tokenAmount(floor, config.decimals)} ${symbol}, or the purchase is refused.`
           }
         />
       </FieldGrid>

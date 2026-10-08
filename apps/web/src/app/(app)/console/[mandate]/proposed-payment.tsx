@@ -64,7 +64,7 @@ export function ProposedPayment() {
   return (
     <Section
       title="Before you pay"
-      description="Name a payment and the account answers what it would do with it. Nothing is signed and nothing is sent."
+      description="Check a payment against this mandate before the agent makes it. Nothing is signed or sent."
     >
       <Card>
         <form
@@ -79,7 +79,7 @@ export function ProposedPayment() {
               label="Pay to"
               value={payee}
               onChange={setPayee}
-              hint="The provider that would receive the money."
+              hint="The provider being paid."
             />
             <div className="space-y-1">
               <label
@@ -105,7 +105,7 @@ export function ProposedPayment() {
               value={amountText}
               onChange={setAmountText}
               {...(amountReading.problem === undefined ? {} : { problem: amountReading.problem })}
-              hint="Optional. With an amount the limits are checked too."
+              hint="Optional. Add one to check the limits too."
             />
           </div>
 
@@ -116,8 +116,8 @@ export function ProposedPayment() {
             {!ready && (
               <span className="text-detail text-[color:var(--color-muted)]">
                 {unreadable
-                  ? 'Correct the field marked above and the account can be asked.'
-                  : 'Name a payee, a kind of work, or both.'}
+                  ? 'Fix the marked field to check this payment.'
+                  : 'Enter a payee, a kind of work, or both.'}
               </span>
             )}
             {asked && (
@@ -166,7 +166,7 @@ function Verdict() {
   const line = blocked
     ? `${subject} would be refused. The reason is below.`
     : underFloor
-      ? `A payment of ${usdExact(amount)} would be refused by the escrow, which opens no payment under ${usdExact(floor)}.`
+      ? `A payment of ${usdExact(amount)} is below the ${usdExact(floor)} minimum and would be refused.`
       : waits
         ? `${subject} would wait for your approval before it settles.`
         : `${subject} would go through within the limits.`;
@@ -176,8 +176,8 @@ function Verdict() {
       <p className="text-sm font-medium">{line}</p>
       {short && !blocked && !underFloor && (
         <p className="text-detail text-[color:var(--color-state-attention)]">
-          The mandate holds {usd(held!)}, less than this payment, so it would fail on funds unless the account can draw the
-          difference in the same transaction.
+          The mandate holds {usd(held!)}, less than this payment. It goes through only if the difference can be drawn
+          from parked funds or credit.
         </p>
       )}
     </div>

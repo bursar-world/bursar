@@ -23,8 +23,8 @@ describe('an amount that cannot be sent says which mistake it is', () => {
     { typed: 'abc', says: 'Use digits, and a comma or a dot for the decimal point.' },
     { typed: '12 USDG', says: 'Use digits, and a comma or a dot for the decimal point.' },
     { typed: '1.2345678', says: 'At most 6 decimal places.' },
-    { typed: '1.2.3', says: 'Group the digits in threes, or write the amount with no separators at all.' },
-    { typed: '12,34,567', says: 'Group the digits in threes, or write the amount with no separators at all.' },
+    { typed: '1.2.3', says: 'Group the digits in threes, or use no separators.' },
+    { typed: '12,34,567', says: 'Group the digits in threes, or use no separators.' },
   ];
 
   it.each(cases)('reads "$typed" as $says', ({ typed, says }) => {

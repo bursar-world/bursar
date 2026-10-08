@@ -77,19 +77,18 @@ export function MandateChrome({ children }: { readonly children: ReactNode }) {
 
         {earlier && (
           <p className="max-w-3xl text-detail text-[color:var(--color-muted)]">
-            This mandate runs on an earlier set of contracts. Its funds, limits and open payments work as they did, and the
-            stock, parking and collateral panels are not shown for it. New mandates are created on the current contracts.
+            This mandate runs on earlier contracts and works as before. Stocks, parking and collateral are available on new
+            mandates.
           </p>
         )}
 
         {ownerOffChain && (
-          <SwitchNetworkButton reason="Your wallet owns this mandate and is on another network. Switch to Robinhood Chain to change it; until then the controls are hidden." />
+          <SwitchNetworkButton reason="Your wallet owns this mandate. Switch to Robinhood Chain to manage it." />
         )}
 
         {connected !== undefined && !isOwner && !ownerOffChain && (
           <p className="text-detail text-[color:var(--color-muted)]">
-            This mandate belongs to another address, so the controls on these screens will be refused by the contract.
-            Connect the owner to use them.
+            This mandate belongs to another address. Connect the owner's wallet to make changes.
           </p>
         )}
       </div>
@@ -139,9 +138,8 @@ export function Unvouched({
           </Link>
         }
       >
-        A contract stands here, and the BURSAR factory on Robinhood Chain did not create it. The console shows no controls
-        for it and sends nothing to it. If someone sent you this link, confirm the address with them before you fund or
-        sign anything for it.
+        BURSAR did not create the contract at this address, so the console shows no controls for it. If someone sent
+        you this link, confirm the address with them before you fund or sign anything.
       </EmptyState>
     );
   }
@@ -156,8 +154,7 @@ export function Unvouched({
           </Link>
         }
       >
-        The network answered and nothing at this address behaves like a mandate account. Check the address, or create a
-        mandate from the console.
+        Check the address, or create a mandate from the console.
       </EmptyState>
     );
   }

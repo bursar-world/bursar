@@ -117,8 +117,8 @@ describe('the screen behind the refusal', () => {
   });
 
   it('blames the address, never the page', () => {
-    expect(screen).toContain('The address in this URL is not an address.');
-    expect(screen).toContain('The page is here and reading fine.');
+    expect(screen).toContain('This link does not contain a valid address.');
+    expect(screen).toContain('is not a mandate address');
   });
 
   it('does not tell a reader the page is gone', () => {

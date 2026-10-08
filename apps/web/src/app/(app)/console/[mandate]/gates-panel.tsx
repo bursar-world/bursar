@@ -78,7 +78,7 @@ export function GatesPanel() {
 
   return (
     <div className="space-y-8">
-      <Section title="Who may be paid" description="Anything not on this list is refused by the contract.">
+      <Section title="Who may be paid" description="Payments to anyone not on this list are refused.">
         <Card>
           <div className="space-y-4">
             <Field label="Payee list in force" hint={gateDetail(account.merchantGate)}>
@@ -91,7 +91,7 @@ export function GatesPanel() {
             <Table
               rows={payees}
               rowKey={(row) => row.key}
-              caption="Payees this mandate has been told about"
+              caption="Payees on this mandate"
               empty={<GateEmpty state={listState(source, payees.length)} subject="payees" refusal={refused} onRetry={refresh} />}
               columns={[
                 {
@@ -121,8 +121,7 @@ export function GatesPanel() {
                           ? {
                               confirmPhrase: 'REMOVE',
                               confirmTitle: `Stop paying ${shortAddress(row.key)}`,
-                              confirmDescription:
-                                'Payments already locked in the escrow are unaffected. Every new payment to this address is refused from the moment this lands.',
+                              confirmDescription: 'New payments to this address are refused at once. Payments already in escrow are unaffected.',
                             }
                           : {})}
                       />
@@ -137,7 +136,7 @@ export function GatesPanel() {
                   label="Allow another provider"
                   value={payeeText}
                   onChange={setPayeeText}
-                  {...(payeeAlready ? { problem: 'This mandate already pays that address.' } : {})}
+                  {...(payeeAlready ? { problem: 'This address is already allowed.' } : {})}
                   action={
                     <TxButton
                       type="submit"
@@ -158,8 +157,7 @@ export function GatesPanel() {
 
             {merkle && (
               <p className="text-detail text-[color:var(--color-muted)]">
-                While the published roster is in force the per-address list is not read, and the contract refuses an
-                edit to it outright. A removal that looked like it took effect would be worse than a refusal.
+                This mandate uses a published payee list, so payees cannot be edited one by one here.
               </p>
             )}
           </div>
@@ -168,14 +166,14 @@ export function GatesPanel() {
 
       <Section
         title="What may be bought"
-        description="A capability names the kind of work, under a spend class: services or agent hires. The chain holds only its hash, so a name appears here when this console can match one back to it."
+        description="The kinds of work this mandate pays for. A name this console does not recognise shows as a code."
       >
         <Card>
           <div className="space-y-4">
             <Table
               rows={capabilities}
               rowKey={(row) => row.key}
-              caption="Capabilities this mandate has been told about"
+              caption="Kinds of work on this mandate"
               empty={<GateEmpty state={listState(source, capabilities.length)} subject="capabilities" refusal={refused} onRetry={refresh} />}
               columns={[
                 {
@@ -205,8 +203,7 @@ export function GatesPanel() {
                           ? {
                               confirmPhrase: 'REMOVE',
                               confirmTitle: `Stop paying for ${labelFor(row.key) ?? shortAddress(row.key, 8, 6)}`,
-                              confirmDescription:
-                                'Payments already locked in the escrow are unaffected. Every new payment for this capability is refused from the moment this lands, whichever payee it names.',
+                              confirmDescription: 'New payments for this kind of work are refused at once, to any payee. Payments already in escrow are unaffected.',
                             }
                           : {})}
                       />
@@ -270,10 +267,10 @@ export function GatesPanel() {
                   {classed.problem !== undefined
                     ? classed.problem
                     : capabilityAlready
-                      ? 'This mandate already pays for work of this kind.'
+                      ? 'This kind of work is already allowed.'
                       : typed === undefined
-                        ? `Written on chain as the hash of ${SPEND_CLASS_INFO[capabilityClass].prefix}<name>. The contract checks that exact id, so the class is part of the name.`
-                        : `${classed.label} reads as ${typed}`}
+                        ? `Saved as ${SPEND_CLASS_INFO[capabilityClass].prefix}<name>. The class is part of the name.`
+                        : `Saved as ${classed.label}.`}
                 </p>
               </form>
             )}
@@ -298,7 +295,7 @@ function GateState({ allowed }: { readonly allowed: boolean | undefined }) {
   if (allowed === undefined) {
     return (
       <span className="inline-flex items-center gap-1.5 text-detail text-[color:var(--color-muted)]">
-        <LevelDot level="unknown" label="Unread" />
+        <LevelDot level="unknown" label="Unknown" />
         Unread
       </span>
     );

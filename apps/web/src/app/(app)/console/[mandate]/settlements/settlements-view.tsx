@@ -83,13 +83,13 @@ export function SettlementsView() {
             <Stat
               label="Held by the escrow"
               value={<Figure reading={outcomes}>{usd(totals.held)}</Figure>}
-              hint={figureHint(outcomes, 'Committed against the allowance and not yet claimed.')}
+              hint={figureHint(outcomes, 'Waiting for the provider to deliver and claim.')}
               level={outcomes.state !== 'read' ? 'unknown' : totals.held > 0n ? 'attention' : 'ok'}
             />
             <Stat
               label="Came back"
               value={<Figure reading={outcomes}>{usd(totals.returned)}</Figure>}
-              hint={figureHint(outcomes, 'The provider did not deliver, so the money and the allowance both returned.')}
+              hint={figureHint(outcomes, 'Not delivered, so the money and the budget came back.')}
               level={outcomes.state === 'read' ? undefined : 'unknown'}
             />
           </StatGrid>
@@ -100,20 +100,15 @@ export function SettlementsView() {
         title="Payments"
         description={
           feeBps === undefined
-            ? 'Each row is one payment the agent made from this mandate.'
-            : `Each row is one payment the agent made. A settled payment carries a fee of ${feeBps / 100}%, charged on the provider's side, and the provider receives the rest.`
+            ? 'Every payment the agent made from this mandate.'
+            : `Every payment the agent made. Providers pay a ${feeBps / 100}% fee on each settled payment.`
         }
       >
         <Card>
           {history.state === 'unreadable' || history.state === 'refused' ? (
-            <ErrorSurface error={history.error} action="Reading the payment history" onRetry={ledger.refresh}>
-              <p className="mt-1 text-detail text-[color:var(--color-muted)]">
-                The mandate itself is reachable and everything on the overview is current. The list of past payments is
-                the part that is missing.
-              </p>
-            </ErrorSurface>
+            <ErrorSurface error={history.error} action="Reading the payment history" onRetry={ledger.refresh} />
           ) : history.state === 'loading' ? (
-            <p className="text-detail text-[color:var(--color-muted)]">Reading the payments this mandate made.</p>
+            <p className="text-detail text-[color:var(--color-muted)]">Loading payments.</p>
           ) : (
             <Table
               rows={rows}
@@ -121,7 +116,7 @@ export function SettlementsView() {
               caption="Payments made from this mandate"
               empty={
                 <p className="text-detail text-[color:var(--color-muted)]">
-                  This mandate has not paid anyone yet. A payment appears here as soon as the agent makes one.
+                  No payments yet. They appear here as the agent makes them.
                 </p>
               }
               columns={[
@@ -238,11 +233,11 @@ function Figure({ reading, children }: { readonly reading: Reading; readonly chi
 function figureHint(reading: Reading, whenRead: string): string {
   switch (reading.state) {
     case 'loading':
-      return 'Reading the payments this mandate made.';
+      return 'Loading payments.';
     case 'unreadable':
-      return 'Not read. Check again at the top of the page.';
+      return 'Could not be loaded. Use Check again at the top of the page.';
     case 'refused':
-      return refusalOf(reading.error)?.condition ?? 'Not read. Check again at the top of the page.';
+      return refusalOf(reading.error)?.condition ?? 'Could not be loaded. Use Check again at the top of the page.';
     case 'read':
       return whenRead;
   }
@@ -252,8 +247,8 @@ function Outcome({ row, chainTime }: { readonly row: Row; readonly chainTime: Da
   if (!row.lock) {
     return (
       <span className="inline-flex items-center gap-1.5 text-detail text-[color:var(--color-muted)]">
-        <LevelDot level="unknown" label="Unread" />
-        Not read
+        <LevelDot level="unknown" label="Unknown" />
+        Unknown
       </span>
     );
   }

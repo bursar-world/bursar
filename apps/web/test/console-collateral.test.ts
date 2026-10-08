@@ -40,7 +40,7 @@ describe('the collateral readings', () => {
   it('says why a borrow was refused', () => {
     expect(collateralRefusal('reverted with NotCollateralLane(0x11, 0)')).toMatch(/prefunded/);
     expect(collateralRefusal('reverted with HealthTooLow(1, 2)')).toMatch(/borrowing floor/);
-    expect(collateralRefusal('reverted with HealthTooLow(1, 2)')).toMatch(/price check holds a recent reading/);
+    expect(collateralRefusal('reverted with HealthTooLow(1, 2)')).toMatch(/pool price was checked recently/);
     expect(collateralRefusal('reverted with NothingSeized(0x11)')).toMatch(/nothing to claim/);
     expect(collateralRefusal('reverted with ObservationTooSoon(0x11, 1, 2)')).toMatch(/too recently/);
     expect(collateralRefusal('execution reverted')).toBeUndefined();

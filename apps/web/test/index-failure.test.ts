@@ -131,7 +131,7 @@ describe('an index that charges for the answer', () => {
     route(402, 'unkeyed');
     const { message } = await failureOf();
 
-    expect(message).toContain('come from the contracts and are unaffected');
+    expect(message).toContain('Balances and limits are unaffected');
   });
 
   it('separates a key that is missing from a key that was rejected', async () => {
@@ -156,7 +156,7 @@ describe('an index that charges for the answer', () => {
     const waiting = await failureOf();
     expect(waiting.failure).toBe('unkeyed');
     expect(waiting.operatorNote).toContain('BLOCKSCOUT_API_KEY');
-    expect(waiting.message).toMatch(/asked again in \d+s/);
+    expect(waiting.message).toMatch(/retries in \d+s/);
   });
 });
 
@@ -176,7 +176,7 @@ describe('a response this browser blocked', () => {
     corsBlocked();
     const { message, operatorNote } = await failureOf();
 
-    expect(message).toContain('Waiting will not change it');
+    expect(message).toContain('waiting will not help');
     expect(operatorNote).toContain(INDEX_ROUTE);
   });
 });
@@ -200,7 +200,7 @@ describe('the index rate limiting this console', () => {
 
     const waiting = await failureOf();
     expect(waiting.failure).toBe('rate-limited');
-    expect(waiting.message).toMatch(/again in (2[0-9]|30)s/);
+    expect(waiting.message).toMatch(/retries in (2[0-9]|30)s/);
   });
 });
 
@@ -223,7 +223,7 @@ describe('nothing answering at all', () => {
 
     expect(failure).toBe('unreachable');
     expect(operatorNote).toContain('Nothing answered at');
-    expect(message).toContain("Check this browser's network connection");
+    expect(message).toContain('Check your connection');
     expect(message).not.toContain('429');
     expect(message).not.toContain('cross-origin');
   });

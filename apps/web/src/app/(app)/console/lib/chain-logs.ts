@@ -88,7 +88,7 @@ async function chainLogs(address: Address, floor: bigint): Promise<readonly Inde
   const logs: IndexedLog[] = [];
   for (const raw of live) {
     const seconds = stamped(raw) ? BigInt(raw.blockTimestamp!) : times.get(raw.blockNumber);
-    if (seconds === undefined) throw new Error('The endpoint returned logs without block times.');
+    if (seconds === undefined) throw new Error('Some activity came back without a date, so it could not be shown.');
     logs.push({
       address: raw.address,
       topics: [...raw.topics],

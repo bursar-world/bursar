@@ -109,7 +109,7 @@ describe('an address with no mandate account at all', () => {
     const html = chrome('absent');
 
     expect(html).toContain('This address is not a BURSAR mandate.');
-    expect(html).toContain('nothing at this address behaves like a mandate account');
+    expect(html).toContain('Check the address, or create a mandate from the console.');
     expect(html).not.toContain('Pause the mandate');
   });
 });

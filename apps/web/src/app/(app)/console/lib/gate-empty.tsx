@@ -32,16 +32,16 @@ type Copy = {
 
 const COPY: Readonly<Record<GateSubject, Copy>> = {
   payees: {
-    unreadable: 'The payee list could not be read. Nothing here says the list is empty; the request for it did not come back.',
-    holds: 'The contract still holds the list and still refuses anyone who is not on it.',
-    loading: 'Reading the payee list from the account.',
-    empty: 'No payee has been allowed yet, so this mandate pays nobody.',
+    unreadable: 'The payee list could not be loaded.',
+    holds: 'The mandate still refuses anyone who is not on it.',
+    loading: 'Loading payees.',
+    empty: 'No payees yet, so this mandate cannot pay anyone.',
   },
   capabilities: {
-    unreadable: 'The capability list could not be read. Nothing here says the list is empty; the request for it did not come back.',
-    holds: 'The contract still holds the list and still refuses work that is not on it.',
-    loading: 'Reading the capability list from the account.',
-    empty: 'No capability has been allowed yet, so every payment is refused.',
+    unreadable: 'The list of allowed work could not be loaded.',
+    holds: 'The mandate still refuses work that is not on it.',
+    loading: 'Loading allowed work.',
+    empty: 'No kinds of work allowed yet, so every payment is refused.',
   },
 };
 
@@ -74,7 +74,7 @@ export function GateEmpty({
         </Unread>
       ) : (
         <Unread onRetry={onRetry}>
-          {refusal.condition} Nothing here says the list is empty. {copy.holds} {refusal.nextAction}
+          {refusal.condition} {copy.holds} {refusal.nextAction}
         </Unread>
       );
     case 'loading':

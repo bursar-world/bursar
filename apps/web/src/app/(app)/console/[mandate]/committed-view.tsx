@@ -57,7 +57,7 @@ const STATUS_WORD: Record<number, string> = {
   [LockStatus.TimedOut]: 'Returned',
   [LockStatus.Disputed]: 'Contested',
   [LockStatus.Cancelled]: 'Cancelled by the provider',
-  [LockStatus.Resolved]: 'Ruled',
+  [LockStatus.Resolved]: 'Ruled on',
 };
 
 export function periodLabel(seconds: number): string {
@@ -107,7 +107,7 @@ export function CommittedMandateView({ mandate, onRefresh }: { readonly mandate:
         <p className="max-w-3xl text-detail text-[color:var(--color-muted)]">{PRIVATE_LIMIT_LINE}</p>
       </div>
 
-      <Section title="On chain" description="Everything anyone can read about this mandate.">
+      <Section title="On chain" description="What anyone can see about this mandate.">
         <Card>
           <FieldGrid columns={2}>
             <Field label="Owner">
@@ -116,10 +116,10 @@ export function CommittedMandateView({ mandate, onRefresh }: { readonly mandate:
             <Field label="Agent">
               <AddressView value={mandate.agent} />
             </Field>
-            <Field label="Proven payments" hint="Each one carried a proof the verifier accepted before the escrow took the money.">
+            <Field label="Proven payments" hint="Each payment proved it met the private terms before any money moved.">
               <span className="tabular">{mandate.nonce.toString()}</span>
             </Field>
-            <Field label="Terms commitment" hint={`Version ${mandate.version.toString()}. A hash of the terms, not the terms.`}>
+            <Field label="Terms commitment" hint={`Version ${mandate.version.toString()}. A fingerprint of the terms, which stay private.`}>
               <span className="font-mono text-detail">{`0x${mandate.termsCommitment.toString(16).padStart(64, '0').slice(0, 16)}…`}</span>
             </Field>
           </FieldGrid>
@@ -152,7 +152,7 @@ export function CommittedMandateView({ mandate, onRefresh }: { readonly mandate:
 
       {connected !== undefined && !mandate.revoked && <Fund mandate={mandate} onDone={onRefresh} />}
 
-      <Section title="Terms" description="Readable only with the viewing key of the wallet that created this mandate.">
+      <Section title="Terms" description="Only the wallet that created this mandate can open them.">
         <Card>
           {opened ? (
             <div className="space-y-4">
@@ -171,7 +171,7 @@ export function CommittedMandateView({ mandate, onRefresh }: { readonly mandate:
                       send={async (args) => {
                         const hash = await writeContractAsync({ address: mandate.address, abi: committedMandateAccountAbi, functionName: 'amend', args });
                         const receipt = await rhcClient().waitForTransactionReceipt({ hash });
-                        if (receipt.status !== 'success') throw new Error(`The amendment reverted: ${hash}`);
+                        if (receipt.status !== 'success') throw new Error(`the transaction was refused (${hash})`);
                       }}
                       onAmended={(next) => {
                         setOpened({ terms: next, termsKey: opened.termsKey });
@@ -188,12 +188,12 @@ export function CommittedMandateView({ mandate, onRefresh }: { readonly mandate:
         </Card>
       </Section>
 
-      <Section title="Payments" description="The amount and the provider of each one are public, because the escrow holds them.">
+      <Section title="Payments" description="Amounts and providers are public, because the escrow holds the payments.">
         <Card>
           {payments.isLoading ? (
             <Skeleton height={18} />
           ) : payments.error ? (
-            <p className="text-detail text-[color:var(--color-muted)]">The payments could not be read. Check again in a moment.</p>
+            <p className="text-detail text-[color:var(--color-muted)]">Payments could not be loaded. Use Check again at the top of the page.</p>
           ) : payments.data && payments.data.length > 0 ? (
             <ul className="divide-y divide-[color:var(--color-line)]">
               {payments.data.map((payment) => (
@@ -213,7 +213,7 @@ export function CommittedMandateView({ mandate, onRefresh }: { readonly mandate:
               ))}
             </ul>
           ) : (
-            <p className="text-detail text-[color:var(--color-muted)]">No payment yet. Fund the account and your agent can start.</p>
+            <p className="text-detail text-[color:var(--color-muted)]">No payments yet. Add funds and your agent can start.</p>
           )}
         </Card>
       </Section>
@@ -297,7 +297,7 @@ function Unlock({
     try {
       const sealed = await latestSealedTerms(rhcClient(), mandate.address, fromBlock);
       if (sealed === null) {
-        setProblem('No sealed terms were found for this mandate.');
+        setProblem('No private terms were found for this mandate.');
         return;
       }
       const key = deriveViewingKey(await signMessageAsync({ message: viewingKeyMessage(connected) }));
@@ -319,17 +319,17 @@ function Unlock({
     <div className="space-y-3">
       <p className="text-sm font-medium">Terms are private.</p>
       <p className="text-detail text-[color:var(--color-muted)]">
-        Your wallet signs a fixed message. The key that opens the terms is derived from that signature in this page and is
-        forgotten when you leave it. Signing costs nothing and moves nothing.
+        Your wallet signs a fixed message, and this page uses the signature to open the terms. The key is forgotten when
+        you leave. Signing is free and moves no funds.
       </p>
       {!sameAddress(connected, mandate.principal) && (
         <p className="text-detail text-[color:var(--color-muted)]">
-          The connected wallet is not the owner address. If you created this mandate with a hidden owner, its key still opens
-          the terms, and your{' '}
+          This wallet is not the owner. If you created this mandate with a hidden owner, your wallet still opens the terms,
+          and its controls are on your{' '}
           <Link href="/console/private" className="underline underline-offset-2">
             private mandates
           </Link>{' '}
-          page holds its controls.
+          page.
         </p>
       )}
       <Button onClick={() => void unlock()} disabled={busy}>
@@ -363,7 +363,7 @@ export function TermsView({ terms, onLock }: { readonly terms: TermsDocument; re
         </Field>
         <Field label="Ends on">{new Date(terms.expiry * 1000).toISOString().slice(0, 10)}</Field>
         <Field label="Allowed payments">{classes}</Field>
-        <Field label="Capabilities" hint="Each payment proves its capability is one of these.">
+        <Field label="Capabilities" hint="Each payment proves its work is one of these.">
           <ul className="space-y-1">
             {terms.capabilities.map((label) => (
               <li key={label}>
@@ -445,8 +445,8 @@ export function AmendTerms({
     <div className="space-y-3 border-t border-[color:var(--color-line)] pt-4">
       <p className="text-sm font-medium">Amend the terms</p>
       <p className="text-detail text-[color:var(--color-muted)]">
-        New caps and a new end date apply from the next payment, and what the agent has already spent counts against them.
-        Your agent proves against its own copy of the terms, so hand it the new ones once this is confirmed.
+        New limits and the end date apply from the next payment, and spending so far still counts. Your agent proves each
+        payment against its own copy of the terms, so give it the new ones once this confirms.
       </p>
       <FieldGrid columns={2}>
         <AmountInput asset="USDG" label="Per payment" value={form.perCall} onChange={(perCall) => set({ perCall })} />
@@ -464,7 +464,7 @@ export function AmendTerms({
       <Button onClick={() => void amend()} disabled={busy || reading.terms === undefined}>
         {busy ? 'Amending' : 'Amend the terms'}
       </Button>
-      {done && <p className="text-detail">The new terms are in force. Give your agent the new copy.</p>}
+      {done && <p className="text-detail">The new terms apply now. Give your agent the new copy.</p>}
       {[...reading.problems, ...(problem ? [problem] : [])].map((line) => (
         <p key={line} className="text-detail" style={{ color: 'var(--color-state-blocked)' }}>
           {line}
@@ -484,7 +484,7 @@ function Fund({ mandate, onDone }: { readonly mandate: CommittedRead; readonly o
   const amount = readUsdgAmount(text);
 
   return (
-    <Section title="Add funds" description="Send USDG from the connected wallet. The agent can spend it only inside the private terms.">
+    <Section title="Add funds" description="Send USDG from your wallet. The agent can spend it only within the private terms.">
       <Card>
         <div className="flex flex-wrap items-end gap-3">
           <div className="min-w-[14rem] flex-1">

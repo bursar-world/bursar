@@ -42,7 +42,7 @@ export function ControlPanel() {
             <Field label="Agent" hint={seated ? 'Spends inside the limits and can do nothing else.' : 'Nothing can spend from this mandate.'}>
               {seated ? <AddressView value={account.agent} /> : 'No agent seated'}
             </Field>
-            <Field label="Mandate" hint={account.paused ? 'Every payment is refused while this is true.' : 'Payments are accepted, subject to the limits.'}>
+            <Field label="Mandate" hint={account.paused ? 'Payments are refused until you resume.' : 'Payments go through within the limits.'}>
               {account.paused ? 'Paused' : 'Running'}
             </Field>
           </FieldGrid>
@@ -54,8 +54,8 @@ export function ControlPanel() {
                   <h3 className="text-sm font-semibold">{account.paused ? 'Resume the mandate' : 'Pause the mandate'}</h3>
                   <p className="mt-0.5 text-detail text-[color:var(--color-muted)]">
                     {account.paused
-                      ? 'The agent can spend again, inside the limits that were already set. Nothing about them changed while it was paused.'
-                      : 'Every new payment is refused from the block this lands in. Money already held by the escrow settles as it would have, and the limits are untouched.'}
+                      ? 'The agent can spend again within the same limits.'
+                      : 'New payments are refused at once. Payments already in escrow still settle, and the limits stay as they are.'}
                   </p>
                 </div>
                 <TxButton
@@ -86,8 +86,8 @@ export function ControlPanel() {
                 <div>
                   <h3 className="text-sm font-semibold">Revoke the agent</h3>
                   <p className="mt-0.5 text-detail text-[color:var(--color-muted)]">
-                    The agent address is cleared and the mandate spends nothing. The funds stay where they are and the
-                    limits stay as written. Seating an agent again is what puts it back to work.
+                    The agent loses access and nothing can spend. Funds and limits stay as they are. Seat an agent to
+                    start again.
                   </p>
                 </div>
                 <TxButton
@@ -98,7 +98,7 @@ export function ControlPanel() {
                   context={writeContext}
                   confirmPhrase="REVOKE"
                   confirmTitle="Revoke the agent"
-                  confirmDescription="Every new payment is refused from the block this lands in. Payments already locked in the escrow settle as they would have."
+                  confirmDescription="New payments are refused at once. Payments already in escrow still settle."
                   send={() =>
                     writeContractAsync({ address, abi: mandateAccountAbi, functionName: 'revokeAgent' })
                   }
@@ -110,15 +110,14 @@ export function ControlPanel() {
                 <div>
                   <h3 className="text-sm font-semibold">{seated ? 'Replace the agent' : 'Seat an agent'}</h3>
                   <p className="mt-0.5 text-detail text-[color:var(--color-muted)]">
-                    The new address spends inside the same limits from the block this lands in, and what has already
-                    been spent this window stays spent.
+                    The new agent spends within the same limits from now on. Spending so far this period still counts.
                   </p>
                 </div>
                 <AddressInput
                   label="Agent address"
                   value={agentText}
                   onChange={setAgentText}
-                  {...(sameAgent ? { problem: 'This address is already the agent on this mandate.' } : {})}
+                  {...(sameAgent ? { problem: 'This address is already the agent.' } : {})}
                   action={
                     <TxButton
                       label={seated ? 'Replace' : 'Seat'}
@@ -129,7 +128,7 @@ export function ControlPanel() {
                         ? {
                             confirmPhrase: 'REPLACE',
                             confirmTitle: 'Replace the agent',
-                            confirmDescription: 'The address seated now loses the mandate in the same transaction.',
+                            confirmDescription: 'The current agent loses access in the same transaction.',
                           }
                         : {})}
                       send={() =>

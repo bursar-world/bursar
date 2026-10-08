@@ -55,8 +55,8 @@ function CollateralBody({ state, onChange }: { readonly state: CollateralAccount
   return (
     <Section
       title="Collateral and credit"
-      description={`Stock and treasury tokens posted for this mandate, and the USDG it has borrowed against them. When a payment needs more USDG than the mandate holds, it borrows the difference in the same transaction${
-        floor === undefined ? '' : `, as long as health stays at or above ${floor}`
+      description={`Post stocks or treasury tokens and the agent can spend on credit. When a payment needs more USDG than the mandate holds, it borrows the difference${
+        floor === undefined ? '' : ` while health stays at or above ${floor}`
       }.`}
       actions={
         <Link href="/docs/haircuts" className="text-detail underline underline-offset-2">
@@ -70,24 +70,24 @@ function CollateralBody({ state, onChange }: { readonly state: CollateralAccount
             <Stat
               label="Collateral value"
               value={state.value === undefined ? 'Unread' : usdExact(state.value as Micro)}
-              hint="Token amount times the Chainlink price. A position counts zero while its price is stale, the token, its price feed or the access registry is paused, or its pool trades out of line with the price."
+              hint="Valued at the price feed. A position counts as zero while its price is stale, it is paused, or its market trades out of line."
             />
-            <Stat label="Debt" value={state.debt === undefined ? 'Unread' : usdExact(state.debt as Micro)} hint="Borrowed USDG plus the spread accrued on it." />
+            <Stat label="Debt" value={state.debt === undefined ? 'Unread' : usdExact(state.debt as Micro)} hint="Borrowed USDG plus interest." />
             <Stat
               label="Can still borrow"
               value={state.headroom === undefined ? 'Unread' : usdExact(state.headroom as Micro)}
-              hint="Measured at the after-hours haircut whatever the time, so a draw made in market hours still stands when the market closes. Also held to the credit limits."
+              hint="Uses the after-hours haircut at all times, so a draw still stands when markets close. Credit limits also apply."
             />
             <Stat
               label="Health"
               value={formatHealth(state.healthE18)}
-              hint="Collateral after the haircut that applies now, divided by debt. It counts a position at its price even while its pool is out of line. Below 1.00 anyone can sell part of the collateral to repay."
+              hint="Collateral after haircut, divided by debt. Below 1.00, anyone can sell part of the collateral to repay."
             />
           </StatGrid>
 
           {liquidatable(state.healthE18) && (
             <LevelBadge level="blocked">
-              Health is below 1.00. Part of the collateral can be sold to repay the debt once its price is fresh and its pool is in line.
+              Health is below 1.00. Part of the collateral can be sold to repay the debt.
             </LevelBadge>
           )}
 
@@ -96,7 +96,7 @@ function CollateralBody({ state, onChange }: { readonly state: CollateralAccount
               <LevelBadge level="attention">
                 {state.headroom === 0n
                   ? 'Nothing can be borrowed right now'
-                  : `${halted.length === 1 ? 'One position counts' : `${halted.length} positions count`} for nothing toward borrowing right now`}
+                  : `${halted.length === 1 ? 'One position does' : `${halted.length} positions do`} not count toward borrowing right now`}
               </LevelBadge>
               <ul className="space-y-1 text-detail text-[color:var(--color-muted)]">
                 {halted.map((entry) => (
@@ -106,8 +106,7 @@ function CollateralBody({ state, onChange }: { readonly state: CollateralAccount
                 ))}
               </ul>
               <p className="text-detail text-[color:var(--color-muted)]">
-                Nothing posted is lost. Health still counts these positions at their price, and borrowing against them resumes on
-                its own once the condition clears.
+                The collateral is still yours. Borrowing against it resumes on its own once its price checks out again.
               </p>
             </div>
           )}
@@ -139,7 +138,7 @@ function CollateralBody({ state, onChange }: { readonly state: CollateralAccount
                 header: 'Haircut',
                 cell: (row) =>
                   !row.fresh ? (
-                    <LevelBadge level="attention">Not counted: stale price, a pause, or its pool out of line</LevelBadge>
+                    <LevelBadge level="attention">Not counted until its price checks out</LevelBadge>
                   ) : row.halt !== undefined && row.halt !== 'None' ? (
                     <span className="space-y-1">
                       <LevelBadge level="attention">Not counted toward borrowing</LevelBadge>
@@ -181,7 +180,7 @@ function OwnerForms({ state, onChange }: { readonly state: CollateralAccount; re
   if (!state.isLine || !wired) {
     return (
       <FieldGrid columns={2}>
-        <Field label="Open the collateral line" hint="Registers this mandate with the collateral vault. Needed once.">
+        <Field label="Open the collateral line" hint="Needed once per mandate.">
           <TxButton
             label={state.isLine ? 'Line is open' : 'Open the line'}
             disabled={state.isLine === true}
@@ -195,7 +194,7 @@ function OwnerForms({ state, onChange }: { readonly state: CollateralAccount; re
             onConfirmed={done}
           />
         </Field>
-        <Field label="Borrow when short" hint="Sets the vault as the place this mandate asks for USDG when a payment needs more than it holds.">
+        <Field label="Borrow when short" hint="Lets a payment borrow from the vault when the mandate is short.">
           <TxButton
             label={wired ? 'Set' : 'Use the collateral line'}
             tone="secondary"
@@ -216,7 +215,7 @@ function OwnerForms({ state, onChange }: { readonly state: CollateralAccount; re
   const needsApproval = raw !== undefined && (target?.allowance ?? 0n) < raw;
 
   return (
-    <Field label="Post collateral" hint="Two steps the first time: approve the vault to take the tokens, then post them from your wallet.">
+    <Field label="Post collateral" hint="Two steps the first time: approve the tokens, then post them.">
       <div className="space-y-3">
         <select
           value={symbol}
@@ -286,7 +285,7 @@ function RepayForm({ state, onChange }: { readonly state: CollateralAccount; rea
   };
 
   return (
-    <Field label="Repay" hint="Paid from the connected wallet straight to the credit pool. Takes no more than the mandate owes.">
+    <Field label="Repay" hint="Paid from your wallet. Never takes more than the mandate owes.">
       <div className="space-y-3">
         <AmountInput
           label="Amount"

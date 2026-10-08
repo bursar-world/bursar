@@ -50,7 +50,7 @@ export function FundingPanel() {
   const gates = transferGates(system);
 
   return (
-    <Section title="Funding" description="What pays providers, and what pays the fee to send a transaction.">
+    <Section title="Funding" description="USDG in the mandate pays providers. ETH in your wallet pays network fees.">
       <Card>
         <div className="space-y-6">
           <StatGrid columns={3}>
@@ -59,8 +59,8 @@ export function FundingPanel() {
               value={usdg(balance)}
               hint={
                 balance === 0n
-                  ? 'No USDG to pay a provider with. A payment is refused before the escrow takes it.'
-                  : 'USDG. This is what a provider is paid out of, and it never pays a transaction fee.'
+                  ? 'No USDG yet. Payments are refused until it is funded.'
+                  : 'USDG that pays providers.'
               }
               level={balance === 0n ? 'blocked' : 'ok'}
             />
@@ -69,17 +69,17 @@ export function FundingPanel() {
               value={gas === undefined ? 'Unread' : formatEth(gas)}
               hint={
                 connected === undefined
-                  ? 'Connect a wallet to see what it can pay in fees.'
+                  ? 'Connect a wallet to see its ETH for fees.'
                   : trips === undefined
-                    ? 'ETH. A different asset from the one the mandate holds.'
-                    : `ETH, about ${trips.toString()} more payment${trips === 1n ? '' : 's'}. Topping up the mandate does nothing for this.`
+                    ? 'ETH for network fees.'
+                    : `ETH, enough for about ${trips.toString()} more payment${trips === 1n ? '' : 's'}.`
               }
               level={gas === undefined ? 'unknown' : gas < ROUND_TRIP_FEE ? 'blocked' : 'ok'}
             />
             <Stat
               label="One payment costs"
               value={formatEth(ROUND_TRIP_FEE)}
-              hint="One lock through the mandate and one release by the provider, at the fee this chain has been charging."
+              hint="Network fees for one payment and its release, at current prices."
             />
           </StatGrid>
 
@@ -87,7 +87,7 @@ export function FundingPanel() {
             <FieldGrid columns={2}>
               <Field
                 label="Add funds"
-                hint="Two transactions: the token is told the account may take the amount, then the account takes it and records it."
+                hint="Two steps: approve the amount, then move it in."
               >
                 <div className="space-y-3">
                   <AmountInput
@@ -99,7 +99,7 @@ export function FundingPanel() {
                     {...(depositText.trim() === '' || deposit.problem === undefined ? {} : { problem: deposit.problem })}
                     hint={
                       wallet === undefined
-                        ? 'What your wallet holds could not be read, so this field cannot check the amount against it.'
+                        ? 'Your wallet balance could not be read.'
                         : `Your wallet holds ${usd(wallet)}.`
                     }
                   />
@@ -124,8 +124,8 @@ export function FundingPanel() {
                       {allowanceUnread && (
                         <p className="text-detail" style={{ color: 'var(--color-state-unknown)' }}>
                           {ledger.isLoading
-                            ? 'The token is still being read for what this account may already take, so the allowance is set again and nothing is assumed.'
-                            : 'The token did not answer what this account is already allowed to take, so the allowance is set again. A deposit sent on a reading nobody took reverts and still costs the fee.'}
+                            ? 'Your current approval is still loading, so approve the amount first.'
+                            : 'Your current approval could not be read, so approve the amount first.'}
                         </p>
                       )}
                     </div>
@@ -152,7 +152,7 @@ export function FundingPanel() {
                 </div>
               </Field>
 
-              <Field label="Take funds out" hint="The owner can withdraw the whole balance at any time. Money already locked in the escrow is not part of it.">
+              <Field label="Take funds out" hint="Withdraw any amount at any time. Payments already held in escrow are not included.">
                 <div className="space-y-3">
                   <AmountInput
                     label="Amount"
@@ -161,7 +161,7 @@ export function FundingPanel() {
                     onChange={setWithdrawText}
                     max={{ atomic: balance, label: 'All of it' }}
                     {...(withdrawText.trim() === '' || withdraw.problem === undefined ? {} : { problem: withdraw.problem })}
-                    hint={`This mandate holds ${usd(balance)}. It goes back to ${connected === undefined ? 'the connected wallet' : 'your wallet'}.`}
+                    hint={`This mandate holds ${usd(balance)}. It returns to your wallet.`}
                   />
                   <TxButton
                     label="Send it back to your wallet"

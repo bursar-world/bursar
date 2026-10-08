@@ -52,7 +52,7 @@ export function PrivateOwnersView() {
       </Link>
       <h1 className="page-title">Private mandates</h1>
       <p className="max-w-3xl text-detail text-[color:var(--color-muted)]">
-        Mandates whose owner and agent are stealth addresses drawn from your wallet’s keys. Nobody else can list them.
+        Mandates whose owner and agent are stealth addresses derived from your wallet’s keys. Only your wallet can find them.
       </p>
       <p className="max-w-3xl text-detail text-[color:var(--color-muted)]">{STEALTH_LIMIT_LINE}</p>
       {shieldedContracts() && <p className="max-w-3xl text-detail text-[color:var(--color-muted)]">{SHIELDED_TIMING_LINE}</p>}
@@ -73,7 +73,7 @@ export function PrivateOwnersView() {
       <div className="space-y-8">
         {header}
         <EmptyState title="Connect the wallet that created them." action={<ConnectButton />}>
-          Its signature is what finds them.
+          Your wallet’s signature finds them.
         </EmptyState>
       </div>
     );
@@ -95,7 +95,7 @@ export function PrivateOwnersView() {
     } catch (error) {
       setProblem(
         error instanceof Error && error.name === 'FundsKeySignatureError'
-          ? 'The funds-key signature did not come from this wallet, so nothing could be found. Smart-contract wallets cannot hold hidden owners.'
+          ? 'The second signature did not come from this wallet, so nothing was found. Smart contract wallets cannot use hidden owners.'
           : 'The search did not finish. A signature was declined or the network did not answer.',
       );
     } finally {
@@ -108,7 +108,7 @@ export function PrivateOwnersView() {
       {header}
       <Section
         title="Find them"
-        description="Your wallet signs twice: a fixed message for the viewing key, which finds the addresses and opens the terms, and a request your wallet shows as controlling funds, which gives the keys that act for them. The keys are derived in this page. Signing costs nothing; sign the second only here."
+        description="Your wallet signs twice, at no cost. The first finds your private mandates and opens their terms. The second, which your wallet shows as controlling funds, creates the keys that act for them in this page. Sign it only here."
       >
         <Card>
           <div className="space-y-3">
@@ -188,7 +188,7 @@ function OwnedMandate({
     if (terms) return terms;
     const { latestSealedTerms, openTerms } = await import('@bursar/sdk');
     const sealed = await latestSealedTerms(rhcClient(), entry.mandate, fromBlock);
-    if (!sealed) throw new Error('No sealed terms were found for this mandate.');
+    if (!sealed) throw new Error('No private terms were found for this mandate.');
     try {
       const doc = await openTerms(keys.termsKey, {
         account: entry.mandate,
@@ -205,12 +205,12 @@ function OwnedMandate({
 
   const downloadKey = act(async () => {
     const agentKey = entry.agentMatch?.privateKey;
-    if (!agentKey) throw new Error('The agent of this mandate is not one of your stealth addresses, so there is no key to hand off.');
+    if (!agentKey) throw new Error('This mandate’s agent is not one of your stealth addresses, so there is no key to download.');
     downloadFile(await agentKeyFile({ mandate: entry.mandate, privateKey: agentKey, terms: await readTerms(), fromBlock }));
   });
 
   const togglePause = act(async () => {
-    if (!ownerKey) throw new Error('The owner key could not be derived.');
+    if (!ownerKey) throw new Error('The owner key could not be recovered from your wallet.');
     await sendFromStealth(ownerKey, { address: entry.mandate, abi: committedMandateAccountAbi, functionName: 'setPaused', args: [!entry.paused] });
     onChange();
   });
@@ -232,7 +232,7 @@ function OwnedMandate({
     >
       <div className="space-y-4">
         <FieldGrid columns={2}>
-          <Field label="Owner address" hint={`Gas: ${formatEth(entry.ownerGas)}. Pause and resume are sent from here.`}>
+          <Field label="Owner address" hint={`Gas: ${formatEth(entry.ownerGas)}. Pausing and resuming are sent from this address.`}>
             <AddressView value={entry.principal.stealthAddress as Address} />
           </Field>
           <Field
@@ -282,7 +282,7 @@ function OwnedMandate({
           )}
         </div>
         {entry.ownerGas === 0n && (
-          <p className="text-detail text-[color:var(--color-muted)]">The owner address holds no gas, so it cannot pause or resume until it gets some.</p>
+          <p className="text-detail text-[color:var(--color-muted)]">The owner address has no gas, so it cannot pause or resume yet. Send it some ETH first.</p>
         )}
         {problem && (
           <p className="text-detail" style={{ color: 'var(--color-state-blocked)' }}>

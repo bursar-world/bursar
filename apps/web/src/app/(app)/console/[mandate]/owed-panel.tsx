@@ -22,14 +22,14 @@ export function OwedPanel() {
   if (!account || owed === undefined || owed === 0n) return null;
 
   return (
-    <Section title="Held for this mandate" description="A payout the escrow could not deliver when a payment settled.">
+    <Section title="Held for this mandate" description="Money owed to this mandate, held by the escrow until it can be sent.">
       <Card>
         <div className="space-y-4">
           <StatGrid columns={3}>
             <Stat
               label="Waiting to be claimed"
               value={usdExact(owed)}
-              hint="Held by the escrow for this mandate, apart from every open payment."
+              hint="Kept apart from open payments."
               level="attention"
             />
           </StatGrid>

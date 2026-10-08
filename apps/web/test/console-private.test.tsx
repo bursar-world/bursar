@@ -150,7 +150,7 @@ describe('the terms the viewing key opens', () => {
       />,
     );
     expect(html).toContain('Amend the terms');
-    expect(html).toContain('what the agent has already spent counts against them');
+    expect(html).toContain('spending so far still counts');
     expect(html).not.toContain('—');
   });
 

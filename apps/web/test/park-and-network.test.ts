@@ -15,7 +15,7 @@ describe('parking under a buffer', () => {
     const line = bufferSentence(79_952n, 100_000n);
     expect(line).toContain('$0.10');
     expect(line).toContain('$0.08');
-    expect(line).toMatch(/holds more or the buffer is lowered/);
+    expect(line).toMatch(/Add funds or lower the buffer/);
   });
 });
 

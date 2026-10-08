@@ -193,25 +193,24 @@ export function ApprovalsView() {
 
   return (
     <div className="space-y-10">
-      <Section title="Approvals" description="What this mandate will not pay without you.">
+      <Section title="Approvals" description="Payments at or above the threshold need your approval.">
         <Card>
           <FieldGrid columns={3}>
-            <Field label="Threshold in force" hint="Written into the limits and changed with them.">
+            <Field label="Threshold in force" hint="Set with the limits.">
               {describeApproval(account.limits.approvalThreshold, account.limits.perCallCap)}
             </Field>
-            <Field label="How consent is used" hint="One payment, then it is burned.">
-              The agent carries it into the payment. The contract checks the payee, the capability and the ceiling
-              against it.
+            <Field label="How an approval works" hint="Good for one payment.">
+              The agent presents it with the payment. The payee, the kind of work and the amount have to match.
             </Field>
-            <Field label="What a ceiling means" hint="A quoted price that settles slightly under still goes through.">
-              The amount you set is the most the payment may be, not the exact figure.
+            <Field label="The amount" hint="A payment at or under it goes through.">
+              The amount you approve is a maximum, not an exact price.
             </Field>
           </FieldGrid>
         </Card>
       </Section>
 
       {isOwner && (
-        <Section title="Approve a payment" description="Name the payee, the work and the most it may cost.">
+        <Section title="Approve a payment" description="Choose the payee, the kind of work and the most it may cost.">
           <Card>
             <form
               className="space-y-5"
@@ -228,7 +227,7 @@ export function ApprovalsView() {
                     setMerchantText(text);
                     fieldChanged();
                   }}
-                  hint="Has to be a payee this mandate already allows, or the payment is refused for that reason instead."
+                  hint="Must already be an allowed payee."
                 />
                 <div className="space-y-1">
                   <label htmlFor="approval-capability" className="block text-label uppercase tracking-wide text-[color:var(--color-muted)]">
@@ -247,7 +246,7 @@ export function ApprovalsView() {
                     className="h-11 w-full border border-[color:var(--color-line)] bg-surface px-3.5 text-sm outline-none focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-[color:var(--color-ring)]"
                   />
                   <p className="tabular break-all text-note text-[color:var(--color-muted)]">
-                    {capabilityId === undefined ? 'The kind of work being bought.' : `Reads as ${capabilityId}`}
+                    {capabilityId === undefined ? 'The kind of work being bought.' : `Code: ${capabilityId}`}
                   </p>
                 </div>
               </FieldGrid>
@@ -262,7 +261,7 @@ export function ApprovalsView() {
                     fieldChanged();
                   }}
                   {...(amountText.trim() === '' || reading.problem === undefined ? {} : { problem: reading.problem })}
-                  hint={`A ceiling, not a price. The limits still apply on top, and this mandate allows ${usd(account.limits.perCallCap)} in one payment.`}
+                  hint={`A maximum, not a price. The limits still apply: up to ${usd(account.limits.perCallCap)} per payment.`}
                 />
                 <div className="space-y-1">
                   <label htmlFor="approval-lifetime" className="block text-label uppercase tracking-wide text-[color:var(--color-muted)]">
@@ -284,7 +283,7 @@ export function ApprovalsView() {
                     ))}
                   </select>
                   <p className="text-note text-[color:var(--color-muted)]">
-                    After this the consent stops working and the payment is refused as expired.
+                    After this, the approval expires.
                   </p>
                 </div>
               </FieldGrid>
@@ -292,40 +291,39 @@ export function ApprovalsView() {
               {domainUnread && (
                 <p className="text-detail" style={{ color: 'var(--color-state-unknown)' }}>
                   {ledger.isLoading
-                    ? 'The account is still being read for the domain it signs under. Signing opens once it answers.'
-                    : 'The account did not answer with the domain it signs under, so nothing is signed here: a signature made against a guessed domain recovers to nobody and comes back as a bad signature. Registering the approval on chain asks the account for no domain and grants the same consent.'}
+                    ? 'Loading the mandate’s signing details. Signing opens in a moment.'
+                    : 'The mandate’s signing details could not be read, so signing is off. Register the approval on chain instead; it works the same way.'}
                 </p>
               )}
 
               {!domainUnread && !domainMatches && (
                 <p className="text-detail" style={{ color: 'var(--color-state-blocked)' }}>
-                  This account reports a signing domain the console did not expect, so nothing is signed here. Check
-                  that the address is a mandate account on this network.
+                  This mandate’s signing details do not match this console, so signing is off. Check that the address
+                  is a mandate on Robinhood Chain.
                 </p>
               )}
 
               {overCap && (
                 <p className="text-detail" style={{ color: 'var(--color-state-attention)' }}>
-                  This ceiling is above the {usd(account.limits.perCallCap)} this mandate allows in one payment, so no
-                  payment can reach it until the per-payment limit is raised. The consent itself is granted either way.
+                  This is above the {usd(account.limits.perCallCap)} per-payment limit, so no single payment can use all
+                  of it unless you raise that limit.
                 </p>
               )}
 
               {stale && (
                 <div className="space-y-2">
                   <p className="text-detail" style={{ color: 'var(--color-state-attention)' }}>
-                    This consent has passed the expiry it was made with, and the account refuses an approval that has
-                    already expired. Draw it again for a fresh one, on the same fields.
+                    This approval has expired. Renew it to create a fresh one with the same details.
                   </p>
                   <Button size="sm" tone="secondary" onClick={fieldChanged}>
-                    Draw it again
+                    Renew it
                   </Button>
                 </div>
               )}
 
               {missing.length > 0 && (
                 <p className="text-detail text-[color:var(--color-muted)]">
-                  This consent still needs {list(missing)}. It covers one payment and names all three.
+                  Add {list(missing)} to continue.
                 </p>
               )}
 
@@ -335,7 +333,7 @@ export function ApprovalsView() {
                     Sign it
                   </Button>
                   <p className="max-w-xs text-note text-[color:var(--color-muted)]">
-                    Signed in your wallet and never sent anywhere. Hand the result to the agent.
+                    Signed in your wallet. Nothing is sent; give the result to the agent.
                   </p>
                 </div>
 
@@ -373,8 +371,8 @@ export function ApprovalsView() {
                     }}
                   />
                   <p className="max-w-xs text-note text-[color:var(--color-muted)]">
-                    A transaction from this wallet. The agent then needs nothing from you, and a Safe or any other
-                    contract wallet can grant consent this way.
+                    A transaction from your wallet. The agent needs nothing further, and contract wallets such as Safe
+                    can approve this way.
                   </p>
                 </div>
               </div>
@@ -389,8 +387,8 @@ export function ApprovalsView() {
                   </div>
                   <p className="tabular break-all text-note">{registered}</p>
                   <p className="text-detail text-[color:var(--color-muted)]">
-                    The account holds the consent, so the agent needs nothing from you. The id is what withdraws it
-                    again. It is on the row below as well, and it is the only copy the account keeps.
+                    The mandate holds the approval, so the agent needs nothing from you. Use this id to withdraw it.
+                    It also appears in the list below.
                   </p>
                 </div>
               )}
@@ -402,8 +400,7 @@ export function ApprovalsView() {
                     <CopyControl value={signed.bundle} label="Copy the approval" />
                   </div>
                   <p className="text-detail text-[color:var(--color-muted)]">
-                    Nothing was sent anywhere and nothing is stored. Leaving this screen loses it, and signing again
-                    produces a fresh one.
+                    Nothing is sent or stored, so copy it now. Leaving this screen loses it.
                   </p>
                   <pre className="tabular overflow-x-auto bg-[color:var(--color-raised)] p-3 text-note">{signed.bundle}</pre>
                   <Button size="sm" tone="quiet" onClick={clear}>
@@ -417,8 +414,8 @@ export function ApprovalsView() {
       )}
 
       <Section
-        title="Consent registered on chain"
-        description="Approvals granted by transaction, and what each is still good for. A signature handed to an agent is not on this list, because nothing recorded it."
+        title="Registered approvals"
+        description="Approvals registered by transaction, and whether each can still be used. Signed approvals are not listed here."
       >
         <Card>
           <Table
@@ -427,7 +424,7 @@ export function ApprovalsView() {
             caption="Approvals registered on this mandate"
             empty={
               <p className="text-detail text-[color:var(--color-muted)]">
-                Nothing has been registered on chain for this mandate.
+                No approvals registered yet.
               </p>
             }
             columns={[
@@ -455,7 +452,7 @@ export function ApprovalsView() {
                 secondary: true,
                 cell: (row) =>
                   row.capabilityId === undefined ? (
-                    <span className="text-detail text-[color:var(--color-muted)]">Held in the approval</span>
+                    <span className="text-detail text-[color:var(--color-muted)]">Set in the approval</span>
                   ) : (
                     <span className="text-detail">{labelFor(row.capabilityId) ?? shortAddress(row.capabilityId, 10, 6)}</span>
                   ),
@@ -513,8 +510,8 @@ export function ApprovalsView() {
             <div className="mt-4 space-y-2 border-t border-[color:var(--color-line)] pt-4">
               <h3 className="text-sm font-semibold">Withdraw a signature you handed out</h3>
               <p className="text-detail text-[color:var(--color-muted)]">
-                A signed approval leaves no record on this account, so it cannot be listed above. Burning its id is what
-                reaches it, and the agent&rsquo;s copy stops working in the same block.
+                Signed approvals are not listed above. Enter the approval id to cancel one; the agent&rsquo;s copy stops
+                working at once.
               </p>
               <form className="space-y-1.5" onSubmit={preventNavigation}>
                 <label htmlFor="burn-approval" className="block text-label uppercase tracking-wide text-[color:var(--color-muted)]">
@@ -542,8 +539,8 @@ export function ApprovalsView() {
                     blockedBy={blockedBy}
                     context={writeContext}
                     confirmPhrase="WITHDRAW"
-                    confirmTitle="Withdraw this consent"
-                    confirmDescription="The id is burned. Any copy of the signature stops being accepted, and the id can never be granted again."
+                    confirmTitle="Withdraw this approval"
+                    confirmDescription="Any copy of the signature stops working, and the id cannot be used again."
                     send={() =>
                       writeContractAsync({
                         address,
@@ -563,10 +560,10 @@ export function ApprovalsView() {
                   style={{ color: burnText.trim() !== '' && burnId === undefined ? 'var(--color-state-blocked)' : 'var(--color-muted)' }}
                 >
                   {burnText.trim() === ''
-                    ? 'The id you drew when you signed the approval.'
+                    ? 'The id shown when you signed the approval.'
                     : burnId === undefined
-                      ? 'An approval id is 32 bytes: 0x and 64 hexadecimal characters.'
-                      : `Reads as ${burnId}`}
+                      ? 'An approval id is 0x followed by 64 characters.'
+                      : `Id: ${burnId}`}
                 </p>
               </form>
             </div>
@@ -587,7 +584,7 @@ function ApprovalState({ row }: { readonly row: Granted }) {
   if (row.used) return <Badge tone="quiet">Used</Badge>;
   if (row.withdrawn) return <Badge tone="quiet">Withdrawn</Badge>;
   if (row.spent) return <Badge tone="quiet">No longer usable</Badge>;
-  if (!row.registered) return <Badge tone="quiet">Not on this account</Badge>;
+  if (!row.registered) return <Badge tone="quiet">Not on this mandate</Badge>;
 
   const expiresAt = fromUnix(row.expiry);
   if (expiresAt && expiresAt.getTime() < Date.now()) {

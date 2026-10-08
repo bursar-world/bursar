@@ -43,7 +43,7 @@ export function readUsdgAmount(text: string, options: AmountOptions = {}): Amoun
   if (text.trim() === '') return { value: undefined, problem: options.whenEmpty };
 
   if (!grouped(text)) {
-    return { value: undefined, problem: 'Group the digits in threes, or write the amount with no separators at all.' };
+    return { value: undefined, problem: 'Group the digits in threes, or use no separators.' };
   }
 
   const parsed = parseUsdgInput(text);

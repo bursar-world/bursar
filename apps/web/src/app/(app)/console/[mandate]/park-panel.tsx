@@ -49,8 +49,8 @@ function ParkBody({ rwa, onChange }: { readonly rwa: RwaState; readonly onChange
   return (
     <Section
       title="Parked USDG"
-      description={`USDG the owner has moved into treasury holdings, valued at raw amount times the feed price.${
-        valuationStaleness === undefined ? '' : ` Parked value counts toward spending power only while its feed price is under ${hours(valuationStaleness)} old.`
+      description={`Idle USDG the owner has parked in treasury holdings. It still counts toward what the agent can spend.${
+        valuationStaleness === undefined ? '' : ` A holding counts only while its price is under ${hours(valuationStaleness)} old.`
       }`}
     >
       <Card>
@@ -59,26 +59,26 @@ function ParkBody({ rwa, onChange }: { readonly rwa: RwaState; readonly onChange
             <Stat
               label="Parked value"
               value={rwa.parkedTotal === undefined ? 'Unread' : usdExact(rwa.parkedTotal as Micro)}
-              hint="Fresh positions at the feed price. A stale position is left out."
+              hint="Valued at the feed price. Holdings with a stale price are left out."
             />
             <Stat
               label="Counted toward spending power"
               value={rwa.parkedCounted === undefined ? 'Unread' : usdExact(rwa.parkedCounted as Micro)}
-              hint="Parked value after each position’s haircut."
+              hint="Parked value after each holding’s haircut."
             />
             <Stat
               label="Spending power"
               value={rwa.spendingPower === undefined ? 'Unread' : usdExact(rwa.spendingPower as Micro)}
               hint={
                 draws.data === false
-                  ? 'USDG in the mandate, USDG waiting in its parking vault, and the counted parked value. This account pays only from the USDG it holds, so parked value has to be unparked before it can pay a provider.'
-                  : 'USDG in the mandate, USDG waiting in its parking vault, and the counted parked value. A payment the USDG on hand cannot cover unparks the difference in the same transaction.'
+                  ? 'USDG in the mandate and its vault, plus counted parked value. This mandate pays only from USDG on hand, so unpark before a payment needs it.'
+                  : 'USDG in the mandate and its vault, plus counted parked value. A payment larger than the USDG on hand unparks the difference automatically.'
               }
             />
             <Stat
               label="Buffer"
               value={rwa.buffer === undefined ? 'Unread' : usd(rwa.buffer as Micro)}
-              hint="Parking is refused while the mandate holds less USDG than this."
+              hint="The mandate keeps at least this much USDG unparked."
             />
           </StatGrid>
 
@@ -125,7 +125,7 @@ function ParkBody({ rwa, onChange }: { readonly rwa: RwaState; readonly onChange
                       Counts{row.haircutBps ? `, less ${bps(row.haircutBps)}` : ''}
                     </LevelBadge>
                   ) : (
-                    <LevelBadge level="attention">Price is stale, counts as zero</LevelBadge>
+                    <LevelBadge level="attention">Stale price, not counted</LevelBadge>
                   ),
               },
             ]}
@@ -219,7 +219,7 @@ function OwnerForms({ rwa, onChange }: { readonly rwa: RwaState; readonly onChan
       <FieldGrid columns={2}>
         <Field
           label="Park USDG"
-          hint="Two transactions: the USDG moves from the mandate into its parking vault, then the vault buys the holding."
+          hint="Two steps: move USDG into the parking vault, then buy the holding."
         >
           <div className="space-y-3">
             {select(parkSymbol, setParkSymbol, rwa.positions)}
@@ -277,7 +277,7 @@ function OwnerForms({ rwa, onChange }: { readonly rwa: RwaState; readonly onChan
           </div>
         </Field>
 
-        <Field label="Unpark" hint="Sells the holding back to USDG, which lands in the mandate.">
+        <Field label="Unpark" hint="Sells the holding for USDG, paid into the mandate.">
           <div className="space-y-3">
             {select(unparkSymbol, setUnparkSymbol, rwa.positions.filter((p) => (p.raw ?? 0n) > 0n))}
             <AmountInput
@@ -321,7 +321,7 @@ function OwnerForms({ rwa, onChange }: { readonly rwa: RwaState; readonly onChan
       <FieldGrid columns={2}>
         <Field
           label="Buffer"
-          hint={`USDG the mandate keeps on hand for payments, now ${usd((rwa.buffer ?? 0n) as Micro)}. Parking can only use what the mandate holds above it.`}
+          hint={`USDG kept on hand for payments, now ${usd((rwa.buffer ?? 0n) as Micro)}. Only the amount above it can be parked.`}
         >
           <div className="space-y-3">
             <AmountInput
@@ -390,7 +390,7 @@ export function parkableOf(balance: bigint, vaultHeld: bigint, buffer: bigint): 
 /** Why nothing can be parked, with the two ways out. */
 export function bufferSentence(balance: bigint, buffer: bigint): string {
   if (buffer === 0n) return 'The mandate holds no USDG to park.';
-  return `Parking keeps ${usd(buffer as Micro)} in the account for payments. It holds ${usd(balance as Micro)}, so nothing can be parked until it holds more or the buffer is lowered.`;
+  return `The mandate keeps ${usd(buffer as Micro)} on hand for payments and holds ${usd(balance as Micro)}, so there is nothing to park yet. Add funds or lower the buffer.`;
 }
 
 function minBig(a: bigint, b: bigint): bigint {

@@ -112,6 +112,6 @@ describe('returning a payment the provider never answered', () => {
   it('gives the overdue lock its own words rather than reusing "held"', () => {
     expect(OVERDUE_WORD).not.toBe(lockWord(LockStatus.Locked));
     expect(OVERDUE_DETAIL).not.toBe(lockDetail(LockStatus.Locked));
-    expect(OVERDUE_DETAIL).toContain('deadline has gone');
+    expect(OVERDUE_DETAIL).toContain('did not deliver by the deadline');
   });
 });

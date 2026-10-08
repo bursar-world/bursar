@@ -66,8 +66,8 @@ export function SpendPanel() {
       title="What is left"
       description={
         total !== undefined && !secondCap
-          ? 'The period cap refills each period. The total budget never refills, so it bounds the whole mandate.'
-          : 'Both windows bind at once, so the tighter of the two is what the agent feels right now.'
+          ? 'The period cap refills every period. The total budget never refills.'
+          : 'Both caps apply at once. The tighter one is what the agent can spend now.'
       }
       actions={
         isOwner && !editing ? (
@@ -83,7 +83,7 @@ export function SpendPanel() {
             <Stat
               label="Most per payment"
               value={usd(account.limits.perCallCap)}
-              hint={`A single payment above this is refused. ${usd(account.remaining.perCall)} is the ceiling in force now.`}
+              hint={`Larger payments are refused. The next payment can be up to ${usd(account.remaining.perCall)}.`}
             />
             <WindowStat window={account.daily} label="Period cap" />
             {secondCap && <WindowStat window={account.monthly} label="Second cap" />}
@@ -91,10 +91,10 @@ export function SpendPanel() {
           </StatGrid>
 
           <FieldGrid columns={3}>
-            <Field label="Approvals" hint="Set by the threshold written into the limits.">
+            <Field label="Approvals" hint="Set with the limits.">
               {describeApproval(account.limits.approvalThreshold, account.limits.perCallCap)}
             </Field>
-            <Field label="Valid" hint={validFrom ? 'Opens on the date shown.' : 'Open since the account was created.'}>
+            <Field label="Valid" hint={validFrom ? 'Starts on the date shown.' : 'Active since the mandate was created.'}>
               {validUntil ? (
                 <>
                   until <Instant at={validUntil} />
@@ -103,11 +103,11 @@ export function SpendPanel() {
                 'No expiry'
               )}
             </Field>
-            <Field label="Limit version" hint="Rises by one every time the limits are rewritten.">
+            <Field label="Limit version" hint="Goes up by one each time the limits change.">
               <span className="tabular">{account.version.toString()}</span>
               {landed && rewroteFrom !== undefined && (
                 <span className="block text-note" style={{ color: 'var(--color-state-ok)' }}>
-                  Rewritten. The account was on {rewroteFrom.toString()} before this change.
+                  Updated from version {rewroteFrom.toString()}.
                 </span>
               )}
             </Field>
@@ -118,8 +118,8 @@ export function SpendPanel() {
               <div>
                 <h3 className="text-sm font-semibold">Change the limits</h3>
                 <p className="mt-0.5 text-detail text-[color:var(--color-muted)]">
-                  The whole set is written at once. The period and the total are re-anchored to the moment this lands
-                  and what has already been spent stays counted, so a change cannot hand back an allowance that was used.
+                  All limits are saved together. Periods restart when the change lands, and spending so far still
+                  counts, so a change never hands back budget that was used.
                 </p>
               </div>
 

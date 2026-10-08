@@ -27,16 +27,14 @@ export function OverviewView() {
     <div className="space-y-10">
       <Section
         title="Current conditions"
-        description="Five conditions stand between this agent and a settled payment. Each has a different owner, so each is reported on its own."
+        description="Every payment from this agent has to clear these five conditions."
       >
         <Card>
           <StatusList system={system} detailed />
         </Card>
         {system.snapshot && (
           <p className="text-note text-[color:var(--color-muted)]">
-            Read <Instant at={system.snapshot.readAt} relative /> at block{' '}
-            {system.snapshot.blockNumber.toString()}, in{' '}
-            {system.snapshot.calls} contract reads and one request.
+            Updated <Instant at={system.snapshot.readAt} relative />.
           </p>
         )}
       </Section>
@@ -53,7 +51,7 @@ export function OverviewView() {
 
       <Section
         title="Recent activity"
-        description="Written by the account itself."
+        description="The latest payments and changes on this mandate."
         actions={
           <Link href={`/console/${address}/settlements`} className="text-detail underline underline-offset-2">
             All settlements
@@ -62,21 +60,17 @@ export function OverviewView() {
       >
         <Card>
           {ledger.timelineError ? (
-            <ErrorSurface error={ledger.timelineError} action="Reading the history" onRetry={ledger.refresh}>
-              <p className="mt-1 text-detail text-[color:var(--color-muted)]">
-                Everything above still comes from the contracts and is current. Only the timeline is missing.
-              </p>
-            </ErrorSurface>
+            <ErrorSurface error={ledger.timelineError} action="Reading the history" onRetry={ledger.refresh} />
           ) : (
             <ActivityList events={ledger.events} limit={8} />
           )}
         </Card>
       </Section>
 
-      <Section title="Wiring" description="Every address below comes out of the account's own storage.">
+      <Section title="Addresses" description="The accounts this mandate works with.">
         <Card>
           <FieldGrid columns={2}>
-            <Field label="Owner" hint="Writes the limits and can take the funds back at any time.">
+            <Field label="Owner" hint="Sets the limits and can withdraw at any time.">
               {account ? <AddressView value={account.principal} /> : 'Reading'}
             </Field>
             <Field label="Escrow" hint="Holds each payment until the provider delivers or the deadline passes.">
@@ -84,15 +78,15 @@ export function OverviewView() {
             </Field>
             <Field
               label="Settlement asset"
-              hint="What providers are paid in. Transaction fees are a different asset and are paid in ETH."
+              hint="Providers are paid in this. Network fees are paid in ETH."
             >
               {account ? <AddressView value={account.settlementAsset} /> : 'Reading'}
             </Field>
-            <Field label="Mandate document" hint="The hash of the terms this account enforces. The contract never reads it; an auditor does.">
+            <Field label="Mandate document" hint="A fingerprint of the written terms, for your records.">
               {account && account.documentHash !== '0x' && !/^0x0+$/.test(account.documentHash) ? (
                 <span className="tabular break-all text-detail">{account.documentHash}</span>
               ) : (
-                'Not anchored'
+                'None'
               )}
             </Field>
           </FieldGrid>

@@ -69,7 +69,7 @@ export function ShareWithResolver({
     const { disclosureSlice, publishedViewingKey } = await import('@bursar/sdk');
     const key = await publishedViewingKey(rhcClient(), resolver);
     if (key === null) {
-      const message = 'This resolver has not published a viewing key, so there is no way to seal the slice to it. Ask it to register one.';
+      const message = 'This resolver has not published a viewing key yet, so nothing can be shared with it. Ask it to publish one.';
       setProblem(message);
       throw new Error(message);
     }
@@ -94,9 +94,9 @@ export function ShareWithResolver({
         label="Resolver address"
         value={text}
         onChange={setText}
-        hint={terms ? 'The resolver sees this payment, the input and the terms it turns on.' : 'The resolver sees this payment and its input.'}
+        hint={terms ? 'The resolver sees this payment, its input and the terms that apply.' : 'The resolver sees this payment and its input.'}
       />
-      <TxButton label="Share the slice" tone="secondary" disabled={resolver === undefined} send={send} />
+      <TxButton label="Share with this resolver" tone="secondary" disabled={resolver === undefined} send={send} />
       {problem && (
         <p className="text-detail" style={{ color: 'var(--color-state-blocked)' }}>
           {problem}

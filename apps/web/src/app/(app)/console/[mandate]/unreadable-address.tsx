@@ -16,16 +16,15 @@ const QUOTE_LIMIT = 64;
 export function UnreadableAddress({ typed }: { readonly typed: string }) {
   return (
     <EmptyState
-      title="The address in this URL is not an address."
+      title="This link does not contain a valid address."
       action={
         <Link href="/console" className="text-detail underline underline-offset-2">
           Open the console
         </Link>
       }
     >
-      <span className="tabular break-all">{quote(typed)}</span> sits where the console expects a mandate account, and an
-      account address is 42 characters beginning 0x. The page is here and reading fine. Check the address you pasted, or
-      open the console to list the mandates a wallet owns.
+      <span className="tabular break-all">{quote(typed)}</span> is not a mandate address. An address starts with 0x and
+      is 42 characters long. Check the link, or open the console to find the mandates your wallet owns.
     </EmptyState>
   );
 }

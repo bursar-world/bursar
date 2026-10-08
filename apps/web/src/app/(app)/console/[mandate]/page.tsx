@@ -4,7 +4,7 @@ import { OverviewView } from './overview-view';
 
 export const metadata: Metadata = {
   title: 'Mandate · BURSAR',
-  description: 'What this mandate has left, what it holds, who it may pay, and how to stop it.',
+  description: 'See what this mandate can spend and manage how it pays.',
 };
 
 export default function MandatePage() {

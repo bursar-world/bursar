@@ -89,22 +89,16 @@ export function ExceptionsView() {
     <div className="space-y-10">
       <Section
         title="Refusals"
-        description="The contract turned these payments down. The fee for sending them was still paid, which is why they are in the record at all."
+        description="Payments this mandate refused, and the condition that stopped each one."
       >
         <Card>
           {feed.reading.state === 'unreadable' || feed.reading.state === 'refused' ? (
-            <ErrorSurface error={feed.reading.error} action="Reading the refusals" onRetry={feed.refresh}>
-              <p className="mt-1 text-detail text-[color:var(--color-muted)]">
-                The contracts keep no record of a refusal; only the network index does. So this list is the part that
-                goes missing when the index will not hand it over.
-              </p>
-            </ErrorSurface>
+            <ErrorSurface error={feed.reading.error} action="Reading the refusals" onRetry={feed.refresh} />
           ) : feed.reading.state === 'loading' ? (
-            <p className="text-detail text-[color:var(--color-muted)]">Reading the refusals on this mandate.</p>
+            <p className="text-detail text-[color:var(--color-muted)]">Loading refusals.</p>
           ) : feed.refusals.length === 0 ? (
             <EmptyState title="Nothing has been refused.">
-              Every payment this mandate was asked for went through. A refusal appears here with the condition that
-              caused it, the moment it happens.
+              Every payment this mandate was asked for went through.
             </EmptyState>
           ) : (
             <Table
@@ -156,7 +150,7 @@ export function ExceptionsView() {
           )}
           {feed.truncated && (
             <p className="mt-3 text-detail text-[color:var(--color-muted)]">
-              Older refusals exist beyond the most recent ones read here.
+              Showing the most recent refusals.
             </p>
           )}
         </Card>
@@ -164,21 +158,20 @@ export function ExceptionsView() {
 
       <Section
         title="Deliveries that did not complete"
-        description="None of these is one of the five conditions. The mandate allowed the payment and the work did not arrive."
+        description="Payments the mandate allowed where the work did not arrive."
       >
         <Card>
           {outcomes.state === 'loading' ? (
             <p className="text-detail text-[color:var(--color-muted)]">
-              Reading what became of the payments this mandate made.
+              Loading payments.
             </p>
           ) : outcomes.state === 'unreadable' ? (
             <p className="text-detail text-[color:var(--color-muted)]">
-              What became of these payments could not be read. The escrow still holds the record; the request for it
-              did not come back. Check again at the top of the page.
+              These payments could not be loaded. Use Check again at the top of the page.
             </p>
           ) : outcomes.state === 'refused' ? (
             <p className="text-detail text-[color:var(--color-muted)]">
-              {refusalLine(outcomes.error)} The escrow still holds the record of every one of them.
+              {refusalLine(outcomes.error)}
             </p>
           ) : incomplete.length === 0 ? (
             <p className="text-detail text-[color:var(--color-muted)]">
@@ -257,19 +250,15 @@ export function ExceptionsView() {
 
           {overdue.length > 0 && (
             <p className="mt-4 max-w-3xl text-detail text-[color:var(--color-muted)]">
-              Returning a payment sends the full amount back to this mandate and credits the day and the month it was
-              taken from. It also records a delivery the provider never made, which lowers the largest single job any
-              payer may lock against that address. The escrow takes this call from anybody once the deadline has gone,
-              so the money is not lost while it waits{isOwner ? '' : ', and the owner of this mandate can make it'}.
+              Returning a payment sends the full amount back to this mandate and restores its budget. The missed
+              delivery counts against the provider&rsquo;s record.{isOwner ? '' : ' The owner of this mandate can return it.'}
             </p>
           )}
 
           {clockUnread && (
             <p className="mt-4 max-w-3xl text-detail text-[color:var(--color-muted)]">
-              The escrow is still holding {held.length === 1 ? 'one payment' : `${held.length} payments`} from this
-              mandate, and the chain&rsquo;s own clock did not come back, so whether{' '}
-              {held.length === 1 ? 'it has' : 'any of them has'} passed its deadline is unknown. Nothing here says none
-              has. Check again at the top of the page.
+              {held.length === 1 ? 'One payment is' : `${held.length} payments are`} still held in escrow, and their
+              deadlines could not be checked. Use Check again at the top of the page.
             </p>
           )}
         </Card>
@@ -280,36 +269,34 @@ export function ExceptionsView() {
           title="Payments you can still contest"
           description={
             bondBps === undefined
-              ? 'Contesting a payment sends it to a bonded resolver.'
-              : `Contesting a payment the provider has not claimed posts a bond of ${bondBps / 100}% of the amount from this mandate. It comes back only if the ruling lands on your side.`
+              ? 'Contesting a payment sends it to the resolvers.'
+              : `Contesting an unclaimed payment posts a ${bondBps / 100}% bond from this mandate. You get it back if the ruling goes your way.`
           }
         >
           <Card>
             <p className="mb-4 max-w-3xl text-detail text-[color:var(--color-muted)]">
               {resolverFeeBps === undefined
-                ? 'What the resolver panel charges could not be read. The escrow takes its cut of a contested payment before any refund is worked out, so the most a ruling can return is the payment less that cut.'
-                : `Two things come out of a contested payment. The bond above is one. The other is the resolver fee of ${
+                ? 'When the resolvers rule, a resolver fee comes off the payment before any refund.'
+                : `When the resolvers rule, a ${
                     resolverFeeBps / 100
-                  }%, which the escrow takes off the payment before it works out any refund, so even a ruling in your favour returns the payment less that fee. It is charged the same way when the panel never reaches a quorum and no resolver is paid out of it, and nothing returns it to this mandate. The escrow credits the day and the month it was taken from with what comes back, not with what was booked.`}
+                  }% resolver fee comes off the payment before any refund, so a ruling in your favour returns the payment less that fee.`}
             </p>
             {outcomes.state === 'loading' ? (
               <p className="text-detail text-[color:var(--color-muted)]">
-                Reading which payments are still open to a complaint.
+                Loading payments you can contest.
               </p>
             ) : outcomes.state === 'unreadable' ? (
               <p className="text-detail text-[color:var(--color-muted)]">
-                Whether anything is open to contest could not be read either. A payment does not stop being
-                contestable because a reading failed.
+                These payments could not be loaded. Use Check again at the top of the page.
               </p>
             ) : outcomes.state === 'refused' ? (
               <p className="text-detail text-[color:var(--color-muted)]">
-                {refusalLine(outcomes.error)} A payment does not stop being contestable because a read was turned
-                down, and the escrow will still take the call.
+                {refusalLine(outcomes.error)}
               </p>
             ) : open.length === 0 ? (
               <p className="text-detail text-[color:var(--color-muted)]">
-                Nothing is open to contest right now. A payment can be contested while the escrow still holds it, and a
-                settled one for as long as the dispute window is open.
+                Nothing to contest right now. A payment can be contested while it is held in escrow, and for a short
+                window after it settles.
               </p>
             ) : (
               <div className="space-y-4">
@@ -331,29 +318,27 @@ export function ExceptionsView() {
                         <p className="text-detail text-[color:var(--color-muted)]">
                           {returnable(lock, chainTime) ? (
                             <>
-                              The escrow still holds it and the deadline has gone. Returning it above sends the whole
-                              amount back and posts nothing. Contesting instead posts a bond of{' '}
-                              {bond === undefined ? 'the escrow’s rate' : usdExact(bond)} from this mandate and asks a
-                              resolver to split the payment.
+                              Past its deadline. Returning it above sends the full amount back at no cost. Contesting
+                              instead posts a bond of {bond === undefined ? 'the escrow’s rate' : usdExact(bond)} and asks
+                              the resolvers to split it.
                             </>
                           ) : lock.status === LockStatus.Locked ? (
                             <>
-                              The escrow still holds it. The provider has to deliver <Countdown to={lock.deadline} />,
-                              and a bond of {bond === undefined ? 'the escrow’s rate' : usdExact(bond)} is posted
-                              from this mandate when you contest. {feeWarning(lock.amount, resolverFeeBps, account.contractSet)}
+                              Held in escrow. The provider has to deliver <Countdown to={lock.deadline} />. Contesting
+                              posts a bond of {bond === undefined ? 'the escrow’s rate' : usdExact(bond)} from this
+                              mandate. {feeWarning(lock.amount, resolverFeeBps, account.contractSet)}
                             </>
                           ) : (
                             <>
-                              The provider was paid <Instant at={lock.releasedAt} relative />. The money has already
-                              moved, so a complaint now goes on their settlement history and nobody rules on it.
+                              Paid to the provider <Instant at={lock.releasedAt} relative />. A complaint now goes on
+                              their record; the payment is not reversed.
                             </>
                           )}
                         </p>
                         {short && bond !== undefined && (
                           <p className="text-detail" style={{ color: 'var(--color-state-blocked)' }}>
-                            This mandate holds {usd(account.balance)} in USDG and the bond is {usdExact(bond)}. Fund the
-                            account with USDG before contesting. Transaction fees are paid in ETH and are a different
-                            asset; they are not what is short here.
+                            The bond is {usdExact(bond)} and this mandate holds {usd(account.balance)} in USDG. Add
+                            USDG before contesting.
                           </p>
                         )}
                       </div>
@@ -367,7 +352,7 @@ export function ExceptionsView() {
                         confirmTitle={`Contest payment #${lock.id.toString()}`}
                         confirmDescription={
                           lock.status === LockStatus.Locked
-                            ? `A bond is posted from this mandate and a resolver decides how the locked amount is split. ${feeWarning(
+                            ? `A bond is posted from this mandate and the resolvers decide how the amount is split. ${feeWarning(
                                 lock.amount,
                                 resolverFeeBps,
                                 account.contractSet,
@@ -423,17 +408,17 @@ function feeWarning(amount: Micro, resolverFeeBps: number | undefined, contractS
     const fee =
       resolverFeeBps === undefined
         ? 'a resolver fee'
-        : `a ${resolverFeeBps / 100}% resolver fee, ${usdExact(mulBps(amount, resolverFeeBps))},`;
-    return `When the panel rules, the escrow takes ${fee} off the payment before it works out any refund. If no ruling is reached, the payment goes back into escrow with a new deadline, no fee is taken and the bond is returned. A payment can be contested once.`;
+        : `a ${resolverFeeBps / 100}% resolver fee (${usdExact(mulBps(amount, resolverFeeBps))})`;
+    return `If the resolvers rule, ${fee} comes off the payment before any refund. If they cannot rule, the payment goes back into escrow with a new deadline and the bond is returned. Each payment can be contested once.`;
   }
 
   if (resolverFeeBps === undefined) {
-    return 'The escrow also takes a resolver fee off the payment before it works out any refund, which is charged even where no resolver rules. What that fee is could not be read.';
+    return 'A resolver fee also comes off the payment before any refund, even when the resolvers cannot rule.';
   }
 
-  return `The escrow also takes a ${resolverFeeBps / 100}% resolver fee, ${usdExact(
+  return `A ${resolverFeeBps / 100}% resolver fee (${usdExact(
     mulBps(amount, resolverFeeBps),
-  )}, off the payment before it works out any refund. A dispute no resolver can rule still costs it, and nothing returns it to this mandate.`;
+  )}) also comes off the payment before any refund, even when the resolvers cannot rule.`;
 }
 
 function Condition({ state, system }: { readonly state: StateKey | null; readonly system: readonly AnyState[] }) {
@@ -441,7 +426,7 @@ function Condition({ state, system }: { readonly state: StateKey | null; readonl
     return (
       <span className="text-detail">
         <span className="font-medium">None of the five. </span>
-        <span className="text-[color:var(--color-muted)]">The escrow&rsquo;s own rules stopped this one.</span>
+        <span className="text-[color:var(--color-muted)]">The escrow&rsquo;s rules stopped this one.</span>
       </span>
     );
   }
@@ -463,7 +448,7 @@ function Condition({ state, system }: { readonly state: StateKey | null; readonl
 function Attempted({ refusal, labelFor }: { readonly refusal: Refusal; readonly labelFor: (id: `0x${string}`) => string | undefined }) {
   const attempt = refusal.attempt;
   if (!attempt) {
-    return <span className="text-detail text-[color:var(--color-muted)]">A call this console cannot name</span>;
+    return <span className="text-detail text-[color:var(--color-muted)]">An action this console does not recognise</span>;
   }
 
   return (

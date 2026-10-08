@@ -30,9 +30,9 @@ describe.each<GateSubject>(['payees', 'capabilities'])('the %s table with no row
 
   it('never claims nothing is allowed when the read failed', () => {
     const unreadable = render(subject, UNREADABLE);
-    expect(unreadable).toContain('could not be read');
-    expect(unreadable).toContain('Nothing here says the list is empty');
-    expect(unreadable).not.toContain('has been allowed yet');
+    expect(unreadable).toContain('could not be loaded');
+    expect(unreadable).toContain('The mandate still refuses');
+    expect(unreadable).not.toMatch(/No (payees|kinds of work)/);
   });
 
   it('offers the read again where the read is what failed, and nowhere else', () => {
@@ -42,7 +42,7 @@ describe.each<GateSubject>(['payees', 'capabilities'])('the %s table with no row
   });
 
   it('names the wait while a reading is in flight', () => {
-    expect(render(subject, LOADING)).toContain('Reading the');
+    expect(render(subject, LOADING)).toContain('Loading');
   });
 
   it('renders nothing at all once there are rows to show', () => {
@@ -52,7 +52,7 @@ describe.each<GateSubject>(['payees', 'capabilities'])('the %s table with no row
 
 describe('the sentences name their own subject', () => {
   it('does not offer one list the other list’s account of itself', () => {
-    expect(render('payees', EMPTY)).toContain('pays nobody');
+    expect(render('payees', EMPTY)).toContain('cannot pay anyone');
     expect(render('capabilities', EMPTY)).toContain('every payment is refused');
     expect(render('payees', EMPTY)).not.toContain('every payment is refused');
   });
@@ -92,9 +92,8 @@ describe('a gate table the index refused', () => {
 
   it.each<GateSubject>(['payees', 'capabilities'])('still refuses to call the list empty, for %s', (subject) => {
     const shown = refused(subject);
-    expect(shown).toContain('Nothing here says the list is empty');
-    expect(shown).toContain('The contract still holds the list');
-    expect(shown).not.toContain('has been allowed yet');
+    expect(shown).toContain('The mandate still refuses');
+    expect(shown).not.toMatch(/No (payees|kinds of work)/);
   });
 
   it('keeps the server setting off the reader\'s screen', () => {
@@ -115,7 +114,7 @@ describe('a gate table the index refused', () => {
 
   it('falls back to the plain failure when there is no refusal to name', () => {
     const shown = renderToStaticMarkup(<GateEmpty state={REFUSED} subject="payees" onRetry={() => undefined} />);
-    expect(shown).toContain('could not be read');
-    expect(shown).not.toContain('has been allowed yet');
+    expect(shown).toContain('could not be loaded');
+    expect(shown).not.toMatch(/No (payees|kinds of work)/);
   });
 });

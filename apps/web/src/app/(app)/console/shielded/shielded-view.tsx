@@ -102,8 +102,8 @@ export function ShieldedView() {
       </Link>
       <h1 className="page-title">Shielded funds</h1>
       <p className="max-w-3xl text-detail text-[color:var(--color-muted)]">
-        Put USDG into a shared pool from this wallet, then fund mandates, hidden owners and providers out of it. A payout is sent by
-        the pool, so it does not name the wallet that deposited.
+        Deposit USDG into a shared pool, then fund mandates, hidden owners and providers from it. Payouts come from the pool,
+        so they do not name the wallet that deposited.
       </p>
       <p className="max-w-3xl text-detail" style={{ color: 'var(--color-state-attention)' }}>
         {SHIELDED_TIMING_LINE}
@@ -127,7 +127,7 @@ export function ShieldedView() {
         <>
           <PoolPanel contracts={contracts} />
           <EmptyState title="Connect the wallet you deposit from." action={<ConnectButton />}>
-            Its signature is what finds your deposits again.
+            Your wallet’s signature finds your deposits.
           </EmptyState>
         </>
       ) : (
@@ -158,13 +158,13 @@ function PoolPanel({ contracts }: { readonly contracts: ShieldedDeployment }) {
   const ready = setMatchesChain(set.data, pool.data?.latestRoot);
 
   return (
-    <Section title="The pool" description="USDG only. The limits hold while the pool is young.">
+    <Section title="The pool" description="USDG only. These limits apply while the pool is new.">
       <Card>
         <StatGrid columns={3}>
           <Stat
             label="Held in the pool"
-            value={pool.data ? `${usdgText(pool.data.poolBalance)} USDG` : 'Reading'}
-            hint={`Of at most ${usdgText(limits.maxTotal)} USDG.`}
+            value={pool.data ? `${usdgText(pool.data.poolBalance)} USDG` : 'Loading'}
+            hint={`The pool holds at most ${usdgText(limits.maxTotal)} USDG.`}
             level={pool.data ? 'ok' : 'unknown'}
           />
           <Stat
@@ -175,13 +175,13 @@ function PoolPanel({ contracts }: { readonly contracts: ShieldedDeployment }) {
           />
           <Stat
             label="Approved deposits"
-            value={set.data ? `${set.data.labels.length} of ${pool.data?.events.deposits.length ?? 0}` : 'Reading'}
+            value={set.data ? `${set.data.labels.length} of ${pool.data?.events.deposits.length ?? 0}` : 'Loading'}
             hint={
               set.data === undefined
-                ? 'Reading the association set.'
+                ? 'Loading approved deposits.'
                 : ready
-                  ? 'Every deposit from a wallet the Robinhood access registry does not block. This is the association set, and withdrawals prove against it.'
-                  : 'The newest deposits are waiting for the next association set. They can be withdrawn once its root is posted.'
+                  ? 'Every deposit from a wallet the Robinhood access registry does not block. A withdrawal proves its deposit is on this list.'
+                  : 'The newest deposits are waiting for approval. They can be withdrawn once the next approved list is posted.'
             }
             level={set.data === undefined ? 'unknown' : ready ? 'ok' : 'attention'}
           />
@@ -217,7 +217,7 @@ function Connected({ contracts, wallet }: { readonly contracts: ShieldedDeployme
     } catch (error) {
       setProblem(
         error instanceof Error && error.name === 'FundsKeySignatureError'
-          ? 'That signature did not come from this wallet, so no key was derived. Smart-contract wallets cannot unlock deposits here.'
+          ? 'That signature did not come from this wallet, so your deposits stay locked. Smart contract wallets cannot unlock deposits here.'
           : 'The signature was declined, so your deposits stay locked.',
       );
     } finally {
@@ -232,7 +232,7 @@ function Connected({ contracts, wallet }: { readonly contracts: ShieldedDeployme
       <PoolPanel contracts={contracts} />
       <Section
         title="Your deposits"
-        description="Your wallet signs a request that says it controls funds, and the keys behind your deposits are derived from it in this page. Signing costs nothing. Sign it only here: whoever holds that signature can spend your deposits."
+        description="Your wallet signs a request it shows as controlling funds, and this page uses it to unlock your deposits. Signing is free. Sign it only here, because anyone with that signature can spend your deposits."
       >
         <Card>
           <div className="space-y-4">
@@ -241,7 +241,7 @@ function Connected({ contracts, wallet }: { readonly contracts: ShieldedDeployme
                 {busy ? 'Waiting for the signature' : 'Unlock your deposits'}
               </Button>
             ) : notes.data === undefined ? (
-              <p className="text-detail text-[color:var(--color-muted)]">Reading the pool.</p>
+              <p className="text-detail text-[color:var(--color-muted)]">Loading the pool.</p>
             ) : (
               <DepositForm contracts={contracts} wallet={wallet} keys={unlocked.keys} nextIndex={notes.data.nextDepositIndex} poolBalance={pool.data?.poolBalance} onDone={refresh} />
             )}
@@ -316,7 +316,7 @@ function DepositForm({
           setAmount(atomic);
         }}
         {...(problem ? { problem } : {})}
-        hint={`The deposit itself is public: the pool shows this wallet put the amount in. What you take out later is not tied to it.${roomLine === undefined ? '' : ` ${roomLine}`}`}
+        hint={`Deposits are public: anyone can see this wallet put the amount in. What you withdraw later is not tied to it.${roomLine === undefined ? '' : ` ${roomLine}`}`}
       />
       <div className="flex flex-wrap gap-3">
         {/* Keyed apart: the two buttons share a slot, and a confirmed allowance would otherwise leave its
@@ -396,7 +396,7 @@ function NoteList({
       {open.length === 0 ? (
         <Card>
           {notes.length === 0 ? (
-            <EmptyState title="Nothing in the pool belongs to this wallet yet.">Deposit above, then come back to spend from it.</EmptyState>
+            <EmptyState title="No deposits from this wallet yet.">Deposit above, then spend from it here.</EmptyState>
           ) : (
             <EmptyState title="Everything this wallet deposited has been spent or returned.">Deposit above to spend from the pool again.</EmptyState>
           )}
@@ -464,8 +464,8 @@ function NoteCard({
           <div className="space-y-2 border-t border-[color:var(--color-line)] pt-4">
             <p className="text-sm font-medium">Take it back publicly</p>
             <p className="text-detail text-[color:var(--color-muted)]">
-              Returns all {usdgText(note.value)} USDG to the wallet that deposited it. The return is visible on chain as going back to that
-              wallet. It works whether or not the deposit is approved.
+              Returns all {usdgText(note.value)} USDG to the wallet that deposited it. Anyone can see the return. This works even
+              before the deposit is approved.
             </p>
             <TxButton
               label="Return it to this wallet"
@@ -596,7 +596,7 @@ function WithdrawForm({
         hint={feeLine(amount, quote.data, gasDrop)}
       />
       {relayer === undefined ? (
-        <p className="text-detail">Withdrawals are sent by the relayer, and this console has none configured, so withdrawing is off here.</p>
+        <p className="text-detail">Withdrawals are not available in this console yet.</p>
       ) : quote.error ? (
         <p className="text-detail">The relayer did not answer. Try again shortly.</p>
       ) : null}

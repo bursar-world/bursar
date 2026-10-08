@@ -36,7 +36,7 @@ export function MandateSwitch({ address, children }: { readonly address: Address
   if (enabled && committed.isError) {
     return (
       <div className="space-y-3" role="alert">
-        <p className="text-sm">This address could not be read just now, so the console cannot tell what kind of mandate it is.</p>
+        <p className="text-sm">This address could not be loaded, so the console cannot tell what kind of mandate it is yet.</p>
         <button type="button" className="text-detail underline underline-offset-2" onClick={() => void committed.refetch()}>
           Read it again
         </button>

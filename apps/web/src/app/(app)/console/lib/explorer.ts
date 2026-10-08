@@ -123,7 +123,7 @@ function unavailable(failure: IndexFailure, host: string, status?: number, quiet
   return new IndexUnavailable(
     failure,
     host,
-    `${raised.condition} It is asked again in ${Math.ceil(quietMs / 1_000)}s.`,
+    `${raised.condition} It retries in ${Math.ceil(quietMs / 1_000)}s.`,
     raised.nextAction,
     status,
     raised.operatorNote,
@@ -131,11 +131,11 @@ function unavailable(failure: IndexFailure, host: string, status?: number, quiet
 }
 
 function describe(failure: IndexFailure, host: string, status?: number): IndexUnavailable {
-  const unaffected = 'Balances and limits come from the contracts and are unaffected.';
+  const unaffected = 'Balances and limits are unaffected.';
   switch (failure) {
     case 'rate-limited':
       return note(
-        new IndexUnavailable('rate-limited', host, 'The history is busy right now.', `It fills in on its own in a moment. ${unaffected}`, status, `${host} answered HTTP 429.`),
+        new IndexUnavailable('rate-limited', host, 'The history is busy right now.', `It loads on its own in a moment. ${unaffected}`, status, `${host} answered HTTP 429.`),
       );
     case 'unkeyed':
       // The one failure with an owner who is not on this screen: the index is up and charges for the
@@ -165,7 +165,7 @@ function describe(failure: IndexFailure, host: string, status?: number): IndexUn
           'refused',
           host,
           'The history could not be loaded.',
-          `Ask for it again later. ${unaffected}`,
+          `Try again later. ${unaffected}`,
           status,
           `${host} answered HTTP ${status ?? 'an error'} rather than the history. Check BLOCKSCOUT_API_BASE on the server that serves ${readerOrigin()}.`,
         ),
@@ -176,7 +176,7 @@ function describe(failure: IndexFailure, host: string, status?: number): IndexUn
           'blocked',
           host,
           'This browser blocked the history.',
-          `Waiting will not change it: something on this browser or its network is refusing the response. ${unaffected}`,
+          `Something in this browser or its network is blocking it, so waiting will not help. ${unaffected}`,
           status,
           `${host} answered without cross-origin permission for ${readerOrigin()}. The history is read through ${INDEX_ROUTE} on this app's own origin, so something in front of it is answering.`,
         ),
@@ -186,8 +186,8 @@ function describe(failure: IndexFailure, host: string, status?: number): IndexUn
         new IndexUnavailable(
           'unreachable',
           host,
-          'The history did not answer.',
-          `Check this browser's network connection, then ask again. ${unaffected}`,
+          'The history could not be reached.',
+          `Check your connection, then try again. ${unaffected}`,
           status,
           `Nothing answered at ${host}.`,
         ),
@@ -198,7 +198,7 @@ function describe(failure: IndexFailure, host: string, status?: number): IndexUn
           'timed-out',
           host,
           'The history is taking too long.',
-          `Ask for it again. ${unaffected}`,
+          `Try again. ${unaffected}`,
           status,
           `${host} did not finish answering within ${TIMEOUT_MS / 1_000}s.`,
         ),
