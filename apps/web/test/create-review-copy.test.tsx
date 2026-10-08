@@ -48,7 +48,13 @@ describe('an amount field', () => {
     expect(html).not.toContain('Reads as');
   });
 
-  it('echoes an amount typed another way', () => {
+  it('keeps its hint for a plain decimal the console would write differently', () => {
+    const html = render('0.1');
+    expect(html).toContain('Larger payments are refused.');
+    expect(html).not.toContain('Reads as');
+  });
+
+  it('echoes an amount typed with a separator', () => {
     expect(render('1,5')).toContain('Reads as $1.50');
   });
 
