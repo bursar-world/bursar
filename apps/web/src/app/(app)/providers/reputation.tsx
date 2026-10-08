@@ -2,7 +2,7 @@ import type { Micro } from '@bursar/core';
 
 import { Card, Field, FieldGrid } from '@/components/layout';
 import { LimitBar, Stat, StatGrid } from '@/components/stat';
-import { usd, usdExact } from '@/money';
+import { usd, usdHeld } from '@/money';
 
 import type { ProviderDesk, ProviderRecord } from './desk';
 import { capAtScore } from './registry';
@@ -44,7 +44,7 @@ export function ReputationPanel({ desk, owned }: { readonly desk: ProviderDesk; 
           */}
           <Stat
             label="Paid out"
-            value={desk.paidOut === undefined ? '—' : usdExact(desk.paidOut)}
+            value={desk.paidOut === undefined ? '—' : usdHeld(desk.paidOut)}
             hint={
               desk.complete
                 ? `Received across the ${desk.locks.length === 1 ? 'job' : 'jobs'} below`
