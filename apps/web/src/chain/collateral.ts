@@ -16,7 +16,7 @@ import type { Abi, Address } from 'viem';
 import { ReadBatch, addChainTime, runBatch } from './batch';
 import type { Slot } from './batch';
 import { rhcClient } from './client';
-import { formatDuration } from '../lib/time';
+import { spellDuration } from '../lib/time';
 import { ADDRESSES, CHAIN_ID, deployment } from './rhc';
 
 /**
@@ -401,7 +401,7 @@ const HALT_LINES: Readonly<Record<ConsoleHalt, (bounds: ObservationBounds | unde
   FeedStale: () => 'Its price is too old to borrow against during market hours.',
   NoObservation: (bounds) => `The price check holds no reading of its pool old enough to count. A reading counts ${readingCounts(bounds)}.`,
   ObservationExpired: (bounds) =>
-    `The price check’s last reading of its pool is ${bounds === undefined ? 'too old to count' : `more than ${formatDuration(Number(bounds.maxAge))} old`}. A new reading counts ${readingCounts(bounds)}.`,
+    `The price check’s last reading of its pool is ${bounds === undefined ? 'too old to count' : `more than ${spellDuration(Number(bounds.maxAge))} old`}. A new reading counts ${readingCounts(bounds)}.`,
   ObservationOffBand: (bounds) =>
     `At the price check’s last reading its pool was out of line with its price. A reading taken with the two in line counts ${readingCounts(bounds)}.`,
   FeedJump: (bounds) =>
@@ -414,7 +414,7 @@ const HALT_LINES: Readonly<Record<ConsoleHalt, (bounds: ObservationBounds | unde
 };
 
 function readingCounts(bounds: ObservationBounds | undefined): string {
-  return bounds === undefined ? 'once it has aged' : `${formatDuration(Number(bounds.minAge))} after it is taken`;
+  return bounds === undefined ? 'once it has aged' : `${spellDuration(Number(bounds.minAge))} after it is taken`;
 }
 
 /** Undefined while the position counts. */

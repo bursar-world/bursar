@@ -1,10 +1,10 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
-import { ADDRESSES, RHC, CHAIN_ID } from '@/chain/rhc';
+import { ADDRESSES, RHC, CHAIN_ID, deployment } from '@/chain/rhc';
 import { Address, CopyControl } from '@/components/address';
 import { Card, Field, FieldGrid, Section } from '@/components/layout';
-import { formatEth } from '@/money';
+import { formatEthApprox } from '@/money';
 // Straight from the module. The state barrel re-exports hooks, and a static page that touches it
 // ships wagmi and the query client to every reader.
 import { ROUND_TRIP_FEE } from '@/state/evaluate';
@@ -13,6 +13,20 @@ export const metadata: Metadata = {
   title: 'Developers · Bursar',
   description: 'SDK quickstart, the MCP server, and x402 for a provider that wants to charge agents.',
 };
+
+/** Runs as printed with no key: it reads the live example, so a reader sees real figures first. */
+const READ = `import { formatUsdg, mandateAccount } from '@bursar/sdk';
+
+const mandate = await mandateAccount('${deployment().examples.mandate ?? 'MANDATE'}');
+const { balance, limits, remaining, paused } = await mandate.status();
+
+console.log({
+  balance: formatUsdg(balance),
+  perPayment: formatUsdg(limits.perCallCap),
+  leftThisPeriod: formatUsdg(remaining.daily),
+  periodResets: remaining.dailyResetsAt,
+  paused,
+});`;
 
 const QUICKSTART = `import { mandateAccount, usdg } from '@bursar/sdk';
 
@@ -94,8 +108,22 @@ export default function DocsPage() {
         </Card>
       </Section>
 
-      <Section title="The SDK" description="An agent pays a provider in three lines.">
-        <Card>
+      <Section title="The SDK" description="Read any mandate with no key, then pay from one in three lines.">
+        <Card title="Read any mandate" description="No key and nothing signed. These are the same reads the console makes.">
+          <CodeBlock code={READ} label="Copy the read example" />
+          <p className="mt-3 max-w-3xl text-sm">
+            The SDK runs from a clone of the{' '}
+            <a href="https://github.com/bursar-world/bursar" className="underline underline-offset-2">
+              public repository
+            </a>
+            : run <code className="font-mono text-note">pnpm install</code> and{' '}
+            <code className="font-mono text-note">pnpm --filter @bursar/sdk build</code> there, and import it from a package
+            in that workspace. The address above is the live example mandate, so the figures printed are the ones the console
+            shows.
+          </p>
+        </Card>
+
+        <Card title="Pay a provider" description="An agent pays from its mandate, inside the limits.">
           <CodeBlock code={QUICKSTART} label="Copy the payment example" />
           <p className="mt-3 max-w-3xl text-sm">
             <code className="font-mono text-note">pay</code> reads the limits, opens an escrow lock against the
@@ -280,7 +308,7 @@ export default function DocsPage() {
         <Card>
           <FieldGrid columns={3}>
             <Field label="One payment" hint="The mandate check, the escrow lock and the release, end to end.">
-              <span className="tabular">{formatEth(ROUND_TRIP_FEE)}</span>
+              <span className="tabular">{formatEthApprox(ROUND_TRIP_FEE)}</span>
             </Field>
             <Field label="Settlement asset" hint="USDG, six decimals. Transaction fees are paid in ETH and come out of the signer's own balance.">
               <Address value={ADDRESSES.usdg} />
