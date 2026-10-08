@@ -182,6 +182,9 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
   // one press away.
   const taken = slot?.deployed === true;
   const canCreate = ready && slot !== undefined && !taken;
+  // The one blocker that does stop the deploy: the owner's own wallet pays its fee in ETH.
+  const feeBalance = system.funding.facts.gasBalance;
+  const shortOfFee = feeBalance !== undefined && feeBalance < DEPLOY_FEE;
 
   const submit = () => {
     if (slot === undefined || !ready) return Promise.reject(new Error('The mandate address has not been read yet.'));
@@ -395,7 +398,14 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
               <Field label="Funding" hint="Cannot be changed later.">
                 {LANE_NAME[lane]}
               </Field>
-              <Field label="After it is created" hint="One transaction each.">
+              <Field
+                label="After it is created"
+                hint={
+                  payees.length + capabilities.length + followUps.length > 0
+                    ? 'One transaction each.'
+                    : 'It pays nobody until a payee and a capability are allowed.'
+                }
+              >
                 {afterCreation(payees.length, capabilities.length, followUps)}
               </Field>
               <Field label="Creating it costs" hint="The network fee, paid from your wallet.">
@@ -419,7 +429,14 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
               </div>
             )}
 
-            {system.blockers.length > 0 && (
+            {shortOfFee && (
+              <p className="text-detail" style={{ color: 'var(--color-state-blocked)' }}>
+                Your wallet holds {formatEth(feeBalance)}, and creating the mandate costs about {formatEth(DEPLOY_FEE)} in
+                network fees. Add ETH to this wallet first.
+              </p>
+            )}
+
+            {!shortOfFee && system.blockers.length > 0 && (
               <div className="space-y-1 rounded-md border border-[color:var(--color-line)] p-3">
                 <p className="text-detail font-medium">None of these stops the mandate being created.</p>
                 <p className="text-detail text-[color:var(--color-muted)]">They would stop its payments later.</p>
@@ -436,7 +453,7 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
             ) : (
               <TxButton
                 label="Create the mandate"
-                disabled={!frozen && !canCreate}
+                disabled={!frozen && (!canCreate || shortOfFee)}
                 // Deploying an account moves no USDG, so the token's own state does not stand in
                 // the way of creating one. Connectivity does: an endpoint that does not answer
                 // takes no transaction at all.
