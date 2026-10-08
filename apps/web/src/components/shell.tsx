@@ -34,7 +34,7 @@ function Header() {
         <nav aria-label={SITE.navLabel} className="hidden flex-1 items-center justify-center gap-7 xl:flex">
           <NavLinks />
         </nav>
-        <div className="header-action ml-auto flex items-center gap-3 xl:ml-0">
+        <div className="header-action ml-auto flex min-h-10 items-center gap-3 sm:min-h-[50px] xl:ml-0">
           <ConnectButton />
         </div>
       </div>
