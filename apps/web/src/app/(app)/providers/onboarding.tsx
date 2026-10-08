@@ -48,6 +48,8 @@ export function RegisterCard({
   // the gate note under the button would answer the empty form and read as a failure under a
   // confirmation.
   const [landed, setLanded] = useState(false);
+  // What was registered, kept for the confirmation once the form has been cleared.
+  const [listed, setListed] = useState<{ readonly name: string; readonly stake: bigint } | undefined>(undefined);
   const { writeContractAsync } = useWriteContract();
 
   const facts = factsOf(desk);
@@ -63,50 +65,58 @@ export function RegisterCard({
       description="List your address so payers can pay you."
     >
       <form className="space-y-4" onSubmit={preventNavigation}>
-        <FieldGrid columns={2}>
-          <div className="space-y-1">
-            <label
-              htmlFor="provider-handle"
-              className="block text-label uppercase tracking-wide text-[color:var(--color-muted)]"
-            >
-              Handle
-            </label>
-            <input
-              id="provider-handle"
-              value={name}
-              maxLength={NAME_MAX_LENGTH}
-              autoComplete="off"
-              spellCheck={false}
-              placeholder="transcribe_eu"
-              aria-invalid={nameProblem(name) !== undefined}
-              onChange={(event) => setName(event.target.value)}
-              className="h-11 w-full border bg-surface px-3.5 text-sm outline-none focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-[color:var(--color-ring)]"
-              style={{ borderColor: nameProblem(name) ? 'var(--color-state-blocked)' : 'var(--color-line)' }}
+        {landed && listed !== undefined && (
+          <p className="text-sm">
+            Listed as <span className="font-medium">{listed.name}</span> with a stake of {usd(micro(listed.stake))}. Payers
+            can open jobs with this address now.
+          </p>
+        )}
+        {!landed && (
+          <FieldGrid columns={2}>
+            <div className="space-y-1">
+              <label
+                htmlFor="provider-handle"
+                className="block text-label uppercase tracking-wide text-[color:var(--color-muted)]"
+              >
+                Handle
+              </label>
+              <input
+                id="provider-handle"
+                value={name}
+                maxLength={NAME_MAX_LENGTH}
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="transcribe_eu"
+                aria-invalid={nameProblem(name) !== undefined}
+                onChange={(event) => setName(event.target.value)}
+                className="h-11 w-full border bg-surface px-3.5 text-sm outline-none focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-[color:var(--color-ring)]"
+                style={{ borderColor: nameProblem(name) ? 'var(--color-state-blocked)' : 'var(--color-line)' }}
+              />
+              <p className="text-note" style={{ color: nameProblem(name) ? 'var(--color-state-blocked)' : 'var(--color-muted)' }}>
+                {nameProblem(name) ??
+                  'A display name. Your address remains your identity.'}
+              </p>
+            </div>
+
+            <AmountInput
+              label="Stake"
+              asset="USDG"
+              value={text}
+              onChange={(next, value) => {
+                setText(next);
+                setAtomic(value);
+              }}
+              max={desk.balance === undefined ? undefined : { atomic: desk.balance, label: 'All of it' }}
+              hint={
+                floor === undefined
+                  ? 'The minimum stake could not be read.'
+                  : `At least ${usd(floor)}. A ruling against a job can take part of it.`
+              }
             />
-            <p className="text-note" style={{ color: nameProblem(name) ? 'var(--color-state-blocked)' : 'var(--color-muted)' }}>
-              {nameProblem(name) ??
-                'A display name. Your address remains your identity.'}
-            </p>
-          </div>
+          </FieldGrid>
+        )}
 
-          <AmountInput
-            label="Stake"
-            asset="USDG"
-            value={text}
-            onChange={(next, value) => {
-              setText(next);
-              setAtomic(value);
-            }}
-            max={desk.balance === undefined ? undefined : { atomic: desk.balance, label: 'All of it' }}
-            hint={
-              floor === undefined
-                ? 'The minimum stake could not be read.'
-                : `At least ${usd(floor)}. A ruling against a job can take part of it.`
-            }
-          />
-        </FieldGrid>
-
-        <StakeTerms desk={desk} />
+        {!landed && <StakeTerms desk={desk} />}
 
         {/*
           Keyed apart because these are two different actions in one slot. Without the keys React
@@ -146,6 +156,7 @@ export function RegisterCard({
               })
             }
             onConfirmed={() => {
+              setListed({ name, stake: amount });
               setText('');
               setAtomic(undefined);
               setLanded(true);
@@ -158,11 +169,13 @@ export function RegisterCard({
 
         {!landed && <GateNote gate={gate} />}
 
-        <p className="text-detail text-[color:var(--color-muted)]">
-          Two transactions: allow the registry to take the stake, then register. The stake is paid in USDG and transaction
-          fees in ETH.
-          {ruling !== undefined && ` One ruling can take up to ${bps(ruling)} of the stake.`}
-        </p>
+        {!landed && (
+          <p className="text-detail text-[color:var(--color-muted)]">
+            Two transactions: allow the registry to take the stake, then register. The stake is paid in USDG and
+            transaction fees in ETH.
+            {ruling !== undefined && ` One ruling can take up to ${bps(ruling)} of the stake.`}
+          </p>
+        )}
       </form>
     </Card>
   );
