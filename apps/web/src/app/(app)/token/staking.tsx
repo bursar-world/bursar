@@ -203,8 +203,8 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
                 <Field label="In your wallet">
                   <span className="tabular">{amountOr(data.token?.balance, unread)}</span>
                 </Field>
-                <Field label="Earning shares" hint="Your fraction of the pool.">
-                  <span className="tabular">{position?.shares === undefined ? unread : position.shares.toString()}</span>
+                <Field label="Share of the pool" hint="Your earning shares as a part of all earning shares.">
+                  <span className="tabular">{poolShare(position?.shares, data.token?.pool?.totalShares) ?? unread}</span>
                 </Field>
                 <Field label="Staking contract">
                   <Address value={TOKEN_ADDRESSES.Staking} />
@@ -220,6 +220,14 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
       )}
     </Section>
   );
+}
+
+/** A raw share count means nothing to a reader; the part of the pool it is does. */
+function poolShare(shares: bigint | undefined, total: bigint | undefined): string | undefined {
+  if (shares === undefined || total === undefined) return undefined;
+  if (shares === 0n || total === 0n) return '0%';
+  const percent = Number((shares * 1_000_000n) / total) / 10_000;
+  return percent >= 0.01 ? `${percent.toLocaleString('en-US', { maximumFractionDigits: 2 })}%` : 'under 0.01%';
 }
 
 function StakeCard({ data, blockedBy }: { readonly data: TokenPageData; readonly blockedBy: readonly AnyState[] }) {
