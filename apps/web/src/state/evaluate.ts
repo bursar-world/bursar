@@ -192,7 +192,11 @@ export function evaluateMandate(snapshot: ChainSnapshot | undefined, checkedAt: 
   const total = budget !== undefined;
   const secondCap = showsSecondCap(account);
 
+  const escrowStopped = snapshot?.escrow.paused === true;
   const checks: Check[] = [
+    ...(escrowStopped
+      ? [{ id: 'escrow', label: 'Escrow', level: 'blocked' as const, detail: 'Stopped by the guardian. It takes no new payments until a restart proposal runs.' }]
+      : []),
     {
       id: 'live',
       label: 'Spending',
@@ -227,6 +231,10 @@ export function evaluateMandate(snapshot: ChainSnapshot | undefined, checkedAt: 
   ];
 
   const headroom = `${usd(account.remaining.daily)} left this period, ${usd(budget ? budget.remaining : account.remaining.monthly)} left ${total ? 'in the total budget' : 'under the second cap'}.`;
+
+  if (escrowStopped) {
+    return report('mandate', 'Mandate', 'blocked', 'The escrow is stopped.', `The guardian stopped the escrow, so no payment can lock until a restart proposal runs. Payments it already holds still settle. ${headroom}`, null, checks, facts, checkedAt, stale);
+  }
 
   if (account.revoked) {
     return report('mandate', 'Mandate', 'blocked', 'The agent is revoked.', 'Nothing can spend until the owner seats an agent.', { label: 'Seat an agent', owner: 'principal', kind: 'transaction' }, checks, facts, checkedAt, stale);

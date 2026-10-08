@@ -126,6 +126,7 @@ const ESCROW: EscrowRead = {
   treasury: OWNER,
   minLock: undefined,
   owed: undefined,
+  paused: false,
 };
 
 function snapshot(overrides: Partial<ChainSnapshot> = {}): ChainSnapshot {
@@ -273,6 +274,16 @@ describe('a reading that did not land is never a clear one', () => {
     const wrong = evaluateConnectivity([reachable('primary', RHC_MAINNET.chainId), reachable('fallback', 1)], RHC_MAINNET.chainId, 1_000n, NOW, false);
     expect(wrong.level).toBe('blocked');
     expect(wrong.headline).toBe('An endpoint is serving a different chain.');
+  });
+});
+
+describe('a stopped escrow', () => {
+  it('blocks the mandate, because no payment can lock while the guardian holds the brake', () => {
+    const state = evaluateMandate(snapshot({ escrow: { ...ESCROW, paused: true } }), NOW, false, MANDATE);
+
+    expect(state.level).toBe('blocked');
+    expect(state.headline).toBe('The escrow is stopped.');
+    expect(state.checks[0]?.label).toBe('Escrow');
   });
 });
 

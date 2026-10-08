@@ -127,6 +127,7 @@ function snapshot(funding: Partial<FundingRead>): ChainSnapshot {
       treasury: OWNER,
       minLock: undefined,
       owed: undefined,
+      paused: false,
     },
     governance: { timelock: OWNER, period: 172_800n },
   };
