@@ -502,7 +502,7 @@ export function evaluateConnectivity(
 function totalCheck(remaining: Micro, cap: Micro): Check {
   const level: StateLevel = remaining === 0n ? 'blocked' : cap > 0n && remaining * 10n < cap ? 'attention' : 'ok';
   return {
-    id: 'monthly',
+    id: 'total',
     label: 'Total budget',
     level,
     detail:
