@@ -5,7 +5,7 @@ import type { Address } from 'viem';
 import { RHC, shortAddress } from '../chain/rhc';
 import type { ProviderHealth } from '../chain/client';
 import type { ChainSnapshot } from '../chain/reader';
-import { formatEth, toCents, usd, usdHeld, wei } from '../money';
+import { formatEth, formatEthApprox, toCents, usd, usdHeld, wei } from '../money';
 import type { Wei } from '../money';
 import { formatInstant, formatRelative, fromUnix, isPast } from '../lib/time';
 import type {
@@ -402,7 +402,7 @@ export function evaluateFunding(snapshot: ChainSnapshot | undefined, checkedAt: 
       id: 'gas-float',
       label: 'Transaction fees, ETH',
       level: funding.gasBalance < ROUND_TRIP_FEE ? 'blocked' : trips < GAS_WARNING_TRIPS ? 'attention' : 'ok',
-      detail: `${shortAddress(funding.gasPayer)} holds ${formatEth(funding.gasBalance)}, enough for about ${trips} payments at ${formatEth(ROUND_TRIP_FEE)} each.`,
+      detail: `${shortAddress(funding.gasPayer)} holds ${formatEth(funding.gasBalance)}, enough for about ${trips} payments at ${formatEthApprox(ROUND_TRIP_FEE)} each.`,
     });
   }
 
