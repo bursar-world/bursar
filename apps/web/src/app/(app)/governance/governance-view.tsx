@@ -296,15 +296,17 @@ function ProposalCard({
             <Instant at={proposal.executeAfter} />
           )}
         </Field>
-        <Field label={proposal.status === 'expired' ? 'Expired' : 'Expires'} hint="If not executed by then, it must be proposed again.">
-          {proposal.expiresAt === undefined ? (
-            NOT_READ
-          ) : proposal.status === 'executable' ? (
-            <Countdown to={proposal.expiresAt} />
-          ) : (
-            <Instant at={proposal.expiresAt} />
-          )}
-        </Field>
+        {proposal.status !== 'executed' && proposal.status !== 'cancelled' && (
+          <Field label={proposal.status === 'expired' ? 'Expired' : 'Expires'} hint="If not executed by then, it must be proposed again.">
+            {proposal.expiresAt === undefined ? (
+              NOT_READ
+            ) : proposal.status === 'executable' ? (
+              <Countdown to={proposal.expiresAt} />
+            ) : (
+              <Instant at={proposal.expiresAt} />
+            )}
+          </Field>
+        )}
       </FieldGrid>
 
       <div className="mt-5">
