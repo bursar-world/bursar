@@ -258,26 +258,28 @@ function GasFor({
 
   return (
     <div className="space-y-4">
-      <Field label="Gas on the owner address" hint={`Needs about ${formatEth(required)} to ${purpose}.`}>
+      <Field label="Gas on the owner address" hint={`Covers the gas to ${purpose}.`}>
         <span className="tabular">{reading.data ? formatEth(balance) : 'Reading'}</span>
       </Field>
       {!ready && reading.data && (
-        <div className="space-y-2">
+        <div className="space-y-3">
           <p className="text-detail text-[color:var(--color-muted)]">
             Send {formatEth(topUp)} to the owner address. Sending from this wallet is quickest and links
             the two on chain. Sending from your shielded funds leaves no direct link.
           </p>
-          {shieldedContracts() && (
-            <Link href={shieldedHref('stealth-owner', address)} target="_blank" className="text-sm underline underline-offset-2">
-              Send it from your shielded funds
-            </Link>
-          )}
-          <TxButton
-            label={`Send ${formatEth(topUp)} from this wallet`}
-            tone="secondary"
-            send={() => sendTransactionAsync({ to: address, value: topUp, chainId: CHAIN_ID })}
-            onConfirmed={() => void reading.refetch()}
-          />
+          <div className="flex flex-wrap items-start gap-4">
+            <TxButton
+              label={`Send ${formatEth(topUp)} from this wallet`}
+              tone="secondary"
+              send={() => sendTransactionAsync({ to: address, value: topUp, chainId: CHAIN_ID })}
+              onConfirmed={() => void reading.refetch()}
+            />
+            {shieldedContracts() && (
+              <Link href={shieldedHref('stealth-owner', address)} target="_blank" className="mt-2.5 text-sm underline underline-offset-2">
+                Send it from your shielded funds
+              </Link>
+            )}
+          </div>
         </div>
       )}
       {children(ready)}
