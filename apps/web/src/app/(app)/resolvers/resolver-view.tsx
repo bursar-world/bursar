@@ -74,7 +74,7 @@ export function ResolverView() {
             <span className="text-note text-[color:var(--color-muted)]">
               {desk ? (
                 <>
-                  Updated <Instant at={desk.readAt} relative />. Chain time <Instant at={desk.chainTime} />.
+                  Updated <Instant at={desk.readAt} relative local />. Chain time <Instant at={desk.chainTime} />.
                 </>
               ) : (
                 <Skeleton width={220} />

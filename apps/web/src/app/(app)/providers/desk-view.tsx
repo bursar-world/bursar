@@ -69,7 +69,7 @@ export function DeskView({ payee, owned }: { readonly payee: Address; readonly o
             <span className="text-note text-[color:var(--color-muted)]">
               {desk ? (
                 <>
-                  Updated <Instant at={desk.readAt} relative />
+                  Updated <Instant at={desk.readAt} relative local />
                   {desk.blockNumber !== undefined && <> at block {desk.blockNumber.toString()}</>}.
                 </>
               ) : (

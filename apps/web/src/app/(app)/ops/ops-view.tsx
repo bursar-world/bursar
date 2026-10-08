@@ -94,7 +94,7 @@ export function OpsView() {
           <div className="mt-4">
             {data && (
               <p className="text-note text-[color:var(--color-muted)]">
-                Updated <Instant at={data.readAt} relative />
+                Updated <Instant at={data.readAt} relative local />
                 {data.blockNumber !== undefined && <> at block {data.blockNumber.toString()}</>}. Every figure below is
                 from that block.
               </p>

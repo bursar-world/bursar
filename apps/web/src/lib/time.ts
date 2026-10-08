@@ -40,18 +40,37 @@ export function formatDuration(seconds: number): string {
   return rest === 0 ? `${days}d` : `${days}d ${rest}h`;
 }
 
-/** "in 4h 12m" or "12m ago". */
-export function formatRelative(date: Date, now: Date = new Date()): string {
+/**
+ * How far the chain's clock runs from this browser's, as the last read that carried a block time
+ * found it. Windows on chain open and close by block time, so a countdown to one counts on the
+ * chain's clock. A gap under a minute is a block still on its way, not a clock that is wrong, and
+ * is left out so countdowns do not jump with every read.
+ */
+let chainSkewMs = 0;
+const SKEW_FLOOR_MS = 60_000;
+
+export function noteChainTime(chainSeconds: bigint, readAtMs: number = Date.now()): void {
+  const skew = Number(chainSeconds) * 1000 - readAtMs;
+  chainSkewMs = Math.abs(skew) < SKEW_FLOOR_MS ? 0 : skew;
+}
+
+/** The chain's time now, as this browser can best tell it. */
+export function chainNow(): Date {
+  return new Date(Date.now() + chainSkewMs);
+}
+
+/** "in 4h 12m" or "12m ago", counted on the chain's clock unless told otherwise. */
+export function formatRelative(date: Date, now: Date = chainNow()): string {
   const delta = Math.round((date.getTime() - now.getTime()) / 1000);
   if (Math.abs(delta) < 5) return 'just now';
   return delta > 0 ? `in ${formatDuration(delta)}` : `${formatDuration(-delta)} ago`;
 }
 
-export function secondsUntil(date: Date, now: Date = new Date()): number {
+export function secondsUntil(date: Date, now: Date = chainNow()): number {
   return Math.floor((date.getTime() - now.getTime()) / 1000);
 }
 
-export function isPast(date: Date, now: Date = new Date()): boolean {
+export function isPast(date: Date, now: Date = chainNow()): boolean {
   return date.getTime() <= now.getTime();
 }
 

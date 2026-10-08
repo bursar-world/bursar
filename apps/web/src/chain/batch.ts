@@ -2,6 +2,7 @@ import { multicall } from 'viem/actions';
 import type { Abi, Address } from 'viem';
 import type { RhcPublicClient } from '@bursar/core';
 import { arbSysAbi, multicall3Abi } from './abi';
+import { noteChainTime } from '../lib/time';
 import { ARB_SYS, MULTICALL3 } from './rhc';
 
 /**
@@ -27,6 +28,8 @@ type Call = {
 
 export class ReadBatch {
   readonly calls: Call[] = [];
+  /** The block time this batch reads, if it reads one. Every countdown on the page counts on it. */
+  clock: Slot<bigint> | undefined;
 
   /**
    * The `T` is the caller's claim about what this ABI entry decodes to, and the generated ABI is
@@ -56,7 +59,9 @@ export function addBlockNumber(batch: ReadBatch, label = 'blockNumber'): Slot<bi
 }
 
 export function addChainTime(batch: ReadBatch, label = 'chainTime'): Slot<bigint> {
-  return batch.add<bigint>(label, { address: MULTICALL3, abi: multicall3Abi as never, functionName: 'getCurrentBlockTimestamp' });
+  const slot = batch.add<bigint>(label, { address: MULTICALL3, abi: multicall3Abi as never, functionName: 'getCurrentBlockTimestamp' });
+  batch.clock ??= slot;
+  return slot;
 }
 
 export type RawSlotResult =
@@ -128,5 +133,8 @@ export async function runBatch(
     raw.push(...results);
   }
 
-  return new BatchResults(raw);
+  const results = new BatchResults(raw);
+  const chainSeconds = results.get(batch.clock);
+  if (chainSeconds !== undefined) noteChainTime(chainSeconds);
+  return results;
 }

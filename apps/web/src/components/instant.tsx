@@ -10,7 +10,16 @@ import { formatInstant, formatRelative } from '../lib/time';
  * swaps in the local reading after mount. Formatting on the server instead produces a hydration
  * mismatch, and React resolves those by keeping the server's answer, which is the wrong one.
  */
-export function Instant({ at, relative = false }: { readonly at: Date | null | undefined; readonly relative?: boolean }) {
+export function Instant({
+  at,
+  relative = false,
+  local = false,
+}: {
+  readonly at: Date | null | undefined;
+  readonly relative?: boolean;
+  /** A moment this browser measured, such as when a page was read, counted on its own clock. */
+  readonly local?: boolean;
+}) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -19,7 +28,7 @@ export function Instant({ at, relative = false }: { readonly at: Date | null | u
 
   return (
     <time dateTime={at.toISOString()} title={at.toISOString()}>
-      {relative ? formatRelative(at) : formatInstant(at)}
+      {relative ? formatRelative(at, local ? new Date() : undefined) : formatInstant(at)}
     </time>
   );
 }

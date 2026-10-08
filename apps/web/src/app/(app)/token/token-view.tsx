@@ -49,7 +49,7 @@ export function TokenView() {
           </p>
           {data.extras && (
             <p className="mt-3 text-note text-[color:var(--color-muted)]">
-              Updated <Instant at={data.extras.readAt} relative />
+              Updated <Instant at={data.extras.readAt} relative local />
               {data.extras.blockNumber !== undefined && <> at block {data.extras.blockNumber.toString()}</>} on{' '}
               {RHC.name}.
             </p>

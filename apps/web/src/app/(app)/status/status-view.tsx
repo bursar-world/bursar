@@ -207,7 +207,7 @@ export function StatusView() {
           {system.snapshot && (
             <>
               {' '}
-              Updated <Instant at={system.snapshot.readAt} relative /> at block{' '}
+              Updated <Instant at={system.snapshot.readAt} relative local /> at block{' '}
               {system.snapshot.blockNumber.toString()}.
             </>
           )}
