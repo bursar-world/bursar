@@ -70,7 +70,9 @@ export function ActivityList({ events, limit }: { readonly events: readonly Mand
 function describe(event: MandateEvent, labelFor: (id: Hex) => string | undefined): string {
   switch (event.kind) {
     case 'spent':
-      return `Paid ${usd(event.amount)} to ${shortAddress(event.merchant)} for ${capability(event.capabilityId, labelFor)}`;
+      // The money goes into the escrow here and the provider is paid only when it claims, so the row
+      // names the payment rather than calling it paid. Numbered to match "used on payment 8".
+      return `Payment ${event.escrowId.toString()}: ${usd(event.amount)} to ${shortAddress(event.merchant)} for ${capability(event.capabilityId, labelFor)}`;
     case 'credited':
       return `${usd(event.amount)} returned to the budget from payment ${event.escrowId.toString()}`;
     case 'approval-granted':
