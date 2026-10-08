@@ -568,14 +568,12 @@ function Condition({ level, text }: { readonly level: 'ok' | 'attention' | 'bloc
   );
 }
 
+/** One sentence for every earlier set together: each set used to add its own copy of the same one. */
 function earlierNote(desk: ProviderDesk): string {
-  return desk.earlier
-    .map((entry) =>
-      entry.complete
-        ? ` Jobs on earlier contracts are included and marked.`
-        : ` Jobs on earlier contracts could not be read.`,
-    )
-    .join('');
+  if (desk.earlier.length === 0) return '';
+  return desk.earlier.every((entry) => entry.complete)
+    ? ' Jobs on earlier contracts are included and marked.'
+    : ' Jobs on some earlier contracts could not be read.';
 }
 
 /** Lock ids restart with every escrow, so a row is named by both. */
