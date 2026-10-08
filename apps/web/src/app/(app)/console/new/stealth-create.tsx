@@ -377,20 +377,22 @@ export function StealthCreated({ created, prepared }: StealthCreation) {
             <Button onClick={() => void fundAgent()} disabled={busy || sent !== undefined}>
               {sent ? 'Gas sent to the agent' : busy ? 'Sending' : 'Send the agent gas from the owner address'}
             </Button>
-            {shieldedContracts() && (
-              <Link href={shieldedHref('mandate', created.mandate)} className="self-center text-sm underline underline-offset-2">
-                Fund it from your shielded funds
-              </Link>
-            )}
-            <Link href="/console/private" className="self-center text-sm underline underline-offset-2">
-              Your private mandates
-            </Link>
-            <Link href={`/console/${created.mandate}`} className="self-center text-sm underline underline-offset-2">
-              Open the mandate
-            </Link>
           </div>
           {sent && <TxHash hash={sent} />}
           {problem && <Problem text={problem} />}
+          <div className="flex flex-wrap gap-x-5 gap-y-2 border-t border-[color:var(--color-line)] pt-4 text-sm">
+            {shieldedContracts() && (
+              <Link href={shieldedHref('mandate', created.mandate)} className="underline underline-offset-2">
+                Fund it from your shielded funds
+              </Link>
+            )}
+            <Link href="/console/private" className="underline underline-offset-2">
+              Your private mandates
+            </Link>
+            <Link href={`/console/${created.mandate}`} className="underline underline-offset-2">
+              Open the mandate
+            </Link>
+          </div>
         </div>
       </Card>
     </Section>
