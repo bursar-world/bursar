@@ -127,6 +127,7 @@ export function ResolverView() {
 
 /** Bursar's own resolvers, the three the ruling policy names. */
 const OPERATED = 3;
+const WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
 
 /**
  * Who the panel is, said before anything else a reader could weigh a ruling by. While every bonded
@@ -142,7 +143,7 @@ function Operator({ commitWindow, bench }: { readonly commitWindow: bigint | und
       <div className="max-w-3xl space-y-3 text-sm">
         {shared ? (
           <p>
-            Bursar operates three of the {bench} resolvers bonded here. Its three vote by the published policy and cast
+            Bursar operates three of the {WORDS[bench] ?? bench} resolvers bonded here. Its three vote by the published policy and cast
             the same score, and the reasons are published on the dispute once the votes are revealed.
           </p>
         ) : (
