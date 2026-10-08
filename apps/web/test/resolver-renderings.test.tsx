@@ -66,6 +66,7 @@ function dispute(over: Partial<DisputeRow> = {}): DisputeRow {
     deployment: CURRENT,
     config: { commitWindow: 21_600n, revealWindow: 21_600n, unbondingPeriod: 604_800n, quorum: 2, maxVoters: 5, maxDeviation: 20, slashBps: 1_000 },
     resolverFeeBps: 50,
+    bondBps: 500,
     id: 1n,
     escrowId: 4n,
     status: DisputeStatus.Committing,

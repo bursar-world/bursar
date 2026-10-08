@@ -93,6 +93,8 @@ export type DisputeRow = {
   readonly config: OracleConfig | undefined;
   /** That escrow's cut of a settled lock. */
   readonly resolverFeeBps: number | undefined;
+  /** That escrow's contest bond, as a share of the lock. Zero where it takes none. */
+  readonly bondBps: number | undefined;
   readonly id: bigint;
   readonly escrowId: bigint;
   readonly status: number;
@@ -278,6 +280,7 @@ export async function readResolverDesk(account?: Address, signal?: AbortSignal):
     unallocated: head.add<bigint>('oracle.unallocatedRewards', oracle('unallocatedRewards')),
     minBond: head.add<bigint>('staking.minBond', staking('minBond')),
     resolverFeeBps: head.add<number>('escrow.resolverFeeBps', escrow('resolverFeeBps')),
+    bondBps: head.add<number>('escrow.disputeBondBps', escrow('disputeBondBps')),
   };
 
   const yours = account
@@ -301,6 +304,8 @@ export async function readResolverDesk(account?: Address, signal?: AbortSignal):
       config: head.add<RawConfig>(`oracle.config@${tag.name}`, oldOracle('config')),
       nextDisputeId: head.add<bigint>(`oracle.nextDisputeId@${tag.name}`, oldOracle('nextDisputeId')),
       resolverFeeBps: head.add<number>(`escrow.resolverFeeBps@${tag.name}`, at(tag.escrow, escrowAbi)('resolverFeeBps')),
+      // The first escrows took no bond and have no such call; the read fails and reads as unknown.
+      bondBps: head.add<number>(`escrow.disputeBondBps@${tag.name}`, at(tag.escrow, escrowAbi)('disputeBondBps')),
     };
   });
 
@@ -323,12 +328,13 @@ export async function readResolverDesk(account?: Address, signal?: AbortSignal):
   };
 
   const sets = [
-    { tag: currentTag, config, nextDisputeId, resolverFeeBps },
+    { tag: currentTag, config, nextDisputeId, resolverFeeBps, bondBps: headResults.get(slots.bondBps) },
     ...earlierSlots.map((entry) => ({
       tag: entry.tag,
       config: toConfig(headResults.get(entry.config)),
       nextDisputeId: headResults.get(entry.nextDisputeId),
       resolverFeeBps: headResults.get(entry.resolverFeeBps),
+      bondBps: headResults.get(entry.bondBps),
     })),
   ];
 
@@ -587,6 +593,7 @@ type RegistrySet = {
   readonly tag: DeploymentTag;
   readonly config: OracleConfig | undefined;
   readonly resolverFeeBps: number | undefined;
+  readonly bondBps: number | undefined;
 };
 
 function toRow(
@@ -610,6 +617,7 @@ function toRow(
     deployment: set.tag,
     config: set.config,
     resolverFeeBps: set.resolverFeeBps,
+    bondBps: set.bondBps,
     id: raw.id,
     escrowId: raw.escrowId,
     status: raw.status,

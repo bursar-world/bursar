@@ -132,6 +132,7 @@ function dispute(over: Partial<DisputeRow> = {}): DisputeRow {
     deployment: CURRENT,
     config: { commitWindow: 21_600n, revealWindow: 21_600n, unbondingPeriod: 604_800n, quorum: 2, maxVoters: 5, maxDeviation: 20, slashBps: 1_000 },
     resolverFeeBps: RESOLVER_FEE_BPS,
+    bondBps: 500,
     id: 1n,
     escrowId: 5n,
     status: DisputeStatus.Revealing,
@@ -251,6 +252,44 @@ describe('the resolver desk, before a dispute is closed without a ruling', () =>
 
     expect(html).toContain('The amounts could not be read right now');
     expect(html).not.toContain('$0.0995');
+  });
+});
+
+describe('the resolver desk, reading back a ruling', () => {
+  const ruled = (refundBps: number, rewardShares = 2) =>
+    dispute({
+      status: DisputeStatus.Finalized,
+      phase: 'finalized',
+      exit: 'none',
+      commitCount: 2,
+      revealCount: 2,
+      medianScore: refundBps === 10_000 ? 0 : 90,
+      refundBps,
+      rewardShares,
+      settlement: { ...settlement(), bond: micro(0n), status: LockStatus.Resolved },
+    });
+
+  it('says a full refund paid the payee nothing, instead of leaving it the rest', () => {
+    const html = card(ruled(10_000), NOW);
+
+    expect(html).toContain('the payee was paid nothing');
+    expect(html).not.toContain('keeps the rest');
+  });
+
+  it('says what a ruling for the payee awarded it', () => {
+    expect(card(ruled(0), NOW)).toContain('Nothing went back to the payer. The payee was awarded $0.0995');
+  });
+
+  it('says where the bond went once the escrow has zeroed it', () => {
+    expect(card(ruled(10_000), NOW)).toContain('Returned');
+    expect(card(ruled(0), NOW)).toContain('Paid to the resolvers');
+  });
+
+  it('reads a zero bond as zero where the escrow takes none', () => {
+    const html = card({ ...ruled(10_000), bondBps: 0 }, NOW);
+
+    expect(html).not.toContain('Returned');
+    expect(html).toContain('$0.00');
   });
 });
 
