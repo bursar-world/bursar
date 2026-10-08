@@ -368,7 +368,7 @@ export function LimitsFields({
       </FieldGrid>
 
       <div className="space-y-3">
-        <Field label="Payments you approve yourself" hint="Approval is asked for at and above the amount you set.">
+        <Field label="Payments you approve yourself">
           <div className="space-y-2">
             <Choice
               name="approval"

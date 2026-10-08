@@ -31,9 +31,9 @@ export type AmountInputProps = {
  * An amount field that takes the decimal separator a person uses.
  *
  * Most of the world writes 1,50. Rejecting it as malformed, or worse reading it as 150, is the
- * kind of mistake that only shows up once money has moved. Whatever is typed, the canonical
- * reading is echoed under the field, so 1,5 and 1.5 are visibly the same amount and 1,500 is
- * visibly not fifteen hundred.
+ * kind of mistake that only shows up once money has moved. Whatever is typed differently from its
+ * canonical reading is echoed under the field, so 1,5 and 1.5 are visibly the same amount and
+ * 1,500 is visibly not fifteen hundred.
  *
  * The text and the number are separate things. The caller keeps both and spends the number.
  */
@@ -60,15 +60,17 @@ export function AmountInput({
   const overMax = max !== undefined && atomic !== undefined && atomic > max.atomic;
 
   const shownProblem = pristine ? undefined : problem;
+  // The echo catches a misread. When the field already shows the canonical amount, the hint
+  // explaining the field is worth more than a copy of it.
+  const reading = atomic === undefined ? undefined : format(atomic, asset);
+  const echo = reading !== undefined && reading.replace(/^\$|\s*BRSR$/u, '') !== value.trim() ? `Reads as ${reading}` : undefined;
   const note = shownProblem
     ? shownProblem
     : overMax
       ? `That is more than the ${format(max.atomic, asset)} available.`
       : parsed && !parsed.ok
         ? parsed.problem
-        : atomic !== undefined
-          ? `Reads as ${format(atomic, asset)}`
-          : undefined;
+        : echo;
 
   const bad = Boolean(shownProblem) || overMax || (parsed !== undefined && !parsed.ok);
 

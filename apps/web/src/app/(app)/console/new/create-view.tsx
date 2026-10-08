@@ -26,7 +26,7 @@ import type { AnyState } from '@/state';
 import { AddressInput, readAddress } from '@/components/address-input';
 import { useWalletAccount } from '@/wallet/account';
 import { useCapabilityLabels } from '../lib/capability-labels';
-import { describeApproval } from '../lib/format';
+import { describeApproval, describeLimits } from '../lib/format';
 import { readLedgerState } from '../lib/reads';
 import type { GateEntry } from '../lib/reads';
 import { callGates } from '../lib/write-gates';
@@ -284,7 +284,7 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
           </Card>
           <Card
             title="How it is funded"
-            description="Choose now. The lane is fixed when the mandate is created."
+            description="Choose now. It cannot be changed once the mandate is created."
           >
             <LaneFields lane={lane} onChange={setLane} disabled={frozen} />
           </Card>
@@ -332,7 +332,7 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
               <ChipList
                 items={payees.map((payee) => ({ key: payee, label: shortAddress(payee) }))}
                 onRemove={(key) => setPayees(payees.filter((entry) => entry !== key))}
-                empty="No payees yet. You allow each one after the mandate is created."
+                empty="No payees yet. Each one you add is allowed right after the mandate is created."
               />
             </div>
           </Card>
@@ -351,9 +351,6 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
                 setClassed(nextCapabilities);
               }}
             />
-            <p className="mt-3 text-note text-[color:var(--color-muted)]">
-              Each label is stored as a hash on chain and kept readable in this browser.
-            </p>
           </Card>
         </Section>
       </fieldset>
@@ -363,7 +360,7 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
           <div className="space-y-4">
             <FieldGrid columns={2}>
               <Field
-                label={created ? 'Mandate address' : 'Address before it exists'}
+                label="Mandate address"
                 hint={
                   created
                     ? 'The mandate is live at this address. Send USDG to fund it.'
@@ -389,19 +386,20 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
                   <span className="text-[color:var(--color-muted)]">Could not read the address.</span>
                 )}
               </Field>
-              <Field label="Approvals" hint="Set under the limits above.">
+              <Field label="Limits">
+                {reading.limits ? describeLimits(reading.limits) : 'Set the limits above'}
+              </Field>
+              <Field label="Approvals">
                 {reading.limits ? describeApproval(reading.limits.approvalThreshold, reading.limits.perCallCap) : 'Set the limits above'}
               </Field>
-              <Field label="Creating it costs" hint="Paid in ETH from your wallet, at the current network fee.">
-                <span className="tabular">{formatEth(DEPLOY_FEE)}</span>
-              </Field>
-              <Field label="Then" hint="One transaction for each payee, capability and lane step.">
-                {payees.length} payee{payees.length === 1 ? '' : 's'}, {capabilities.length} capabilit
-                {capabilities.length === 1 ? 'y' : 'ies'}
-                {followUps.length > 0 && `, then ${followUps.join(' and ')}`}
-              </Field>
-              <Field label="Funding lane" hint="Fixed at creation.">
+              <Field label="Funding" hint="Cannot be changed later.">
                 {LANE_NAME[lane]}
+              </Field>
+              <Field label="After it is created" hint="One transaction each.">
+                {afterCreation(payees.length, capabilities.length, followUps)}
+              </Field>
+              <Field label="Creating it costs" hint="The network fee, paid from your wallet.">
+                <span className="tabular">{formatEth(DEPLOY_FEE)}</span>
               </Field>
             </FieldGrid>
 
@@ -687,4 +685,16 @@ function useSettled(value: string, pauseMs: number): string {
   }, [value, pauseMs]);
 
   return settled;
+}
+
+/** The transactions that follow the deploy, as one line: what gets allowed, then the lane's own steps. */
+function afterCreation(payees: number, capabilities: number, followUps: readonly string[]): string {
+  const allowed = [
+    payees > 0 ? `${payees} payee${payees === 1 ? '' : 's'}` : undefined,
+    capabilities > 0 ? `${capabilities} ${capabilities === 1 ? 'capability' : 'capabilities'}` : undefined,
+  ].filter((entry) => entry !== undefined);
+  const steps = [...(allowed.length > 0 ? [`allow ${allowed.join(' and ')}`] : []), ...followUps];
+  if (steps.length === 0) return 'Nothing to allow';
+  const line = steps.join(', then ');
+  return line.charAt(0).toUpperCase() + line.slice(1);
 }
