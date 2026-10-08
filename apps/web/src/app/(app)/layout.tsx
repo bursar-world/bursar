@@ -9,8 +9,8 @@ import { Providers } from './providers';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'BURSAR',
-  description: 'Set a spending mandate. Agents spend inside it. The limits are enforced by a contract.',
+  title: 'Bursar',
+  description: 'Give an AI agent a budget with limits enforced on chain.',
   icons: { icon: { url: '/brand/mark.png', type: 'image/png' } },
 };
 

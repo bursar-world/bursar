@@ -10,7 +10,7 @@ import { formatEth } from '@/money';
 import { ROUND_TRIP_FEE } from '@/state/evaluate';
 
 export const metadata: Metadata = {
-  title: 'Developers · BURSAR',
+  title: 'Developers · Bursar',
   description: 'SDK quickstart, the MCP server, and x402 for a provider that wants to charge agents.',
 };
 
@@ -111,7 +111,7 @@ export default function DocsPage() {
             two are never added together.
           </p>
           <p className="mt-3 max-w-3xl text-sm">
-            Contract addresses come from the deployment record the package ships, so none of them is pasted in by hand.
+            Contract addresses ship with the package, so none is pasted in by hand.
             Pass <code className="font-mono text-note">rpc</code> with two endpoints at different hosts to turn on the
             failover pool.
           </p>
@@ -147,18 +147,15 @@ export default function DocsPage() {
           <CodeBlock code={MCP_CONFIG} label="Copy the server configuration" />
           <p className="mt-3 max-w-3xl text-sm">
             One server, one mandate. Every value in angle brackets is one you supply, starting with the account you
-            created in the console. <code className="font-mono text-note">@bursar/mcp</code> is not published, so the
-            command is the file in your own clone and{' '}
-            <code className="font-mono text-note">pnpm --filter @bursar/mcp build</code> has to have run before it
-            starts.
+            created in the console. The command runs the server from your clone of the repository, so run{' '}
+            <code className="font-mono text-note">pnpm --filter @bursar/mcp build</code> there first.
           </p>
           <p className="mt-3 max-w-3xl text-sm">
-            As printed it holds no key and advertises the five tools that read. Signing is a separate decision with two
-            answers. Set <code className="font-mono text-note">BURSAR_SIGNER=local</code> and{' '}
+            As printed it holds no key and offers the five tools that read. To let it pay, choose one of two ways. Set <code className="font-mono text-note">BURSAR_SIGNER=local</code> and{' '}
             <code className="font-mono text-note">BURSAR_SIGNER_KEY</code> and the key stays in this process, able to
             sign for the one account above and for three calls on it. Point{' '}
             <code className="font-mono text-note">BURSAR_RELAY_URL</code> at a signer you run instead and the key never
-            reaches the process at all. Either answer advertises eight tools. Both at once is refused, and so is a key
+            reaches the process at all. Either way it offers eight tools. Both at once is refused, and so is a key
             arriving under a name the server was not told to hold, such as{' '}
             <code className="font-mono text-note">AGENT_PRIVATE_KEY</code> or{' '}
             <code className="font-mono text-note">PRIVATE_KEY</code>. The refusal names the variable and the server
@@ -167,7 +164,7 @@ export default function DocsPage() {
 
           <div className="mt-4 overflow-x-auto">
             <table className="w-full text-left text-detail">
-              <caption className="sr-only">Tools the BURSAR MCP server advertises</caption>
+              <caption className="sr-only">Tools the Bursar MCP server offers</caption>
               <thead>
                 <tr className="border-b border-[color:var(--color-line)] text-label uppercase tracking-wide text-[color:var(--color-muted)]">
                   <th scope="col" className="py-2 pr-4 font-medium">Tool</th>
@@ -225,7 +222,6 @@ export default function DocsPage() {
             move a payer&apos;s money.
           </p>
           <p className="mt-3 max-w-3xl text-sm">
-            One call is worth knowing about on its own.{' '}
             <code className="font-mono text-note">finalizeRelease</code> writes the reputation counter that sets the
             largest single job a payer may lock against you, and it reverts until the payer&apos;s time to contest has
             run out. Anyone can make it and nobody is obliged to, so a provider that never finalises holds its own

@@ -55,7 +55,7 @@ export const SITE: SiteChrome = {
   footer: {
     settlement: { network: RHC.name, chainId: RHC.chainId, asset: ADDRESSES.usdg },
     legal:
-      '$BRSR is a governance and staking token. It is not a claim on Robinhood, on Robinhood Chain, on Paxos or on USDG, and none of them endorses BURSAR.',
+      '$BRSR is a governance and staking token. It is not a claim on Robinhood, on Robinhood Chain, on Paxos or on USDG, and none of them endorses Bursar.',
     channels: [
       { href: 'https://x.com/UseBursar', label: 'Follow us', mark: 'x' },
       { href: 'https://github.com/bursar-world', label: 'GitHub', mark: 'github' },

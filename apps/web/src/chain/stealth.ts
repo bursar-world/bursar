@@ -14,11 +14,11 @@ import { CHAIN, CHAIN_ID, sameAddress } from './rhc';
  */
 
 export const STEALTH_LIMIT_LINE =
-  'Gas and USDG sent straight from this wallet to the new addresses are visible on chain and link them to it. Funding them from your shielded funds avoids that direct transfer. While you are the pool’s only depositor, that funding can still be matched to your deposit.';
+  'Sending gas or USDG to the new addresses straight from this wallet links them to it on chain. Shielded funds avoid that link, except while you are the pool’s only depositor.';
 
 /** What the pool cannot hide, said wherever shielded funding is offered, before anyone commits. */
 export const SHIELDED_TIMING_LINE =
-  'A payout from the pool hides which depositor it came from only among the wallets that have deposited. While you are the only depositor, anything paid out of the pool can be matched to your deposit. Once others deposit, leave time between your deposit and a payout and use a different amount, since a close match in timing and amount can still be linked.';
+  'A payout hides its source among everyone who has deposited, so while you are the only depositor it can be matched to your deposit. Leave time between deposit and payout, and use a different amount.';
 
 /** Two announcements and the create, with room to spare. The create alone measured 1.64M on 4663. */
 export const STEALTH_CREATE_GAS = 2_000_000n;

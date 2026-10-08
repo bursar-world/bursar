@@ -89,7 +89,7 @@ function ownerLabel(owner: NextAction['owner']): string {
     case 'provider':
       return 'The provider';
     case 'operator':
-      return 'BURSAR';
+      return 'Bursar';
     case 'token-issuer':
       return 'The token issuer';
   }

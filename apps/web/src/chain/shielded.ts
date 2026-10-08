@@ -124,7 +124,7 @@ function windowText(seconds: bigint): string {
 /** Why a withdrawal of `amount` from `note` cannot be sent. */
 export function withdrawProblem(args: { amount: bigint | undefined; note: Pick<OwnedNote, 'value'>; inSet: boolean }): string | undefined {
   const { amount, note, inSet } = args;
-  if (!inSet) return 'This deposit is waiting for the next association set. It can be withdrawn once the set includes it.';
+  if (!inSet) return 'This deposit is waiting for approval. It can be withdrawn once it is approved.';
   if (amount === undefined || amount === 0n) return undefined;
   if (amount > note.value) return `This deposit holds ${usdgText(note.value)} USDG.`;
   return undefined;
@@ -152,7 +152,7 @@ export const PURPOSES: Readonly<Record<WithdrawPurpose, { readonly label: string
   },
   provider: {
     label: 'Pay a provider',
-    hint: 'Pays a provider’s address from the pool. The provider sees the payment arrive from the pool, with no sender behind it.',
+    hint: 'Pays a provider from the pool. The provider sees the pool as the sender.',
     gasDrop: false,
   },
 };
@@ -192,7 +192,7 @@ export function relayFee(amount: bigint, feeBps: number | bigint): bigint {
 
 /** What the amount field says the relayer keeps, with the gas drop's price on top when gas goes along. */
 export function feeLine(amount: bigint | undefined, quote: RelayQuote | undefined, gasDrop: boolean): string {
-  const rest = 'What stays behind remains yours in the pool.';
+  const rest = 'The rest stays yours in the pool.';
   if (amount === undefined || quote === undefined) return rest;
   const drop = gasDrop && quote.gasDropFee !== undefined ? BigInt(quote.gasDropFee) : 0n;
   const fee = relayFee(amount, relayFeeBpsFor(quote, amount, gasDrop));
@@ -330,7 +330,7 @@ export async function withdrawThroughRelayer(args: {
     const reading = await readPool(contracts);
     const set = await readAssociationSet(contracts, reading, args.aspUrl);
     if (!setMatchesChain(set, reading.latestRoot)) {
-      throw new Error('The association set changed and its new root is not posted yet. Try again in a few minutes.');
+      throw new Error('The list of approved deposits is being updated. Try again in a few minutes.');
     }
     return { events: reading.events, set };
   };

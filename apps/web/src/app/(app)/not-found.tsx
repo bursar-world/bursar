@@ -16,7 +16,7 @@ export default function NotFound() {
         </div>
       }
     >
-      The address may be mistyped, or the page may have moved. Mandates open at /console followed by their address.
+      Check the address. A mandate opens at /console/ followed by its address.
     </EmptyState>
   );
 }

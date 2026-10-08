@@ -9,7 +9,7 @@ import { Card, Field, FieldGrid, Section } from '@/components/layout';
 import { bps, usd } from '@/money';
 
 export const metadata: Metadata = {
-  title: 'Collateral haircuts · BURSAR',
+  title: 'Collateral haircuts · Bursar',
   description: 'The haircut tiers, borrowing floor and liquidation terms of the collateral lane, read from Robinhood Chain.',
 };
 
@@ -35,7 +35,7 @@ export default async function HaircutsPage() {
           <Card>
             <p className="text-sm">
               {problem === undefined
-                ? 'The collateral lane is not deployed on this network.'
+                ? 'Borrowing against collateral is not available on this network yet.'
                 : 'The contracts could not be read just now. The page tries again within five minutes.'}
             </p>
           </Card>
@@ -136,11 +136,11 @@ function Terms({ schedule }: { readonly schedule: HaircutSchedule }) {
           </li>
           {schedule.observation !== undefined && (
             <li>
-              Borrowing against a position also needs the price check&rsquo;s reading of the token&rsquo;s pool: a reading taken between{' '}
-              {hoursOrMinutes(schedule.observation.minAge)} and {hoursOrMinutes(schedule.observation.maxAge)} earlier in which the pool
-              agreed with the price. A pool pushed off its price has to stay there that long before it counts, and a price that has moved
-              more than {Number(schedule.observation.maxFeedJumpBps) / 100}% since the reading halts borrowing until a new reading stands
-              behind it. Sales and health are unaffected. Anyone may take a reading, and one is taken every few minutes.
+              Borrowing against a position also needs the price check&rsquo;s two latest readings of the token&rsquo;s pool to agree with
+              the price: one taken between {hoursOrMinutes(schedule.observation.minAge)} and{' '}
+              {hoursOrMinutes(schedule.observation.maxAge)} earlier, and the newest one. A price that has moved more than{' '}
+              {Number(schedule.observation.maxFeedJumpBps) / 100}% since the earlier reading halts borrowing until a new reading stands
+              behind it. Sales wait for the same readings, and health is unaffected. A keeper takes a reading every few minutes.
             </li>
           )}
           {terms !== undefined && (
@@ -160,10 +160,12 @@ function Terms({ schedule }: { readonly schedule: HaircutSchedule }) {
             </>
           )}
           <li>
-            A line left with nothing that can be sold has its remaining debt written off. The lender carries that loss in USDG
-            {schedule.observation === undefined ? '.' : ', and whatever the line still held is seized for the lender to claim.'}
+            A line left with nothing that can be sold has its remaining debt written off.
+            {schedule.observation === undefined
+              ? ' The lender carries that loss in USDG.'
+              : ' The vault seizes what the line still holds, up to the debt’s value, for the lender to claim, and the lender carries any shortfall in USDG.'}
             {schedule.pool.slashLive === true &&
-              ' BRSR stakers cover part of it as well: the loss is converted to BRSR at the buyback’s price ceiling and taken from the staking pool, never more than the pool’s slash allowance at a time.'}
+              ' Stakers are slashed in BRSR for that shortfall, at the buyback’s price ceiling and within the pool’s slash allowance.'}
           </li>
           <li>Only a mandate in the collateral lane can borrow. A prefunded mandate spends the USDG it holds and nothing more.</li>
         </ul>
@@ -202,8 +204,8 @@ function Terms({ schedule }: { readonly schedule: HaircutSchedule }) {
             {pool.slashLive === undefined
               ? 'Unread'
               : pool.slashLive
-                ? 'The lender carries the loss, and stakers cover part of it in BRSR within the slash allowance.'
-                : 'The lender carries the loss. Stakers are not slashed until the staking contract lets the credit pool slash.'}
+                ? 'The lender claims the seized collateral and carries any shortfall. Stakers are slashed in BRSR for the shortfall, within the slash allowance.'
+                : 'The lender claims the seized collateral and carries any shortfall. Stakers are not slashed until the staking contract names the credit pool as its slasher.'}
           </Field>
         </FieldGrid>
         <p className="mt-4 text-note text-[color:var(--color-muted)]">

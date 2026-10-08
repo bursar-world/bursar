@@ -100,7 +100,7 @@ describe('what one wallet may still deposit', () => {
 
 describe('withdrawals', () => {
   it('waits for the association set before anything else', () => {
-    expect(withdrawProblem({ amount: 1n, note: { value: 5n }, inSet: false })).toMatch(/waiting for the next association set/);
+    expect(withdrawProblem({ amount: 1n, note: { value: 5n }, inSet: false })).toMatch(/waiting for approval/);
     expect(withdrawProblem({ amount: 6n, note: { value: 5n }, inSet: true })).toMatch(/holds/);
     expect(withdrawProblem({ amount: 5n, note: { value: 5n }, inSet: true })).toBeUndefined();
   });
@@ -130,14 +130,14 @@ describe('withdrawals', () => {
   const quote = { relay: MANDATE, feeRecipient: MANDATE, feeBps: 100, gasDropWei: '150000000000000', gasDropFee: '300000', chainId: 4663 } as const;
 
   it('tells the wallet what the relayer keeps, with the gas drop on top only when gas goes along', () => {
-    expect(feeLine(20_000_000n, quote, false)).toBe('The relayer keeps 0.2 USDG (1%). What stays behind remains yours in the pool.');
+    expect(feeLine(20_000_000n, quote, false)).toBe('The relayer keeps 0.2 USDG (1%). The rest stays yours in the pool.');
     expect(feeLine(20_000_000n, quote, true)).toBe(
-      'The relayer keeps 0.5 USDG (1%, plus 0.3 USDG for the gas it sends along). What stays behind remains yours in the pool.',
+      'The relayer keeps 0.5 USDG (1%, plus 0.3 USDG for the gas it sends along). The rest stays yours in the pool.',
     );
     // A relayer that does not charge for drops, and no amount yet.
-    expect(feeLine(20_000_000n, { ...quote, gasDropFee: undefined }, true)).toBe('The relayer keeps 0.2 USDG (1%). What stays behind remains yours in the pool.');
-    expect(feeLine(undefined, quote, true)).toBe('What stays behind remains yours in the pool.');
-    expect(feeLine(20_000_000n, undefined, true)).toBe('What stays behind remains yours in the pool.');
+    expect(feeLine(20_000_000n, { ...quote, gasDropFee: undefined }, true)).toBe('The relayer keeps 0.2 USDG (1%). The rest stays yours in the pool.');
+    expect(feeLine(undefined, quote, true)).toBe('The rest stays yours in the pool.');
+    expect(feeLine(20_000_000n, undefined, true)).toBe('The rest stays yours in the pool.');
   });
 
   it('refuses a withdrawal too small to carry the gas drop under the relay cap, naming the least that can', () => {
@@ -192,8 +192,9 @@ describe('copy', () => {
       expect(line).not.toContain('—');
       expect(line).not.toMatch(/not available yet/);
     }
-    expect(STEALTH_LIMIT_LINE).toMatch(/shielded funds/);
-    expect(SHIELDED_TIMING_LINE).toMatch(/timing/);
+    expect(STEALTH_LIMIT_LINE).toMatch(/shielded funds/i);
+    expect(STEALTH_LIMIT_LINE).toMatch(/only depositor/);
+    expect(SHIELDED_TIMING_LINE).toMatch(/Leave time between deposit and payout/);
   });
 
   it('formats USDG without trailing zeros', () => {

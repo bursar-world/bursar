@@ -110,7 +110,7 @@ function messageFor(code: string | undefined, error: MandateShapedError, raw: un
   }
 
   if (code === 'receipt_timeout') {
-    return 'The network took the transaction and no receipt has arrived in the time this screen waits. It may still confirm. Check it on the explorer before sending it a second time.';
+    return 'The network has the transaction and it has not confirmed yet. It may still confirm, so check the explorer before you send it again.';
   }
 
   return readable(typeof error.message === 'string' ? error.message : String(raw));
@@ -202,7 +202,7 @@ function denialHeadline(reason: DenialReason | undefined): string {
     case 'approval-required':
       return 'it needs the account owner’s signature';
     case 'merchant-not-allowed':
-      return 'the merchant is not on the allowlist';
+      return 'the payee is not allowed';
     case 'capability-not-allowed':
       return 'this kind of work is not allowed';
     case 'class-not-allowed':
@@ -238,7 +238,7 @@ function issuerHeadline(refusal: Refusal | null, subject: string): string {
   // `deployment` is the token routing no code for one of its own compliance calls. Nobody refused;
   // nobody could establish that anyone had agreed, which refuses by default.
   return refusal.owner === 'deployment'
-    ? 'The settlement asset could not be read, so the payment was refused'
+    ? 'USDG could not be checked, so the payment was refused'
     : 'The token issuer refused this payment';
 }
 
@@ -283,19 +283,19 @@ function denialSentence(error: MandateShapedError): string | undefined {
     case 'approval-spent':
       return 'That consent covered one payment and has already been used. Each approval is good once.';
     case 'bad-signature':
-      return 'The consent did not recover to the account owner. A signature made for a different account or a different network reads exactly like this.';
+      return 'The consent was not signed by the account owner. A signature made for another account or network fails the same way.';
     case 'merchant-not-allowed':
-      return 'This mandate pays only the addresses its owner has allowed, and this payee is not one of them. The account owner adds it.';
+      return 'This payee is not on the mandate’s payee list. The account owner can add it.';
     case 'capability-not-allowed':
-      return 'The work being bought is outside what this mandate covers. The account owner decides what it covers.';
+      return 'This mandate does not pay for this kind of work. The account owner can add it.';
     case 'class-not-allowed':
-      return 'This mandate allows only the spend classes its owner chose, such as services or agent hires, and this payment is in another one. The account owner decides which classes it allows.';
+      return 'This mandate allows only the kinds of spend its owner chose, such as services or agent hires. This payment is another kind.';
     case 'merchant-proof-required':
-      return 'This mandate reads its payee list from a published root, so a payment has to carry a proof for the payee it names.';
+      return 'This mandate checks payees against a published list, so each payment must include a proof for its payee.';
     case 'merchant-proof-invalid':
-      return 'The proof sent with the payment does not belong to the payee list this mandate reads.';
+      return 'The proof sent with the payment does not match the mandate’s payee list.';
     case 'merchant-proof-unexpected':
-      return 'This mandate keeps its own payee list, so a proof against a published root is never consulted. Send the payment without one.';
+      return 'This mandate keeps its own payee list, so it takes no proof. Send the payment without one.';
     case 'paused':
       return 'The account owner paused this mandate. It refuses every payment until the owner resumes it.';
     case 'revoked':
@@ -307,7 +307,7 @@ function denialSentence(error: MandateShapedError): string | undefined {
     case 'not-agent':
       return 'Only the address seated as the agent can spend from this mandate.';
     case 'zero-amount':
-      return 'The amount is zero. A payment of nothing is refused before anything else is read.';
+      return 'The amount is zero. Enter an amount above zero.';
     case 'zero-address':
       return 'The payee address is empty.';
     default:
@@ -415,7 +415,7 @@ function ErrorFacts({ code, error }: { readonly code: string | undefined; readon
 
   if (code === 'mandate_denied') {
     if (isAddress(error.mandate)) rows.push({ label: 'Mandate', value: <Address value={error.mandate} /> });
-    if (isAddress(error.merchant)) rows.push({ label: 'Merchant', value: <Address value={error.merchant} /> });
+    if (isAddress(error.merchant)) rows.push({ label: 'Payee', value: <Address value={error.merchant} /> });
     if (typeof error.amount === 'bigint') rows.push({ label: 'Amount', value: usd(error.amount as Micro) });
     rows.push(...limitRows(error));
   }

@@ -284,7 +284,7 @@ export function TxButton({
       // The switch is not the action it stands in for, so it never wears that action's warning colour.
       <SwitchNetworkButton
         tone={tone === 'destructive' ? 'primary' : tone}
-        reason={`Your wallet is on another network. "${label}" is sent on ${RHC.name}: switch networks, then press it again.`}
+        reason={`Your wallet is on another network. Switch to ${RHC.name}, then press "${label}" again.`}
       />
     );
   }
@@ -320,7 +320,7 @@ export function TxButton({
       {phase === 'confirmed' && shown && (
         <p className="text-detail" style={{ color: 'var(--color-state-ok)' }}>
           Confirmed.{' '}
-          {landed && hash && !sameHash(landed, hash) && 'Your wallet replaced the transaction it signed, and the replacement is what landed. '}
+          {landed && hash && !sameHash(landed, hash) && 'Your wallet resent it as a replacement, and that is what confirmed. '}
           {link !== undefined && (
             <>
               <a href={link} target="_blank" rel="noreferrer" className="underline underline-offset-2">
@@ -341,8 +341,8 @@ export function TxButton({
       {phase === 'replaced' && (
         <p className="text-detail" style={{ color: 'var(--color-state-attention)' }}>
           {replacedBy === 'cancelled'
-            ? 'Cancelled in your wallet. A cancellation replaced this transaction before it was mined, so the call never ran and nothing was paid. Send it again when you are ready. '
-            : 'Your wallet sent a different transaction in place of this one, so this call never ran. Check the replacement before sending it again. '}
+            ? 'Cancelled in your wallet before it confirmed, so nothing ran and nothing was paid. '
+            : 'Your wallet replaced it with a different transaction, so this action did not run. Check the replacement before you try again. '}
           {link !== undefined && (
             <a href={link} target="_blank" rel="noreferrer" className="underline underline-offset-2">
               See the replacement

@@ -145,8 +145,7 @@ describe('a mandate full of USDG and a signer with no ETH', () => {
   });
 
   it('says outright that funding the mandate will not fix it', () => {
-    expect(state.detail).toContain('USDG is a different asset');
-    expect(state.detail).toContain('funding the mandate account buys nothing');
+    expect(state.detail).toContain('USDG in the mandate cannot pay fees');
   });
 
   it('asks for the asset it is short of, not for money in general', () => {
@@ -168,7 +167,7 @@ describe('a signer with ETH and a mandate with no USDG', () => {
   });
 
   it("says the signer ETH is not what pays a provider", () => {
-    expect(state.detail).toContain("signer's ETH pays transaction fees and never pays a provider");
+    expect(state.detail).toContain('Providers are paid in USDG');
   });
 
   it('sends the reader to the mandate, not to the wallet', () => {
@@ -197,8 +196,8 @@ describe('the two readings never share a figure', () => {
     const state = evaluateFunding(snapshot({ gasBalance: wei(ROUND_TRIP_FEE * 3n) }), NOW, false);
 
     expect(state.level).toBe('attention');
-    expect(state.headline).toBe('About 3 payments of fees left.');
-    expect(state.detail).toContain('Send it more ETH');
+    expect(state.headline).toBe('ETH for about 3 more payments.');
+    expect(state.detail).toContain('Add ETH');
   });
 
   it('keeps a full mandate from covering for an empty signer in the same report', () => {
@@ -240,8 +239,8 @@ describe('a reading that did not land', () => {
     const state = evaluateFunding(snapshot({ gasBalance: undefined }), NOW, false);
 
     expect(state.level).toBe('unknown');
-    expect(state.headline).not.toContain('Funded in both assets');
-    expect(state.detail).toContain('could not be read');
+    expect(state.headline).not.toContain('Funded for payments and fees');
+    expect(state.detail).toContain('did not answer');
     expect(state.nextAction?.label).toBe('Read again');
   });
 
@@ -254,8 +253,8 @@ describe('a reading that did not land', () => {
     const state = evaluateFunding(snapshot({ mandateBalance: undefined }), NOW, false);
 
     expect(state.level).toBe('unknown');
-    expect(state.headline).not.toContain('Funded in both assets');
-    expect(state.detail).toContain('could not be read');
+    expect(state.headline).not.toContain('Funded for payments and fees');
+    expect(state.detail).toContain('did not answer');
   });
 
   it('separates a balance nobody asked about from one that failed to answer', () => {
@@ -263,7 +262,7 @@ describe('a reading that did not land', () => {
     const state = evaluateFunding(snapshot({ gasPayer: undefined, gasBalance: undefined }), NOW, false);
 
     expect(state.level).toBe('ok');
-    expect(state.headline).not.toContain('Funded in both assets');
+    expect(state.headline).not.toContain('Funded for payments and fees');
     expect(state.headline).toContain('USDG for payments');
     expect(state.detail).toContain('Connect a wallet');
   });
@@ -280,6 +279,6 @@ describe('a mandate that draws parked value or credit inside a payment', () => {
   it('still warns when the two together fall short, and says both', () => {
     const state = evaluateFunding(snapshot({ mandateBalance: micro(1n) }), NOW, false, micro(1n) as Micro);
     expect(state.level).toBe('attention');
-    expect(state.detail).toContain('Together that is under');
+    expect(state.detail).toContain('Together that is less than');
   });
 });

@@ -45,7 +45,7 @@ export function ConnectModal({ open, onClose }: { readonly open: boolean; readon
       open={open}
       onClose={onClose}
       title="Connect a wallet"
-      description="BURSAR never holds a key. Every action is signed in your own wallet."
+      description="Bursar never holds your keys. You sign every action in your own wallet."
     >
       <ul className="space-y-2">
         {options.map((connector) => (
@@ -99,7 +99,7 @@ function displayName(connector: Connector): string {
 }
 
 function describe(connector: Connector): string {
-  if (connector.id === 'safe') return 'Connects when BURSAR is opened inside your Safe.';
+  if (connector.id === 'safe') return 'Connects when Bursar is opened inside your Safe.';
   if (connector.id === 'walletConnect') return 'Scan a code with a mobile wallet.';
   if (connector.type === 'injected') return 'Installed in this browser.';
   return 'Wallet';

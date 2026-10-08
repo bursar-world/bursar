@@ -1,21 +1,21 @@
 # Ruling policy
 
 Version 3, in force from 1 October 2026. It covers disputes heard by the Bursar dispute
-registries on Robinhood Chain (chain 4663). The current contracts take new payments, and the three
-earlier sets settle the disputes still open on them:
+registries on Robinhood Chain (chain 4663). The current registry takes new disputes, and the three
+earlier registries settle the disputes still open on them:
 
-| Set | Registry | Escrow |
+| Registry | Address | Escrow |
 |---|---|---|
-| current (deployed with the fourth set, carried since) | `0xbb628E362EceE9Ce16f2e48DD79f5ed4558596e3` | `0x11e73B5632837355e250fC236cFC2Be03aD0845A` |
-| v3, previous | `0x20E75139996fFf7B3158DF28Bf133b326DCD2BdF` | `0x68D4aD683b5519C785Dde9F0ee0eE09dB2D40919` |
-| v2, previous | `0xE38349668f0C470C814487E95C14e7652F713B17` | `0x4315F8be7C9661345710910577Ec31cb867f3c20` |
-| v1, previous | `0xCb7c60037eC43b9692A5dDcA42A500181Cf549FF` | `0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4` |
+| Current | `0xbb628E362EceE9Ce16f2e48DD79f5ed4558596e3` | `0x11e73B5632837355e250fC236cFC2Be03aD0845A` |
+| Third, earlier | `0x20E75139996fFf7B3158DF28Bf133b326DCD2BdF` | `0x68D4aD683b5519C785Dde9F0ee0eE09dB2D40919` |
+| Second, earlier | `0xE38349668f0C470C814487E95C14e7652F713B17` | `0x4315F8be7C9661345710910577Ec31cb867f3c20` |
+| First, earlier | `0xCb7c60037eC43b9692A5dDcA42A500181Cf549FF` | `0x7D82Ad9Dc36734AdCF5Cf985295096b2b575C8C4` |
 
-The status page, at `https://app.bursar.world/status`, lists the same sets, with the registry and
-escrow of each.
+The status page, at `https://app.bursar.world/status`, lists the same registries with the escrow of
+each.
 
-The rules and scores are the same on every set. Where the sets behave differently, the difference
-is stated below.
+The rules and scores are the same on every registry. Where the registries behave differently, the
+difference is stated below.
 
 ## Who rules
 
@@ -28,15 +28,16 @@ All three bonded resolvers on every registry are operated by Bursar:
 | resolver-3 | `0x7062A480732EC7B0F00a3D0c968356e1671dd356` |
 
 Each has BRSR bonded through the `Staking` pool, at or above the floor that pool sets. Bursar is
-therefore the arbiter of every dispute on every registry. The first and second sets seat the first
-five resolvers to seal a score. On the third set, every bonded resolver may vote on every dispute.
+therefore the arbiter of every dispute on every registry. The first and second registries seat the
+first five resolvers to seal a score. On the third registry, every bonded resolver may vote on every
+dispute.
 Every vote follows the rules below, every resolver casts the same score, and the reasons for each
 ruling are published once the votes are revealed.
 
 ## What a ruling decides
 
 A payer who disputes a job before the provider has been paid freezes the payment. On the third
-set the dispute has to open before the payment's deadline: once the deadline has passed, the payer
+registry the dispute has to open before the payment's deadline: once the deadline has passed, the payer
 is owed its refund and the escrow takes no dispute. The resolvers score the delivery from 0 to 100,
 and the median score sets how much goes back to the payer:
 
@@ -58,16 +59,16 @@ On a payment of 1.00 USDG disputed by the payer:
 - At a score of 0, the payer receives 0.995000 USDG and the bond back. The resolvers receive
   0.005000 USDG.
 
-On the third set, a share the token cannot deliver, because its issuer has frozen the receiving
+On the third registry, a share the token cannot deliver, because its issuer has frozen the receiving
 address, is held by the escrow for that address and paid out once the address can receive. The
 rest of the ruling pays out as usual.
 
 A complaint made after the provider has been paid is recorded against the provider's history.
 There is nothing left to split, so it is never ruled on.
 
-On the second and third sets, a payment can be disputed once, and its payer and provider cannot
-vote on it, even when they are bonded resolvers. Nor can the owner of the paying mandate: the
-second set checks who owns the mandate at each vote, and the third set bars whoever owned it when
+On the second and third registries, a payment can be disputed once, and its payer and provider
+cannot vote on it, even when they are bonded resolvers. Nor can the owner of the paying mandate: the
+second registry checks who owns the mandate at each vote, and the third bars whoever owned it when
 the dispute opened.
 
 ## When no ruling is reached
@@ -75,23 +76,23 @@ the dispute opened.
 A dispute needs two revealed votes. If fewer than two resolvers seal a score before sealing
 closes, or fewer than two reveal before the reveal window closes, the dispute fails:
 
-- On the second and third sets, the payment goes back to being held, with a new deadline no
-  earlier than the shortest one the escrow accepts (five minutes on the second set), counted from
+- On the second and third registries, the payment goes back to being held, with a new deadline no
+  earlier than the shortest one the escrow accepts (five minutes on the second), counted from
   the moment the dispute fails. The dispute bond is returned to whoever opened the dispute, and no
   resolver fee is taken. The provider can still deliver before the new deadline, and the payer is
   refunded by the ordinary timeout if it does not. The payment cannot be disputed again.
-- On the first set, the payer is refunded, less the resolver fee.
+- On the first registry, the payer is refunded, less the resolver fee.
 
 A vote with two or more revealed scores fails too when most of them sit outside the registry's
 deviation band around the median. Such a vote has no centre, so nobody is slashed for disagreeing
-and the payer is refunded in full. The first set keeps the resolver fee back from that refund.
+and the payer is refunded in full. The first registry keeps the resolver fee back from that refund.
 
 A vote does not settle itself. Once the reveal window closes, or every sealed score has been
 revealed, anyone can close it, and the escrow applies the ruling or the failure above. Bursar's
-resolvers close each vote as soon as it allows. On the first set, a dispute still open 48 hours
-after it opened can also be closed by returning the whole payment to the payer. The second set
-allows that too, but only once its registry can no longer settle the dispute. The third set has no
-such timeout: every dispute there ends in a ruling or a failed vote.
+resolvers close each vote as soon as it allows. On the first registry, a dispute still open 48
+hours after it opened can also be closed by returning the whole payment to the payer. The second
+allows that too, but only once it can no longer settle the dispute. The third has no such timeout:
+every dispute there ends in a ruling or a failed vote.
 
 ## The rules
 
@@ -161,9 +162,9 @@ Those disputes are ruled by P0 to P5 alone, and the published ruling marks them 
 ## Timeline
 
 Times are counted from the moment the dispute opens. The table is for sealing and reveal windows
-of six hours each, the length the first set uses. A set with other windows moves every step in
-proportion. The second and third sets use one-hour windows: the evidence cutoff is at 30 minutes,
-sealing closes at 1 hour, and the ruling settles by 2 hours at the latest.
+of six hours each, the length the first registry uses. A registry with other windows moves every
+step in proportion. The second and third registries use one-hour windows: the evidence cutoff is at
+30 minutes, sealing closes at 1 hour, and the ruling settles by 2 hours at the latest.
 
 | When | What happens |
 |---|---|

@@ -8,7 +8,7 @@ import { Card, Section } from '@/components/layout';
 import { Inline, Markdown, parseMarkdown } from './markdown';
 
 export const metadata: Metadata = {
-  title: 'Ruling policy · BURSAR',
+  title: 'Ruling policy · Bursar',
   description: 'How disputed payments are ruled on: who rules, the rules they apply, the evidence that counts and when each step happens.',
 };
 

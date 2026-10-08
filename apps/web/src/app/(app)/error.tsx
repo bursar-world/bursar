@@ -30,15 +30,15 @@ export default function AppError({
       </ErrorSurface>
 
       <p className="text-detail text-[color:var(--color-muted)]">
-        If it fails again,{' '}
+        If it fails again, check{' '}
         <Link href="/status" className="underline underline-offset-2">
           current conditions
         </Link>{' '}
-        reports whether the chain is reachable from here, and{' '}
+        or go back to{' '}
         <Link href="/console" className="underline underline-offset-2">
           the console
-        </Link>{' '}
-        is still reachable on its own.
+        </Link>
+        .
       </p>
     </div>
   );

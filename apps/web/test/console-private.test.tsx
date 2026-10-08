@@ -129,7 +129,7 @@ describe('the terms the viewing key opens', () => {
     const other = writeTerms(readPrivateForm(filled, NOW).terms!);
     const refusal = await openTerms(key.termsKey, { ...record, termsCommitment: commit(other).termsCommitment }).catch((error: unknown) => error);
     expect(refusal).toBeInstanceOf(TermsMismatchError);
-    expect(termsProblem(refusal)).toContain('not the terms this mandate committed to');
+    expect(termsProblem(refusal)).toContain('do not match the ones this mandate committed to');
     expect(termsProblem(new TermsLockedError())).toContain('does not open these terms');
   });
 

@@ -58,10 +58,10 @@ export function evaluateAsset(snapshot: ChainSnapshot | undefined, checkedAt: Da
       level: asset.tokenPaused === undefined ? 'unknown' : asset.tokenPaused ? 'blocked' : 'ok',
       detail:
         asset.tokenPaused === undefined
-          ? 'The token did not answer whether it is paused.'
+          ? 'Could not read whether USDG is paused.'
           : asset.tokenPaused
-            ? 'The token is paused. No transfer settles while it stays that way.'
-            : 'The token is open and transfers settle.',
+            ? 'USDG is paused. No transfer settles until it resumes.'
+            : 'Transfers are open.',
     });
 
     for (const [address, blocked] of Object.entries(asset.blocked)) {
@@ -71,9 +71,9 @@ export function evaluateAsset(snapshot: ChainSnapshot | undefined, checkedAt: Da
         level: blocked === undefined ? 'unknown' : blocked ? 'blocked' : 'ok',
         detail:
           blocked === undefined
-            ? 'The blocklist read did not answer for this address.'
+            ? 'Could not read the blocklist for this address.'
             : blocked
-              ? 'This address is on the token issuer’s blocklist. Transfers to and from it revert.'
+              ? 'On the issuer’s blocklist. Transfers to and from it fail.'
               : 'This address can send and receive USDG.',
       });
     }
@@ -88,7 +88,7 @@ export function evaluateAsset(snapshot: ChainSnapshot | undefined, checkedAt: Da
   };
 
   if (!asset) {
-    return report('asset', 'Asset', 'unknown', 'The token has not been read yet.', 'Nothing is known about USDG on this screen until the first reading lands.', null, checks, facts, checkedAt, stale);
+    return report('asset', 'Asset', 'unknown', 'Checking USDG.', 'Its status appears here once it is read.', null, checks, facts, checkedAt, stale);
   }
 
   if (asset.tokenPaused === true) {
@@ -97,7 +97,7 @@ export function evaluateAsset(snapshot: ChainSnapshot | undefined, checkedAt: Da
       'Asset',
       'blocked',
       'USDG is paused.',
-      'The pause belongs to the token issuer. While it is on, no payment settles. Transaction fees are paid in ETH and are unaffected, so a pause, a revoke or a withdrawal still confirms. Watch the status page for the all-clear.',
+      'The token issuer has paused USDG, so no payment settles until it resumes. Fees are paid in ETH, so pausing and revoking still go through.',
       { label: 'Check the status page', owner: 'token-issuer', kind: 'link', href: '/status' },
       checks,
       facts,
@@ -113,7 +113,7 @@ export function evaluateAsset(snapshot: ChainSnapshot | undefined, checkedAt: Da
       'Asset',
       'blocked',
       blockedAddresses.length === 1 ? 'One address cannot move USDG.' : `${blockedAddresses.length} addresses cannot move USDG.`,
-      `The token issuer’s blocklist covers ${list}. Transfers to and from a blocked address revert on the token, whatever the balance shows and whatever this mandate allows. Route the payment through an address that is not blocked, or take it up with the issuer.`,
+      `The issuer’s blocklist covers ${list}. Transfers to or from a blocked address fail, whatever the balance or the mandate allows. Pay through another address, or contact the issuer.`,
       { label: 'Use a different address', owner: 'principal', kind: 'transaction' },
       checks,
       facts,
@@ -127,8 +127,8 @@ export function evaluateAsset(snapshot: ChainSnapshot | undefined, checkedAt: Da
       'asset',
       'Asset',
       'unknown',
-      'The token’s compliance state is incomplete.',
-      'At least one compliance read did not answer. Nothing here can be called clear, and a payment may still revert on the token.',
+      'Part of the USDG check did not answer.',
+      'Until it does, a payment may still fail on the token.',
       { label: 'Read again', owner: 'operator', kind: 'retry' },
       checks,
       facts,
@@ -142,7 +142,7 @@ export function evaluateAsset(snapshot: ChainSnapshot | undefined, checkedAt: Da
     'Asset',
     'ok',
     'USDG is moving normally.',
-    'The token is open and none of the addresses on this screen are blocked.',
+    'Transfers are open and no address here is blocked.',
     null,
     checks,
     facts,
@@ -165,7 +165,7 @@ export function evaluateMandate(snapshot: ChainSnapshot | undefined, checkedAt: 
   };
 
   if (!requested) {
-    return report('mandate', 'Mandate', 'not-applicable', 'No mandate selected.', 'Choose a mandate to see what it can still spend and when its limits roll.', null, [], facts, checkedAt, stale);
+    return report('mandate', 'Mandate', 'not-applicable', 'No mandate selected.', 'Open a mandate to see what it can still spend.', null, [], facts, checkedAt, stale);
   }
 
   if (!account) {
@@ -173,10 +173,10 @@ export function evaluateMandate(snapshot: ChainSnapshot | undefined, checkedAt: 
       'mandate',
       'Mandate',
       snapshot ? 'blocked' : 'unknown',
-      snapshot ? 'No mandate at this address.' : 'The mandate has not been read yet.',
+      snapshot ? 'No mandate at this address.' : 'Reading the mandate.',
       snapshot
-        ? `Nothing at ${shortAddress(requested)} answers as a mandate account. Check the address, or create the mandate before funding it.`
-        : 'The first reading has not landed.',
+        ? `${shortAddress(requested)} is not a mandate account. Check the address, or create a mandate first.`
+        : 'Its limits appear here in a moment.',
       snapshot ? { label: 'Create a mandate', owner: 'principal', kind: 'link', href: '/console/new' } : null,
       [],
       facts,
@@ -197,14 +197,14 @@ export function evaluateMandate(snapshot: ChainSnapshot | undefined, checkedAt: 
       id: 'live',
       label: 'Spending',
       level: account.paused ? 'blocked' : 'ok',
-      detail: account.paused ? 'The principal paused this mandate.' : 'The principal has this mandate running.',
+      detail: account.paused ? 'The owner paused this mandate.' : 'The owner has it running.',
     },
     {
       id: 'agent',
       label: 'Agent',
       level: account.revoked ? 'blocked' : 'ok',
       detail: account.revoked
-        ? 'The agent was revoked. Nothing can spend until the principal seats another one.'
+        ? 'Revoked. Nothing can spend until the owner seats a new agent.'
         : `${shortAddress(account.agent)} is seated and can spend inside the limits.`,
     },
     {
@@ -229,31 +229,31 @@ export function evaluateMandate(snapshot: ChainSnapshot | undefined, checkedAt: 
   const headroom = `${usd(account.remaining.daily)} left this period, ${usd(budget ? budget.remaining : account.remaining.monthly)} left ${total ? 'in the total budget' : 'under the second cap'}.`;
 
   if (account.revoked) {
-    return report('mandate', 'Mandate', 'blocked', 'The agent is revoked.', 'The agent seated on this mandate was removed, so nothing can spend against it. Seat an agent to start again.', { label: 'Seat an agent', owner: 'principal', kind: 'transaction' }, checks, facts, checkedAt, stale);
+    return report('mandate', 'Mandate', 'blocked', 'The agent is revoked.', 'Nothing can spend until the owner seats an agent.', { label: 'Seat an agent', owner: 'principal', kind: 'transaction' }, checks, facts, checkedAt, stale);
   }
 
   if (account.paused) {
-    return report('mandate', 'Mandate', 'blocked', 'Spending is paused.', `The principal paused this mandate. ${headroom} Nothing is spent while it stays paused, and resuming restores the limits exactly as they are.`, { label: 'Resume spending', owner: 'principal', kind: 'transaction' }, checks, facts, checkedAt, stale);
+    return report('mandate', 'Mandate', 'blocked', 'Spending is paused.', `The owner paused it. Nothing is spent until it resumes, with the same limits. ${headroom}`, { label: 'Resume spending', owner: 'principal', kind: 'transaction' }, checks, facts, checkedAt, stale);
   }
 
   if (validUntil && isPast(validUntil, now)) {
-    return report('mandate', 'Mandate', 'blocked', `The mandate expired ${formatRelative(validUntil, now)}.`, `Its validity window closed on ${formatInstant(validUntil)}. Set a new window to let it spend again.`, { label: 'Extend the mandate', owner: 'principal', kind: 'transaction' }, checks, facts, checkedAt, stale);
+    return report('mandate', 'Mandate', 'blocked', `The mandate expired ${formatRelative(validUntil, now)}.`, `It stopped taking payments on ${formatInstant(validUntil)}. Extend it to spend again.`, { label: 'Extend the mandate', owner: 'principal', kind: 'transaction' }, checks, facts, checkedAt, stale);
   }
 
   if (validFrom && !isPast(validFrom, now)) {
-    return report('mandate', 'Mandate', 'blocked', `This mandate starts ${formatRelative(validFrom, now)}.`, `It is set to open on ${formatInstant(validFrom)} and refuses every payment until then.`, { label: 'Wait for it to open', owner: 'principal', kind: 'wait', waitUntil: validFrom }, checks, facts, checkedAt, stale);
+    return report('mandate', 'Mandate', 'blocked', `This mandate starts ${formatRelative(validFrom, now)}.`, `It takes payments from ${formatInstant(validFrom)}.`, { label: 'Wait for it to open', owner: 'principal', kind: 'wait', waitUntil: validFrom }, checks, facts, checkedAt, stale);
   }
 
   if (account.remaining.daily === 0n) {
-    return report('mandate', 'Mandate', 'blocked', 'This period’s cap is spent.', `All ${usd(account.daily.cap)} of the period cap is used. The period rolls ${formatRelative(account.remaining.dailyResetsAt, now)}, at ${formatInstant(account.remaining.dailyResetsAt)}. Raise the period cap to spend sooner.`, { label: 'Wait for the period to roll', owner: 'principal', kind: 'wait', waitUntil: account.remaining.dailyResetsAt }, checks, facts, checkedAt, stale);
+    return report('mandate', 'Mandate', 'blocked', 'This period’s cap is spent.', `The ${usd(account.daily.cap)} period cap is used. It refills ${formatRelative(account.remaining.dailyResetsAt, now)}, at ${formatInstant(account.remaining.dailyResetsAt)}. Raise it to spend sooner.`, { label: 'Wait for the period to roll', owner: 'principal', kind: 'wait', waitUntil: account.remaining.dailyResetsAt }, checks, facts, checkedAt, stale);
   }
 
   if (budget && budget.remaining === 0n) {
-    return report('mandate', 'Mandate', 'blocked', 'The total budget is spent.', `All ${usd(budget.cap)} of the total budget is used. It never refills, so nothing more can be spent until the owner raises it.`, { label: 'Raise the total budget', owner: 'principal', kind: 'transaction' }, checks, facts, checkedAt, stale);
+    return report('mandate', 'Mandate', 'blocked', 'The total budget is spent.', `The ${usd(budget.cap)} total budget is used and never refills. The owner can raise it.`, { label: 'Raise the total budget', owner: 'principal', kind: 'transaction' }, checks, facts, checkedAt, stale);
   }
 
   if (secondCap && account.remaining.monthly === 0n) {
-    return report('mandate', 'Mandate', 'blocked', 'The second cap is spent.', `All ${usd(account.monthly.cap)} of the second cap is used. Its window rolls ${formatRelative(account.remaining.monthlyResetsAt, now)}. Raise it to spend sooner.`, { label: 'Wait for the window to roll', owner: 'principal', kind: 'wait', waitUntil: account.remaining.monthlyResetsAt }, checks, facts, checkedAt, stale);
+    return report('mandate', 'Mandate', 'blocked', 'The second cap is spent.', `The ${usd(account.monthly.cap)} second cap is used. It refills ${formatRelative(account.remaining.monthlyResetsAt, now)}. Raise it to spend sooner.`, { label: 'Wait for the window to roll', owner: 'principal', kind: 'wait', waitUntil: account.remaining.monthlyResetsAt }, checks, facts, checkedAt, stale);
   }
 
   // A payment was named and the account answered about that payment. Its answer is more specific
@@ -268,11 +268,11 @@ export function evaluateMandate(snapshot: ChainSnapshot | undefined, checkedAt: 
   const thin = account.daily.cap > 0n && account.remaining.daily * 10n < account.daily.cap;
 
   if (closing && validUntil) {
-    return report('mandate', 'Mandate', 'attention', `The mandate expires ${formatRelative(validUntil, now)}.`, `${headroom} Payments stop at ${formatInstant(validUntil)} unless the window is extended.`, { label: 'Extend the mandate', owner: 'principal', kind: 'transaction' }, checks, facts, checkedAt, stale);
+    return report('mandate', 'Mandate', 'attention', `The mandate expires ${formatRelative(validUntil, now)}.`, `${headroom} Payments stop at ${formatInstant(validUntil)} unless the owner extends it.`, { label: 'Extend the mandate', owner: 'principal', kind: 'transaction' }, checks, facts, checkedAt, stale);
   }
 
   if (thin) {
-    return report('mandate', 'Mandate', 'attention', `${usd(account.remaining.daily)} left this period.`, `That is under a tenth of the ${usd(account.daily.cap)} period cap. The period rolls ${formatRelative(account.remaining.dailyResetsAt, now)}.`, { label: 'Raise the period cap', owner: 'principal', kind: 'transaction' }, checks, facts, checkedAt, stale);
+    return report('mandate', 'Mandate', 'attention', `${usd(account.remaining.daily)} left this period.`, `Under a tenth of the ${usd(account.daily.cap)} period cap. It refills ${formatRelative(account.remaining.dailyResetsAt, now)}.`, { label: 'Raise the period cap', owner: 'principal', kind: 'transaction' }, checks, facts, checkedAt, stale);
   }
 
   return report('mandate', 'Mandate', 'ok', headroom, `Up to ${usd(account.limits.perCallCap)} in one payment. ${approvalSentence(account.limits.perCallCap, account.limits.approvalThreshold)}`, null, checks, facts, checkedAt, stale);
@@ -291,7 +291,7 @@ export function evaluatePermission(snapshot: ChainSnapshot | undefined, checkedA
   };
 
   if (!permission || (permission.merchant === undefined && permission.capabilityId === undefined)) {
-    return report('permission', 'Permission', 'not-applicable', 'No payee named.', 'Name a merchant and the kind of work being paid for, and this shows whether the mandate allows the pair.', null, [], facts, checkedAt, stale);
+    return report('permission', 'Permission', 'not-applicable', 'No payee named.', 'Name a payee and a kind of work to see whether this mandate allows them.', null, [], facts, checkedAt, stale);
   }
 
   const checks: Check[] = [];
@@ -299,15 +299,15 @@ export function evaluatePermission(snapshot: ChainSnapshot | undefined, checkedA
     const gated = snapshot?.mandate?.merchantGate === 1;
     checks.push({
       id: 'merchant',
-      label: 'Merchant',
+      label: 'Payee',
       level: permission.merchantAllowed === undefined ? (gated ? 'unknown' : 'unknown') : permission.merchantAllowed ? 'ok' : 'blocked',
       detail: gated
-        ? 'This mandate checks merchants against a published list. A payment has to carry proof that the merchant is on it.'
+        ? 'This mandate checks payees against a published list, so each payment proves its payee is on it.'
         : permission.merchantAllowed === undefined
-          ? 'The allowlist did not answer for this merchant.'
+          ? 'Could not read the payee list.'
           : permission.merchantAllowed
-            ? `${shortAddress(permission.merchant)} is on the mandate’s allowlist.`
-            : `${shortAddress(permission.merchant)} is not on the mandate’s allowlist.`,
+            ? `${shortAddress(permission.merchant)} is on the payee list.`
+            : `${shortAddress(permission.merchant)} is not on the payee list.`,
     });
   }
 
@@ -318,36 +318,36 @@ export function evaluatePermission(snapshot: ChainSnapshot | undefined, checkedA
       level: permission.capabilityAllowed === undefined ? 'unknown' : permission.capabilityAllowed ? 'ok' : 'blocked',
       detail:
         permission.capabilityAllowed === undefined
-          ? 'The capability allowlist did not answer.'
+          ? 'Could not read the list of allowed work.'
           : permission.capabilityAllowed
             ? `${permission.capability} is a kind of work this mandate pays for.`
-            : `${permission.capability} is not one of the kinds of work this mandate pays for.`,
+            : `This mandate does not pay for ${permission.capability}.`,
     });
   }
 
   if (permission.merchantAllowed === false) {
-    return report('permission', 'Permission', 'blocked', 'This merchant is not allowed.', `The mandate only pays addresses its principal has listed, and ${shortAddress(permission.merchant ?? '0x')} is not one of them. Add it to the allowlist to let the payment through.`, { label: 'Add the merchant', owner: 'principal', kind: 'transaction' }, checks, facts, checkedAt, stale);
+    return report('permission', 'Permission', 'blocked', 'This payee is not allowed.', `${shortAddress(permission.merchant ?? '0x')} is not on the payee list. The owner can add it.`, { label: 'Add the payee', owner: 'principal', kind: 'transaction' }, checks, facts, checkedAt, stale);
   }
 
   if (permission.capabilityAllowed === false) {
-    return report('permission', 'Permission', 'blocked', `${permission.capability} is not allowed.`, 'A mandate names which kinds of work it pays for, and this is not one of them. Add the capability to let payments of this kind through.', { label: 'Add the capability', owner: 'principal', kind: 'transaction' }, checks, facts, checkedAt, stale);
+    return report('permission', 'Permission', 'blocked', `${permission.capability} is not allowed.`, 'This mandate does not pay for this kind of work. The owner can add it.', { label: 'Add the capability', owner: 'principal', kind: 'transaction' }, checks, facts, checkedAt, stale);
   }
 
   if (permission.preview && !permission.preview.allowed) {
     const reason = permission.preview.reason;
     const permissionReason = reason === 'merchant-not-allowed' || reason === 'capability-not-allowed' || reason === 'class-not-allowed' || reason === 'merchant-proof-required' || reason === 'merchant-proof-invalid' || reason === 'merchant-proof-unexpected';
     if (permissionReason) {
-      return report('permission', 'Permission', 'blocked', 'The mandate would refuse this payment.', previewDetail(reason), { label: 'Update the allowlist', owner: 'principal', kind: 'transaction' }, checks, facts, checkedAt, stale);
+      return report('permission', 'Permission', 'blocked', 'The mandate would refuse this payment.', previewDetail(reason), { label: 'Update the lists', owner: 'principal', kind: 'transaction' }, checks, facts, checkedAt, stale);
     }
   }
 
   if (permission.merchantAllowed === undefined && permission.capabilityAllowed === undefined) {
-    return report('permission', 'Permission', 'unknown', 'The allowlists did not answer.', 'Neither the merchant nor the capability could be read, so whether this payment is allowed is unknown.', { label: 'Read again', owner: 'operator', kind: 'retry' }, checks, facts, checkedAt, stale);
+    return report('permission', 'Permission', 'unknown', 'The payee and work lists did not answer.', 'Whether this payment is allowed is not known yet.', { label: 'Read again', owner: 'operator', kind: 'retry' }, checks, facts, checkedAt, stale);
   }
 
-  const subject = permission.merchant ? shortAddress(permission.merchant) : 'this merchant';
+  const subject = permission.merchant ? shortAddress(permission.merchant) : 'this payee';
   const work = permission.capability ? ` for ${permission.capability}` : '';
-  return report('permission', 'Permission', 'ok', `The mandate pays ${subject}${work}.`, 'Both the merchant and the kind of work are on the mandate’s lists.', null, checks, facts, checkedAt, stale);
+  return report('permission', 'Permission', 'ok', `The mandate pays ${subject}${work}.`, 'Both the payee and the kind of work are allowed.', null, checks, facts, checkedAt, stale);
 }
 
 /**
@@ -372,7 +372,7 @@ export function evaluateFunding(snapshot: ChainSnapshot | undefined, checkedAt: 
   };
 
   if (!funding || (funding.mandateBalance === undefined && funding.gasBalance === undefined)) {
-    return report('funding', 'Funding', 'not-applicable', 'Nothing to fund yet.', 'Connect a wallet or choose a mandate, and this shows the USDG the account holds for payments and the ETH the signer holds for fees.', null, [], facts, checkedAt, stale);
+    return report('funding', 'Funding', 'not-applicable', 'Nothing to fund yet.', 'Open a mandate or connect a wallet to see its USDG for payments and ETH for fees.', null, [], facts, checkedAt, stale);
   }
 
   // An account that draws parked value or credit inside the payment is not short while the two
@@ -389,7 +389,7 @@ export function evaluateFunding(snapshot: ChainSnapshot | undefined, checkedAt: 
       level: funding.mandateBalance === 0n && draw === 0n ? 'blocked' : funding.mandateBalance + draw < account.limits.perCallCap ? 'attention' : 'ok',
       detail:
         funding.mandateBalance === 0n
-          ? `${shortAddress(account.address)} holds no USDG. Providers are paid out of this account.`
+          ? `${shortAddress(account.address)} holds no USDG. Providers are paid from this account.`
           : `${shortAddress(account.address)} holds ${usdg(funding.mandateBalance)} for payments.`,
     });
   }
@@ -400,26 +400,26 @@ export function evaluateFunding(snapshot: ChainSnapshot | undefined, checkedAt: 
       id: 'gas-float',
       label: 'Transaction fees, ETH',
       level: funding.gasBalance < ROUND_TRIP_FEE ? 'blocked' : trips < GAS_WARNING_TRIPS ? 'attention' : 'ok',
-      detail: `${shortAddress(funding.gasPayer)} holds ${formatEth(funding.gasBalance)}, about ${trips} more payments at the observed ${formatEth(ROUND_TRIP_FEE)} each.`,
+      detail: `${shortAddress(funding.gasPayer)} holds ${formatEth(funding.gasBalance)}, enough for about ${trips} payments at ${formatEth(ROUND_TRIP_FEE)} each.`,
     });
   }
 
   if (funding.gasBalance !== undefined && funding.gasBalance < ROUND_TRIP_FEE) {
-    return report('funding', 'Funding', 'blocked', 'The signer has no ETH for a transaction fee.', `Fees on ${RHC.name} are paid in ETH, and ${shortAddress(funding.gasPayer ?? '0x')} holds ${formatEth(funding.gasBalance)}. One payment costs about ${formatEth(ROUND_TRIP_FEE)}. USDG is a different asset here: funding the mandate account buys nothing a transaction can spend.`, { label: 'Send ETH to the signer', owner: 'principal', kind: 'fund' }, checks, facts, checkedAt, stale);
+    return report('funding', 'Funding', 'blocked', 'The signer has no ETH for fees.', `Fees on ${RHC.name} are paid in ETH. ${shortAddress(funding.gasPayer ?? '0x')} holds ${formatEth(funding.gasBalance)} and one payment costs about ${formatEth(ROUND_TRIP_FEE)}. USDG in the mandate cannot pay fees.`, { label: 'Send ETH to the signer', owner: 'principal', kind: 'fund' }, checks, facts, checkedAt, stale);
   }
 
   if (account && funding.mandateBalance === 0n && draw === 0n) {
-    return report('funding', 'Funding', 'blocked', 'The mandate account holds no USDG.', `Providers are paid in USDG out of ${shortAddress(account.address)}, and it holds none. Send USDG to that address to fund it. The signer's ETH pays transaction fees and never pays a provider.`, { label: 'Fund the mandate', owner: 'principal', kind: 'fund' }, checks, facts, checkedAt, stale);
+    return report('funding', 'Funding', 'blocked', 'The mandate account holds no USDG.', `Providers are paid in USDG from ${shortAddress(account.address)}. Send USDG to that address to fund it.`, { label: 'Fund the mandate', owner: 'principal', kind: 'fund' }, checks, facts, checkedAt, stale);
   }
 
   const lowGas = funding.gasBalance !== undefined && funding.gasBalance / ROUND_TRIP_FEE < GAS_WARNING_TRIPS;
   if (lowGas && funding.gasBalance !== undefined) {
     const trips = funding.gasBalance / ROUND_TRIP_FEE;
-    return report('funding', 'Funding', 'attention', `About ${trips} payments of fees left.`, `${shortAddress(funding.gasPayer ?? '0x')} holds ${formatEth(funding.gasBalance)} and a payment costs about ${formatEth(ROUND_TRIP_FEE)}. Send it more ETH before a run stops halfway.`, { label: 'Send ETH to the signer', owner: 'principal', kind: 'fund' }, checks, facts, checkedAt, stale);
+    return report('funding', 'Funding', 'attention', `ETH for about ${trips} more payments.`, `${shortAddress(funding.gasPayer ?? '0x')} holds ${formatEth(funding.gasBalance)} and a payment costs about ${formatEth(ROUND_TRIP_FEE)}. Add ETH before a run stops partway.`, { label: 'Send ETH to the signer', owner: 'principal', kind: 'fund' }, checks, facts, checkedAt, stale);
   }
 
   if (account && funding.mandateBalance !== undefined && funding.mandateBalance + draw < account.limits.perCallCap) {
-    return report('funding', 'Funding', 'attention', `The mandate holds ${usdg(funding.mandateBalance)}.`, `${drawNote.trim()} ${draw > 0n ? 'Together that is' : 'That is'} under the ${usd(account.limits.perCallCap)} this mandate allows in a single payment, so the largest payment it permits would fail on funds.`.trim(), { label: 'Fund the mandate', owner: 'principal', kind: 'fund' }, checks, facts, checkedAt, stale);
+    return report('funding', 'Funding', 'attention', `The mandate holds ${usdg(funding.mandateBalance)}.`, `${drawNote.trim()} ${draw > 0n ? 'Together that is' : 'That is'} less than its ${usd(account.limits.perCallCap)} per-payment limit, so its largest payment would fail.`.trim(), { label: 'Fund the mandate', owner: 'principal', kind: 'fund' }, checks, facts, checkedAt, stale);
   }
 
   const held = funding.mandateBalance === undefined ? '' : `The mandate holds ${usdg(funding.mandateBalance)} for payments.${drawNote} `;
@@ -429,24 +429,24 @@ export function evaluateFunding(snapshot: ChainSnapshot | undefined, checkedAt: 
   // assets" over a panel whose ETH line reads Unread is the state claiming a reading it never got,
   // and it is a claim a reader acts on: they stop topping up the wallet that may well be empty.
   if (funding.gasPayer !== undefined && funding.gasBalance === undefined) {
-    return report('funding', 'Funding', 'unknown', 'The fee balance did not answer.', `What ${shortAddress(funding.gasPayer)} holds in ETH could not be read, so whether it can pay a transaction fee is unknown rather than settled. Nothing has changed on chain; only the reading failed. ${held}`.trim(), { label: 'Read again', owner: 'operator', kind: 'retry' }, checks, facts, checkedAt, stale);
+    return report('funding', 'Funding', 'unknown', 'Could not read the fee balance.', `The ETH balance of ${shortAddress(funding.gasPayer)} did not answer. Nothing changed on chain. ${held}`.trim(), { label: 'Read again', owner: 'operator', kind: 'retry' }, checks, facts, checkedAt, stale);
   }
 
   if (account && funding.mandateBalance === undefined) {
-    return report('funding', 'Funding', 'unknown', 'The mandate balance did not answer.', `What ${shortAddress(account.address)} holds in USDG could not be read, so nothing here establishes that it can pay a provider. Nothing has changed on chain; only the reading failed. ${fees}`.trim(), { label: 'Read again', owner: 'operator', kind: 'retry' }, checks, facts, checkedAt, stale);
+    return report('funding', 'Funding', 'unknown', 'Could not read the mandate balance.', `The USDG balance of ${shortAddress(account.address)} did not answer. Nothing changed on chain. ${fees}`.trim(), { label: 'Read again', owner: 'operator', kind: 'retry' }, checks, facts, checkedAt, stale);
   }
 
   // Only one asset was asked about, which is not two that answered. Without a signer there is
   // nobody whose ETH pays a fee, so the report covers what it read and names what it did not.
   if (funding.gasBalance === undefined) {
-    return report('funding', 'Funding', 'ok', held.trim(), 'Connect a wallet and this also reads the ETH that pays the transaction fee. USDG and ETH are two assets here, and neither covers for the other.', null, checks, facts, checkedAt, stale);
+    return report('funding', 'Funding', 'ok', held.trim(), 'Connect a wallet to see the ETH that pays transaction fees.', null, checks, facts, checkedAt, stale);
   }
 
   if (funding.mandateBalance === undefined) {
-    return report('funding', 'Funding', 'ok', fees, 'Open a mandate and this also reads the USDG it holds for providers. The signer’s ETH pays transaction fees and never pays a provider.', null, checks, facts, checkedAt, stale);
+    return report('funding', 'Funding', 'ok', fees, 'Open a mandate to see the USDG it holds for payments.', null, checks, facts, checkedAt, stale);
   }
 
-  return report('funding', 'Funding', 'ok', 'Funded in both assets.', `${held}${fees}`.trim(), null, checks, facts, checkedAt, stale);
+  return report('funding', 'Funding', 'ok', 'Funded for payments and fees.', `${held}${fees}`.trim(), null, checks, facts, checkedAt, stale);
 }
 
 export function evaluateConnectivity(
@@ -475,11 +475,11 @@ export function evaluateConnectivity(
   }));
 
   if (list.length === 0) {
-    return report('connectivity', 'Connectivity', 'unknown', 'The endpoints have not been checked.', 'Nothing is known about the connection until the first check runs.', null, checks, facts, checkedAt, stale);
+    return report('connectivity', 'Connectivity', 'unknown', 'Checking the connection.', 'The network status appears here in a moment.', null, checks, facts, checkedAt, stale);
   }
 
   if (reachable.length === 0) {
-    return report('connectivity', 'Connectivity', 'blocked', `${RHC.name} is not reachable from here.`, 'Neither endpoint answered, so nothing on this screen is current and no transaction can be sent. Check the network this browser is on, then try again.', { label: 'Try again', owner: 'operator', kind: 'retry' }, checks, facts, checkedAt, stale);
+    return report('connectivity', 'Connectivity', 'blocked', `${RHC.name} is not reachable from here.`, 'Neither endpoint answered, so this screen is not current and nothing can be sent. Check your connection, then try again.', { label: 'Try again', owner: 'operator', kind: 'retry' }, checks, facts, checkedAt, stale);
   }
 
   const wrongChain = reachable.find((provider) => provider.chainId !== chainId);
@@ -489,14 +489,14 @@ export function evaluateConnectivity(
 
   if (reachable.length < list.length) {
     const down = list.filter((provider) => !provider.reachable).map((provider) => provider.name).join(', ');
-    return report('connectivity', 'Connectivity', 'attention', `${down} is not answering.`, `Reads continue on the other endpoint and nothing is lost. There is nothing behind it if that one goes too, so this is worth fixing before it matters.`, { label: 'Restore the endpoint', owner: 'operator', kind: 'contact' }, checks, facts, checkedAt, stale);
+    return report('connectivity', 'Connectivity', 'attention', `${down} is not answering.`, `Reads continue on the other endpoint.`, { label: 'Restore the endpoint', owner: 'operator', kind: 'contact' }, checks, facts, checkedAt, stale);
   }
 
   if (headSpread !== undefined && headSpread > 30n) {
-    return report('connectivity', 'Connectivity', 'attention', 'The endpoints disagree on the current block.', `They are ${headSpread} blocks apart. One is behind, so a reading taken from it may be out of date.`, null, checks, facts, checkedAt, stale);
+    return report('connectivity', 'Connectivity', 'attention', 'The endpoints disagree on the current block.', `One is ${headSpread} blocks behind, so some figures may be slightly out of date.`, null, checks, facts, checkedAt, stale);
   }
 
-  return report('connectivity', 'Connectivity', 'ok', `${reachable.length} of ${list.length} endpoints answering.`, `Both are serving chain ${chainId}${blockNumber === undefined ? '' : ` at block ${blockNumber.toString()}`}.`, null, checks, facts, checkedAt, stale);
+  return report('connectivity', 'Connectivity', 'ok', `Connected to ${RHC.name}.`, `${reachable.length} of ${list.length} endpoints answering${blockNumber === undefined ? '' : ` at block ${blockNumber.toString()}`}.`, null, checks, facts, checkedAt, stale);
 }
 
 function totalCheck(remaining: Micro, cap: Micro): Check {
@@ -507,8 +507,8 @@ function totalCheck(remaining: Micro, cap: Micro): Check {
     level,
     detail:
       remaining === 0n
-        ? `All ${usd(cap)} is spent. The total never refills.`
-        : `${usd(remaining)} left of ${usd(cap)}. The total never refills.`,
+        ? `All ${usd(cap)} is spent. It never refills.`
+        : `${usd(remaining)} left of ${usd(cap)}. It never refills.`,
   };
 }
 
@@ -520,8 +520,8 @@ function windowCheck(id: string, label: string, remaining: Micro, cap: Micro, re
     level,
     detail:
       remaining === 0n
-        ? `All ${usd(cap)} is spent. The window rolls ${formatRelative(resetsAt, now)}.`
-        : `${usd(remaining)} left of ${usd(cap)}. The window rolls ${formatRelative(resetsAt, now)}.`,
+        ? `All ${usd(cap)} is spent. It refills ${formatRelative(resetsAt, now)}.`
+        : `${usd(remaining)} left of ${usd(cap)}. It refills ${formatRelative(resetsAt, now)}.`,
   };
 }
 
@@ -536,7 +536,7 @@ function validityDetail(from: Date | null, until: Date | null, now: Date): strin
   if (until && isPast(until, now)) return `Expired on ${formatInstant(until)}.`;
   if (from && !isPast(from, now)) return `Opens on ${formatInstant(from)}.`;
   if (until) return `Valid until ${formatInstant(until)}, ${formatRelative(until, now)}.`;
-  return 'Valid with no end date set.';
+  return 'No end date.';
 }
 
 /**
@@ -557,31 +557,31 @@ function limitRefusal(
     case 'per-call-cap':
       return {
         headline: `${asked} is over the limit on one payment.`,
-        detail: 'The account refuses it before the money moves. Split it, or raise the per-payment limit.',
+        detail: 'The account refuses it before any money moves. Split it, or raise the per-payment limit.',
         action: { label: 'Raise the per-payment limit', owner: 'principal', kind: 'transaction' },
       };
     case 'daily-cap':
       return {
         headline: `${asked} is more than this period’s cap has left.`,
-        detail: 'The account refuses it until the period rolls or the period cap rises.',
+        detail: 'It is refused until the period refills or the cap is raised.',
         action: { label: 'Raise the period cap', owner: 'principal', kind: 'transaction' },
       };
     case 'monthly-cap':
       return {
         headline: `${asked} is more than the second cap has left.`,
-        detail: 'The account refuses it until that window rolls or the cap rises.',
+        detail: 'It is refused until that cap refills or is raised.',
         action: { label: 'Raise the second cap', owner: 'principal', kind: 'transaction' },
       };
     case 'total-budget':
       return {
         headline: `${asked} is more than the total budget has left.`,
-        detail: 'The total budget never refills. The account refuses it until the owner raises the total.',
+        detail: 'The total budget never refills. It is refused until the owner raises it.',
         action: { label: 'Raise the total budget', owner: 'principal', kind: 'transaction' },
       };
     case 'approval-required':
       return {
         headline: `${asked} needs the owner’s signature.`,
-        detail: 'It is at or above the approval threshold, so the agent cannot settle it alone.',
+        detail: 'It is at or above the approval threshold, so the agent cannot pay it alone.',
         action: { label: 'Approve this payment', owner: 'principal', kind: 'transaction' },
       };
     default:
@@ -592,19 +592,19 @@ function limitRefusal(
 function previewDetail(reason: string | undefined): string {
   switch (reason) {
     case 'merchant-not-allowed':
-      return 'The merchant is not on this mandate’s allowlist.';
+      return 'The payee is not on this mandate’s payee list.';
     case 'capability-not-allowed':
       return 'This kind of work is not on the mandate’s list.';
     case 'class-not-allowed':
-      return 'This kind of spend is outside the classes the mandate allows.';
+      return 'This mandate does not allow this kind of spend.';
     case 'merchant-proof-required':
-      return 'This mandate checks merchants against a published list, so the payment has to carry proof the merchant is on it.';
+      return 'This mandate checks payees against a published list, so the payment must prove its payee is on it.';
     case 'merchant-proof-invalid':
-      return 'The proof supplied for this merchant does not match the list the mandate holds.';
+      return 'The proof sent for this payee does not match the mandate’s list.';
     case 'merchant-proof-unexpected':
-      return 'This mandate uses a plain allowlist, so the payment must not carry a list proof.';
+      return 'This mandate keeps its own payee list, so the payment must not carry a list proof.';
     default:
-      return 'The mandate would refuse this payment on its permissions.';
+      return 'This mandate’s permissions would refuse this payment.';
   }
 }
 
@@ -640,7 +640,7 @@ function report<K extends StateKey, F>(
  * the contract's "no approval" setting is the largest number it can hold, so neither is printed.
  */
 export function approvalSentence(perCallCap: Micro, threshold: Micro): string {
-  if (threshold === 0n) return 'The principal signs every payment personally.';
-  if (threshold > perCallCap) return 'No payment needs the principal\'s signature.';
-  return `At or above ${usd(threshold)} the principal signs it personally.`;
+  if (threshold === 0n) return 'The owner signs every payment personally.';
+  if (threshold > perCallCap) return 'No payment needs the owner’s signature.';
+  return `At or above ${usd(threshold)}, the owner signs personally.`;
 }

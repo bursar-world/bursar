@@ -21,10 +21,10 @@ export default function GlobalError({
       <body>
         <main className="mx-auto flex min-h-dvh w-full max-w-xl flex-col justify-center gap-3 px-6">
           <p className="text-xl font-semibold tracking-[-1.3px]">BURSAR</p>
-          <h1 className="page-title">The application did not start</h1>
+          <h1 className="page-title">The console did not load</h1>
           <p className="text-detail text-[color:var(--color-muted)]">
-            The page shell failed to load, so nothing inside it is running. No transaction is affected by this: it is a
-            failure in the browser, and mandates, balances and limits are held by the contracts on Robinhood Chain.
+            This is a problem in the browser. Your mandates, balances and limits are held by contracts on Robinhood
+            Chain and are unaffected.
           </p>
           <div className="flex flex-wrap items-center gap-3 pt-1">
             <Button tone="primary" onClick={reset}>

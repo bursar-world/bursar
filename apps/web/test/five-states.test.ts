@@ -257,7 +257,7 @@ describe('a reading that did not land is never a clear one', () => {
     );
 
     expect(unread.level).toBe('unknown');
-    expect(unread.headline).toBe('The allowlists did not answer.');
+    expect(unread.headline).toBe('The payee and work lists did not answer.');
   });
 
   it('separates a state nothing was asked of from a state that is clear', () => {
@@ -280,8 +280,8 @@ describe('approvalSentence', () => {
   it('never prints an unreachable threshold', async () => {
     const { approvalSentence } = await import('@/state/evaluate');
     const max = (1n << 128n) - 1n;
-    expect(approvalSentence(20_000n as never, max as never)).toBe("No payment needs the principal's signature.");
-    expect(approvalSentence(20_000n as never, 20_000n as never)).toBe('At or above $0.02 the principal signs it personally.');
-    expect(approvalSentence(20_000n as never, 0n as never)).toBe('The principal signs every payment personally.');
+    expect(approvalSentence(20_000n as never, max as never)).toBe('No payment needs the owner’s signature.');
+    expect(approvalSentence(20_000n as never, 20_000n as never)).toBe('At or above $0.02, the owner signs personally.');
+    expect(approvalSentence(20_000n as never, 0n as never)).toBe('The owner signs every payment personally.');
   });
 });

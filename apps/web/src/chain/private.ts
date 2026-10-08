@@ -290,7 +290,7 @@ export function termsProblem(error: unknown): string {
   const name = error instanceof Error ? error.name : '';
   if (name === 'TermsLockedError') return 'This wallet’s viewing key does not open these terms. Connect the wallet that created the mandate.';
   if (name === 'TermsMismatchError') {
-    return 'The published terms open, but they are not the terms this mandate committed to, so they are not shown. Every payment is still held to the committed terms.';
+    return 'These terms do not match the ones this mandate committed to, so they are not shown. Payments are still held to the committed terms.';
   }
   return 'The terms could not be opened. The signature was declined or the network did not answer.';
 }

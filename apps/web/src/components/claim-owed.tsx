@@ -14,9 +14,9 @@ import type { TxContext } from './tx-button';
  */
 export function owedExplanation(holder: 'this mandate' | 'this address' | 'you'): string {
   return (
-    `When the payment settled, USDG refused the transfer to ${holder}, which is what happens while the token ` +
-    'issuer has frozen an address. The escrow set that amount aside and settled the rest. Anyone can send the ' +
-    `claim. It pays ${holder} and nobody else, and it goes through once USDG accepts the transfer again.`
+    `USDG refused the transfer to ${holder} when this payment settled, because the token issuer had frozen the ` +
+    'address. The escrow is holding that amount and settled the rest. ' +
+    `Anyone can claim it for ${holder} once USDG accepts the transfer again.`
   );
 }
 

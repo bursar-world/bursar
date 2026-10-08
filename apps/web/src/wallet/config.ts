@@ -31,7 +31,7 @@ function walletMetadata() {
   const url = typeof window === 'undefined' ? SITE_URL ?? '' : window.location.origin;
 
   return {
-    name: 'BURSAR',
+    name: 'Bursar',
     description: 'Spending mandates for agents, enforced on Robinhood Chain.',
     url,
     // WalletConnect takes absolute URLs only, and a phone with no icon shows an unnamed request
