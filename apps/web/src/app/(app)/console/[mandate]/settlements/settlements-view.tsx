@@ -7,6 +7,7 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import type { Hex } from 'viem';
 
+import { bareLabel } from '@/chain/capabilities';
 import { shortAddress } from '@/chain/rhc';
 import { Address as AddressView, TxHash } from '@/components/address';
 import { LevelDot } from '@/components/badge';
@@ -306,7 +307,9 @@ function Outcome({ row, chainTime }: { readonly row: Row; readonly chainTime: Da
 function Capability({ id, labelFor }: { readonly id: Hex; readonly labelFor: (id: Hex) => string | undefined }) {
   const label = labelFor(id);
   return label ? (
-    <span className="text-detail">{label}</span>
+    <span className="text-detail" title={label}>
+      {bareLabel(label)}
+    </span>
   ) : (
     <span className="tabular text-detail text-[color:var(--color-muted)]" title={id}>
       {shortAddress(id, 10, 6)}

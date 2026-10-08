@@ -81,12 +81,12 @@ export function GatesPanel() {
       <Section title="Who may be paid" description="Payments to anyone not on this list are refused.">
         <Card>
           <div className="space-y-4">
-            <Field label="Payee list in force" hint={gateDetail(account.merchantGate)}>
-              {gateWord(account.merchantGate)}
-              {merkle && (
+            {merkle && (
+              <Field label="Payee list in force" hint={gateDetail(account.merchantGate)}>
+                {gateWord(account.merchantGate)}
                 <span className="tabular ml-2 text-note text-[color:var(--color-muted)]">{shortAddress(account.merchantRoot, 10, 8)}</span>
-              )}
-            </Field>
+              </Field>
+            )}
 
             <Table
               rows={payees}

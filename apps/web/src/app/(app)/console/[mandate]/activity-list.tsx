@@ -6,6 +6,7 @@ import { shortAddress } from '@/chain/rhc';
 import { TxHash } from '@/components/address';
 import { Instant } from '@/components/instant';
 import { tokenAmountText, usd } from '@/money';
+import { bareLabel, classNameOf } from '@/chain/capabilities';
 import { useCapabilityLabels } from '../lib/capability-labels';
 import type { MandateEvent } from '../lib/activity';
 import { refusalOf } from '../lib/reading';
@@ -86,7 +87,7 @@ function describe(event: MandateEvent, labelFor: (id: Hex) => string | undefined
     case 'withdrawn':
       return `${tokenAmountText(event.amount, event.token)} taken out to ${shortAddress(event.to)}`;
     case 'bought':
-      return `Bought ${tokenAmountText(event.amountOut, event.asset)} for ${usd(event.usdgIn)}`;
+      return `Bought ${tokenAmountText(event.amountOut, event.asset, 3)} for ${usd(event.usdgIn)}`;
     case 'router-updated':
       return event.router === ZERO ? 'Stock purchases switched off' : `Stock purchases routed through ${shortAddress(event.router)}`;
     case 'park-updated':
@@ -101,8 +102,12 @@ function describe(event: MandateEvent, labelFor: (id: Hex) => string | undefined
       return `Agent revoked: ${shortAddress(event.agent)}`;
     case 'merchant-updated':
       return `${shortAddress(event.merchant)} ${event.allowed ? 'allowed as a payee' : 'removed as a payee'}`;
-    case 'capability-updated':
-      return `${capability(event.capabilityId, labelFor)} ${event.allowed ? 'allowed' : 'removed'}`;
+    case 'capability-updated': {
+      const label = labelFor(event.capabilityId);
+      const kind = label === undefined ? undefined : classNameOf(label);
+      const name = capability(event.capabilityId, labelFor);
+      return `${kind === undefined ? name : `${kind}: ${name}`} ${event.allowed ? 'allowed' : 'removed'}`;
+    }
     case 'gate-updated':
       return event.gate === 1 ? 'Payee list switched to a published list' : 'Payee list switched to the mandate’s own list';
     case 'document-anchored':
@@ -117,5 +122,6 @@ function describe(event: MandateEvent, labelFor: (id: Hex) => string | undefined
 const ZERO = '0x0000000000000000000000000000000000000000';
 
 function capability(id: Hex, labelFor: (id: Hex) => string | undefined): string {
-  return labelFor(id) ?? shortAddress(id, 10, 6);
+  const label = labelFor(id);
+  return label === undefined ? shortAddress(id, 10, 6) : bareLabel(label);
 }

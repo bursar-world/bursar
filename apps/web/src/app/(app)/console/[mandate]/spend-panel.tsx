@@ -94,9 +94,9 @@ export function SpendPanel() {
             {total !== undefined && <TotalStat total={total} />}
           </StatGrid>
 
-          <FieldGrid columns={3}>
+          <FieldGrid columns={isOwner ? 3 : 2}>
             <Field label="Approvals" hint="Set with the limits.">
-              {describeApproval(account.limits.approvalThreshold, account.limits.perCallCap)}
+              {describeApproval(account.limits.approvalThreshold, account.limits.perCallCap, isOwner ? 'owner' : 'visitor')}
             </Field>
             <Field label="Valid" hint={validFrom ? 'Starts on the date shown.' : 'Active since the mandate was created.'}>
               {validUntil ? (
@@ -107,14 +107,16 @@ export function SpendPanel() {
                 'No expiry'
               )}
             </Field>
-            <Field label="Limit version" hint="Goes up by one each time the limits change.">
-              <span className="tabular">{account.version.toString()}</span>
-              {landed && rewroteFrom !== undefined && (
-                <span className="block text-note" style={{ color: 'var(--color-state-ok)' }}>
-                  Updated from version {rewroteFrom.toString()}.
-                </span>
-              )}
-            </Field>
+            {isOwner && (
+              <Field label="Limit version" hint="Goes up by one each time the limits change.">
+                <span className="tabular">{account.version.toString()}</span>
+                {landed && rewroteFrom !== undefined && (
+                  <span className="block text-note" style={{ color: 'var(--color-state-ok)' }}>
+                    Updated from version {rewroteFrom.toString()}.
+                  </span>
+                )}
+              </Field>
+            )}
           </FieldGrid>
 
           {editing && draft && (

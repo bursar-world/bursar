@@ -30,16 +30,14 @@ export function CapabilityName({ id }: { readonly id: Hex }) {
 
   const spendClass = classNameOf(name);
 
+  // A recognised name stands on its own; the hash the contract holds stays one hover away.
   return (
     <span>
       {spendClass !== undefined && (
         <span className="mr-2 font-mono text-label uppercase tracking-wide text-[color:var(--color-muted)]">{spendClass}</span>
       )}
-      <span className="font-medium" title={name}>
+      <span className="font-medium" title={`${name} · ${id}`}>
         {spendClass === undefined ? name : bareLabel(name)}
-      </span>
-      <span className="tabular ml-2 text-note text-[color:var(--color-muted)]" title={id}>
-        {shortAddress(id, 10, 6)}
       </span>
     </span>
   );

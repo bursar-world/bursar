@@ -5,7 +5,7 @@ import type { Address } from 'viem';
 import { RHC, shortAddress } from '../chain/rhc';
 import type { ProviderHealth } from '../chain/client';
 import type { ChainSnapshot } from '../chain/reader';
-import { formatEth, usd, usdg, wei } from '../money';
+import { formatEth, toCents, usd, usdHeld, wei } from '../money';
 import type { Wei } from '../money';
 import { formatInstant, formatRelative, fromUnix, isPast } from '../lib/time';
 import type {
@@ -291,7 +291,7 @@ export function evaluatePermission(snapshot: ChainSnapshot | undefined, checkedA
   };
 
   if (!permission || (permission.merchant === undefined && permission.capabilityId === undefined)) {
-    return report('permission', 'Permission', 'not-applicable', 'No payee named.', 'Name a payee and a kind of work to see whether this mandate allows them.', null, [], facts, checkedAt, stale);
+    return report('permission', 'Permission', 'not-applicable', 'No payee named.', 'Name a payee and a kind of work under Before you pay to see whether this mandate allows them.', null, [], facts, checkedAt, stale);
   }
 
   const checks: Check[] = [];
@@ -379,7 +379,9 @@ export function evaluateFunding(snapshot: ChainSnapshot | undefined, checkedAt: 
   // together cover it, and telling its owner to fund it would contradict the spending power shown
   // beside this.
   const draw = drawable ?? 0n;
-  const drawNote = draw > 0n ? ` It can draw ${usd(draw as Micro)} more inside a payment, from parked value or its credit line.` : '';
+  // Parked dust a payment could draw is not spending power worth a sentence, and "$0.00 more" says so badly.
+  const draws = toCents(draw as Micro) > 0n;
+  const drawNote = draws ? ` It can draw ${usd(draw as Micro)} more inside a payment, from parked value or its credit line.` : '';
 
   const checks: Check[] = [];
   if (funding.mandateBalance !== undefined && account) {
@@ -390,7 +392,7 @@ export function evaluateFunding(snapshot: ChainSnapshot | undefined, checkedAt: 
       detail:
         funding.mandateBalance === 0n
           ? `${shortAddress(account.address)} holds no USDG. Providers are paid from this account.`
-          : `${shortAddress(account.address)} holds ${usdg(funding.mandateBalance)} for payments.`,
+          : `${shortAddress(account.address)} holds ${usdHeld(funding.mandateBalance)} in USDG for payments.`,
     });
   }
 
@@ -419,10 +421,10 @@ export function evaluateFunding(snapshot: ChainSnapshot | undefined, checkedAt: 
   }
 
   if (account && funding.mandateBalance !== undefined && funding.mandateBalance + draw < account.limits.perCallCap) {
-    return report('funding', 'Funding', 'attention', `The mandate holds ${usdg(funding.mandateBalance)}.`, `${drawNote.trim()} ${draw > 0n ? 'Together that is' : 'That is'} less than its ${usd(account.limits.perCallCap)} per-payment limit, so its largest payment would fail.`.trim(), { label: 'Fund the mandate', owner: 'principal', kind: 'fund' }, checks, facts, checkedAt, stale);
+    return report('funding', 'Funding', 'attention', `The mandate holds ${usdHeld(funding.mandateBalance)} in USDG.`, `${drawNote.trim()} ${draws ? 'Together that is' : 'That is'} less than its ${usd(account.limits.perCallCap)} per-payment limit, so its largest payment would fail.`.trim(), { label: 'Fund the mandate', owner: 'principal', kind: 'fund' }, checks, facts, checkedAt, stale);
   }
 
-  const held = funding.mandateBalance === undefined ? '' : `The mandate holds ${usdg(funding.mandateBalance)} for payments.${drawNote} `;
+  const held = funding.mandateBalance === undefined ? '' : `The mandate holds ${usdHeld(funding.mandateBalance)} in USDG for payments.${drawNote} `;
   const fees = funding.gasBalance === undefined ? '' : `The signer holds ${formatEth(funding.gasBalance)} for fees.`;
 
   // A balance that was asked for and did not answer is not a balance that passed. "Funded in both

@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 
+import { ADDRESSES, sameAddress } from '@/chain/rhc';
 import { Address as AddressView } from '@/components/address';
 import { Card, Field, FieldGrid, Section } from '@/components/layout';
 import { ErrorSurface } from '@/components/error-surface';
@@ -30,7 +31,7 @@ export function OverviewView() {
         description="Every payment from this agent has to clear these five conditions."
       >
         <Card>
-          <StatusList system={system} detailed />
+          <StatusList system={system} />
         </Card>
         {system.snapshot && (
           <p className="text-note text-[color:var(--color-muted)]">
@@ -80,15 +81,17 @@ export function OverviewView() {
               label="Settlement asset"
               hint="Providers are paid in this. Network fees are paid in ETH."
             >
-              {account ? <AddressView value={account.settlementAsset} /> : 'Reading'}
-            </Field>
-            <Field label="Mandate document" hint="A fingerprint of the written terms, for your records.">
-              {account && account.documentHash !== '0x' && !/^0x0+$/.test(account.documentHash) ? (
-                <span className="tabular break-all text-detail">{account.documentHash}</span>
+              {account ? (
+                <AddressView value={account.settlementAsset} {...(sameAddress(account.settlementAsset, ADDRESSES.usdg) ? { label: 'USDG' } : {})} />
               ) : (
-                'None'
+                'Reading'
               )}
             </Field>
+            {account && account.documentHash !== '0x' && !/^0x0+$/.test(account.documentHash) && (
+              <Field label="Mandate document" hint="A fingerprint of the written terms, for your records.">
+                <span className="tabular break-all text-detail">{account.documentHash}</span>
+              </Field>
+            )}
           </FieldGrid>
         </Card>
       </Section>

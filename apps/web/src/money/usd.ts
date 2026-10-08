@@ -28,6 +28,11 @@ export function usdExact(value: Micro): string {
   return formatMicro(value, { minDecimals: 2, maxDecimals: 6, grouped: true, symbol: true });
 }
 
+/** Cents, unless rounding would show a balance that holds something as $0.00. */
+export function usdHeld(value: Micro): string {
+  return value > 0n && toCents(value) === 0n ? usdExact(value) : usd(value);
+}
+
 export function usdg(value: Micro): string {
   return `${formatMicro(value, { minDecimals: 2, maxDecimals: 6, grouped: true })} USDG`;
 }

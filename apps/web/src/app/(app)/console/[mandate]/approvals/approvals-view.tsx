@@ -180,7 +180,7 @@ export function ApprovalsView() {
         <Card>
           <FieldGrid columns={3}>
             <Field label="Threshold in force" hint="Set with the limits.">
-              {describeApproval(account.limits.approvalThreshold, account.limits.perCallCap)}
+              {describeApproval(account.limits.approvalThreshold, account.limits.perCallCap, isOwner ? 'owner' : 'visitor')}
             </Field>
             <Field label="How an approval works" hint="Good for one payment.">
               The agent presents it with the payment. The payee and the kind of work have to match.

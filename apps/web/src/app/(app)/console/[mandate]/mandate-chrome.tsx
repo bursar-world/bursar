@@ -5,6 +5,8 @@ import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 
 import { onCurrentSet } from '@/chain/deployments';
+import { exampleMandate } from '@/chain/mandates';
+import { sameAddress } from '@/chain/rhc';
 import { Address } from '@/components/address';
 import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
@@ -41,6 +43,7 @@ export function MandateChrome({ children }: { readonly children: ReactNode }) {
   }
 
   const earlier = !onCurrentSet(account.contractSet);
+  const example = sameAddress(address, exampleMandate());
   const tabs = [
     { href: base, label: 'Overview' },
     { href: `${base}/approvals`, label: 'Approvals' },
@@ -59,8 +62,12 @@ export function MandateChrome({ children }: { readonly children: ReactNode }) {
             <h1 className="page-title">Mandate</h1>
             <Address value={address} full />
           </div>
-          <div className="flex items-center gap-2">
-            <span className="tabular text-sm">{usd(account.balance)}</span>
+          <div className="flex items-center gap-3">
+            {/* The figure stays next to the address in reading order; the label only sits above it. */}
+            <div className="flex flex-col-reverse items-end">
+              <span className="tabular text-sm">{usd(account.balance)}</span>
+              <span className="text-label uppercase tracking-wide text-[color:var(--color-muted)]">Balance</span>
+            </div>
             <Button size="sm" onClick={refresh} disabled={system.isFetching || ledger.isFetching}>
               {system.isFetching || ledger.isFetching ? 'Checking' : 'Check again'}
             </Button>
@@ -68,9 +75,9 @@ export function MandateChrome({ children }: { readonly children: ReactNode }) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {example && <Badge tone="quiet">Example</Badge>}
           {account.paused && <Badge>Paused</Badge>}
           {account.revoked && <Badge>Agent revoked</Badge>}
-          <Badge tone="quiet">Version {account.version.toString()}</Badge>
           {earlier && <Badge tone="quiet">Earlier contracts</Badge>}
           <StatusStrip system={system} />
         </div>
