@@ -97,7 +97,7 @@ export function ResolverView() {
         </Unread>
       )}
 
-      <Operator commitWindow={desk?.config?.commitWindow} />
+      <Operator commitWindow={desk?.config?.commitWindow} bench={desk?.resolverCount} />
 
       <Headline desk={desk} account={account !== undefined} />
 
@@ -125,21 +125,33 @@ export function ResolverView() {
   );
 }
 
+/** Bursar's own resolvers, the three the ruling policy names. */
+const OPERATED = 3;
+
 /**
- * Who the panel is, said before anything else a reader could weigh a ruling by. Every bonded
- * resolver on this registry is Bursar's, which makes Bursar the arbiter of every dispute here.
+ * Who the panel is, said before anything else a reader could weigh a ruling by. While every bonded
+ * resolver is Bursar's, Bursar is the arbiter of every dispute here. A resolver governance admits
+ * beside them changes that sentence, so the bench the registry counts decides which one is shown.
  */
-function Operator({ commitWindow }: { readonly commitWindow: bigint | undefined }) {
+function Operator({ commitWindow, bench }: { readonly commitWindow: bigint | undefined; readonly bench: number | undefined }) {
   // The ruling service stops counting evidence halfway through the sealing window.
   const cutoff = commitWindow === undefined ? 'halfway through the sealing window' : `${formatDuration(Number(commitWindow) / 2)} after the dispute opens`;
+  const shared = bench !== undefined && bench > OPERATED;
   return (
     <Card title="Who rules today">
       <div className="max-w-3xl space-y-3 text-sm">
-        <p>
-          Bursar operates all three bonded resolvers, so Bursar decides every dispute here. Each ruling follows the
-          published policy, the three resolvers cast the same score, and the reasons are published on the dispute once
-          the votes are revealed.
-        </p>
+        {shared ? (
+          <p>
+            Bursar operates three of the {bench} resolvers bonded here. Its three vote by the published policy and cast
+            the same score, and the reasons are published on the dispute once the votes are revealed.
+          </p>
+        ) : (
+          <p>
+            Bursar operates all three bonded resolvers, so Bursar decides every dispute here. Each ruling follows the
+            published policy, the three resolvers cast the same score, and the reasons are published on the dispute once
+            the votes are revealed.
+          </p>
+        )}
         <p>
           A provider who delivered can send signed evidence from its desk until {cutoff}. Bursar never
           overrides a dispute in which it is the payer or the provider.
