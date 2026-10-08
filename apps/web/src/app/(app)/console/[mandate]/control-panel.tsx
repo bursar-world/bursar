@@ -58,7 +58,10 @@ export function ControlPanel() {
                       : 'New payments are refused at once. Payments already in escrow still settle, and the limits stay as they are.'}
                   </p>
                 </div>
+                {/* Keyed on the state it changes: one button serves both directions, and without a fresh
+                    one the landed pause left a "Done" that resumed the mandate when pressed. */}
                 <TxButton
+                  key={account.paused ? 'resume' : 'pause'}
                   label={account.paused ? 'Resume' : 'Pause'}
                   tone={account.paused ? 'primary' : 'destructive'}
                   blockedBy={blockedBy}
@@ -91,6 +94,7 @@ export function ControlPanel() {
                   </p>
                 </div>
                 <TxButton
+                  key={seated ? 'revoke' : 'revoked'}
                   label="Revoke"
                   tone="destructive"
                   disabled={!seated && account.revoked}
@@ -120,6 +124,7 @@ export function ControlPanel() {
                   {...(sameAgent ? { problem: 'This address is already the agent.' } : {})}
                   action={
                     <TxButton
+                      key={seated ? 'replace' : 'seat'}
                       label={seated ? 'Replace' : 'Seat'}
                       disabled={nextAgent === undefined || sameAgent}
                       blockedBy={blockedBy}
