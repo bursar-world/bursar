@@ -27,7 +27,8 @@ import { useWorkspace } from '@/workspace/context';
 import { newDraft, upsert } from '@/workspace/model';
 import { ChipList } from '../chip-list';
 import { SpendClassFields } from '../spend-class-fields';
-import { StealthCreate, StealthToggle } from './stealth-create';
+import { StealthCreate, StealthCreated, StealthToggle } from './stealth-create';
+import type { StealthCreation } from './stealth-create';
 
 export const PRIVATE_LIMIT_LINE =
   'Only your viewing key opens these terms. The amount and the provider of each payment are still visible on chain. A private mandate can hold a total budget of up to $25.00 for now.';
@@ -60,6 +61,7 @@ export function PrivateCreate({ owner, onCreated }: { readonly owner: Address; r
   // Written in the send and read on the receipt, which can land before a re-render.
   const prepared = useRef<TermsDocument | undefined>(undefined);
   const [created, setCreated] = useState<Created | undefined>(undefined);
+  const [hidden, setHidden] = useState<StealthCreation | undefined>(undefined);
 
   if (contracts === undefined) {
     return (
@@ -72,6 +74,7 @@ export function PrivateCreate({ owner, onCreated }: { readonly owner: Address; r
   }
 
   if (created) return <PrivateCreated created={created} />;
+  if (hidden) return <StealthCreated created={hidden.created} prepared={hidden.prepared} />;
 
   const reading = readPrivateForm(form);
   const agent = readAddress(agentText).value;
@@ -232,7 +235,15 @@ export function PrivateCreate({ owner, onCreated }: { readonly owner: Address; r
               <p className="text-detail text-[color:var(--color-muted)]">A copy of the terms is saved to your workspace.</p>
             )}
             {stealth ? (
-              <StealthCreate owner={owner} terms={reading.terms} label={name.trim()} />
+              <StealthCreate
+                owner={owner}
+                terms={reading.terms}
+                label={name.trim()}
+                onCreated={(creation) => {
+                  setHidden(creation);
+                  onCreated?.();
+                }}
+              />
             ) : (
               <TxButton label="Create the private mandate" disabled={!ready} send={send} onConfirmed={(receipt) => void onConfirmed(receipt)} />
             )}

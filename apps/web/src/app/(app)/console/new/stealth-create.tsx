@@ -16,7 +16,6 @@ import { privateContracts } from '@/chain/private';
 import { CHAIN_ID } from '@/chain/rhc';
 import { fundsKeyContext, shieldedContracts, shieldedHref } from '@/chain/shielded';
 import {
-  SHIELDED_TIMING_LINE,
   STEALTH_LIMIT_LINE,
   STEALTH_STEP_LABEL,
   agentGasWei,
@@ -45,6 +44,7 @@ const POLL_MS = 4_000;
 
 type Prepared = { readonly keys: OwnerKeys; readonly plan: StealthMandatePlan };
 type Created = { readonly mandate: Address; readonly hash: Hex; readonly terms: TermsDocument; readonly fromBlock: bigint };
+export type StealthCreation = { readonly created: Created; readonly prepared: Prepared };
 
 /** The switch inside private terms that puts the owner and the agent at fresh stealth addresses. */
 export function StealthToggle({ on, onChange, disabled = false }: { readonly on: boolean; readonly onChange: (on: boolean) => void; readonly disabled?: boolean }) {
@@ -75,10 +75,12 @@ export function StealthCreate({
   owner,
   terms,
   label,
+  onCreated,
 }: {
   readonly owner: Address;
   readonly terms: TermsInput | undefined;
   readonly label: string;
+  readonly onCreated: (creation: StealthCreation) => void;
 }) {
   const factory = privateContracts()?.CommittedMandateFactory;
   const { signMessageAsync } = useSignMessage();
@@ -88,12 +90,10 @@ export function StealthCreate({
   const [problem, setProblem] = useState<string | undefined>(undefined);
   const [done, setDone] = useState<ReadonlySet<StealthStep>>(new Set());
   const [hashes, setHashes] = useState<Partial<Record<StealthStep, Hex>>>({});
-  const [created, setCreated] = useState<Created | undefined>(undefined);
   // Fixed at the first create attempt, so a retry after a failed step commits to the same terms.
   const sealed = useRef<{ terms: TermsDocument; ciphertext: Hex; salt: Hex } | undefined>(undefined);
 
   if (factory === undefined) return null;
-  if (created && prepared) return <StealthCreated created={created} prepared={prepared} />;
 
   const prepare = async () => {
     setBusy(true);
@@ -152,7 +152,10 @@ export function StealthCreate({
           const [event] = parseEventLogs({ abi: committedMandateFactoryAbi, eventName: 'Created', logs: receipt.logs });
           if (!event) throw new Error('The factory did not report the new account.');
           forgetDraw(owner);
-          setCreated({ mandate: event.args.account, hash: receipt.transactionHash, terms: doc, fromBlock: receipt.blockNumber });
+          onCreated({
+            created: { mandate: event.args.account, hash: receipt.transactionHash, terms: doc, fromBlock: receipt.blockNumber },
+            prepared: current,
+          });
         } else {
           const identity = step === 'announce-owner' ? principal : agent;
           const receipt = await sendFromStealth(principal.privateKey, {
@@ -318,7 +321,7 @@ function PublishMetaAddress({ owner, metaAddress }: { readonly owner: Address; r
   );
 }
 
-function StealthCreated({ created, prepared }: { readonly created: Created; readonly prepared: Prepared }) {
+export function StealthCreated({ created, prepared }: StealthCreation) {
   const { principal, agent } = prepared.plan;
   const [sent, setSent] = useState<Hex | undefined>(undefined);
   const [problem, setProblem] = useState<string | undefined>(undefined);
@@ -361,8 +364,6 @@ function StealthCreated({ created, prepared }: { readonly created: Created; read
               <AddressView value={agent.address} />
             </Field>
           </FieldGrid>
-          <p className="text-detail text-[color:var(--color-muted)]">{STEALTH_LIMIT_LINE}</p>
-          {shieldedContracts() && <p className="text-detail text-[color:var(--color-muted)]">{SHIELDED_TIMING_LINE}</p>}
           <p className="text-detail">
             The agent key file holds your agent’s private key and the terms. Give it to your agent only. You can download it
             again from your private mandates.
