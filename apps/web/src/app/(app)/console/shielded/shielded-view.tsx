@@ -176,7 +176,7 @@ function PoolPanel({ contracts }: { readonly contracts: ShieldedDeployment }) {
           />
           <Stat
             label="Approved deposits"
-            value={set.data ? (deposits === 0 ? 'None yet' : `${set.data.labels.length} of ${deposits}`) : 'Loading'}
+            value={set.data ? (deposits === 0 ? 'None yet' : ready ? `${set.data.labels.length} of ${deposits}` : 'Next list pending') : 'Loading'}
             hint={
               set.data === undefined
                 ? 'Loading approved deposits.'
