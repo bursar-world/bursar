@@ -276,7 +276,7 @@ function BrakeGroup({
   return (
     <div className="mt-5 space-y-2">
       <p className="text-detail text-[color:var(--color-muted)]">
-        {tag.name}, stopped through <AddressLabel value={tag.address} />
+        {tag.current ? 'Stopped through the current governance delay at' : 'Stopped through the delay at'} <AddressLabel value={tag.address} />
       </p>
       {tag.brake !== undefined && (
         <p className="text-detail text-[color:var(--color-muted)]">
