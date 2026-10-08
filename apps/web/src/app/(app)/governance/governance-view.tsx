@@ -18,7 +18,7 @@ import type { AnyState } from '@/state';
 import { useWalletAccount } from '@/wallet/account';
 
 import { GuardianPanel, ProposePanel } from './actions-panel';
-import type { Proposal, ProposalStatus, TimelockReading } from './read';
+import type { Governance, Proposal, ProposalStatus, TimelockReading } from './read';
 import { governanceNotice, permits } from './roles';
 import type { Roles } from './roles';
 import { useGovernance } from './use-governance';
@@ -144,6 +144,7 @@ export function GovernanceView() {
         canPause={roles.guardian}
         targets={data?.brake ?? []}
         delaySeconds={data?.delaySeconds}
+        escrowDelaySeconds={escrowBrakeDelay(data)}
         blockedBy={blockedBy}
         onPaused={governance.refresh}
       />
@@ -163,6 +164,13 @@ export function GovernanceView() {
 }
 
 /** The timelock's own signer set decides, and an unread set leaves the control offered. */
+/** The delay of whichever timelock the escrow lets pause it, which is the one its restart goes through. */
+function escrowBrakeDelay(data: Governance | undefined): bigint | undefined {
+  const escrow = data?.brake.find((target) => target.key === 'escrow');
+  if (escrow?.admin === undefined) return undefined;
+  return data?.timelocks.find((reading) => sameAddress(reading.tag.address, escrow.admin))?.delaySeconds;
+}
+
 function signsFor(timelocks: readonly TimelockReading[], proposal: Proposal, address: string | undefined): boolean {
   const signers = timelocks.find((reading) => sameAddress(reading.tag.address, proposal.timelock.address))?.signers;
   return signers === undefined || signers.some((signer) => sameAddress(signer, address));

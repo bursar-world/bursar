@@ -13,7 +13,7 @@ import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
 import { Card, Section } from '@/components/layout';
 import { TxButton } from '@/components/tx-button';
-import { formatDuration } from '@/lib';
+import { formatSpan } from '@/lib';
 import type { AnyState } from '@/state';
 
 import { CalldataBuilder } from './builder';
@@ -98,7 +98,7 @@ export function ProposePanel({
       description={
         description ??
         `Proposing counts as your approval. The change then needs one more signer and the delay that administers it${
-          delaySeconds === undefined ? '' : `: ${formatDuration(Number(delaySeconds))} on the current contracts, longer on the token and staking`
+          delaySeconds === undefined ? '' : `, ${formatSpan(Number(delaySeconds))} on the current contracts`
         }.`
       }
     >
@@ -179,16 +179,20 @@ export function GuardianPanel({
   canPause,
   targets,
   delaySeconds,
+  escrowDelaySeconds,
   blockedBy,
   onPaused,
 }: {
   readonly canPause: Answer;
   readonly targets: readonly BrakeTarget[];
   readonly delaySeconds: bigint | undefined;
+  /** The delay of the timelock that keeps the escrow's brake, where it is not the current one. */
+  readonly escrowDelaySeconds?: bigint | undefined;
   readonly blockedBy: readonly AnyState[];
   readonly onPaused: () => void;
 }) {
   const allowed = permits(canPause);
+  const escrowRestart = escrowDelaySeconds === undefined || escrowDelaySeconds === delaySeconds ? undefined : formatSpan(Number(escrowDelaySeconds));
   const timelocks = governanceTimelocks();
   const outOfReach = targets.filter((target) => target.admin !== undefined && !timelocks.some((tag) => sameAddress(tag.address, target.admin)));
   const unread = targets.filter((target) => target.admin === undefined);
@@ -202,10 +206,10 @@ export function GuardianPanel({
         <div className="max-w-3xl space-y-3 text-sm">
           <p>
             The guardian key only pauses. The governance delay builds the call itself, and it is always{' '}
-            <code>pause()</code>. Restarting is an ordinary proposal: two signatures and{' '}
-            {delaySeconds === undefined ? 'the full delay' : formatDuration(Number(delaySeconds))} on the current
-            contracts. Stopping is instant and starting is not, so a stolen guardian key can cause an outage but cannot
-            move funds.
+            <code>pause()</code>. Restarting is an ordinary proposal: two signatures and the full delay of the contract
+            that paused it{delaySeconds === undefined ? '' : `, ${formatSpan(Number(delaySeconds))} on the current contracts`}
+            {escrowRestart === undefined ? '' : ` and ${escrowRestart} for the escrow`}. Stopping is instant and starting is
+            not, so a stolen guardian key can cause an outage but cannot move funds.
           </p>
           <p className="text-[color:var(--color-muted)]">
             The escrow, the dispute registry, the provider registry, the staking pool and the buyback can be paused.
