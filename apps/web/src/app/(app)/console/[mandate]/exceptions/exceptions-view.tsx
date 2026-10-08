@@ -194,7 +194,9 @@ export function ExceptionsView() {
                       <span className="text-detail">
                         <span className="font-medium">{returnable(lock, chainTime) ? OVERDUE_WORD : lockWord(lock.status)}. </span>
                         <span className="text-[color:var(--color-muted)]">
-                          {returnable(lock, chainTime) ? OVERDUE_DETAIL : lockDetail(lock.status)}
+                          {returnable(lock, chainTime)
+                            ? OVERDUE_DETAIL
+                            : rulingDetail(ledger.lockEvents.get(lock.id.toString())?.resolved) ?? lockDetail(lock.status)}
                         </span>
                       </span>
                       {(lock.status === LockStatus.Disputed || lock.status === LockStatus.Resolved) && (
@@ -466,6 +468,14 @@ function Attempted({ refusal, labelFor }: { readonly refusal: Refusal; readonly 
   );
 }
 
+
+/** Where a ruling sent the money, from the escrow's own record of it. */
+function rulingDetail(resolved: { readonly refunded: Micro; readonly paid: Micro } | undefined): string | undefined {
+  if (resolved === undefined) return undefined;
+  if (resolved.paid === 0n) return `The resolvers returned ${usdExact(resolved.refunded)} to this mandate and the provider was paid nothing.`;
+  if (resolved.refunded === 0n) return `The resolvers ruled for the provider, who was paid ${usdExact(resolved.paid)}. Nothing came back to this mandate.`;
+  return `The resolvers returned ${usdExact(resolved.refunded)} to this mandate and paid the provider ${usdExact(resolved.paid)}.`;
+}
 
 /** Who has to act next on a payment that did not end in a delivery. */
 export function whoseMove(status: LockStatus, overdue: boolean): string {
