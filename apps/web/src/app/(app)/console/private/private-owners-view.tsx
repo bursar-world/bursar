@@ -142,7 +142,8 @@ export function PrivateOwnersView() {
             </Card>
           ) : (
             <div className="space-y-4">
-              {found.mandates.map((entry) => (
+              {/* The scan reads announcements oldest first; the newest mandate leads. */}
+              {[...found.mandates].reverse().map((entry) => (
                 <OwnedMandate key={entry.mandate} entry={entry} keys={found.keys} fromBlock={BigInt(contracts.fromBlock)} onChange={() => void scan(found.keys)} />
               ))}
             </div>
