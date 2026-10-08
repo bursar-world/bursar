@@ -287,7 +287,7 @@ function ProposalCard({
           <Instant at={proposal.createdAt} />
         </Field>
         <Field
-          label={proposal.status === 'waiting-out-the-delay' ? 'Executable in' : 'Executable from'}
+          label={proposal.status === 'waiting-out-the-delay' ? 'Executable' : 'Executable from'}
           hint={proposal.status === 'waiting-out-the-delay' ? 'Nothing can make this run sooner.' : undefined}
         >
           {proposal.status === 'waiting-out-the-delay' ? (
