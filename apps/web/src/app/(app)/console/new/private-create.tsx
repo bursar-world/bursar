@@ -216,7 +216,7 @@ export function PrivateCreate({ owner, onCreated }: { readonly owner: Address; r
         title="Review"
         description={
           stealth
-            ? 'Your wallet signs twice, once for your viewing key and once for the key that controls the new owner and agent addresses. The owner address then creates the mandate once it holds a little gas.'
+            ? 'Your wallet signs twice: once for your viewing key, once to create the owner and agent addresses. The owner address then creates the mandate once it holds a little gas.'
             : 'Your wallet signs once to create your viewing key, then sends the transaction.'
         }
       >

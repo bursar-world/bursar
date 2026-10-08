@@ -177,10 +177,6 @@ export function StealthCreate({
   if (!prepared) {
     return (
       <div className="space-y-3">
-        <p className="text-detail text-[color:var(--color-muted)]">
-          Your wallet signs twice. The first creates your viewing key. Your wallet shows the second as controlling funds,
-          which it does: it creates the owner and agent addresses. Neither costs anything. Sign the second only on this page.
-        </p>
         <Button tone="primary" onClick={() => void prepare()} disabled={busy || terms === undefined}>
           {busy ? 'Waiting for the signatures' : 'Create the private addresses'}
         </Button>
