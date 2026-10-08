@@ -141,7 +141,14 @@ function ClassRow({
         </div>
       </div>
 
-      {on && (
+      {on && spendClass === 'rwa' && (
+        <p className="mt-3 pl-7 text-detail text-[color:var(--color-muted)]">
+          Stock purchases need no capability. Once the mandate exists, choose which stocks the agent may buy under Stock
+          purchases on its page.
+        </p>
+      )}
+
+      {on && spendClass !== 'rwa' && (
         <div className="mt-4 space-y-3 pl-7">
           <div className="flex flex-wrap items-end gap-2">
             <div className="min-w-[14rem] flex-1">
