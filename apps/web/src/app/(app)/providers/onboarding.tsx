@@ -388,9 +388,11 @@ export function WithdrawalCard({ desk, blockedBy, onDone }: PanelProps) {
           }}
           max={standing.stake === undefined ? undefined : { atomic: standing.stake, label: 'All of it' }}
           hint={
-            standing.minStake === undefined
-              ? 'While you take work, the minimum stake has to stay.'
-              : `While you take work, ${usd(standing.minStake)} has to stay. Stop taking work to withdraw all of it.`
+            standing.active === false
+              ? 'You are not taking work, so all of it can come out.'
+              : standing.minStake === undefined
+                ? 'While you take work, the minimum stake has to stay.'
+                : `While you take work, ${usd(standing.minStake)} has to stay. Stop taking work to withdraw all of it.`
           }
         />
 
