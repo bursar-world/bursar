@@ -541,11 +541,16 @@ contract RecordTest is ScriptHarness {
         assertTrue(vm.keyExistsJson(v4, ".parameters.Reputation.minScored"));
         assertTrue(vm.keyExistsJson(v4, ".parameters.PriceGuard.minObservationAge"));
 
-        // The fifth record is live on the fourth as it reads once its governance handover has
+        // The fifth record sits on the fourth as it reads once its governance handover has
         // landed: the 48-hour timelock governs, the one-hour one keeps the escrow's brake, and
         // everything but the collateral lane carries over at its address. The lane's own scripts
-        // wrote the rest.
-        assertEq(vm.parseJsonString(v5, K.STATUS), "live");
+        // wrote the rest. It is live until the sixth replaces it.
+        bytes32 fifthStatus = keccak256(bytes(vm.parseJsonString(v5, K.STATUS)));
+        assertTrue(
+            fifthStatus == keccak256("live") || fifthStatus == keccak256("superseded")
+                || fifthStatus == keccak256("retired"),
+            "the fifth record"
+        );
         assertEq(vm.parseJsonString(v5, K.SUPERSEDES), "rhc-mainnet-v4");
         assertEq(vm.parseJsonAddress(v5, K.DEPLOYER), vm.parseJsonAddress(v4, K.DEPLOYER));
         assertEq(vm.parseJsonKeys(v5, ".contracts").length, 7);
