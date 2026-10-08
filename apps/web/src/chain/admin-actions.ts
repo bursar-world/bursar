@@ -347,7 +347,7 @@ export const ADMIN_ACTIONS: readonly AdminAction[] = [
     functionName: 'setMinStake',
     label: 'Set the provider stake floor',
     consequence:
-      'Binds on the next registration and on partial withdrawals. Nobody already registered is deregistered, and a provider under a raised floor can still deactivate and exit in full.',
+      'Binds at once. A provider staked below a raised floor cannot be paid until it tops up, and nobody is deregistered: a provider under the floor can still deactivate and take its stake out in full.',
     shape: {
       kind: 'fields',
       fields: [{ name: 'newMinStake', label: 'Floor', kind: 'usdg', help: 'Posted in USDG. Zero is refused.', placeholder: '5.00' }],
@@ -1321,7 +1321,7 @@ function sentenceFor(name: string, contract: GovernedContract | undefined, args:
         bigintAt(first, 'slashBps'),
       )} of the bond slashed outside it, and a bond exit wait of ${seconds(bigintAt(first, 'unbondingPeriod'))}.`;
     case 'setMinStake':
-      return `Sets the provider stake floor to ${formatUsdg(micro(asBigint(first)))}. It binds on the next registration and on partial withdrawals, and deregisters nobody.`;
+      return `Sets the provider stake floor to ${formatUsdg(micro(asBigint(first)))}. A provider staked below it cannot be paid until it tops up, and nobody is deregistered.`;
     case 'setSlashBps':
       return `Sets the share of a provider's stake a ruling takes to ${formatBps(asBigint(first))}.`;
     case 'setSlasher':
