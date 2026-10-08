@@ -1,7 +1,7 @@
 'use client';
 
-import { toCapabilityId } from '@bursar/core';
-import type { Micro } from '@bursar/core';
+import { classLabel, classOfLabel, toCapabilityId } from '@bursar/core';
+import type { ContractSet, Micro } from '@bursar/core';
 import { SPEND_APPROVAL_TYPES, mandateDomain } from '@bursar/sdk';
 import type { SpendApproval } from '@bursar/sdk';
 import { useRef, useState } from 'react';
@@ -89,7 +89,8 @@ export function ApprovalsView() {
   if (!account) return null;
 
   const merchant = readAddress(merchantText).value;
-  const capabilityId = capabilityText.trim() === '' ? undefined : toCapabilityId(capabilityText.trim());
+  const capability = chainCapability(capabilityText, account.contractSet);
+  const capabilityId = capability.id;
   const reading = readUsdgAmount(amountText, { whenEmpty: 'Set the most this payment may cost.' });
   const amount = reading.value;
 
@@ -157,7 +158,7 @@ export function ApprovalsView() {
         primaryType: 'SpendApproval',
         message: approval,
       });
-      remember(capabilityText.trim());
+      remember(capability.label ?? capabilityText.trim());
       setSigned({
         signature,
         bundle: JSON.stringify(
@@ -245,8 +246,14 @@ export function ApprovalsView() {
                     }}
                     className="h-11 w-full border border-[color:var(--color-line)] bg-surface px-3.5 text-sm outline-none focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-[color:var(--color-ring)]"
                   />
-                  <p className="tabular break-all text-note text-[color:var(--color-muted)]">
-                    {capabilityId === undefined ? 'The kind of work being bought.' : `Code: ${capabilityId}`}
+                  <p
+                    className="break-all text-note"
+                    style={{ color: capability.problem ? 'var(--color-state-blocked)' : 'var(--color-muted)' }}
+                  >
+                    {capability.problem ??
+                      (capability.label !== undefined && capability.label !== capabilityText.trim()
+                        ? `Approved as ${capability.label}.`
+                        : 'The kind of work being bought, as the mandate lists it.')}
                   </p>
                 </div>
               </FieldGrid>
@@ -347,11 +354,11 @@ export function ApprovalsView() {
                       ...writeContext,
                       ...(merchant === undefined ? {} : { merchant }),
                       ...(amount === undefined ? {} : { amount }),
-                      ...(capabilityId === undefined ? {} : { capabilityId, capability: capabilityText.trim() }),
+                      ...(capabilityId === undefined ? {} : { capabilityId, capability: capability.label ?? capabilityText.trim() }),
                     }}
                     send={() => {
                       const approval = newApproval();
-                      remember(capabilityText.trim());
+                      remember(capability.label ?? capabilityText.trim());
                       sent.current = approval.approvalId;
                       return writeContractAsync({
                         address,
@@ -662,4 +669,26 @@ function grantedApprovals(
   }
 
   return rows;
+}
+
+/**
+ * The capability an approval names, under the rule a payment is made by: a bare name is a
+ * service, a name already in a class stays in it, and a 32-byte id is the id it is. Hashing the
+ * bare text instead named a capability no payment carries, so the approval could never be used.
+ * A first-set account keeps no classes and takes the text as written.
+ */
+export function chainCapability(
+  text: string,
+  set: ContractSet,
+): { readonly id: Hex | undefined; readonly label: string | undefined; readonly problem: string | undefined } {
+  const written = text.trim();
+  if (written === '') return { id: undefined, label: undefined, problem: undefined };
+  if (/^0x[0-9a-fA-F]{64}$/u.test(written)) return { id: written as Hex, label: undefined, problem: undefined };
+  if (set === 'v1') return { id: toCapabilityId(written), label: written, problem: undefined };
+  try {
+    const label = classOfLabel(written) === undefined ? classLabel('service', written) : written;
+    return { id: toCapabilityId(label), label, problem: undefined };
+  } catch (error) {
+    return { id: undefined, label: undefined, problem: error instanceof Error ? error.message : String(error) };
+  }
 }
