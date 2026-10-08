@@ -403,19 +403,21 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
               </Field>
             </FieldGrid>
 
-            <div className="flex flex-wrap items-center gap-3">
-              <Button
-                size="sm"
-                tone="quiet"
-                onClick={() => setSalt(randomSalt())}
-                disabled={!ready || frozen}
-              >
-                Use a different address
-              </Button>
-              {predicted.error !== null && predicted.error !== undefined && (
-                <span className="text-detail text-[color:var(--color-muted)]">The address could not be read.</span>
-              )}
-            </div>
+            {created === undefined && (
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  size="sm"
+                  tone="quiet"
+                  onClick={() => setSalt(randomSalt())}
+                  disabled={!ready || frozen}
+                >
+                  Use a different address
+                </Button>
+                {predicted.error !== null && predicted.error !== undefined && (
+                  <span className="text-detail text-[color:var(--color-muted)]">The address could not be read.</span>
+                )}
+              </div>
+            )}
 
             {system.blockers.length > 0 && (
               <div className="space-y-1 rounded-md border border-[color:var(--color-line)] p-3">

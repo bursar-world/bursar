@@ -291,10 +291,13 @@ export function TxButton({
 
   return (
     <div className="space-y-2">
-      <Button type={type} tone={tone} disabled={disabled || busy || held || blocker !== undefined} onClick={onClick} aria-busy={busy}>
-        {busy && <Spinner />}
-        {text}
-      </Button>
+      {/* Once held, the confirmation and the next control say it all; a disabled copy of this one would only sit in the way. */}
+      {!held && (
+        <Button type={type} tone={tone} disabled={disabled || busy || blocker !== undefined} onClick={onClick} aria-busy={busy}>
+          {busy && <Spinner />}
+          {text}
+        </Button>
+      )}
 
       {blocker && (
         <p className="text-detail" style={{ color: 'var(--color-state-blocked)' }}>
