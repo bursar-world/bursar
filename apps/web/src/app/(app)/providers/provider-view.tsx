@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { Button } from '@/components/button';
 import { ErrorSurface } from '@/components/error-surface';
 import { Card, Field, FieldGrid, Section } from '@/components/layout';
-import { StatusList } from '@/components/status';
+import { NETWORK_CONDITIONS, StatusList } from '@/components/status';
 import { useSystemState } from '@/state';
 import { ConnectModal } from '@/wallet';
 import { useWalletAccount } from '@/wallet/account';
@@ -70,11 +70,11 @@ function Introduction() {
 
       <RegistryTerms />
 
-      <Section title="Current conditions" description="Read live from Robinhood Chain.">
+      <Section title="Current conditions" description="The network and USDG, read live from Robinhood Chain.">
         <Card>
           <div className="space-y-3">
             <ErrorSurface error={system.error} action="Reading the current conditions" onRetry={system.refresh} />
-            <StatusList system={system} />
+            <StatusList system={system} only={NETWORK_CONDITIONS} />
           </div>
         </Card>
       </Section>

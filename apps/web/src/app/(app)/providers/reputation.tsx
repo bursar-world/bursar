@@ -33,9 +33,10 @@ export function ReputationPanel({ desk, owned }: { readonly desk: ProviderDesk; 
   return (
     <div className="space-y-3">
       <Card>
-        <StatGrid columns={4}>
+        <StatGrid columns={5}>
           <Stat label="Delivered" value={record.released?.toString() ?? '—'} hint="Jobs recorded as delivered" />
           <Stat label="Contested" value={record.disputed?.toString() ?? '—'} hint="Jobs a payer challenged" />
+          <Stat label="Returned to payer" value={record.timedOut?.toString() ?? '—'} hint="Jobs recorded as past their deadline" />
           {/*
             Exact, and the sum of what the escrow moved rather than what the jobs were
             worth. Two decimal places round a cent payment to nothing, and this figure sits beside
@@ -65,10 +66,7 @@ export function ReputationPanel({ desk, owned }: { readonly desk: ProviderDesk; 
         description="The largest single job a payer can open at each score."
       >
         <div className="space-y-4">
-          <FieldGrid columns={4}>
-            <Field label="Returned to payer" hint="Jobs that missed their deadline">
-              {record.timedOut?.toString() ?? 'Not read'}
-            </Field>
+          <FieldGrid columns={3}>
             {SAMPLE_SCORES.map((score) => {
               const cap = capAtScore(record, score);
               const here = record.score === score;
@@ -169,8 +167,8 @@ function creditStory({
   const fullCredit = usd(weights.fullCredit);
   if (settled === 0n) {
     return (
-      `No jobs have settled for ${whose} yet. Each delivered job of ${usd(weights.minScored)} or more adds its amount ` +
-      `here, and a full score takes ${fullCredit} from at least ${fewestPayers(weights.fullCredit, weights.edgeCap)} payers.`
+      `No job has been recorded for ${whose} yet. Each delivered job of ${usd(weights.minScored)} or more adds its amount ` +
+      `here once it is recorded, and a full score takes ${fullCredit} from at least ${fewestPayers(weights.fullCredit, weights.edgeCap)} payers.`
     );
   }
   const score = record.score === undefined ? '' : `: ${record.score} of 100`;

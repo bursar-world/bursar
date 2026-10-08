@@ -278,7 +278,7 @@ describe('the credit behind a score', () => {
     const fresh = { ...weighed, released: 0n, score: 0, cap: micro(25_000_000n), credit: micro(0n) };
     const markup = renderToStaticMarkup(<ReputationPanel desk={desk({ record: fresh })} owned={false} />);
 
-    expect(markup).toContain('No jobs have settled for this address yet.');
+    expect(markup).toContain('No job has been recorded for this address yet.');
     expect(markup).toContain('a full score takes $250.00 from at least 4 payers');
   });
 

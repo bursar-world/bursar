@@ -25,8 +25,8 @@ export function Stat({ label, value, hint, level, numeric = true }: StatProps) {
   );
 }
 
-export function StatGrid({ columns = 3, children }: { readonly columns?: 2 | 3 | 4; readonly children: ReactNode }) {
-  const map = { 2: 'sm:grid-cols-2', 3: 'sm:grid-cols-3', 4: 'sm:grid-cols-4' } as const;
+export function StatGrid({ columns = 3, children }: { readonly columns?: 2 | 3 | 4 | 5; readonly children: ReactNode }) {
+  const map = { 2: 'sm:grid-cols-2', 3: 'sm:grid-cols-3', 4: 'sm:grid-cols-4', 5: 'sm:grid-cols-3 lg:grid-cols-5' } as const;
   return <div className={`grid grid-cols-1 gap-x-6 gap-y-6 ${map[columns]}`}>{children}</div>;
 }
 

@@ -1,7 +1,7 @@
 import { LockStatus } from '@bursar/sdk';
 
 import { shortAddress } from '@/chain';
-import { formatDuration, formatInstant, formatRelative } from '@/lib';
+import { formatInstant, formatRelative, spellDuration } from '@/lib';
 import { usd, usdExact } from '@/money';
 import type { StateLevel } from '@/state';
 
@@ -199,5 +199,5 @@ function contestedDetail(lock: ProviderLock, now: Date, mine: boolean): string {
 /** The delivery window a payer may choose, in words. */
 export function ttlRange(terms: EscrowTerms): string | undefined {
   if (terms.minTtl === undefined || terms.maxTtl === undefined) return undefined;
-  return `${formatDuration(Number(terms.minTtl))} to ${formatDuration(Number(terms.maxTtl))}`;
+  return `${spellDuration(Number(terms.minTtl))} to ${spellDuration(Number(terms.maxTtl))}`;
 }
