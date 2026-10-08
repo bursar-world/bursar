@@ -59,6 +59,7 @@ function StockBody({ rwa, onChange }: { readonly rwa: RwaState; readonly onChang
     0n,
   );
   const tradeStaleness = stocks.find((asset) => asset.config)?.config?.tradeStaleness;
+  const band = stockBand(stocks);
 
   return (
     <Section
@@ -78,8 +79,12 @@ function StockBody({ rwa, onChange }: { readonly rwa: RwaState; readonly onChang
             />
             <Stat
               label="Slippage limit"
-              value={rwa.slippageBps === undefined ? 'Unread' : rwa.slippageBps === 0 ? 'Asset band' : bps(rwa.slippageBps)}
-              hint="How far below the feed price a purchase may fill. Never wider than the asset’s band."
+              value={rwa.slippageBps === undefined ? 'Unread' : rwa.slippageBps !== 0 ? bps(rwa.slippageBps) : band === undefined ? 'Each stock’s own' : bps(band)}
+              hint={
+                rwa.slippageBps === 0
+                  ? 'How far below the feed price a purchase may fill. No tighter limit is set, so each stock’s own applies.'
+                  : 'How far below the feed price a purchase may fill. Never wider than the stock’s own limit.'
+              }
             />
             <Stat
               label="Stocks held, at feed price"
@@ -161,7 +166,14 @@ function StockBody({ rwa, onChange }: { readonly rwa: RwaState; readonly onChang
   );
 }
 
+/** The band every listed stock shares, when they share one: the slippage a purchase gets with no tighter limit set. */
+function stockBand(stocks: readonly RwaAsset[]): number | undefined {
+  const bands = new Set(stocks.flatMap((asset) => (asset.config === undefined ? [] : [asset.config.bandBps])));
+  return bands.size === 1 ? [...bands][0] : undefined;
+}
+
 function PolicyForm({ rwa, stocks, onChange }: { readonly rwa: RwaState; readonly stocks: readonly RwaAsset[]; readonly onChange: () => void }) {
+  const band = stockBand(stocks);
   const { address, system, writeContext } = useMandateScope();
   const { writeContractAsync } = useWriteContract();
   const [slippageText, setSlippageText] = useState(rwa.slippageBps === undefined ? '' : String(rwa.slippageBps / 100));
@@ -216,7 +228,7 @@ function PolicyForm({ rwa, stocks, onChange }: { readonly rwa: RwaState; readonl
           onChange={setSlippageText}
           suffix="%"
           {...(slippageProblem === undefined ? {} : { problem: slippageProblem })}
-          help="0 uses the asset’s band. A wider limit is capped at the band."
+          help={`0 uses each stock’s own limit${band === undefined ? '' : `, ${bps(band)}`}. A wider limit is capped at it.`}
         />
         <Field label="Allowed stocks">
           <div className="flex flex-wrap gap-4 pt-1">
