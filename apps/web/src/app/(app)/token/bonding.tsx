@@ -1,10 +1,10 @@
 'use client';
 
-import { ADDRESSES, TOKEN_ADDRESSES } from '@/chain';
+import { ADDRESSES, TOKEN_ADDRESSES, closedBench } from '@/chain';
 import { isZeroAddress, sameAddress } from '@/chain/rhc';
 import { Address } from '@/components/address';
 import { Card, Field, FieldGrid, Section } from '@/components/layout';
-import { formatDuration } from '@/lib';
+import { spellDuration } from '@/lib';
 import { bps, formatBrsr } from '@/money';
 
 import type { TokenPageData } from './use-token-page';
@@ -35,6 +35,7 @@ export function BondingSection({ data }: { readonly data: TokenPageData }) {
   const unread = data.extras === undefined ? 'Reading' : 'Not read';
   const floor = bond?.minBondBrsr;
   const floorSet = floor !== undefined && floor > 0n;
+  const closed = closedBench(floor);
   const wired = bond?.bondAsset !== undefined && !isZeroAddress(bond.bondAsset);
   const bondsInBrsr = wired && sameAddress(bond?.bondAsset, TOKEN_ADDRESSES.BRSR);
   const registered = bond?.yourStatus !== undefined && bond.yourStatus !== 0;
@@ -43,10 +44,19 @@ export function BondingSection({ data }: { readonly data: TokenPageData }) {
     <Section title="Resolver bonds" description="Resolvers bond BRSR to rule on disputes, and a bad ruling costs part of it.">
       <Card title="Bonds today" description="Held by the dispute registry.">
         <FieldGrid columns={4}>
-          <Field label="Minimum bond" hint="Below this a resolver cannot register or vote.">
-            <span className="tabular">
-              {floor === undefined ? unread : floorSet ? `${formatBrsr(floor)} BRSR` : 'None set'}
-            </span>
+          <Field
+            label="Minimum bond"
+            hint={
+              closed
+                ? 'Set at the whole supply, so no new address can bond. Each admitted resolver bonds against its own floor.'
+                : 'Below this a resolver cannot register or vote.'
+            }
+          >
+            {closed ? (
+              'Closed to new resolvers'
+            ) : (
+              <span className="tabular">{floor === undefined ? unread : floorSet ? `${formatBrsr(floor)} BRSR` : 'None set'}</span>
+            )}
           </Field>
           <Field label="Bonded across all resolvers">
             <span className="tabular">
@@ -57,7 +67,7 @@ export function BondingSection({ data }: { readonly data: TokenPageData }) {
             <span className="tabular">{bond?.slashBps === undefined ? unread : bps(bond.slashBps)}</span>
           </Field>
           <Field label="Exit wait" hint="A bond cannot leave while the resolver has an open vote.">
-            {bond?.unbondingPeriod === undefined ? unread : formatDuration(Number(bond.unbondingPeriod))}
+            {bond?.unbondingPeriod === undefined ? unread : spellDuration(Number(bond.unbondingPeriod))}
           </Field>
           <Field label="Votes needed to settle a dispute">
             <span className="tabular">{bond?.quorum ?? unread}</span>
@@ -82,19 +92,28 @@ export function BondingSection({ data }: { readonly data: TokenPageData }) {
 
       <Card title="The bond is BRSR" description="Governance sets the floor in the staking contract, and every vote checks it.">
         <FieldGrid columns={3}>
-          <Field label="BRSR floor" hint="A floor of zero refuses every bond.">
-            <span className="tabular">{floor === undefined ? unread : `${formatBrsr(floor)} BRSR`}</span>
+          <Field label="BRSR floor" hint={closed ? 'The whole supply, which no new address can post.' : 'A floor of zero refuses every bond.'}>
+            <span className="tabular">{floor === undefined ? unread : `${formatBrsr(floor, { minDecimals: 0 })} BRSR`}</span>
           </Field>
-          <Field label="Bonding in BRSR" hint="Open once the registry holds BRSR as its bond asset and the floor is above zero.">
+          <Field
+            label="Bonding in BRSR"
+            hint={
+              closed
+                ? 'Admitted resolvers bond under floors set for each of them.'
+                : 'Open once the registry holds BRSR as its bond asset and the floor is above zero.'
+            }
+          >
             {bond?.minBondBrsr === undefined || bond.bondAsset === undefined
               ? unread
               : !wired
                 ? 'No bond asset set'
                 : !bondsInBrsr
                   ? 'The registry bonds in another token'
-                  : floorSet
-                    ? 'Open'
-                    : 'Refused at any amount'}
+                  : closed
+                    ? 'Closed to new resolvers'
+                    : floorSet
+                      ? 'Open'
+                      : 'Refused at any amount'}
           </Field>
           <Field label="Where the floor lives">
             <Address value={TOKEN_ADDRESSES.Staking} label="Staking contract" />
@@ -107,7 +126,7 @@ export function BondingSection({ data }: { readonly data: TokenPageData }) {
             verifiable on-chain.
           </p>
           <p>
-            A bond&rsquo;s value moves with the BRSR price. Governance sets the floor, and can set a higher one for an
+            A bond&rsquo;s value moves with the BRSR price. Governance sets the floor, and can set a different one for an
             individual resolver.
           </p>
         </div>

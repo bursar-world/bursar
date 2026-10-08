@@ -381,3 +381,8 @@ function nullableDate(seconds: bigint | undefined): Date | null {
 function optionalDate(seconds: bigint | undefined): Date | null | undefined {
   return seconds === undefined ? undefined : seconds === 0n ? null : toDate(seconds);
 }
+
+/** A bond floor at the whole supply admits no new address: only resolvers given their own floor can bond. */
+export function closedBench(floor: bigint | undefined): boolean {
+  return floor !== undefined && floor >= BRSR_SUPPLY.total;
+}

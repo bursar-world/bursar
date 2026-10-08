@@ -41,7 +41,7 @@ export function SupplySection({ data, blockedBy }: { readonly data: TokenPageDat
       key: 'community',
       name: 'Community and ecosystem',
       allocation: BRSR_SUPPLY.community,
-      holder: TOKEN_ROLES.community,
+      holder: TOKEN_ROLES.adminTimelock,
       holderLabel: 'Token governance delay',
       terms: 'Staking rewards, resolver incentives and integration grants. Spending it takes a governance proposal and its delay.',
       heldNow: extras?.holders.community,

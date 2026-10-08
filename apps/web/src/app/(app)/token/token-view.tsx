@@ -7,7 +7,7 @@ import { Button } from '@/components/button';
 import { ErrorSurface } from '@/components/error-surface';
 import { Instant } from '@/components/instant';
 import { Card, Section } from '@/components/layout';
-import { StatusStrip, Unread } from '@/components/status';
+import { NETWORK_CONDITIONS, StatusStrip, Unread } from '@/components/status';
 import { useSystemState } from '@/state';
 
 import { BondingSection } from './bonding';
@@ -42,7 +42,7 @@ export function TokenView() {
         }
       >
         <Card>
-          <StatusStrip system={system} />
+          <StatusStrip system={system} only={NETWORK_CONDITIONS} />
           <p className="mt-4 max-w-3xl text-sm">
             BRSR is not a deposit, a share, or a claim on Robinhood, Robinhood Chain, Paxos or USDG, and none of them
             endorses it. Outside collateral-backed credit, nothing here lends, borrows or pays interest.

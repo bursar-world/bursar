@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import type { Address } from 'viem';
 
-import { BRSR_SUPPLY, TOKEN_ADDRESSES, brsrAbi, oracleRegistryAbi } from '@/chain';
+import { TOKEN_ADDRESSES, brsrAbi, closedBench, oracleRegistryAbi } from '@/chain';
 import { Address as AddressLine } from '@/components/address';
 import { AmountInput } from '@/components/amount-input';
 import { Card, Field, FieldGrid } from '@/components/layout';
@@ -156,11 +156,6 @@ export function BondPanel({
       </div>
     </Card>
   );
-}
-
-/** A floor at the whole supply admits no new address: only resolvers given their own floor can bond. */
-export function closedBench(floor: bigint | undefined): boolean {
-  return floor !== undefined && floor >= BRSR_SUPPLY.total;
 }
 
 function BondForm({
