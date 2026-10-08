@@ -6,7 +6,7 @@ import { Card } from '@/components/layout';
 import { Countdown, Instant } from '@/components/instant';
 import { LevelDot } from '@/components/badge';
 import { TxButton } from '@/components/tx-button';
-import { formatDuration } from '@/lib';
+import { formatSpan } from '@/lib';
 import { usd } from '@/money';
 import type { AnyState } from '@/state';
 
@@ -39,7 +39,7 @@ export function RecordCard({
   const waiting = unrecorded
     .filter((lock) => lock.stage === 'paid-open-to-dispute')
     .sort((a, b) => opensAt(a) - opensAt(b));
-  const windowWords = desk.terms.disputeWindow === undefined ? 'the window' : formatDuration(Number(desk.terms.disputeWindow));
+  const windowWords = desk.terms.disputeWindow === undefined ? 'the window' : formatSpan(Number(desk.terms.disputeWindow));
 
   if (unrecorded.length === 0) {
     return (

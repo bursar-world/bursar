@@ -10,7 +10,7 @@ import { AmountInput } from '@/components/amount-input';
 import { Countdown, Instant } from '@/components/instant';
 import { Card, Field, FieldGrid } from '@/components/layout';
 import { TxButton, preventNavigation } from '@/components/tx-button';
-import { formatDuration } from '@/lib';
+import { formatSpan } from '@/lib';
 import { bps, usd } from '@/money';
 import type { AnyState } from '@/state';
 
@@ -268,7 +268,7 @@ export function WithdrawalCard({ desk, blockedBy, onDone }: PanelProps) {
   const facts = factsOf(desk);
   const { standing } = desk;
   const pending = standing.withdrawal;
-  const delay = standing.withdrawalDelay === undefined ? undefined : formatDuration(Number(standing.withdrawalDelay));
+  const delay = standing.withdrawalDelay === undefined ? undefined : formatSpan(Number(standing.withdrawalDelay));
 
   const requestGate = withdrawalRequestGate(facts, atomic);
   const executeGate = withdrawalExecuteGate(facts);
@@ -475,7 +475,7 @@ export function AvailabilityCard({ desk, blockedBy, onDone }: PanelProps) {
 /** What the stake buys and what takes it, read from the registry rather than written into the page. */
 function StakeTerms({ desk }: { readonly desk: ProviderDesk }) {
   const { standing } = desk;
-  const delay = standing.withdrawalDelay === undefined ? undefined : formatDuration(Number(standing.withdrawalDelay));
+  const delay = standing.withdrawalDelay === undefined ? undefined : formatSpan(Number(standing.withdrawalDelay));
 
   return (
     <FieldGrid columns={3}>
