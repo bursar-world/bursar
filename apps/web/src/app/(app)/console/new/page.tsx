@@ -5,7 +5,7 @@ import { CreateMandateView } from './create-view';
 
 export const metadata: Metadata = {
   title: 'Create a mandate · BURSAR',
-  description: 'Set what an agent may spend, who it may pay and what it may buy, and read the account address before it exists.',
+  description: "Set your agent's limits and payees, and see the mandate's address before it exists.",
 };
 
 export default async function NewMandatePage({

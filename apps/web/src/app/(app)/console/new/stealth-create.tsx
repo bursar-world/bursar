@@ -54,8 +54,8 @@ export function StealthToggle({ on, onChange, disabled = false }: { readonly on:
       <span>
         <span className="font-medium">Hide the owner and the agent.</span>
         <span className="block text-[color:var(--color-muted)]">
-          The mandate is owned by a new address drawn from your wallet’s keys, and the agent gets one too. Neither address names
-          your wallet, and your console finds them again from two signatures. How you fund them decides what can still be linked.
+          The owner and the agent get new addresses that never name your wallet. Your wallet finds them again from two
+          signatures.
         </span>
         <span className="block text-[color:var(--color-muted)]">{STEALTH_LIMIT_LINE}</span>
       </span>
@@ -111,7 +111,7 @@ export function StealthCreate({
     } catch (error) {
       setProblem(
         error instanceof Error && error.name === 'FundsKeySignatureError'
-          ? 'The funds-key signature did not come from this wallet, so no address was created. Smart-contract wallets cannot hold hidden owners.'
+          ? 'The second signature did not come from this wallet, so nothing was created. Hidden owners need a regular wallet, not a smart-contract wallet.'
           : 'A signature was declined, so no address was created.',
       );
     } finally {
@@ -178,9 +178,8 @@ export function StealthCreate({
     return (
       <div className="space-y-3">
         <p className="text-detail text-[color:var(--color-muted)]">
-          Your wallet signs twice. The first signature derives your viewing key, which opens the terms and only reads. The second
-          is shown in your wallet as controlling funds, because it does: this page creates the owner and agent addresses from
-          the keys it yields. Neither costs anything. Sign the second one only here.
+          Your wallet signs twice. The first creates your viewing key. Your wallet shows the second as controlling funds,
+          which it does: it creates the owner and agent addresses. Neither costs anything. Sign the second only on this page.
         </p>
         <Button tone="primary" onClick={() => void prepare()} disabled={busy || terms === undefined}>
           {busy ? 'Waiting for the signatures' : 'Create the private addresses'}
@@ -193,7 +192,7 @@ export function StealthCreate({
   return (
     <div className="space-y-5">
       <FieldGrid columns={2}>
-        <Field label="Owner address" hint="Controls the mandate. Sends the next three transactions itself.">
+        <Field label="Owner address" hint="Controls the mandate and sends the next three transactions.">
           <AddressView value={prepared.plan.principal.address} full />
         </Field>
         <Field label="Agent address" hint="Signs your agent’s payments. You download its key once the mandate exists.">
@@ -262,9 +261,8 @@ function GasFor({
       {!ready && reading.data && (
         <div className="space-y-2">
           <p className="text-detail text-[color:var(--color-muted)]">
-            Send {formatEth(required - balance)} or more to the owner address. Sending it from the connected wallet is quickest
-            and links the two on chain. Sending it from your shielded funds leaves no such link: the relayer pays the gas along
-            with a small USDG withdrawal.
+            Send at least {formatEth(required - balance)} to the owner address. Sending from this wallet is quickest and links
+            the two on chain. Sending from your shielded funds leaves no direct link.
           </p>
           {shieldedContracts() && (
             <Link href={shieldedHref('stealth-owner', address)} target="_blank" className="text-sm underline underline-offset-2">
@@ -300,8 +298,8 @@ function PublishMetaAddress({ owner, metaAddress }: { readonly owner: Address; r
     <div className="space-y-2 border-t border-[color:var(--color-line)] pt-4">
       <p className="text-sm font-medium">Stealth meta-address</p>
       <p className="text-detail text-[color:var(--color-muted)]">
-        Optional. Publishing it lets a service or a colleague set up private mandates for you without asking. It shows that this
-        wallet uses stealth addresses and never which ones.
+        Optional. Lets others set up private mandates for you. It shows that this wallet uses stealth addresses, never which
+        ones.
       </p>
       {current ? (
         <p className="text-detail">Published for this wallet.</p>
@@ -346,11 +344,11 @@ function StealthCreated({ created, prepared }: { readonly created: Created; read
   };
 
   return (
-    <Section title="The private mandate exists" description="Fund it with USDG, give the agent some gas, and hand it its key.">
+    <Section title="The private mandate exists" description="Fund it, then give your agent its key and some gas.">
       <Card>
         <div className="space-y-4">
           <FieldGrid columns={2}>
-            <Field label="Mandate address" hint="Send USDG here to fund it, from your shielded funds to keep it unlinked.">
+            <Field label="Mandate address" hint="Send USDG here. Funding from your shielded funds avoids a direct link to your wallet.">
               <AddressView value={created.mandate} full />
             </Field>
             <Field label="Created in">
@@ -366,8 +364,8 @@ function StealthCreated({ created, prepared }: { readonly created: Created; read
           <p className="text-detail text-[color:var(--color-muted)]">{STEALTH_LIMIT_LINE}</p>
           {shieldedContracts() && <p className="text-detail text-[color:var(--color-muted)]">{SHIELDED_TIMING_LINE}</p>}
           <p className="text-detail">
-            The agent key file holds the agent’s private key and the readable terms. Give it to your agent runtime and to nobody
-            else. You can download it again from your private mandates at any time.
+            The agent key file holds your agent’s private key and the terms. Give it to your agent only. You can download it
+            again from your private mandates.
           </p>
           <div className="flex flex-wrap gap-3">
             <Button tone="primary" onClick={() => void download()}>

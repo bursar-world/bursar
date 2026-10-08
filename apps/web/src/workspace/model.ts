@@ -87,10 +87,10 @@ export function upsert<T extends { readonly id: string }>(list: readonly T[], it
  * so its plaintext is read as input: anything that is not a workspace is refused whole.
  */
 export function readWorkspace(value: unknown): Workspace {
-  if (value === null || typeof value !== 'object') throw new Error('The workspace did not decrypt to a workspace.');
+  if (value === null || typeof value !== 'object') throw new Error('This is not a workspace this console can open.');
   const shaped = value as { version?: unknown; drafts?: unknown; agents?: unknown };
   if (shaped.version !== 1 || !Array.isArray(shaped.drafts) || !Array.isArray(shaped.agents)) {
-    throw new Error('The workspace did not decrypt to a workspace this console can read.');
+    throw new Error('This workspace was saved in a format this console cannot read.');
   }
   return {
     version: 1,

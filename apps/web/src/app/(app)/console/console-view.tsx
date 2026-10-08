@@ -66,25 +66,25 @@ export function ConsoleView() {
       <div className="space-y-8">
         <Section
           title="Console"
-          description="A mandate is an account that lets an AI agent pay for work within limits you set, enforced by the contract."
+          description="A mandate is an account your AI agent pays from, inside limits you set and the contract enforces."
           actions={<StartLinks />}
         >
-          <EmptyState title="Connect a wallet to see the mandates it owns." action={<ConnectButton />}>
-            The owner funds the mandate, approves the payments above a threshold, and can stop it in one transaction.
-            Reading one needs no wallet: open the example mandate, or draft terms in a private workspace first.
+          <EmptyState title="Connect a wallet to see your mandates." action={<ConnectButton />}>
+            Your wallet owns the mandates it creates and can stop any of them in one transaction. To look around first,
+            open the example mandate or draft terms in the workspace.
           </EmptyState>
         </Section>
 
         <Section
           title="Open a mandate by address"
-          description="A wallet is what signs a change. Reading a mandate needs none: the account publishes its own limits, its payees and everything it has paid."
+          description="Paste a mandate's address to read its limits and payments. No wallet needed."
         >
           <Card>
             <OpenByAddress />
           </Card>
         </Section>
 
-        <Section title="Current conditions" description="Read from this network whether or not a wallet is connected.">
+        <Section title="Current conditions" description="What stands between an agent and a settled payment, checked live.">
           <Card>
             <div className="space-y-3">
               <ErrorSurface error={system.error} action="Reading the current conditions" onRetry={system.refresh} />
@@ -107,7 +107,7 @@ export function ConsoleView() {
     <div className="space-y-10">
       <Section
         title="Console"
-        description="Mandates owned by the connected wallet."
+        description="Mandates this wallet owns."
         actions={
           <>
             <Link href="/workspace">
@@ -138,13 +138,13 @@ export function ConsoleView() {
             <Stat
               label="Held across all of them"
               value={<Figure reading={reading}>{usd(held)}</Figure>}
-              hint={hintFor(reading, 'What is available to pay providers with.')}
+              hint={hintFor(reading, 'Available to pay providers.')}
               level={reading.state === 'read' ? undefined : 'unknown'}
             />
             <Stat
               label="Left this period"
               value={<Figure reading={reading}>{usd(leftToday)}</Figure>}
-              hint={hintFor(reading, 'Added up across every mandate. Each one still binds on its own.')}
+              hint={hintFor(reading, "The sum across mandates. Each mandate's own limits still apply.")}
               level={reading.state === 'read' ? undefined : 'unknown'}
             />
           </StatGrid>
@@ -168,14 +168,14 @@ export function ConsoleView() {
               onRowClick={(row) => router.push(`/console/${row.address}`)}
               empty={
                 <EmptyState
-                  title="This wallet owns no mandate yet."
+                  title="No mandates yet."
                   action={
                     <Link href="/console/new">
                       <Button tone="primary">Create one</Button>
                     </Link>
                   }
                 >
-                  You can read the account address before it exists and fund it first, which is what the factory is for.
+                  Create one to give your agent its first budget.
                 </EmptyState>
               }
               columns={[
@@ -234,7 +234,7 @@ export function ConsoleView() {
 
       <Section
         title="Current conditions"
-        description="These cover the network and the settlement asset. Open a mandate to see the conditions that belong to it."
+        description="Network and USDG checks, live. Open a mandate to see its own."
       >
         <Card>
           <div className="space-y-3">
@@ -269,7 +269,7 @@ function OpenByAddress() {
         label="Mandate account"
         value={text}
         onChange={setText}
-        hint="The address the account was deployed at."
+        hint="The mandate's 0x address."
         action={
           <Button type="submit" tone="primary" disabled={reading.value === undefined}>
             Open it
@@ -291,13 +291,13 @@ function Figure({ reading, children }: { readonly reading: Reading; readonly chi
 function hintFor(reading: Reading, whenRead: string): string {
   switch (reading.state) {
     case 'loading':
-      return 'Reading the mandates this wallet owns.';
+      return 'Reading your mandates.';
     case 'unreadable':
-      return 'Not read. Try again under Your mandates.';
+      return 'Could not load. Try again below.';
     // This list comes off the contracts rather than the index, so a stated refusal is not a shape
     // it produces today. The case is handled anyway.
     case 'refused':
-      return refusalOf(reading.error)?.condition ?? 'Not read. Try again under Your mandates.';
+      return refusalOf(reading.error)?.condition ?? 'Could not load. Try again below.';
     case 'read':
       return whenRead;
   }

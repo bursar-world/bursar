@@ -31,8 +31,7 @@ export function WorkspaceGate({
     case 'unavailable':
       return (
         <EmptyState title="This browser cannot keep a workspace.">
-          It offers no local storage to this page, which happens in some private windows. Open the console in a regular
-          window to create one.
+          Private windows often block storage. Open the console in a regular window.
         </EmptyState>
       );
     case 'none':

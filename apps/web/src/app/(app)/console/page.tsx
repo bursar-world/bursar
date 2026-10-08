@@ -4,7 +4,7 @@ import { ConsoleView } from './console-view';
 
 export const metadata: Metadata = {
   title: 'Console · BURSAR',
-  description: 'Mandates you own, what each one has left, approvals waiting on a signature, settled payments, and refusals with the reason attached.',
+  description: 'Give an AI agent a budget it cannot exceed, and see what each of your mandates has left.',
 };
 
 export default function ConsolePage() {

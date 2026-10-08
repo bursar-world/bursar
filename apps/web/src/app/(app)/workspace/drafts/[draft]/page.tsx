@@ -4,7 +4,7 @@ import { DraftView } from './draft-view';
 
 export const metadata: Metadata = {
   title: 'Draft · Workspace · BURSAR',
-  description: 'Edit a mandate draft and check a spend against its rules before activation.',
+  description: 'Edit a mandate draft and check a payment against it before you create the mandate.',
 };
 
 export default async function DraftPage({ params }: { readonly params: Promise<{ readonly draft: string }> }) {

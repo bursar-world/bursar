@@ -26,7 +26,7 @@ export function WorkspaceView() {
     <div className="space-y-10">
       <Section
         title="Workspace"
-        description="Prepare mandates as drafts, keep your agents in one list, and check a spend against a draft before anything is deployed. Saving a draft sends no transaction."
+        description="Draft mandates privately and check a payment against them before anything goes on chain. Saving a draft sends no transaction."
       >
         <WorkspaceGate>{(workspace) => <OpenWorkspace workspace={workspace} />}</WorkspaceGate>
       </Section>
@@ -53,9 +53,9 @@ function LockBar() {
       <p className="text-detail">
         <span className="font-medium">Unlocked in this tab.</span>{' '}
         <span className="text-[color:var(--color-muted)]">
-          Encrypted in this browser and stored on this device only
-          {updatedAt ? `, last saved ${formatInstant(new Date(updatedAt))}` : ''}. Lock it or close the page and the
-          passphrase is needed again.
+          Encrypted and stored on this device only
+          {updatedAt ? `, last saved ${formatInstant(new Date(updatedAt))}` : ''}. Locking it or closing the page asks for the
+          passphrase again.
         </span>
       </p>
       <Button size="sm" onClick={actions.lock}>
@@ -86,7 +86,7 @@ function Drafts({ workspace }: { readonly workspace: Workspace }) {
   return (
     <Section
       title="Drafts"
-      description="A draft is a mandate that exists only here. It moves no funds and authorizes nothing until you activate it."
+      description="A draft lives only here and does nothing until you activate it."
       actions={
         <Button tone="primary" size="sm" onClick={create} disabled={busy}>
           New draft
@@ -98,7 +98,7 @@ function Drafts({ workspace }: { readonly workspace: Workspace }) {
           rows={drafts}
           rowKey={(row) => row.id}
           caption="Draft mandates in this workspace"
-          empty={<EmptyState title="No drafts yet.">Start one to set its limits, spend classes and counterparties.</EmptyState>}
+          empty={<EmptyState title="No drafts yet.">Start one to set its limits and payees.</EmptyState>}
           columns={[
             {
               key: 'name',
@@ -271,7 +271,7 @@ function BackupAndExport({ workspace }: { readonly workspace: Workspace }) {
   return (
     <Section title="Backup and export" description="Keep your own encrypted backup. It opens with the same passphrase, in this browser or another.">
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card title="Encrypted backup" description="The workspace exactly as it is stored: ciphertext, readable only with your passphrase.">
+        <Card title="Encrypted backup" description="Your whole workspace, readable only with your passphrase.">
           <div className="space-y-3">
             <Button onClick={backup}>Download encrypted backup</Button>
             {failure && (

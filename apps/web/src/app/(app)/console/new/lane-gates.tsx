@@ -71,7 +71,7 @@ export function LaneGates({
       {lane === 'collateral' && vault !== undefined && (
         <Row
           title="Open the collateral line"
-          detail="Registers this mandate with the collateral vault, so tokens can be posted to it. Needed once."
+          detail="Lets you post collateral to this mandate. Needed once."
           done={reading.data?.line}
           send={() => writeContractAsync({ address: vault, abi: collateralVaultAbi as Abi, functionName: 'openLine', args: [mandate] })}
           onDone={refresh}
@@ -83,8 +83,8 @@ export function LaneGates({
         title={lane === 'collateral' ? 'Borrow from the collateral vault when short' : 'Unpark from the treasury park when short'}
         detail={
           lane === 'collateral'
-            ? 'A payment that needs more USDG than the mandate holds borrows the difference against your collateral.'
-            : 'A payment that needs more USDG than the mandate holds sells enough of the parked treasury token back.'
+            ? 'When the mandate runs short, a payment borrows the difference against your collateral.'
+            : 'When the mandate runs short, a payment sells enough of the parked treasury token back.'
         }
         done={parkSet}
         send={() => writeContractAsync({ address: mandate, abi: parkAbi, functionName: 'setTreasuryPark', args: [park] })}
@@ -126,7 +126,7 @@ function Row({
       ) : (
         <div className="space-y-1 text-right">
           <TxButton label="Send" tone="secondary" send={send} onContinue={onDone} blockedBy={blockedBy} context={context} />
-          {done === undefined && <p className="text-note text-[color:var(--color-muted)]">Reading the account for this one.</p>}
+          {done === undefined && <p className="text-note text-[color:var(--color-muted)]">Checking the mandate.</p>}
         </div>
       )}
     </div>

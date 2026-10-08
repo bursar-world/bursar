@@ -148,7 +148,7 @@ export function UnlockForm({ title = 'Unlock your workspace', description }: { r
   };
 
   return (
-    <Card title={title} description={description ?? 'The workspace in this browser is encrypted. Enter its passphrase to read your drafts.'}>
+    <Card title={title} description={description ?? 'Enter your passphrase to open your drafts.'}>
       <form onSubmit={submit} className="space-y-4">
         <PassphraseField
           label="Passphrase"

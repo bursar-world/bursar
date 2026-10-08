@@ -214,9 +214,8 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
         description="A mandate is owned by the wallet that creates it."
       >
         <EmptyState title="Connect the wallet that will own this mandate." action={<ConnectButton />}>
-          The owner sets the limits, funds the account, approves the payments above the threshold, and can take the
-          funds back at any time.
-          {askedLane !== undefined && laneAvailable(askedLane) && ` The ${LANE_NAME[askedLane]} funding lane is chosen for you once the wallet connects.`}
+          The owner sets the limits and can take the funds back at any time.
+          {askedLane !== undefined && laneAvailable(askedLane) && ` The ${LANE_NAME[askedLane]} funding lane is selected for you.`}
         </EmptyState>
       </Section>
     );
@@ -224,9 +223,9 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
 
   if (draftId !== undefined && (workspace.view.status === 'locked' || workspace.view.status === 'loading')) {
     return (
-      <Section title="Create a mandate" description="This screen was opened from a draft in your workspace.">
+      <Section title="Create a mandate" description="Opened from a draft in your workspace.">
         {workspace.view.status === 'locked' ? (
-          <UnlockForm title="Unlock your workspace to load the draft" description="The draft is encrypted in this browser. Enter the passphrase and the form fills in." />
+          <UnlockForm title="Unlock your workspace to load the draft" description="Enter your passphrase and the form fills in from the draft." />
         ) : (
           <Skeleton width="16rem" height={20} />
         )}
@@ -255,9 +254,9 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
       <fieldset disabled={frozen} className="min-w-0 space-y-8">
         <Section
           title="Create a mandate"
-          description="A spending mandate is one account with one agent inside it. The limits are written into the account when it is created, so it is never funded without a bound."
+          description="One account for one agent. Its limits are set when it is created, so it never holds funds without them."
         >
-          <Card title="Who spends" description="The address your agent signs with. It can never move funds anywhere except through the escrow.">
+          <Card title="Who spends" description="Your agent signs with this address. It can only pay through the escrow.">
             <div className="space-y-3">
               <FieldGrid columns={2}>
                 <AddressInput
@@ -276,8 +275,7 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
                 <span>
                   <span className="font-medium">Seat the agent later.</span>
                   <span className="block text-[color:var(--color-muted)]">
-                    The account is created with no agent and spends nothing until one is seated. The address below does
-                    not change when you seat it.
+                    It spends nothing until you seat one. The address below stays the same.
                   </span>
                 </span>
               </label>
@@ -285,7 +283,7 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
           </Card>
           <Card
             title="How it is funded"
-            description="The funding lane is written into the account when it is created. Pick the one you mean to use; it cannot be switched into later."
+            description="Choose now. The lane is fixed when the mandate is created."
           >
             <LaneFields lane={lane} onChange={setLane} disabled={frozen} />
           </Card>
@@ -294,23 +292,23 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
         {draftId !== undefined && (
           <p className="border border-[color:var(--color-line)] bg-[color:var(--color-raised)] px-5 py-3 text-detail">
             {source === undefined ? (
-              <>That draft is not in the workspace open in this browser, so the form starts empty.</>
+              <>That draft is not in this browser's workspace, so the form starts empty.</>
             ) : (
               <>
-                Filled in from your draft <span className="font-medium">{draftTitle(source)}</span>. Review it here: creating
-                the mandate below is a wallet transaction that deploys it. Edits on this screen do not change the draft.
+                Filled in from your draft <span className="font-medium">{draftTitle(source)}</span>. Edits here do not
+                change the draft.
               </>
             )}
           </p>
         )}
 
-        <Section title="What it may spend" description="The period cap refills each period. The total budget never refills, so it bounds the whole mandate.">
+        <Section title="What it may spend" description="The period cap refills each period. The total budget never refills.">
           <Card>
             <LimitsFields draft={draft} onChange={setDraft} problems={reading.problems} />
           </Card>
         </Section>
 
-        <Section title="Who it may pay" description="A mandate pays nobody until you say who. Everything else is refused by the contract.">
+        <Section title="Who it may pay" description="Only the providers you list can be paid.">
           <Card>
             <div className="space-y-3">
               <form
@@ -333,7 +331,7 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
               <ChipList
                 items={payees.map((payee) => ({ key: payee, label: shortAddress(payee) }))}
                 onRemove={(key) => setPayees(payees.filter((entry) => entry !== key))}
-                empty="No payee yet. Each one is allowed in its own transaction after the account is created."
+                empty="No payees yet. You allow each one after the mandate is created."
               />
             </div>
           </Card>
@@ -341,7 +339,7 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
 
         <Section
           title="What it may buy"
-          description="Choose the spend classes this mandate allows. Each capability is allowed under its class, and each is its own transaction after the account exists."
+          description="Choose the kinds of work this mandate can pay for."
         >
           <Card>
             <SpendClassFields
@@ -353,14 +351,13 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
               }}
             />
             <p className="mt-3 text-note text-[color:var(--color-muted)]">
-              The chain holds the hash of each label, never the words themselves. The label is kept in this browser so later
-              screens can show it back to you.
+              Each label is stored as a hash on chain and kept readable in this browser.
             </p>
           </Card>
         </Section>
       </fieldset>
 
-      <Section title="Review" description="The address is fixed by the owner, the agent, the limits and the salt together. Change any of them and it is a different account.">
+      <Section title="Review" description="The address follows from what you entered. Change a field and the address changes.">
         <Card>
           <div className="space-y-4">
             <FieldGrid columns={2}>
@@ -368,8 +365,8 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
                 label={created ? 'Mandate address' : 'Address before it exists'}
                 hint={
                   created
-                    ? 'The account stands here now. Send USDG to it to fund it.'
-                    : 'Fund it now if you want to. Nothing can spend from it until it is created.'
+                    ? 'The mandate is live at this address. Send USDG to fund it.'
+                    : 'You can fund it now. Nothing can spend from it until it is created.'
                 }
               >
                 {!ready ? (
@@ -383,27 +380,26 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
                         warning is only true of an address that was taken before it was asked for. */}
                     {taken && created === undefined && (
                       <span className="block text-note" style={{ color: 'var(--color-state-blocked)' }}>
-                        An account already stands at this address, so the factory will not deploy a second one there.
-                        Draw a different address below.
+                        This address is already in use. Pick a different one below.
                       </span>
                     )}
                   </>
                 ) : (
-                  <span className="text-[color:var(--color-muted)]">The factory did not answer.</span>
+                  <span className="text-[color:var(--color-muted)]">Could not read the address.</span>
                 )}
               </Field>
               <Field label="Approvals" hint="Set under the limits above.">
                 {reading.limits ? describeApproval(reading.limits.approvalThreshold, reading.limits.perCallCap) : 'Set the limits above'}
               </Field>
-              <Field label="Creating it costs" hint="Paid in ETH by the connected wallet, at the fee this chain has been charging.">
+              <Field label="Creating it costs" hint="Paid in ETH from your wallet, at the current network fee.">
                 <span className="tabular">{formatEth(DEPLOY_FEE)}</span>
               </Field>
-              <Field label="Then" hint="Each payee, each capability and each lane step is a separate transaction, and each is cheap.">
+              <Field label="Then" hint="One transaction for each payee, capability and lane step.">
                 {payees.length} payee{payees.length === 1 ? '' : 's'}, {capabilities.length} capabilit
                 {capabilities.length === 1 ? 'y' : 'ies'}
                 {followUps.length > 0 && `, then ${followUps.join(' and ')}`}
               </Field>
-              <Field label="Funding lane" hint="Written into the account.">
+              <Field label="Funding lane" hint="Fixed at creation.">
                 {LANE_NAME[lane]}
               </Field>
             </FieldGrid>
@@ -424,11 +420,8 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
 
             {system.blockers.length > 0 && (
               <div className="space-y-1 rounded-md border border-[color:var(--color-line)] p-3">
-                <p className="text-detail font-medium">None of these stops this account being created.</p>
-                <p className="text-detail text-[color:var(--color-muted)]">
-                  A deployment moves no USDG and its fee is paid in ETH. Each of these would stop a payment the mandate
-                  makes later, and each has its own owner.
-                </p>
+                <p className="text-detail font-medium">None of these stops the mandate being created.</p>
+                <p className="text-detail text-[color:var(--color-muted)]">They would stop its payments later.</p>
                 <Blockers system={system} />
               </div>
             )}
@@ -436,8 +429,8 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
             {slot === undefined ? (
               <p className="text-detail text-[color:var(--color-muted)]">
                 {ready
-                  ? 'Reading the address this mandate would deploy at. Creating it opens once the factory answers.'
-                  : 'Fill in the agent and the limits above. The address appears here, with the button that creates the account at it.'}
+                  ? "Reading the mandate's address."
+                  : 'Fill in the agent and the limits above to see the address.'}
               </p>
             ) : (
               <TxButton
@@ -545,18 +538,17 @@ function OpenTheGates({
         title="Open the gates"
         description={
           unread
-            ? 'Reading the account for what it already allows.'
+            ? 'Checking what the mandate already allows.'
             : remaining === 0
-              ? 'Everything you listed is allowed, read back off the account itself.'
-              : `${remaining} transaction${remaining === 1 ? '' : 's'} left. Until each one is sent the mandate refuses that payee or that capability.`
+              ? 'Everything you listed is allowed.'
+              : `${remaining} step${remaining === 1 ? '' : 's'} left. The mandate refuses each payee or capability until its step is sent.`
         }
       >
         <Card>
           <div className="space-y-4">
             {payees.length === 0 && capabilities.length === 0 && lane === 'prefund' && (
               <p className="text-detail text-[color:var(--color-muted)]">
-                You listed no payee and no capability. The mandate refuses every payment until you allow at least one of
-                each, which you can do from its own screen.
+                You listed no payees or capabilities. Allow them from the mandate's page before it can pay.
               </p>
             )}
 
@@ -564,7 +556,7 @@ function OpenTheGates({
               <GateRow
                 key={payee}
                 title={`Allow ${shortAddress(payee)}`}
-                detail="This provider becomes payable from this mandate."
+                detail="Lets this mandate pay this provider."
                 allowed={allowed(gates.data?.merchants, payee)}
                 send={() =>
                   writeContractAsync({
@@ -584,7 +576,7 @@ function OpenTheGates({
               <GateRow
                 key={capability.id}
                 title={`Allow ${capability.label}`}
-                detail="Work of this kind becomes payable from this mandate."
+                detail="Lets this mandate pay for this kind of work."
                 allowed={allowed(gates.data?.capabilities, capability.id)}
                 send={() =>
                   writeContractAsync({
@@ -616,7 +608,7 @@ function OpenTheGates({
         </Card>
       </Section>
 
-      <Section title="Next" description="Fund the account and the agent can start work.">
+      <Section title="Next" description="Fund the mandate and your agent can start paying.">
         <Card>
           <Link href={`/console/${created.address}`} className="text-sm underline underline-offset-2">
             Open the mandate
@@ -659,7 +651,7 @@ function GateRow({
         <div className="space-y-1 text-right">
           <TxButton label="Send" tone="secondary" send={send} onContinue={onDone} blockedBy={blockedBy} context={context} />
           {allowed === undefined && (
-            <p className="text-note text-[color:var(--color-muted)]">Reading the account for this one.</p>
+            <p className="text-note text-[color:var(--color-muted)]">Checking the mandate.</p>
           )}
         </div>
       )}

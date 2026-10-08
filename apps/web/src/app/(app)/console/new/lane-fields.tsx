@@ -17,8 +17,8 @@ export { LANE_NAME };
 
 export const LANE_FOLLOW_UPS: Readonly<Record<FundingLane, readonly string[]>> = {
   prefund: [],
-  treasury: ['name the treasury park as where the mandate unparks'],
-  collateral: ['open the collateral line', 'name the collateral vault as where the mandate borrows'],
+  treasury: ['connect the treasury park'],
+  collateral: ['open the collateral line', 'connect the collateral vault'],
 };
 
 /** The most one mandate may owe the credit pool, read from the pool. */
@@ -51,9 +51,8 @@ export function LaneFields({
 
   const detail: Record<FundingLane, string> = {
     prefund: 'The mandate holds USDG and pays from it. What you put in is the most it can spend.',
-    treasury:
-      'Idle budget can sit in a treasury token. A payment that needs more USDG than the mandate holds sells enough of it back in the same transaction.',
-    collateral: `You post stock or treasury tokens to the collateral vault. A payment the mandate cannot cover borrows the shortfall against them, up to the headroom their haircuts leave, and you repay it. Borrowing is capped at ${capText}.`,
+    treasury: 'Idle USDG can be parked in a treasury token. A payment that needs more sells enough back in the same transaction.',
+    collateral: `Post stock or treasury tokens as collateral. When the mandate runs short, a payment borrows the difference against them and you repay it. Borrowing is capped at ${capText}.`,
   };
 
   return (

@@ -30,8 +30,7 @@ export function DraftView({ draftId }: { readonly draftId: string }) {
     <WorkspaceGate
       withoutWorkspace={
         <EmptyState title="Draft not found.">
-          This browser holds no workspace, so the draft is not here. Drafts stay in the browser that made them. Import a
-          backup of that workspace below to open it here.
+          Drafts stay in the browser that made them. Import that workspace’s backup below to open it here.
         </EmptyState>
       }
     >
@@ -40,7 +39,7 @@ export function DraftView({ draftId }: { readonly draftId: string }) {
         if (!draft) {
           return (
             <EmptyState title="Draft not found." action={<Link href="/workspace" className="text-sm underline underline-offset-2">Back to the workspace</Link>}>
-              It is not in this workspace. It may have been removed, or it belongs to a workspace in another browser.
+              It may have been removed, or it belongs to a workspace in another browser.
             </EmptyState>
           );
         }
@@ -104,7 +103,7 @@ function DraftEditor({ saved, workspace }: { readonly saved: MandateDraft; reado
       <form onSubmit={save} className="space-y-10">
         <Section
           title={draftTitle(draft)}
-          description="A draft lives only in this workspace, encrypted. Saving it sends no transaction, deploys nothing and moves no funds."
+          description="Encrypted in this workspace. Saving sends no transaction."
           actions={
             <div className="flex items-center gap-3">
               <span aria-live="polite" className="text-detail text-[color:var(--color-muted)]">
@@ -122,7 +121,7 @@ function DraftEditor({ saved, workspace }: { readonly saved: MandateDraft; reado
               <Link href={`/console/${saved.activated.address}`} className="tabular underline underline-offset-2">
                 {saved.activated.address}
               </Link>
-              . Edits here change the draft, not the deployed mandate.
+              . Edits here change only the draft.
             </p>
           )}
           <Card title="About this draft">
@@ -160,19 +159,19 @@ function DraftEditor({ saved, workspace }: { readonly saved: MandateDraft; reado
           </Card>
         </Section>
 
-        <Section title="How it is funded" description="The funding lane is written into the mandate when it is activated.">
+        <Section title="How it is funded" description="Fixed when the mandate is created.">
           <Card>
             <LaneFields lane={draft.lane ?? 'prefund'} onChange={(lane) => setDraft({ ...draft, lane })} />
           </Card>
         </Section>
 
-        <Section title="What it may spend" description="The period cap refills each period. The total budget never refills, so it bounds the whole mandate.">
+        <Section title="What it may spend" description="The period cap refills each period. The total budget never refills.">
           <Card>
             <LimitsFields draft={draft.limits} onChange={(limits) => setDraft({ ...draft, limits })} problems={reading.problems} />
           </Card>
         </Section>
 
-        <Section title="What it may buy" description="Choose the spend classes this mandate allows, and the capabilities under each.">
+        <Section title="What it may buy" description="Choose the kinds of work this mandate can pay for.">
           <Card>
             <SpendClassFields
               classes={draft.classes}
@@ -182,7 +181,7 @@ function DraftEditor({ saved, workspace }: { readonly saved: MandateDraft; reado
           </Card>
         </Section>
 
-        <Section title="Who it may pay" description="The counterparties this mandate may pay. Everything else is refused.">
+        <Section title="Who it may pay" description="Only the counterparties you list can be paid.">
           <Card>
             <div className="space-y-3">
               <AddressInput
@@ -207,12 +206,11 @@ function DraftEditor({ saved, workspace }: { readonly saved: MandateDraft; reado
 
       <RuleCheck draft={draft} />
 
-      <Section title="Activate" description="Activation deploys the mandate from your wallet. The draft stays here.">
+      <Section title="Activate" description="Activating creates the mandate from your wallet. The draft stays here.">
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-4">
             <p className="max-w-xl text-detail text-[color:var(--color-muted)]">
-              The create screen opens with this draft filled in. You review it there, and a wallet transaction deploys it.
-              A saved draft or a rule check is not a transaction and not a proof.
+              The create screen opens with this draft filled in, ready to review.
             </p>
             <div className="flex flex-wrap items-center gap-2">
               {dirty && <span className="text-detail text-[color:var(--color-muted)]">Save the draft first.</span>}
@@ -247,7 +245,7 @@ function DraftEditor({ saved, workspace }: { readonly saved: MandateDraft; reado
         open={removeOpen}
         onClose={() => setRemoveOpen(false)}
         title="Remove this draft"
-        description="It is deleted from the workspace. A deployed mandate made from it is not affected."
+        description="It is deleted from the workspace. A mandate created from it is not affected."
         footer={
           <div className="flex justify-end gap-2">
             <Button tone="quiet" onClick={() => setRemoveOpen(false)}>
@@ -282,7 +280,7 @@ function RuleCheck({ draft }: { readonly draft: MandateDraft }) {
   return (
     <Section
       title="Check a spend before activation"
-      description="Run a spend your agent might ask for against this draft’s rules. Nothing is deployed or sent; the check reads the draft as it is on screen."
+      description="Test a payment your agent might make against this draft. Nothing is sent."
     >
       <Card>
         <form onSubmit={run} className="space-y-5" noValidate>
@@ -367,7 +365,6 @@ function RuleResult({ result }: { readonly result: RuleCheckResult }) {
         {result.outcome !== 'allowed' && <Badge tone="quiet">{result.rule}</Badge>}
       </div>
       <p className="mt-1 text-detail">{result.message}</p>
-      <p className="mt-2 text-note text-[color:var(--color-muted)]">A rule check reads the draft. It is not a transaction and not a proof.</p>
     </div>
   );
 }

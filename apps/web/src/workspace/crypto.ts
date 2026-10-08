@@ -37,7 +37,7 @@ export class WrongPassphraseError extends Error {
 
 function subtle(): SubtleCrypto {
   const api = globalThis.crypto?.subtle;
-  if (!api) throw new Error('This browser has no WebCrypto, so it cannot encrypt a workspace.');
+  if (!api) throw new Error('This browser cannot encrypt a workspace. Try another browser.');
   return api;
 }
 

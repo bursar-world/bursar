@@ -27,7 +27,7 @@ import { SpendClassFields } from '../spend-class-fields';
 import { StealthCreate, StealthToggle } from './stealth-create';
 
 export const PRIVATE_LIMIT_LINE =
-  'The amount and the provider of each payment are visible on chain. The terms are not: the chain holds a commitment to them, and only your viewing key opens the readable copy. A private mandate can have a total budget of at most $25.00 for now.';
+  'Only your viewing key opens these terms. The amount and the provider of each payment are still visible on chain. A private mandate can hold a total budget of up to $25.00 for now.';
 
 type Created = { readonly address: Address; readonly hash: Hex; readonly terms: TermsDocument; readonly saved: boolean };
 
@@ -58,8 +58,7 @@ export function PrivateCreate({ owner }: { readonly owner: Address }) {
     return (
       <Section title="Private terms" description="Terms held behind a commitment, readable only with your viewing key.">
         <EmptyState title="Private mandates are not available on this network yet.">
-          The contracts that check each payment against committed terms are not recorded for this network. Turn private
-          terms off to create a mandate with public limits.
+          Turn private terms off to create a mandate with public limits.
         </EmptyState>
       </Section>
     );
@@ -125,7 +124,7 @@ export function PrivateCreate({ owner }: { readonly owner: Address }) {
   return (
     <div className="space-y-8">
       <Section title="Private terms" description={PRIVATE_LIMIT_LINE}>
-        <Card title="Who spends" description="The agent proves each payment against the terms below. It needs a copy of them, which you download after creating the mandate.">
+        <Card title="Who spends" description="Your agent proves each payment fits these terms. You download a copy for it after creating the mandate.">
           <div className="mb-4">
             <StealthToggle on={stealth} onChange={setStealth} />
           </div>
@@ -164,7 +163,7 @@ export function PrivateCreate({ owner }: { readonly owner: Address }) {
                 ))}
               </select>
             </Field>
-            <Field label="Ends on" hint="After this date the agent cannot prove a payment.">
+            <Field label="Ends on" hint="Your agent cannot pay after this date.">
               <input
                 type="date"
                 className="w-full rounded-md border border-[color:var(--color-line)] bg-transparent px-3 py-2 text-sm"
@@ -178,14 +177,14 @@ export function PrivateCreate({ owner }: { readonly owner: Address }) {
 
       <Section
         title="What it may pay for"
-        description="Each payment proves its capability is on this list, and the escrow lock carries exactly that capability."
+        description="Each payment must name a capability on this list."
       >
         <Card>
           <PrivateCapabilities form={form} onChange={set} />
         </Card>
       </Section>
 
-      <Section title="Who it may pay" description="The list is sealed with the terms. Each payment proves its provider is on it without showing the rest.">
+      <Section title="Who it may pay" description="Sealed with the terms. Each payment proves its provider is on the list without revealing the others.">
         <Card>
           <div className="space-y-3">
             <form
@@ -218,21 +217,21 @@ export function PrivateCreate({ owner }: { readonly owner: Address }) {
         title="Review"
         description={
           stealth
-            ? 'Your wallet signs twice: once for the viewing key, which opens the terms, and once for the funds key, which controls the new owner and agent addresses. The owner address then sends the announcements and the create itself, once it holds a little gas.'
-            : 'Creating it asks your wallet for two things: a signature that derives your viewing key, then the transaction.'
+            ? 'Your wallet signs twice, once for your viewing key and once for the key that controls the new owner and agent addresses. The owner address then creates the mandate once it holds a little gas.'
+            : 'Your wallet signs once to create your viewing key, then sends the transaction.'
         }
       >
         <Card>
           <div className="space-y-4">
             <p className="text-detail text-[color:var(--color-muted)]">
               {stealth
-                ? 'Neither signature costs anything. The viewing key only reads. Your wallet shows the funds key as controlling funds, because it does, so sign it only here. Signing both again from the same wallet finds the mandate on any device.'
-                : 'The signature costs nothing and moves nothing. Sign the same message from the same wallet later and the terms open again on any device.'}
+                ? 'Neither signature costs anything. Your wallet shows the second as controlling funds, which it does, so sign it only on this page. Signing both again from this wallet finds the mandate on any device.'
+                : 'The signature is free and moves nothing. Signing it again from this wallet opens the terms on any device.'}
             </p>
             {workspace.view.status !== 'unlocked' && (
               <p className="text-detail text-[color:var(--color-muted)]">
-                Your workspace is locked, so the terms will not be saved in it. You can still download them once the mandate
-                exists.
+                Your workspace is locked, so the terms will not be saved there. You can download them after creating the
+                mandate.
               </p>
             )}
             {stealth ? (
@@ -273,7 +272,7 @@ function PrivateCreated({ created }: { readonly created: Created }) {
               : 'The terms are not in your workspace. Download them now: your agent needs this file to prove each payment.'}
           </p>
           <p className="text-detail text-[color:var(--color-muted)]">
-            The file is the readable terms and the secret that hides them. Give it to your agent and to nobody else.
+            The file holds the readable terms and the secret that hides them. Give it to your agent only.
           </p>
           <div className="flex flex-wrap gap-3">
             <Button onClick={download}>Download the terms for your agent</Button>
@@ -308,9 +307,8 @@ export function PrivateCapabilities({
       }
       note={
         <>
-          The list is sealed with the terms, as the hash of each class and name, such as{' '}
-          <code className="font-mono">service:gpu.render:1</code>. A mandate that lists only services cannot pay for an agent
-          hire, and no payment can name a capability that is not here.
+          Sealed with the terms, for example <code className="font-mono">service:gpu.render:1</code>. A payment can only
+          name a capability on this list.
         </>
       }
     />
@@ -333,7 +331,7 @@ export function PrivateToggle({
       <span>
         <span className="font-medium">Private terms.</span>
         <span className="block text-[color:var(--color-muted)]">
-          The caps, the capabilities and the provider list stay off chain. Each payment carries a proof that it fits them.
+          Your terms stay off chain. Each payment proves it fits them.
         </span>
       </span>
     </label>

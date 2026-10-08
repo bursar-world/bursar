@@ -4,7 +4,7 @@ import { WorkspaceView } from './workspace-view';
 
 export const metadata: Metadata = {
   title: 'Workspace · BURSAR',
-  description: 'Prepare encrypted mandate drafts, organize agents, check spending rules and export your workspace.',
+  description: 'Draft a mandate privately and check a payment against it before anything goes on chain.',
 };
 
 export default function WorkspacePage() {

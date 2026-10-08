@@ -97,7 +97,7 @@ describe('the private terms form', () => {
   });
 
   it('states the limit plainly and without em dashes', () => {
-    expect(PRIVATE_LIMIT_LINE).toContain('amount and the provider of each payment are visible on chain');
+    expect(PRIVATE_LIMIT_LINE).toContain('amount and the provider of each payment are still visible on chain');
     expect(PRIVATE_LIMIT_LINE).not.toContain('—');
   });
 });
