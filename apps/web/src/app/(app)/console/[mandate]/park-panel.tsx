@@ -239,7 +239,9 @@ function OwnerForms({ rwa, onChange }: { readonly rwa: RwaState; readonly onChan
                 {bufferSentence(account.balance, rwa.buffer ?? 0n)}
               </p>
             ) : shortfall > 0n ? (
+              // Keyed apart: the two steps share a slot, and the move's confirmed state would otherwise stand in for the park.
               <TxButton
+                key="move"
                 label="Move the USDG into the vault"
                 tone="secondary"
                 disabled={park.value === undefined || rwa.vault === undefined}
@@ -257,6 +259,7 @@ function OwnerForms({ rwa, onChange }: { readonly rwa: RwaState; readonly onChan
               />
             ) : (
               <TxButton
+                key="park"
                 label={parkSymbol === RESERVE ? 'Set it aside as a reserve' : `Park in ${parkSymbol}`}
                 disabled={park.value === undefined || target === undefined}
                 blockedBy={transferGates(system)}
