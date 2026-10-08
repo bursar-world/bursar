@@ -109,7 +109,7 @@ export function AmountInput({
             type="button"
             disabled={disabled}
             onClick={() => onChange(exact(max.atomic, asset), max.atomic)}
-            className="mr-1.5 bg-[color:var(--color-raised)] px-2 py-1 font-mono text-label uppercase tracking-wide text-[color:var(--color-ink)] transition-colors hover:bg-[color:var(--color-accent)]"
+            className="mr-1.5 whitespace-nowrap bg-[color:var(--color-raised)] px-2 py-1 font-mono text-label uppercase tracking-wide text-[color:var(--color-ink)] transition-colors hover:bg-[color:var(--color-accent)]"
           >
             {max.label ?? 'Max'}
           </button>

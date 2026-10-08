@@ -2,8 +2,9 @@
 
 import { useState } from 'react';
 import type { Micro } from '@bursar/core';
+import type { Hex } from 'viem';
 
-import { ADDRESSES } from '@/chain/rhc';
+import { ADDRESSES, explorerTx } from '@/chain/rhc';
 import { mandateAccountAbi, settlementAssetAbi } from '@/chain/abi';
 import { AmountInput } from '@/components/amount-input';
 import { Card, Field, FieldGrid, Section } from '@/components/layout';
@@ -29,6 +30,9 @@ export function FundingPanel() {
 
   const [depositText, setDepositText] = useState('');
   const [withdrawText, setWithdrawText] = useState('');
+  // The approval that just landed, and for how much. Its receipt is the token saying yes, so the
+  // second step is offered on it rather than on a re-read that a lagging node can still answer no.
+  const [approved, setApproved] = useState<{ readonly hash: Hex; readonly amount: Micro } | undefined>(undefined);
 
   if (!account) return null;
 
@@ -46,7 +50,8 @@ export function FundingPanel() {
 
   const depositAmount = deposit.value;
   const withdrawAmount = withdraw.value;
-  const needsAllowance = depositAmount !== undefined && (allowance === undefined || allowance < depositAmount);
+  const approvedNow = approved !== undefined && depositAmount !== undefined && approved.amount >= depositAmount;
+  const needsAllowance = depositAmount !== undefined && !approvedNow && (allowance === undefined || allowance < depositAmount);
   const gates = transferGates(system);
 
   return (
@@ -72,7 +77,7 @@ export function FundingPanel() {
                   ? 'Connect a wallet to see its ETH for fees.'
                   : trips === undefined
                     ? 'ETH for network fees.'
-                    : `ETH, enough for about ${trips.toString()} more payment${trips === 1n ? '' : 's'}.`
+                    : `Enough for about ${trips.toString()} more payment${trips === 1n ? '' : 's'}.`
               }
               level={gas === undefined ? 'unknown' : gas < ROUND_TRIP_FEE ? 'blocked' : 'ok'}
             />
@@ -119,7 +124,10 @@ export function FundingPanel() {
                             args: [address, depositAmount as Micro],
                           })
                         }
-                        onContinue={refresh}
+                        onConfirmed={(receipt) => {
+                          if (depositAmount !== undefined) setApproved({ hash: receipt.transactionHash, amount: depositAmount });
+                          refresh();
+                        }}
                       />
                       {allowanceUnread && (
                         <p className="text-detail" style={{ color: 'var(--color-state-unknown)' }}>
@@ -130,24 +138,36 @@ export function FundingPanel() {
                       )}
                     </div>
                   ) : (
-                    <TxButton
-                      label="Move the funds in"
-                      disabled={depositAmount === undefined}
-                      blockedBy={gates}
-                      context={{ ...writeContext, ...(depositAmount === undefined ? {} : { amount: depositAmount }) }}
-                      send={() =>
-                        writeContractAsync({
-                          address,
-                          abi: mandateAccountAbi,
-                          functionName: 'deposit',
-                          args: [depositAmount as Micro],
-                        })
-                      }
-                      onConfirmed={() => {
-                        setDepositText('');
-                        refresh();
-                      }}
-                    />
+                    <div className="space-y-2">
+                      {approvedNow && (
+                        <p className="text-detail" style={{ color: 'var(--color-state-ok)' }}>
+                          Approved.{' '}
+                          <a href={explorerTx(approved.hash)} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+                            View the transaction
+                          </a>
+                          . Now move the funds in.
+                        </p>
+                      )}
+                      <TxButton
+                        label="Move the funds in"
+                        disabled={depositAmount === undefined}
+                        blockedBy={gates}
+                        context={{ ...writeContext, ...(depositAmount === undefined ? {} : { amount: depositAmount }) }}
+                        send={() =>
+                          writeContractAsync({
+                            address,
+                            abi: mandateAccountAbi,
+                            functionName: 'deposit',
+                            args: [depositAmount as Micro],
+                          })
+                        }
+                        onConfirmed={() => {
+                          setDepositText('');
+                          setApproved(undefined);
+                          refresh();
+                        }}
+                      />
+                    </div>
                   )}
                 </div>
               </Field>
