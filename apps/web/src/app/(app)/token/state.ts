@@ -2,7 +2,7 @@ import type { Address } from 'viem';
 
 import { isZeroAddress, sameAddress } from '@/chain/rhc';
 import type { BuybackState, PendingExit, StakingPool } from '@/chain/token';
-import { formatDuration } from '@/lib';
+import { formatSpan } from '@/lib';
 import { bps } from '@/money';
 
 /**
@@ -85,7 +85,7 @@ export function capSentence(pool: StakingPool | undefined): string {
   if (pool?.slashCapBps === undefined || pool.slashWindow === undefined) {
     return 'Losses arrive at a capped rate: one slash takes at most a set share of the pool, and that allowance refills over a set window. Every staker loses the same share, including stake waiting to exit.';
   }
-  return `Losses arrive at a capped rate. One slash takes at most ${bps(pool.slashCapBps)} of the pool, and that allowance refills evenly over ${formatDuration(
+  return `Losses arrive at a capped rate. One slash takes at most ${bps(pool.slashCapBps)} of the pool, and that allowance refills evenly over ${formatSpan(
     Number(pool.slashWindow),
   )}. Every staker loses the same share, including stake waiting to exit.`;
 }
@@ -108,12 +108,12 @@ export function slasherSentence(pool: StakingPool | undefined, creditPool: Addre
 
 export function allowanceHint(pool: StakingPool | undefined): string {
   if (pool?.slashCapBps === undefined || pool.slashWindow === undefined) return 'What the slasher could take right now.';
-  return `What the slasher could take right now: up to ${bps(pool.slashCapBps)} of the pool, less recent slashes, refilling over ${formatDuration(
+  return `What the slasher could take right now: up to ${bps(pool.slashCapBps)} of the pool, less recent slashes, refilling over ${formatSpan(
     Number(pool.slashWindow),
   )}.`;
 }
 
 export function brakeHint(pool: StakingPool | undefined): string {
-  const hold = pool?.maxExitHold === undefined ? 'for a set time' : `for at most ${formatDuration(Number(pool.maxExitHold))}`;
+  const hold = pool?.maxExitHold === undefined ? 'for a set time' : `for at most ${formatSpan(Number(pool.maxExitHold))}`;
   return `When paused, the pool takes no new stake and keeps exits from completing ${hold}. Exit requests, cancellations and claims stay open.`;
 }

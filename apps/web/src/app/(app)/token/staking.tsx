@@ -12,7 +12,7 @@ import { Card, EmptyState, Field, FieldGrid, Section } from '@/components/layout
 import { Stat, StatGrid } from '@/components/stat';
 import { Table } from '@/components/table';
 import { TxButton } from '@/components/tx-button';
-import { formatDuration } from '@/lib';
+import { formatDuration, formatSpan } from '@/lib';
 import { ZERO_BRSR, bps, formatBrsr, usdExact } from '@/money';
 import type { Brsr } from '@/money';
 import type { AnyState } from '@/state';
@@ -412,14 +412,14 @@ function ExitCard({ data, blockedBy }: { readonly data: TokenPageData; readonly 
 
       {sharesToExit > 0n && shares !== undefined && (
         <p className="mt-3 text-detail text-[color:var(--color-muted)]">
-          That is {sharesToExit.toString()} of your {shares.toString()} earning shares.
+          {sharesToExit >= shares ? 'That is all of your earning stake.' : `That is ${poolShare(sharesToExit, shares) ?? 'part'} of your earning stake.`}
         </p>
       )}
 
       {pool?.unbondingPeriod !== undefined && pool.unbondWindow !== undefined && (
         <p className="mt-3 text-detail text-[color:var(--color-muted)]">
-          It can complete after {formatDuration(Number(pool.unbondingPeriod))} and stays open for{' '}
-          {formatDuration(Number(pool.unbondWindow))} after that. If it is not completed by then, it lapses and earns
+          It can complete after {formatSpan(Number(pool.unbondingPeriod))} and stays open for{' '}
+          {formatSpan(Number(pool.unbondWindow))} after that. If it is not completed by then, it lapses and earns
           nothing until you put it back to work.
         </p>
       )}
