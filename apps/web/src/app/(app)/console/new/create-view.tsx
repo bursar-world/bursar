@@ -7,7 +7,7 @@ import { parseEventLogs } from 'viem';
 import type { Address, Hex, TransactionReceipt } from 'viem';
 
 import { currentDeployment } from '@/chain/deployments';
-import { ZERO_ADDRESS, shortAddress } from '@/chain/rhc';
+import { ZERO_ADDRESS, explorerTx, shortAddress } from '@/chain/rhc';
 import { mandateAccountAbi, mandateAccountFactoryAbi } from '@/chain/abi';
 import { toLimitsTuple } from '@/chain/limits';
 import { laneAvailable, laneParkOf, laneValue, newMandateFactory, predictMandateSlot, randomSalt } from '@/chain/mandates';
@@ -26,7 +26,7 @@ import type { AnyState } from '@/state';
 import { AddressInput, readAddress } from '@/components/address-input';
 import { useWalletAccount } from '@/wallet/account';
 import { useCapabilityLabels } from '../lib/capability-labels';
-import { describeApproval } from '../lib/format';
+import { describeApproval, describeLimits } from '../lib/format';
 import { readLedgerState } from '../lib/reads';
 import type { GateEntry } from '../lib/reads';
 import { callGates } from '../lib/write-gates';
@@ -81,6 +81,8 @@ const GATE_REFETCH_MS = 15_000;
  * limits alone. Nothing is unsafe in between: a mandate refuses every payee and every capability it
  * has not been told to allow, so a setup abandoned halfway spends nothing.
  */
+const CREATE_DESCRIPTION = 'One account for one agent. Its limits are set when it is created, so it never holds funds without them.';
+
 export function CreateMandateView({ draftId, lane: askedLane }: { readonly draftId?: string; readonly lane?: FundingLane } = {}) {
   const { address: owner, isConnected } = useWalletAccount();
   const { writeContractAsync } = useWriteContract();
@@ -182,6 +184,9 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
   // one press away.
   const taken = slot?.deployed === true;
   const canCreate = ready && slot !== undefined && !taken;
+  // The one blocker that does stop the deploy: the owner's own wallet pays its fee in ETH.
+  const feeBalance = system.funding.facts.gasBalance;
+  const shortOfFee = feeBalance !== undefined && feeBalance < DEPLOY_FEE;
 
   const submit = () => {
     if (slot === undefined || !ready) return Promise.reject(new Error('The mandate address has not been read yet.'));
@@ -238,7 +243,11 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
   if (privateMode && owner !== undefined) {
     return (
       <div className="space-y-8">
-        {!privateCreated && <PrivateToggle on onChange={setPrivateMode} />}
+        {!privateCreated && (
+          <Section title="Create a mandate" description={CREATE_DESCRIPTION}>
+            <PrivateToggle on onChange={setPrivateMode} />
+          </Section>
+        )}
         <PrivateCreate owner={owner} onCreated={() => setPrivateCreated(true)} />
       </div>
     );
@@ -252,12 +261,9 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
 
   return (
     <div className="space-y-8">
-      {created === undefined && <PrivateToggle on={false} onChange={setPrivateMode} disabled={frozen} />}
       <fieldset disabled={frozen} className="min-w-0 space-y-8">
-        <Section
-          title="Create a mandate"
-          description="One account for one agent. Its limits are set when it is created, so it never holds funds without them."
-        >
+        <Section title="Create a mandate" description={CREATE_DESCRIPTION}>
+          {created === undefined && <PrivateToggle on={false} onChange={setPrivateMode} disabled={frozen} />}
           <Card title="Who spends" description="Your agent signs with this address. It can only pay through the escrow.">
             <div className="space-y-3">
               <FieldGrid columns={2}>
@@ -285,7 +291,7 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
           </Card>
           <Card
             title="How it is funded"
-            description="Choose now. The lane is fixed when the mandate is created."
+            description="Choose now. It cannot be changed once the mandate is created."
           >
             <LaneFields lane={lane} onChange={setLane} disabled={frozen} />
           </Card>
@@ -333,7 +339,7 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
               <ChipList
                 items={payees.map((payee) => ({ key: payee, label: shortAddress(payee) }))}
                 onRemove={(key) => setPayees(payees.filter((entry) => entry !== key))}
-                empty="No payees yet. You allow each one after the mandate is created."
+                empty="No payees yet. Each one you add is allowed right after the mandate is created."
               />
             </div>
           </Card>
@@ -352,9 +358,6 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
                 setClassed(nextCapabilities);
               }}
             />
-            <p className="mt-3 text-note text-[color:var(--color-muted)]">
-              Each label is stored as a hash on chain and kept readable in this browser.
-            </p>
           </Card>
         </Section>
       </fieldset>
@@ -364,7 +367,7 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
           <div className="space-y-4">
             <FieldGrid columns={2}>
               <Field
-                label={created ? 'Mandate address' : 'Address before it exists'}
+                label="Mandate address"
                 hint={
                   created
                     ? 'The mandate is live at this address. Send USDG to fund it.'
@@ -390,37 +393,54 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
                   <span className="text-[color:var(--color-muted)]">Could not read the address.</span>
                 )}
               </Field>
-              <Field label="Approvals" hint="Set under the limits above.">
+              <Field label="Limits">
+                {reading.limits ? describeLimits(reading.limits) : 'Set the limits above'}
+              </Field>
+              <Field label="Approvals">
                 {reading.limits ? describeApproval(reading.limits.approvalThreshold, reading.limits.perCallCap) : 'Set the limits above'}
               </Field>
-              <Field label="Creating it costs" hint="Paid in ETH from your wallet, at the current network fee.">
-                <span className="tabular">{formatEth(DEPLOY_FEE)}</span>
-              </Field>
-              <Field label="Then" hint="One transaction for each payee, capability and lane step.">
-                {payees.length} payee{payees.length === 1 ? '' : 's'}, {capabilities.length} capabilit
-                {capabilities.length === 1 ? 'y' : 'ies'}
-                {followUps.length > 0 && `, then ${followUps.join(' and ')}`}
-              </Field>
-              <Field label="Funding lane" hint="Fixed at creation.">
+              <Field label="Funding" hint="Cannot be changed later.">
                 {LANE_NAME[lane]}
+              </Field>
+              <Field
+                label="After it is created"
+                hint={
+                  payees.length + capabilities.length + followUps.length > 0
+                    ? 'One transaction each.'
+                    : 'It pays nobody until a payee and a capability are allowed.'
+                }
+              >
+                {afterCreation(payees.length, capabilities.length, followUps)}
+              </Field>
+              <Field label="Creating it costs" hint="The network fee, paid from your wallet.">
+                <span className="tabular">{formatEth(DEPLOY_FEE)}</span>
               </Field>
             </FieldGrid>
 
-            <div className="flex flex-wrap items-center gap-3">
-              <Button
-                size="sm"
-                tone="quiet"
-                onClick={() => setSalt(randomSalt())}
-                disabled={!ready || frozen}
-              >
-                Use a different address
-              </Button>
-              {predicted.error !== null && predicted.error !== undefined && (
-                <span className="text-detail text-[color:var(--color-muted)]">The address could not be read.</span>
-              )}
-            </div>
+            {created === undefined && (
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  size="sm"
+                  tone="quiet"
+                  onClick={() => setSalt(randomSalt())}
+                  disabled={!ready || frozen}
+                >
+                  Use a different address
+                </Button>
+                {predicted.error !== null && predicted.error !== undefined && (
+                  <span className="text-detail text-[color:var(--color-muted)]">The address could not be read.</span>
+                )}
+              </div>
+            )}
 
-            {system.blockers.length > 0 && (
+            {shortOfFee && (
+              <p className="text-detail" style={{ color: 'var(--color-state-blocked)' }}>
+                Your wallet holds {formatEth(feeBalance)}, and creating the mandate costs about {formatEth(DEPLOY_FEE)} in
+                network fees. Add ETH to this wallet first.
+              </p>
+            )}
+
+            {!shortOfFee && system.blockers.length > 0 && (
               <div className="space-y-1 rounded-md border border-[color:var(--color-line)] p-3">
                 <p className="text-detail font-medium">None of these stops the mandate being created.</p>
                 <p className="text-detail text-[color:var(--color-muted)]">They would stop its payments later.</p>
@@ -437,7 +457,7 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
             ) : (
               <TxButton
                 label="Create the mandate"
-                disabled={!frozen && !canCreate}
+                disabled={!frozen && (!canCreate || shortOfFee)}
                 // Deploying an account moves no USDG, so the token's own state does not stand in
                 // the way of creating one. Connectivity does: an endpoint that does not answer
                 // takes no transaction at all.
@@ -523,7 +543,7 @@ function OpenTheGates({
 
   return (
     <div className="space-y-8">
-      <Section title="The mandate exists" description="It holds nothing and pays nobody yet.">
+      <Section title="Mandate created" description="It holds nothing and pays nobody yet.">
         <Card>
           <div className="space-y-4">
             <Field label="Mandate address" hint="Send USDG here to fund it. The owner can take it back at any time.">
@@ -639,19 +659,41 @@ function GateRow({
   readonly blockedBy: readonly AnyState[];
   readonly context: TxContext;
 }) {
+  // A successful receipt for the allow call is the chain saying yes, so the row flips on it rather
+  // than waiting for the next read, and keeps the transaction as the evidence.
+  const [landed, setLanded] = useState<Hex | undefined>(undefined);
+
   return (
     <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[color:var(--color-line)] pb-4 last:border-0 last:pb-0">
       <div className="min-w-0">
         <p className="text-sm font-medium">{title}</p>
         <p className="text-detail text-[color:var(--color-muted)]">{detail}</p>
       </div>
-      {allowed === true ? (
+      {allowed === true || landed !== undefined ? (
         <span className="text-detail" style={{ color: 'var(--color-state-ok)' }}>
           Allowed
+          {landed !== undefined && (
+            <>
+              .{' '}
+              <a href={explorerTx(landed)} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+                View the transaction
+              </a>
+            </>
+          )}
         </span>
       ) : (
         <div className="space-y-1 text-right">
-          <TxButton label="Send" tone="secondary" send={send} onContinue={onDone} blockedBy={blockedBy} context={context} />
+          <TxButton
+            label="Allow"
+            tone="secondary"
+            send={send}
+            onConfirmed={(receipt) => {
+              setLanded(receipt.transactionHash);
+              onDone();
+            }}
+            blockedBy={blockedBy}
+            context={context}
+          />
           {allowed === undefined && (
             <p className="text-note text-[color:var(--color-muted)]">Checking the mandate.</p>
           )}
@@ -688,4 +730,16 @@ function useSettled(value: string, pauseMs: number): string {
   }, [value, pauseMs]);
 
   return settled;
+}
+
+/** The transactions that follow the deploy, as one line: what gets allowed, then the lane's own steps. */
+function afterCreation(payees: number, capabilities: number, followUps: readonly string[]): string {
+  const allowed = [
+    payees > 0 ? `${payees} payee${payees === 1 ? '' : 's'}` : undefined,
+    capabilities > 0 ? `${capabilities} ${capabilities === 1 ? 'capability' : 'capabilities'}` : undefined,
+  ].filter((entry) => entry !== undefined);
+  const steps = [...(allowed.length > 0 ? [`allow ${allowed.join(' and ')}`] : []), ...followUps];
+  if (steps.length === 0) return 'Nothing to allow';
+  const line = steps.join(', then ');
+  return line.charAt(0).toUpperCase() + line.slice(1);
 }

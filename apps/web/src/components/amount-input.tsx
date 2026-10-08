@@ -1,6 +1,6 @@
 'use client';
 
-import { useId } from 'react';
+import { useId, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { BRSR_DECIMALS, formatBrsrExact, parseAmount, usd } from '../money';
@@ -31,9 +31,9 @@ export type AmountInputProps = {
  * An amount field that takes the decimal separator a person uses.
  *
  * Most of the world writes 1,50. Rejecting it as malformed, or worse reading it as 150, is the
- * kind of mistake that only shows up once money has moved. Whatever is typed, the canonical
- * reading is echoed under the field, so 1,5 and 1.5 are visibly the same amount and 1,500 is
- * visibly not fifteen hundred.
+ * kind of mistake that only shows up once money has moved. Whatever is typed differently from its
+ * canonical reading is echoed under the field, so 1,5 and 1.5 are visibly the same amount and
+ * 1,500 is visibly not fifteen hundred.
  *
  * The text and the number are separate things. The caller keeps both and spends the number.
  */
@@ -50,22 +50,29 @@ export function AmountInput({
   autoFocus = false,
 }: AmountInputProps) {
   const id = useId();
+  // An empty field nobody has touched yet is not wrong; it is unfilled. The caller's problem shows
+  // once the field has been typed in or left, so a fresh form does not open in red.
+  const [touched, setTouched] = useState(false);
+  const pristine = !touched && value.trim() === '';
   const decimals = asset === 'USDG' ? MICRO_DECIMALS : BRSR_DECIMALS;
   const parsed = value.trim() === '' ? undefined : parseAmount(value, decimals);
   const atomic = parsed?.ok ? parsed.value : undefined;
   const overMax = max !== undefined && atomic !== undefined && atomic > max.atomic;
 
-  const note = problem
-    ? problem
+  const shownProblem = pristine ? undefined : problem;
+  // The echo catches a misread. When the field already shows the canonical amount, the hint
+  // explaining the field is worth more than a copy of it.
+  const reading = atomic === undefined ? undefined : format(atomic, asset);
+  const echo = reading !== undefined && reading.replace(/^\$|\s*BRSR$/u, '') !== value.trim() ? `Reads as ${reading}` : undefined;
+  const note = shownProblem
+    ? shownProblem
     : overMax
       ? `That is more than the ${format(max.atomic, asset)} available.`
       : parsed && !parsed.ok
         ? parsed.problem
-        : atomic !== undefined
-          ? `Reads as ${format(atomic, asset)}`
-          : undefined;
+        : echo;
 
-  const bad = Boolean(problem) || overMax || (parsed !== undefined && !parsed.ok);
+  const bad = Boolean(shownProblem) || overMax || (parsed !== undefined && !parsed.ok);
 
   return (
     <div className="space-y-1.5">
@@ -87,7 +94,9 @@ export function AmountInput({
           value={value}
           aria-invalid={bad}
           aria-describedby={note ? `${id}-note` : undefined}
+          onBlur={() => setTouched(true)}
           onChange={(event) => {
+            setTouched(true);
             const text = event.target.value;
             const next = text.trim() === '' ? undefined : parseAmount(text, decimals);
             onChange(text, next?.ok ? next.value : undefined);
@@ -100,7 +109,7 @@ export function AmountInput({
             type="button"
             disabled={disabled}
             onClick={() => onChange(exact(max.atomic, asset), max.atomic)}
-            className="mr-1.5 bg-[color:var(--color-raised)] px-2 py-1 font-mono text-label uppercase tracking-wide text-[color:var(--color-ink)] transition-colors hover:bg-[color:var(--color-accent)]"
+            className="mr-1.5 whitespace-nowrap bg-[color:var(--color-raised)] px-2 py-1 font-mono text-label uppercase tracking-wide text-[color:var(--color-ink)] transition-colors hover:bg-[color:var(--color-accent)]"
           >
             {max.label ?? 'Max'}
           </button>

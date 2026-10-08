@@ -38,7 +38,7 @@ export const SPEND_CLASS_INFO: Readonly<Record<SpendClass, SpendClassInfo>> = {
     id: 'service',
     prefix: 'service:',
     name: 'Services',
-    summary: 'Inference and x402 services, paid through escrow or over x402.',
+    summary: 'Paid services such as inference and compute, through escrow or over x402.',
     available: true,
   },
   hire: {
@@ -52,7 +52,7 @@ export const SPEND_CLASS_INFO: Readonly<Record<SpendClass, SpendClassInfo>> = {
     id: 'rwa',
     prefix: 'rwa:',
     name: 'Eligible stocks',
-    summary: 'Eligible tokenized-stock purchases, checked against a reference price.',
+    summary: 'Tokenized stock purchases, checked against a reference price.',
     available: true,
   },
 };

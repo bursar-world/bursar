@@ -1,8 +1,9 @@
-import { contractSetAtLeast, micro } from '@bursar/core';
+import { contractSetAtLeast, isTotalBudgetWindow, micro } from '@bursar/core';
 import type { ContractSet, Micro } from '@bursar/core';
 import { LockStatus, MerchantGate } from '@bursar/sdk';
 
 import { DAY_SECONDS } from '@/chain/limits';
+import type { LimitsForm } from '@/chain/limits';
 import type { StateLevel } from '@/state/types';
 import { usd } from '@/money';
 import { formatDuration } from '@/lib/time';
@@ -27,6 +28,29 @@ export function approvalModeOf(threshold: Micro, perCallCap: Micro): ApprovalMod
   if (threshold <= APPROVE_EVERYTHING) return 'every';
   if (threshold > perCallCap) return 'never';
   return 'above';
+}
+
+/**
+ * The caps in the order an owner sets them, as the review reads them back. A second window that
+ * only repeats the first is how a native total is written, so it is not read out twice.
+ */
+export function describeLimits(limits: LimitsForm): string {
+  const parts = [`${usd(limits.perCallCap)} per payment`, `${usd(limits.dailyCap)} ${per(limits.dailyWindow)}`];
+  const secondIsCopy = limits.monthlyWindow === limits.dailyWindow && limits.monthlyCap === limits.dailyCap;
+  if (!secondIsCopy) {
+    parts.push(isTotalBudgetWindow(limits.monthlyWindow) ? `${usd(limits.monthlyCap)} in total` : `${usd(limits.monthlyCap)} ${per(limits.monthlyWindow)}`);
+  }
+  if (limits.totalCap !== undefined && limits.totalCap > 0n) parts.push(`${usd(limits.totalCap)} in total`);
+  return parts.join(', ');
+}
+
+function per(seconds: number): string {
+  if (seconds === DAY_SECONDS) return 'per day';
+  if (seconds === 30 * DAY_SECONDS) return 'per month';
+  if (seconds % DAY_SECONDS === 0) return `per ${seconds / DAY_SECONDS} days`;
+  if (seconds === 3_600) return 'per hour';
+  if (seconds % 3_600 === 0) return `per ${seconds / 3_600} hours`;
+  return `per ${formatDuration(seconds)}`;
 }
 
 export function describeApproval(threshold: Micro, perCallCap: Micro): string {
