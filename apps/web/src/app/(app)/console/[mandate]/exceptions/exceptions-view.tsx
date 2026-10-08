@@ -405,7 +405,7 @@ export function ExceptionsView() {
 function refusalLine(error: unknown): string {
   const refusal = refusalOf(error);
   return refusal === undefined
-    ? 'The network index turned this read down.'
+    ? 'The history for this list could not be loaded.'
     : `${refusal.condition} ${refusal.nextAction}`;
 }
 

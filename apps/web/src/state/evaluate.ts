@@ -470,7 +470,7 @@ export function evaluateConnectivity(
     detail: !provider.reachable
       ? `Not answering. ${provider.problem ?? ''}`.trim()
       : provider.chainId !== chainId
-        ? `Answering for chain ${provider.chainId}, and this deployment is on ${chainId}.`
+        ? `Answering for chain ${provider.chainId}, and Bursar runs on chain ${chainId}.`
         : `Block ${provider.blockNumber?.toString() ?? '?'} in ${provider.latencyMs}ms.`,
   }));
 
@@ -484,7 +484,7 @@ export function evaluateConnectivity(
 
   const wrongChain = reachable.find((provider) => provider.chainId !== chainId);
   if (wrongChain) {
-    return report('connectivity', 'Connectivity', 'blocked', 'An endpoint is serving a different chain.', `${wrongChain.name} answered for chain ${wrongChain.chainId} and this deployment runs on ${chainId}. Reads from it would describe a different network.`, { label: 'Correct the endpoint', owner: 'operator', kind: 'contact' }, checks, facts, checkedAt, stale);
+    return report('connectivity', 'Connectivity', 'blocked', 'An endpoint is serving a different chain.', `${wrongChain.name} answered for chain ${wrongChain.chainId} and Bursar runs on chain ${chainId}. Reads from it would describe a different network.`, { label: 'Correct the endpoint', owner: 'operator', kind: 'contact' }, checks, facts, checkedAt, stale);
   }
 
   if (reachable.length < list.length) {

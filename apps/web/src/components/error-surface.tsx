@@ -164,22 +164,22 @@ function headingFor(
     // it permission to read is not the index refusing a request, an index charging for the answer is
     // neither, and the fixes are nothing alike.
     case 'index_rate_limited':
-      return 'The network index is metering this deployment';
+      return 'The history is busy';
     case 'index_blocked':
-      return 'This browser blocked the network index';
+      return 'This browser blocked the history';
     case 'index_refused':
-      return 'The network index refused the request';
+      return 'The history could not be loaded';
     case 'index_unkeyed':
-      return 'This deployment has no key for the network index';
+      return 'The history is unavailable';
     case 'index_unreachable':
-      return 'The network index did not answer';
+      return 'The history did not answer';
     case 'index_timeout':
-      return 'The network index is taking too long';
+      return 'The history is taking too long';
     case 'index_malformed':
-      return 'The network index answered with something else';
+      return 'The history could not be read';
     case 'deployment_invalid':
     case 'deployment_unknown':
-      return 'This deployment is not configured correctly';
+      return 'This console is not configured correctly';
     case 'no_signer':
       return 'Connect a wallet first';
     case 'x402_rejected':

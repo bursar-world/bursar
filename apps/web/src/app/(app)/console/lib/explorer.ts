@@ -75,8 +75,13 @@ export class IndexUnavailable extends Error {
   readonly status: number | undefined;
   /** The host that could not be read, which is not always the index. */
   readonly host: string;
+  /**
+   * What whoever runs this console needs to fix it: the host, the status it answered and the server
+   * setting involved. Kept out of the reader's sentences and written to the browser console once.
+   */
+  readonly operatorNote: string;
 
-  constructor(failure: IndexFailure, host: string, condition: string, nextAction: string, status?: number) {
+  constructor(failure: IndexFailure, host: string, condition: string, nextAction: string, status?: number, operatorNote = '') {
     super(`${condition} ${nextAction}`.trim());
     this.name = 'IndexUnavailable';
     this.code = CODES[failure];
@@ -85,7 +90,20 @@ export class IndexUnavailable extends Error {
     this.nextAction = nextAction;
     this.status = status;
     this.host = host;
+    this.operatorNote = operatorNote;
   }
+}
+
+const noted = new Set<string>();
+
+/** Writes an operator note to the browser console once per page load, not on every poll. */
+function note(failure: IndexUnavailable): IndexUnavailable {
+  const key = `${failure.failure}:${failure.status ?? ''}`;
+  if (failure.operatorNote && !noted.has(key) && typeof console !== 'undefined') {
+    noted.add(key);
+    console.warn(`[history] ${failure.operatorNote}`);
+  }
+  return failure;
 }
 
 /** The origin this app is served from. Absent during a server render. */
@@ -105,75 +123,96 @@ function unavailable(failure: IndexFailure, host: string, status?: number, quiet
   return new IndexUnavailable(
     failure,
     host,
-    `${raised.condition} Nothing is asked of it for another ${Math.ceil(quietMs / 1_000)}s.`,
+    `${raised.condition} It is asked again in ${Math.ceil(quietMs / 1_000)}s.`,
     raised.nextAction,
     status,
+    raised.operatorNote,
   );
 }
 
 function describe(failure: IndexFailure, host: string, status?: number): IndexUnavailable {
+  const unaffected = 'Balances and limits come from the contracts and are unaffected.';
   switch (failure) {
     case 'rate-limited':
-      return new IndexUnavailable(
-        'rate-limited',
-        host,
-        `${host} is metering this deployment and answered HTTP 429.`,
-        'Nothing here needs fixing. The history fills in on its own once the pause ends.',
-        status,
+      return note(
+        new IndexUnavailable('rate-limited', host, 'The history is busy right now.', `It fills in on its own in a moment. ${unaffected}`, status, `${host} answered HTTP 429.`),
       );
     case 'unkeyed':
-      // The one failure with an owner who is not on this screen. The index is not down and the
-      // chain is not down: this deployment is reading a paid index and has nothing to pay with.
-      return status === 401
-        ? new IndexUnavailable(
-            'unkeyed',
-            host,
-            `${host} did not accept this deployment's index key and answered HTTP 401.`,
-            `BURSAR replaces BLOCKSCOUT_API_KEY on the server that serves ${readerOrigin()}. Balances and limits are read from the contracts and are unaffected.`,
-            status,
-          )
-        : new IndexUnavailable(
-            'unkeyed',
-            host,
-            `${host} charges for the index for ${RHC.name} and this deployment holds no key, so it answered HTTP 402.`,
-            `BURSAR sets BLOCKSCOUT_API_KEY on the server that serves ${readerOrigin()}. It is read there and never reaches a browser. Balances and limits are read from the contracts and are unaffected.`,
-            status,
-          );
+      // The one failure with an owner who is not on this screen: the index is up and charges for the
+      // answer, and this console has nothing to pay with.
+      return note(
+        status === 401
+          ? new IndexUnavailable(
+              'unkeyed',
+              host,
+              'The history is unavailable on this console.',
+              unaffected,
+              status,
+              `${host} did not accept the index key and answered HTTP 401. Replace BLOCKSCOUT_API_KEY on the server that serves ${readerOrigin()}.`,
+            )
+          : new IndexUnavailable(
+              'unkeyed',
+              host,
+              'The history is not available on this console yet.',
+              unaffected,
+              status,
+              `${host} charges for the index for ${RHC.name} and answered HTTP 402. Set BLOCKSCOUT_API_KEY on the server that serves ${readerOrigin()}; it is read there and never reaches a browser.`,
+            ),
+      );
     case 'refused':
-      return new IndexUnavailable(
-        'refused',
-        host,
-        `${host} answered HTTP ${status ?? 'an error'} rather than the history.`,
-        `BURSAR reads that status on the server that serves ${readerOrigin()} and points BLOCKSCOUT_API_BASE at an index for ${RHC.name}, or the console runs without a timeline.`,
-        status,
+      return note(
+        new IndexUnavailable(
+          'refused',
+          host,
+          'The history could not be loaded.',
+          `Ask for it again later. ${unaffected}`,
+          status,
+          `${host} answered HTTP ${status ?? 'an error'} rather than the history. Check BLOCKSCOUT_API_BASE on the server that serves ${readerOrigin()}.`,
+        ),
       );
     case 'blocked':
-      return new IndexUnavailable(
-        'blocked',
-        host,
-        `${host} answered and this browser would not hand the response over: it carried no cross-origin permission for ${readerOrigin()}.`,
-        `Nothing is rate limiting this app and waiting changes nothing. The history is read through ${INDEX_ROUTE} on this app's own origin, so something in front of BURSAR is answering for it.`,
+      return note(
+        new IndexUnavailable(
+          'blocked',
+          host,
+          'This browser blocked the history.',
+          `Waiting will not change it: something on this browser or its network is refusing the response. ${unaffected}`,
+          status,
+          `${host} answered without cross-origin permission for ${readerOrigin()}. The history is read through ${INDEX_ROUTE} on this app's own origin, so something in front of it is answering.`,
+        ),
       );
     case 'unreachable':
-      return new IndexUnavailable(
-        'unreachable',
-        host,
-        `Nothing answered at ${host}.`,
-        'Check the network this browser is on. If it is fine, the server that serves this app is not answering for the history it holds the key to.',
+      return note(
+        new IndexUnavailable(
+          'unreachable',
+          host,
+          'The history did not answer.',
+          `Check this browser's network connection, then ask again. ${unaffected}`,
+          status,
+          `Nothing answered at ${host}.`,
+        ),
       );
     case 'timed-out':
-      return new IndexUnavailable(
-        'timed-out',
-        host,
-        `${host} did not finish answering within ${TIMEOUT_MS / 1_000}s.`,
-        'The contracts are read separately and are unaffected. Ask for the history again.',
+      return note(
+        new IndexUnavailable(
+          'timed-out',
+          host,
+          'The history is taking too long.',
+          `Ask for it again. ${unaffected}`,
+          status,
+          `${host} did not finish answering within ${TIMEOUT_MS / 1_000}s.`,
+        ),
       );
     case 'malformed':
-      return new IndexUnavailable(
-        'malformed',
-        host,
-        `${host} answered with something that is not the history this console reads.`,
-        `BURSAR checks that BLOCKSCOUT_API_BASE names the index for ${RHC.name} on the server that serves this app.`,
+      return note(
+        new IndexUnavailable(
+          'malformed',
+          host,
+          'The history came back in a form this console cannot read.',
+          unaffected,
+          status,
+          `${host} answered with something that is not the history. Check that BLOCKSCOUT_API_BASE names the index for ${RHC.name}.`,
+        ),
       );
   }
 }

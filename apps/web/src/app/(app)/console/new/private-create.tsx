@@ -57,7 +57,7 @@ export function PrivateCreate({ owner }: { readonly owner: Address }) {
   if (contracts === undefined) {
     return (
       <Section title="Private terms" description="Terms held behind a commitment, readable only with your viewing key.">
-        <EmptyState title="Private mandates are not available on this deployment yet.">
+        <EmptyState title="Private mandates are not available on this network yet.">
           The contracts that check each payment against committed terms are not recorded for this network. Turn private
           terms off to create a mandate with public limits.
         </EmptyState>

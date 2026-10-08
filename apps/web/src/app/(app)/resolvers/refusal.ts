@@ -58,7 +58,7 @@ function sentenceFor(revert: RevertInfo): string | undefined {
     case 'UnbondNotMatured':
       return 'The cooldown on this exit has not run out yet, and nobody can shorten it. The countdown on this card is the moment the bond can leave.';
     case 'StakingNotSet':
-      return 'This registry has no staking pool named, so it holds no bond currency and can take no bond. That pairing is set once by the deployer and cannot be set from here. Nothing on this page can be bonded until it is.';
+      return 'This registry has no staking pool named, so it holds no bond currency and can take no bond. That pairing is set once, when the registry is deployed, and cannot be set from here. Nothing on this page can be bonded until it is.';
     case 'AlreadyRegistered':
       return 'This address already holds a bond on the registry. Use "Add to the bond" to raise it. Registering again is refused so a second bond cannot overwrite the first.';
     case 'NotRegistered':

@@ -115,7 +115,7 @@ export function ShieldedView() {
     return (
       <div className="space-y-8">
         {header}
-        <EmptyState title="The shielded pool is not available on this deployment yet." />
+        <EmptyState title="The shielded pool is not available on this network yet." />
       </div>
     );
   }

@@ -70,9 +70,10 @@ describe('a gate table the index refused', () => {
   const refusal = new IndexUnavailable(
     'unkeyed',
     'api.blockscout.com',
-    'api.blockscout.com charges for the index for Robinhood Chain and this deployment holds no key, so it answered HTTP 402.',
-    'BURSAR sets BLOCKSCOUT_API_KEY on the server that serves this app.',
+    'The history is not available on this console yet.',
+    'Balances and limits come from the contracts and are unaffected.',
     402,
+    'api.blockscout.com charges for the index and answered HTTP 402. Set BLOCKSCOUT_API_KEY on the server that serves this app.',
   );
 
   const REFUSED = listState(readingOf(true, refusal), 0);
@@ -85,8 +86,7 @@ describe('a gate table the index refused', () => {
 
   it.each<GateSubject>(['payees', 'capabilities'])('names the refusal rather than a network fault, for %s', (subject) => {
     const shown = refused(subject);
-    expect(shown).toContain('HTTP 402');
-    expect(shown).toContain('holds no key');
+    expect(shown).toContain('The history is not available on this console yet.');
     expect(shown).not.toContain('did not come back');
   });
 
@@ -97,8 +97,9 @@ describe('a gate table the index refused', () => {
     expect(shown).not.toContain('has been allowed yet');
   });
 
-  it('points at whoever can clear it, which is not the reader', () => {
-    expect(refused('payees')).toContain('BLOCKSCOUT_API_KEY');
+  it('keeps the server setting off the reader\'s screen', () => {
+    expect(refused('payees')).not.toContain('BLOCKSCOUT_API_KEY');
+    expect(refused('payees')).not.toContain('HTTP 402');
   });
 
   it('is a fifth rendering, not a repeat of one of the four', () => {

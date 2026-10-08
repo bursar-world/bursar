@@ -63,7 +63,7 @@ export function PrivateOwnersView() {
     return (
       <div className="space-y-8">
         {header}
-        <EmptyState title="Private mandates are not available on this deployment yet." />
+        <EmptyState title="Private mandates are not available on this network yet." />
       </div>
     );
   }

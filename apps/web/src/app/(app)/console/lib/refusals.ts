@@ -450,8 +450,8 @@ export function refusalFor(reading: RevertReading | undefined, context: RefusalC
     return {
       errorName: undefined,
       state: null,
-      headline: 'Refused with an error this build does not name',
-      detail: `The contract reverted with ${reading.selector}. That selector is not in the contract set this console was built against, which usually means the deployment is ahead of the app.`,
+      headline: 'Refused with an error this console does not recognise',
+      detail: `The contract refused with an error this console cannot name (${reading.selector}). Nothing was spent beyond the transaction fee.`,
       owner: 'operator',
     };
   }

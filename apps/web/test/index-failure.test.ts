@@ -60,12 +60,12 @@ function nothingThere(): void {
   });
 }
 
-async function failureOf(): Promise<{ failure: IndexFailure; message: string }> {
+async function failureOf(): Promise<{ failure: IndexFailure; message: string; operatorNote: string }> {
   try {
     await indexedTransactions(MANDATE);
   } catch (error) {
-    const shaped = error as { failure: IndexFailure; message: string };
-    return { failure: shaped.failure, message: shaped.message };
+    const shaped = error as { failure: IndexFailure; message: string; operatorNote: string };
+    return { failure: shaped.failure, message: shaped.message, operatorNote: shaped.operatorNote };
   }
 
   throw new Error('the read was expected to fail');
@@ -109,28 +109,29 @@ describe('the browser reads the index through this app', () => {
 describe('an index that charges for the answer', () => {
   it('is its own failure, and not an outage', async () => {
     route(402, 'unkeyed');
-    const { failure, message } = await failureOf();
+    const { failure, message, operatorNote } = await failureOf();
 
     expect(failure).toBe('unkeyed');
-    expect(message).toContain('402');
-    expect(message).not.toContain('429');
-    expect(message).not.toContain('cross-origin');
-    expect(message).not.toContain('Nothing answered at');
+    expect(operatorNote).toContain('402');
+    expect(message).not.toContain('402');
+    expect(message).not.toContain('busy');
+    expect(message).not.toContain('did not answer');
   });
 
-  it('names the variable the operator sets, and says it stays off the browser', async () => {
+  it('names the variable to the operator, and keeps it off the reader\'s screen', async () => {
     route(402, 'unkeyed');
-    const { message } = await failureOf();
+    const { message, operatorNote } = await failureOf();
 
-    expect(message).toContain('BLOCKSCOUT_API_KEY');
-    expect(message).toContain('never reaches a browser');
+    expect(operatorNote).toContain('BLOCKSCOUT_API_KEY');
+    expect(operatorNote).toContain('never reaches a browser');
+    expect(message).not.toContain('BLOCKSCOUT');
   });
 
   it('tells the reader the money is still readable', async () => {
     route(402, 'unkeyed');
     const { message } = await failureOf();
 
-    expect(message).toContain('read from the contracts and are unaffected');
+    expect(message).toContain('come from the contracts and are unaffected');
   });
 
   it('separates a key that is missing from a key that was rejected', async () => {
@@ -142,8 +143,9 @@ describe('an index that charges for the answer', () => {
     const rejected = await failureOf();
 
     expect(rejected.failure).toBe('unkeyed');
-    expect(rejected.message).toContain('401');
-    expect(rejected.message).toContain('did not accept');
+    expect(rejected.operatorNote).toContain('401');
+    expect(rejected.operatorNote).toContain('did not accept');
+    expect(rejected.operatorNote).not.toBe(missing.operatorNote);
     expect(rejected.message).not.toBe(missing.message);
   });
 
@@ -153,40 +155,42 @@ describe('an index that charges for the answer', () => {
 
     const waiting = await failureOf();
     expect(waiting.failure).toBe('unkeyed');
-    expect(waiting.message).toContain('BLOCKSCOUT_API_KEY');
-    expect(waiting.message).toMatch(/Nothing is asked of it for another \d+s/);
+    expect(waiting.operatorNote).toContain('BLOCKSCOUT_API_KEY');
+    expect(waiting.message).toMatch(/asked again in \d+s/);
   });
 });
 
 describe('a response this browser blocked', () => {
   it('is not reported as the index refusing anything', async () => {
     corsBlocked();
-    const { failure, message } = await failureOf();
+    const { failure, message, operatorNote } = await failureOf();
 
     expect(failure).toBe('blocked');
-    expect(message).toContain('cross-origin permission');
+    expect(message).toContain('This browser blocked the history');
+    expect(operatorNote).toContain('cross-origin permission');
     expect(message).not.toContain('429');
     expect(message).not.toContain('402');
   });
 
   it('says the wait will not help, and where the history is read from', async () => {
     corsBlocked();
-    const { message } = await failureOf();
+    const { message, operatorNote } = await failureOf();
 
-    expect(message).toContain('waiting changes nothing');
-    expect(message).toContain(INDEX_ROUTE);
+    expect(message).toContain('Waiting will not change it');
+    expect(operatorNote).toContain(INDEX_ROUTE);
   });
 });
 
-describe('the index metering this deployment', () => {
+describe('the index rate limiting this console', () => {
   it('names the rate limit, and nothing else', async () => {
     route(429, 'rate-limited');
-    const { failure, message } = await failureOf();
+    const { failure, message, operatorNote } = await failureOf();
 
     expect(failure).toBe('rate-limited');
-    expect(message).toContain('429');
-    expect(message).toContain('api.blockscout.com');
-    expect(message).not.toContain('cross-origin');
+    expect(message).toContain('busy');
+    expect(operatorNote).toContain('429');
+    expect(operatorNote).toContain('api.blockscout.com');
+    expect(message).not.toContain('429');
     expect(message).not.toContain('BLOCKSCOUT_API_KEY');
   });
 
@@ -196,29 +200,30 @@ describe('the index metering this deployment', () => {
 
     const waiting = await failureOf();
     expect(waiting.failure).toBe('rate-limited');
-    expect(waiting.message).toMatch(/another (2[0-9]|30)s/);
+    expect(waiting.message).toMatch(/again in (2[0-9]|30)s/);
   });
 });
 
 describe('an index refusing for a reason of its own', () => {
   it('is its own failure, with the status it answered', async () => {
     route(403, 'refused');
-    const { failure, message } = await failureOf();
+    const { failure, message, operatorNote } = await failureOf();
 
     expect(failure).toBe('refused');
-    expect(message).toContain('403');
-    expect(message).not.toContain('BLOCKSCOUT_API_KEY.');
+    expect(operatorNote).toContain('403');
+    expect(message).not.toContain('403');
+    expect(message).not.toContain('BLOCKSCOUT');
   });
 });
 
 describe('nothing answering at all', () => {
   it('sends the reader to the network and the host, not to a rate meter', async () => {
     nothingThere();
-    const { failure, message } = await failureOf();
+    const { failure, message, operatorNote } = await failureOf();
 
     expect(failure).toBe('unreachable');
-    expect(message).toContain('Nothing answered at');
-    expect(message).toContain('Check the network this browser is on');
+    expect(operatorNote).toContain('Nothing answered at');
+    expect(message).toContain("Check this browser's network connection");
     expect(message).not.toContain('429');
     expect(message).not.toContain('cross-origin');
   });
@@ -242,5 +247,24 @@ describe('the six together', () => {
     }
 
     expect(new Set(said).size).toBe(6);
+  });
+});
+
+describe('what a reader is shown', () => {
+  it('never names a status code, a host or a server setting', async () => {
+    for (const arrange of [
+      corsBlocked,
+      nothingThere,
+      () => route(429, 'rate-limited'),
+      () => route(403, 'refused'),
+      () => route(402, 'unkeyed'),
+      () => route(401, 'unkeyed'),
+      () => route(504, 'timed-out'),
+    ]) {
+      resetIndexBackoff();
+      arrange();
+      const { message } = await failureOf();
+      expect(message).not.toMatch(/HTTP|\b4\d\d\b|blockscout|BLOCKSCOUT|deployment/i);
+    }
   });
 });

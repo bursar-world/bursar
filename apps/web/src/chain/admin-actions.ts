@@ -370,7 +370,7 @@ export const ADMIN_ACTIONS: readonly AdminAction[] = [
     functionName: 'setSlasher',
     label: 'Name or clear a second address that may rule against provider stake',
     consequence:
-      'No contract in this deployment can size a ruling, so nothing calls this today. Naming an address that can take stake before one exists gives away the power without the check on it. The zero address clears it.',
+      'No live contract can size a ruling yet, so nothing calls this today. Naming an address that can take stake before one exists gives away the power without the check on it. The zero address clears it.',
     shape: {
       kind: 'fields',
       fields: [{ name: 'newSlasher', label: 'Address', kind: 'address', help: 'The zero address clears the slot and leaves nobody able to call it.' }],

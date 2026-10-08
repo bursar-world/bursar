@@ -81,9 +81,9 @@ export type RegistrationForm = {
 };
 
 export function registrationGate(facts: RegistryFacts, form: RegistrationForm): Gate {
-  if (facts.barred === true) return { kind: 'blocked', reason: 'This address is barred from the registry. An operator clears that; nothing on this page can.' };
+  if (facts.barred === true) return { kind: 'blocked', reason: 'This address is barred from the registry. Governance clears that; nothing on this page can.' };
   if (facts.registered === true) return { kind: 'blocked', reason: 'This address is already listed. Add to the stake instead.' };
-  if (facts.paused === true) return { kind: 'blocked', reason: 'The registry is paused and is taking no new listings. It reopens when an operator unpauses it.' };
+  if (facts.paused === true) return { kind: 'blocked', reason: 'The registry is paused and is taking no new listings. It reopens when governance unpauses it.' };
 
   const unread = firstUnread([
     [facts.registered, 'whether this address is already listed'],
@@ -104,7 +104,7 @@ export function registrationGate(facts: RegistryFacts, form: RegistrationForm): 
 export function topUpGate(facts: RegistryFacts, amount: bigint | undefined): Gate {
   if (facts.registered === false) return { kind: 'blocked', reason: 'This address is not listed yet. Register first.' };
   if (facts.barred === true) return { kind: 'blocked', reason: 'This address is barred from the registry, so it takes no more stake.' };
-  if (facts.paused === true) return { kind: 'blocked', reason: 'The registry is paused and is taking no stake. It reopens when an operator unpauses it.' };
+  if (facts.paused === true) return { kind: 'blocked', reason: 'The registry is paused and is taking no stake. It reopens when governance unpauses it.' };
 
   const unread = firstUnread([
     [facts.registered, 'whether this address is listed'],
@@ -179,8 +179,8 @@ export function deactivateGate(facts: RegistryFacts): Gate {
 export function reactivateGate(facts: RegistryFacts): Gate {
   if (facts.registered === false) return { kind: 'blocked', reason: 'This address is not listed.' };
   if (facts.active === true) return { kind: 'blocked', reason: 'Already taking work.' };
-  if (facts.barred === true) return { kind: 'blocked', reason: 'This address is barred from the registry. An operator clears that; nothing on this page can.' };
-  if (facts.paused === true) return { kind: 'blocked', reason: 'The registry is paused, so it is admitting nobody. It reopens when an operator unpauses it.' };
+  if (facts.barred === true) return { kind: 'blocked', reason: 'This address is barred from the registry. Governance clears that; nothing on this page can.' };
+  if (facts.paused === true) return { kind: 'blocked', reason: 'The registry is paused, so it is admitting nobody. It reopens when governance unpauses it.' };
 
   const unread = firstUnread([
     [facts.registered, 'whether this address is listed'],
@@ -312,7 +312,7 @@ export function registryTermLines(terms: RegistryTerms | undefined): RegistryTer
       terms.paused === undefined
         ? undefined
         : terms.paused
-          ? 'The registry is paused and is taking no new listings. It reopens when an operator unpauses it.'
+          ? 'The registry is paused and is taking no new listings. It reopens when governance unpauses it.'
           : undefined,
   };
 }

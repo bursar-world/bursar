@@ -122,9 +122,9 @@ describe('registering', () => {
     expect(reason(registrationGate(facts(), form))).toContain('already listed');
   });
 
-  it('names the operator as the owner of a barred address, because nothing on the page clears it', () => {
+  it('names governance as the owner of a barred address, because nothing on the page clears it', () => {
     const gate = registrationGate(facts({ registered: false, barred: true }), form);
-    expect(reason(gate)).toContain('An operator clears that');
+    expect(reason(gate)).toContain('Governance clears that');
   });
 
   it('says the registry is closed rather than blaming the form', () => {

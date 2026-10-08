@@ -77,7 +77,7 @@ export function RegisterCard({
               maxLength={NAME_MAX_LENGTH}
               autoComplete="off"
               spellCheck={false}
-              placeholder="acme_transcribe"
+              placeholder="transcribe_eu"
               aria-invalid={nameProblem(name) !== undefined}
               onChange={(event) => setName(event.target.value)}
               className="h-11 w-full border bg-surface px-3.5 text-sm outline-none focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-[color:var(--color-ring)]"

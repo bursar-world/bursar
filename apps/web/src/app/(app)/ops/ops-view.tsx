@@ -342,7 +342,7 @@ function TreasurySection({
   const canAccept = successorOrConnectedMatches(pending, roles.address);
 
   return (
-    <Section title="The escrow treasury" description="Where every swept fee lands, and the one role in this deployment the timelock cannot reach.">
+    <Section title="The escrow treasury" description="Where every swept fee lands, and the one role the governance delay cannot reach.">
       <Card>
         <p className="max-w-3xl text-sm">{TREASURY_WARNING}</p>
 

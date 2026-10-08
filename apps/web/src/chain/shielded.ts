@@ -311,7 +311,7 @@ export async function withdrawThroughRelayer(args: {
   const { proveWithdrawal } = await import('@bursar/sdk/shielded-prove');
   const { contracts, quote } = args;
   if (getAddress(quote.relay) !== getAddress(contracts.ShieldedRelay)) {
-    throw new Error('The relayer named a different relay contract from this deployment. Nothing was sent.');
+    throw new Error('The relayer answered for a different relay contract than this console uses. Nothing was sent.');
   }
   // The page refuses this before the button is live; here it is the last check before a proof is made.
   const problem = args.gasDrop ? gasDropProblem({ amount: args.amount, quote, maxRelayFeeBps: contracts.maxRelayFeeBps }) : undefined;
