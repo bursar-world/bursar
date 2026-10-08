@@ -142,14 +142,19 @@ function ScanNote({ desk }: { readonly desk: ResolverDesk }) {
       ? 'No disputes on the current contracts.'
       : desk.scanned.truncated
         ? `Showing disputes ${desk.scanned.from.toString()} to ${desk.scanned.to.toString()}, the latest ${(desk.scanned.to - desk.scanned.from + 1n).toString()}.`
-        : `All ${desk.scanned.to.toString()} disputes shown.`;
-  const earlier = desk.earlier.map((entry) =>
-    !entry.disputesReadable
-      ? 'Disputes on earlier contracts could not be read.'
-      : `${entry.scanned.to.toString()} on earlier contracts.`,
-  );
+        : desk.scanned.to === 1n
+          ? 'The one dispute on the current contracts is shown.'
+          : `All ${desk.scanned.to.toString()} disputes on the current contracts are shown.`;
+  // One sentence for every earlier set together. Each set counts its own disputes from one, so the
+  // reader is told the total, not a list of counts that reads like a stutter.
+  const earlierTotal = desk.earlier.reduce((total, entry) => total + (entry.disputesReadable ? entry.scanned.to : 0n), 0n);
+  const earlier = desk.earlier.some((entry) => !entry.disputesReadable)
+    ? 'Disputes on earlier contracts could not be read.'
+    : earlierTotal === 0n
+      ? undefined
+      : `${earlierTotal.toString()} more on earlier contracts.`;
 
-  return <span className="text-note text-[color:var(--color-muted)]">{[current, ...earlier].join(' ')}</span>;
+  return <span className="text-note text-[color:var(--color-muted)]">{[current, earlier].filter(Boolean).join(' ')}</span>;
 }
 
 /**
