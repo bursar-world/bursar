@@ -18,6 +18,7 @@ import { TxButton } from '@/components/tx-button';
 import { bps, usd } from '@/money';
 import { formatRelative } from '@/lib/time';
 import { readUsdgAmount } from '../lib/amount';
+import { approvalModeOf } from '../lib/format';
 import {
   allowsRwa,
   feedPrice,
@@ -364,6 +365,14 @@ function BuyForm({
   }
   if (amount.value !== undefined && amount.value > account.remaining.perCall) {
     refusals.push(`This mandate allows up to ${usd(account.remaining.perCall)} per payment right now.`);
+  }
+  // A purchase carries no approval, so at or above the threshold the contract refuses it. Said here,
+  // the button stays off instead of the refusal arriving after the click.
+  const threshold = account.limits.approvalThreshold;
+  if (amount.value !== undefined && approvalModeOf(threshold, account.limits.perCallCap) !== 'never' && amount.value >= threshold) {
+    refusals.push(
+      `Purchases of ${usd(threshold)} or more wait for an approval, which a purchase cannot carry. Spend less, or raise the threshold in the limits.`,
+    );
   }
 
   const floor =

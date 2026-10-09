@@ -2,7 +2,7 @@ import { LockStatus } from '@bursar/sdk';
 
 import { shortAddress } from '@/chain';
 import { formatInstant, formatRelative, spellDuration } from '@/lib';
-import { usd, usdShare } from '@/money';
+import { usdShare } from '@/money';
 import type { StateLevel } from '@/state';
 
 import type { EscrowTerms, LockStage, ProviderLock } from './desk';
@@ -62,8 +62,8 @@ export function stageDetail(lock: ProviderLock, now: Date, voice: Voice = 'payee
   switch (lock.stage) {
     case 'awaiting-delivery':
       return mine
-        ? `You receive ${usd(lock.net)} when you release it. After ${formatInstant(lock.deadline)} (${formatRelative(lock.deadline, now)}) it can go back to the payer.`
-        : `${usd(lock.net)} is held for this address until the job is released. After ${formatInstant(lock.deadline)} (${formatRelative(lock.deadline, now)}) it can go back to the payer.`;
+        ? `You receive ${usdShare(lock.net)} when you release it. After ${formatInstant(lock.deadline)} (${formatRelative(lock.deadline, now)}) it can go back to the payer.`
+        : `${usdShare(lock.net)} is held for this address until the job is released. After ${formatInstant(lock.deadline)} (${formatRelative(lock.deadline, now)}) it can go back to the payer.`;
 
     case 'deadline-passed':
       if (lock.scored === false) {

@@ -23,6 +23,6 @@ export {
 } from './units';
 export type { AmountFormat, Brsr, ParsedAmount, Wei } from './units';
 
-export { MICRO_SCALE, bps, shareOf, toCents, usd, usdExact, usdHeld, usdShare, usdg } from './usd';
+export { MICRO_SCALE, bps, shareOf, toCents, usd, usdExact, usdFloor, usdHeld, usdShare, usdg } from './usd';
 export { roundedUnits, tokenAmountText, tokenInfo } from './tokens';
 export type { TokenInfo } from './tokens';

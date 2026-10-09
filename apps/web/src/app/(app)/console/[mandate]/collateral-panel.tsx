@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { COLLATERAL_LANE, collateralVaultAbi, creditPoolAbi, mandateAccountAbi, settlementAssetAbi } from '@bursar/core';
 import type { Micro } from '@bursar/core';
 import Link from 'next/link';
-import { erc20Abi } from 'viem';
+import { erc20Abi, formatUnits } from 'viem';
 import type { Abi, Address } from 'viem';
 
 import { collateralLane, creditWired, drawHaltLine, formatHealth, formatRatio, haltedPositions, liquidatable } from '@/chain/collateral';
@@ -241,6 +241,16 @@ function OwnerForms({ state, onChange }: { readonly state: CollateralAccount; re
             {...(amountText.trim() === '' || parsed.ok ? {} : { problem: parsed.problem })}
             help={target?.walletHeld === undefined ? 'Connect the owner wallet to see its balance.' : `Your wallet holds ${tokenAmount(target.walletHeld)} ${symbol}.`}
           />
+          {target?.walletHeld !== undefined && target.walletHeld > 0n && (
+            // Typing the balance by hand leaves a remainder too small to read in the wallet.
+            <button
+              type="button"
+              onClick={() => setAmountText(formatUnits(target.walletHeld as bigint, 18))}
+              className="whitespace-nowrap bg-[color:var(--color-raised)] px-2 py-1 font-mono text-label uppercase tracking-wide text-[color:var(--color-ink)] transition-colors hover:bg-[color:var(--color-accent)]"
+            >
+              All of it
+            </button>
+          )}
           {needsApproval ? (
             <TxButton
               key="approve"

@@ -39,6 +39,12 @@ export function usdShare(value: Micro): string {
 
 const DOLLAR = 1_000_000n;
 
+/** A floor in a sentence ("at least …"): cents rounded down, so the promise stays true. */
+export function usdFloor(value: Micro): string {
+  const floored = value < 0n ? value : (value / CENT) * CENT;
+  return formatMicro(floored as Micro, { minDecimals: 2, maxDecimals: 2, grouped: true, symbol: true });
+}
+
 /** Cents, unless rounding would show a balance that holds something as $0.00. */
 export function usdHeld(value: Micro): string {
   return value > 0n && toCents(value) === 0n ? usdExact(value) : usd(value);

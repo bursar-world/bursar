@@ -14,7 +14,7 @@ import { Card, Field, FieldGrid, Section } from '@/components/layout';
 import { Stat, StatGrid } from '@/components/stat';
 import { Table } from '@/components/table';
 import { TxButton } from '@/components/tx-button';
-import { bps, usd, usdExact } from '@/money';
+import { bps, usd, usdExact, usdFloor } from '@/money';
 import { formatRelative } from '@/lib/time';
 import { readUsdgAmount } from '../lib/amount';
 import { drawsInsidePayment, feedPrice, hours, holdingValue, refuseEarly, tokenAmount, useRwa } from '../lib/rwa';
@@ -302,7 +302,7 @@ function OwnerForms({ rwa, onChange }: { readonly rwa: RwaState; readonly onChan
                 hint={
                   unparkRaw === undefined
                     ? 'Valued at the feed price.'
-                    : `Sells ${tokenAmount(unparkRaw, source ? decimalsOf(source) : USDG_DECIMALS)} ${unparkSymbol} for at least ${usdExact(minUsdg as Micro)}.`
+                    : `Sells ${tokenAmount(unparkRaw, source ? decimalsOf(source) : USDG_DECIMALS)} ${unparkSymbol} for at least ${usdFloor(minUsdg as Micro)}.`
                 }
               />
               <TxButton
