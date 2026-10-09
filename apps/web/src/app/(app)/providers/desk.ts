@@ -16,6 +16,7 @@ import {
   oracleRegistryAbi,
   reputationAbi,
   runBatch,
+  sameAddress,
   settlementAssetAbi,
   settlementComplianceAbi,
   splitSettlement,
@@ -124,6 +125,11 @@ export type ProviderLock = {
   readonly bond: Micro;
   readonly status: LockStatus;
   readonly counted: boolean;
+  /**
+   * Whether the record counts this job: the reputation contract skips one under its floor and one
+   * the payee paid itself. Undefined where the floor is unread, which reads as counted.
+   */
+  readonly scored?: boolean;
   /** The moment `finalizeRelease` starts to work. Null unless this lock is a release waiting on it. */
   readonly recordableAt: Date | null;
   readonly stage: LockStage;
@@ -505,7 +511,12 @@ export async function readProviderDesk(payee: Address, signal?: AbortSignal): Pr
   );
   for (const entry of read) requests += entry.requests;
 
-  const locks = read.flatMap((entry) => entry.locks);
+  const stats = headResults.get(slots.stats);
+  const weights = headResults.get(slots.weights);
+  const floor = weighed ? weights?.minScored : undefined;
+  const locks = read
+    .flatMap((entry) => entry.locks)
+    .map((lock) => ({ ...lock, scored: !sameAddress(lock.payer, payee) && (floor === undefined || lock.amount >= floor) }));
   const scanned = read[0]?.scanned ?? scanRange(undefined);
 
   const working = locks.filter((lock) => lock.status === LockStatus.Locked);
@@ -514,14 +525,12 @@ export async function readProviderDesk(payee: Address, signal?: AbortSignal): Pr
     (lock) => lock.status !== LockStatus.Locked && lock.status !== LockStatus.Disputed,
   );
   // Recording is a call to the escrow that holds the lock, and to the reputation contract behind
-  // it. Only the current set's locks feed the record on this page.
+  // it. Only the current set's locks feed the record on this page, and only those the contract
+  // scores, so the desk never offers to record a job that would leave the record where it is.
   const unrecorded = locks.filter(
-    (lock) => lock.deployment.current && lock.status === LockStatus.Released && !lock.counted,
+    (lock) => lock.deployment.current && lock.status === LockStatus.Released && !lock.counted && lock.scored,
   );
   const recordable = unrecorded.filter((lock) => lock.stage === 'paid-unrecorded');
-
-  const stats = headResults.get(slots.stats);
-  const weights = headResults.get(slots.weights);
   const record: ProviderRecord = {
     released: stats?.[0],
     timedOut: stats?.[1],

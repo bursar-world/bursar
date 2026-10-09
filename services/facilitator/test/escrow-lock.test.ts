@@ -118,6 +118,25 @@ describe('escrow lock scheme', () => {
     await expect(scheme(c).verify(payload(), requirements, bound)).resolves.toMatchObject({ isValid: false, invalidReason: reason });
   });
 
+  it('reads a lock its endpoint does not see yet again before refusing it', async () => {
+    let reads = 0;
+    const lagging = chain({}, {
+      lock: async () => {
+        reads += 1;
+        return { ...(await chain().lock(ESCROW, 7n)), status: reads < 3 ? 0 : 1 };
+      },
+    });
+    const lagged = createEscrowLockScheme({ chainId: 4663, chain: lagging, deployments: [{ escrow: ESCROW, factory: FACTORY, asset: USDG }], unseenRetryMs: 1 });
+    await expect(lagged.verify(payload(), requirements, bound)).resolves.toMatchObject({ isValid: true });
+    expect(reads).toBe(3);
+  });
+
+  it('refuses a lock that never appears, after a bounded wait', async () => {
+    const never = chain({ status: 0 });
+    const waited = createEscrowLockScheme({ chainId: 4663, chain: never, deployments: [{ escrow: ESCROW, factory: FACTORY, asset: USDG }], unseenRetryMs: 1 });
+    await expect(waited.verify(payload(), requirements, bound)).resolves.toMatchObject({ isValid: false, invalidReason: ESCROW_REASON.notLocked });
+  });
+
   it('refuses an escrow this deployment does not know', async () => {
     const result = await scheme().verify(payload({ escrow: PAYEE }), requirements, bound);
     expect(result).toMatchObject({ isValid: false, invalidReason: ESCROW_REASON.escrow });

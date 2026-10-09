@@ -53,6 +53,8 @@ export function stageLevel(stage: LockStage): StateLevel {
   return STAGE_LEVEL[stage];
 }
 
+const UNSCORED = 'A job this small does not count toward the record.';
+
 /** What this lock means for the payee, and what happens next if nobody touches it. */
 export function stageDetail(lock: ProviderLock, now: Date, voice: Voice = 'payee'): string {
   const mine = voice === 'payee';
@@ -64,17 +66,22 @@ export function stageDetail(lock: ProviderLock, now: Date, voice: Voice = 'payee
         : `${usd(lock.net)} is held for this address until the job is released. After ${formatInstant(lock.deadline)} (${formatRelative(lock.deadline, now)}) it can go back to the payer.`;
 
     case 'deadline-passed':
+      if (lock.scored === false) {
+        return `The deadline passed ${formatRelative(lock.deadline, now)}. Anyone can now return the money to the payer. ${UNSCORED}`;
+      }
       return mine
         ? `The deadline passed ${formatRelative(lock.deadline, now)}. Anyone can now return the money to the payer, and the job will count against your record.`
         : `The deadline passed ${formatRelative(lock.deadline, now)}. Anyone can now return the money to the payer, and the job will count against this address's record.`;
 
     case 'paid-open-to-dispute':
       if (lock.recordableAt === null) return 'Paid. The payer can still contest it.';
+      if (lock.scored === false) return `Paid. The payer can contest it until ${formatInstant(lock.recordableAt)}.`;
       return mine
         ? `Paid. The payer can contest it until ${formatInstant(lock.recordableAt)}, then it can be recorded.`
         : `Paid. The payer can contest it until ${formatInstant(lock.recordableAt)}, then it can be recorded.`;
 
     case 'paid-unrecorded':
+      if (lock.scored === false) return `Paid ${formatRelative(lock.releasedAt ?? lock.deadline, now)} and not contested. ${UNSCORED}`;
       return mine
         ? `Paid ${formatRelative(lock.releasedAt ?? lock.deadline, now)} and not contested. Record it to count it toward your job ceiling.`
         : `Paid ${formatRelative(lock.releasedAt ?? lock.deadline, now)} and not contested. It counts toward this address's ceiling once it is recorded.`;
@@ -99,6 +106,7 @@ export function stageDetail(lock: ProviderLock, now: Date, voice: Voice = 'payee
         : 'Settled through a dispute. The result could not be read right now.';
 
     case 'returned-to-payer':
+      if (lock.scored === false) return `The deadline passed on ${formatInstant(lock.deadline)} and the money went back to the payer. ${UNSCORED}`;
       return mine
         ? `The deadline passed on ${formatInstant(lock.deadline)} and the money went back to the payer. It counts against your record.`
         : `The deadline passed on ${formatInstant(lock.deadline)} and the money went back to the payer. It counts against this address's record.`;
