@@ -439,6 +439,9 @@ export function AvailabilityCard({ desk, blockedBy, onDone }: PanelProps) {
   const stop = deactivateGate(facts);
   const start = reactivateGate(facts);
   const active = desk.standing.active;
+  const { taking, stake, minStake } = desk.standing;
+  // Switched on, and still not payable: the floor rose above the stake, or governance barred the address.
+  const underFloor = active === false && taking === true && stake !== undefined && minStake !== undefined && stake < minStake;
 
   return (
     <Card title="Taking work" description="Whether payers can open new jobs with you.">
@@ -448,11 +451,13 @@ export function AvailabilityCard({ desk, blockedBy, onDone }: PanelProps) {
             ? 'Could not read whether you are taking work. Read the desk again.'
             : active
               ? 'Payers can open jobs with you. Stopping refuses new jobs right away, and open jobs still need delivering.'
-              : 'You are not taking new jobs. Your stake stays posted, and a ruling can still take from it.'}
+              : underFloor
+                ? `Payers cannot open jobs with you: your stake of ${usd(stake)} is under the ${usd(minStake)} minimum. Add to the stake to take work again.`
+                : 'You are not taking new jobs. Your stake stays posted, and a ruling can still take from it.'}
         </p>
 
         <div className="flex flex-wrap items-start gap-3">
-          {active === false ? (
+          {underFloor ? null : active === false ? (
             <TxButton
               key="reactivate"
               label="Take work again"
@@ -489,7 +494,7 @@ export function AvailabilityCard({ desk, blockedBy, onDone }: PanelProps) {
           )}
         </div>
 
-        <GateNote gate={active === false ? start : stop} />
+        {!underFloor && <GateNote gate={active === false ? start : stop} />}
       </div>
     </Card>
   );

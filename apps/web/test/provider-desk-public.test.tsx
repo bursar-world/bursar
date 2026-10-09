@@ -103,6 +103,7 @@ function desk(over: Partial<ProviderDesk> = {}): ProviderDesk {
       name: 'acme_transcribe',
       registered: true,
       active: true,
+      taking: true,
       barred: false,
       stake: micro(10_000_000n),
       minStake: micro(5_000_000n),
