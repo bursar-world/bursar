@@ -1,7 +1,7 @@
 import { micro } from '@bursar/core';
 import { describe, expect, it } from 'vitest';
 
-import { roundedUnits, tokenAmountText, usd } from '@/money';
+import { roundedUnits, tokenAmountText, usd, usdShare } from '@/money';
 
 const SPY = '0x117cc2133c37B721F49dE2A7a74833232B3B4C0C';
 const USDG = '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168';
@@ -20,6 +20,14 @@ describe('usd', () => {
     const whole = 2_000_000n;
     const spent = 295_450n;
     expect([usd(micro(spent)), usd(micro(whole - spent))]).toEqual(['$0.30', '$1.70']);
+  });
+});
+
+describe('usdShare', () => {
+  it('reads a payout of a dollar or more in cents, and every digit of a smaller one', () => {
+    expect(usdShare(micro(4_975_000n))).toBe('$4.98');
+    expect(usdShare(micro(4_925_250n))).toBe('$4.93');
+    expect(usdShare(micro(99_500n))).toBe('$0.0995');
   });
 });
 

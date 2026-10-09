@@ -13,7 +13,7 @@ import { Countdown, Instant } from '@/components/instant';
 import { Card, Field, FieldGrid } from '@/components/layout';
 import { TxButton } from '@/components/tx-button';
 import { formatRelative } from '@/lib';
-import { bps, usd, usdExact } from '@/money';
+import { bps, usd, usdExact, usdShare } from '@/money';
 import type { AnyState } from '@/state';
 
 import { CommitForm } from './commit-form';
@@ -299,9 +299,9 @@ function Outcome({ dispute, resolverFeeBps }: { readonly dispute: DisputeRow; re
 function refundSentence(amount: Micro, refundBps: number, resolverFeeBps: number): string {
   const split = splitSettlement(amount, refundBps, resolverFeeBps, 0);
   const fee = `after a ${bps(resolverFeeBps)} resolver fee of ${usdExact(split.resolverFee)}`;
-  if (refundBps >= 10_000) return `The payer was refunded ${usdExact(split.refunded)} of the ${usd(amount)} held, ${fee}, and the payee was paid nothing.`;
-  if (refundBps === 0) return `Nothing went back to the payer. The payee was awarded ${usdExact(split.paid)} of the ${usd(amount)} held, ${fee}.`;
-  return `The payer was refunded ${usdExact(split.refunded)} and the payee was awarded ${usdExact(split.paid)} of the ${usd(amount)} held, ${fee}.`;
+  if (refundBps >= 10_000) return `The payer was refunded ${usdShare(split.refunded)} of the ${usd(amount)} held, ${fee}, and the payee was paid nothing.`;
+  if (refundBps === 0) return `Nothing went back to the payer. The payee was awarded ${usdShare(split.paid)} of the ${usd(amount)} held, ${fee}.`;
+  return `The payer was refunded ${usdShare(split.refunded)} and the payee was awarded ${usdShare(split.paid)} of the ${usd(amount)} held, ${fee}.`;
 }
 
 /**

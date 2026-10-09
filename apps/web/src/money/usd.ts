@@ -28,6 +28,17 @@ export function usdExact(value: Micro): string {
   return formatMicro(value, { minDecimals: 2, maxDecimals: 6, grouped: true, symbol: true });
 }
 
+/**
+ * A payout or refund in a sentence: cents from a dollar up, where the last digits are noise, and every
+ * digit below one, where rounding would make a fee taken from $0.0995 vanish into "$0.10 of the $0.10".
+ */
+export function usdShare(value: Micro): string {
+  const magnitude = value < 0n ? -value : value;
+  return magnitude >= DOLLAR ? usd(value) : usdExact(value);
+}
+
+const DOLLAR = 1_000_000n;
+
 /** Cents, unless rounding would show a balance that holds something as $0.00. */
 export function usdHeld(value: Micro): string {
   return value > 0n && toCents(value) === 0n ? usdExact(value) : usd(value);

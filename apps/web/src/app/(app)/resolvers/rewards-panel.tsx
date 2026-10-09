@@ -6,7 +6,7 @@ import { oracleRegistryAbi } from '@/chain';
 import { Address as AddressLine } from '@/components/address';
 import { Card, Field, FieldGrid } from '@/components/layout';
 import { TxButton } from '@/components/tx-button';
-import { bps, usdExact } from '@/money';
+import { bps, usdExact, usdHeld } from '@/money';
 import type { AnyState } from '@/state';
 
 import type { ResolverDesk } from './desk';
@@ -56,7 +56,7 @@ export function RewardsPanel({
         <FieldGrid columns={account === undefined ? 2 : 3}>
           {account !== undefined && (
             <Field label="Yours to claim" hint="Earned on settled disputes, paid in USDG.">
-              <span className="tabular">{claimable === undefined ? unread : usdExact(claimable)}</span>
+              <span className="tabular">{claimable === undefined ? unread : usdHeld(claimable)}</span>
             </Field>
           )}
           <Field label="The resolver fee" hint="Taken from each settlement the panel rules on.">

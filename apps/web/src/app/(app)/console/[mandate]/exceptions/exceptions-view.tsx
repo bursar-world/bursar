@@ -18,7 +18,7 @@ import { Countdown, Instant } from '@/components/instant';
 import { ErrorSurface } from '@/components/error-surface';
 import { Table } from '@/components/table';
 import { TxButton } from '@/components/tx-button';
-import { usd, usdExact } from '@/money';
+import { usd, usdExact, usdShare } from '@/money';
 import type { AnyState, StateKey } from '@/state';
 import { useCapabilityLabels } from '../../lib/capability-labels';
 import { OVERDUE_DETAIL, OVERDUE_WORD, contestable, lockDetail, lockWord, returnable } from '../../lib/format';
@@ -483,9 +483,9 @@ function Attempted({ refusal, labelFor }: { readonly refusal: Refusal; readonly 
 /** Where a ruling sent the money, from the escrow's own record of it. */
 function rulingDetail(resolved: { readonly refunded: Micro; readonly paid: Micro } | undefined): string | undefined {
   if (resolved === undefined) return undefined;
-  if (resolved.paid === 0n) return `The resolvers returned ${usdExact(resolved.refunded)} to this mandate and the provider was paid nothing.`;
-  if (resolved.refunded === 0n) return `The resolvers ruled for the provider, who was paid ${usdExact(resolved.paid)}. Nothing came back to this mandate.`;
-  return `The resolvers returned ${usdExact(resolved.refunded)} to this mandate and paid the provider ${usdExact(resolved.paid)}.`;
+  if (resolved.paid === 0n) return `The resolvers returned ${usdShare(resolved.refunded)} to this mandate and the provider was paid nothing.`;
+  if (resolved.refunded === 0n) return `The resolvers ruled for the provider, who was paid ${usdShare(resolved.paid)}. Nothing came back to this mandate.`;
+  return `The resolvers returned ${usdShare(resolved.refunded)} to this mandate and paid the provider ${usdShare(resolved.paid)}.`;
 }
 
 /** Who has to act next on a payment that did not end in a delivery. */

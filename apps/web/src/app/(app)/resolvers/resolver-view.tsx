@@ -10,7 +10,7 @@ import { Card, Section, Skeleton } from '@/components/layout';
 import { Stat, StatGrid } from '@/components/stat';
 import { Unread } from '@/components/status';
 import { spellDuration } from '@/lib';
-import { bps, formatBrsr, usdExact } from '@/money';
+import { bps, formatBrsr, usdHeld } from '@/money';
 import { useSystemState } from '@/state';
 import { ConnectModal } from '@/wallet';
 
@@ -204,7 +204,7 @@ function Headline({ desk, account }: { readonly desk: ResolverDesk | undefined; 
         {account ? (
           <Stat
             label="Yours to claim"
-            value={standing?.rewards === undefined ? unread : usdExact(standing.rewards)}
+            value={standing?.rewards === undefined ? unread : usdHeld(standing.rewards)}
             hint="Resolver fees earned on settled disputes, in USDG"
           />
         ) : (

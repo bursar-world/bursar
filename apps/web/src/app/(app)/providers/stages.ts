@@ -2,7 +2,7 @@ import { LockStatus } from '@bursar/sdk';
 
 import { shortAddress } from '@/chain';
 import { formatInstant, formatRelative, spellDuration } from '@/lib';
-import { usd, usdExact } from '@/money';
+import { usd, usdShare } from '@/money';
 import type { StateLevel } from '@/state';
 
 import type { EscrowTerms, LockStage, ProviderLock } from './desk';
@@ -137,7 +137,7 @@ function ruledDetail(lock: ProviderLock, mine: boolean): string {
       : `Resolvers ruled on this job with a median score of ${dispute.medianScore}, returning ${refund} of it to the payer.`;
 
   if (lock.payout.kind === 'paid') {
-    return `${opening} ${usdExact(lock.payout.amount)} reached ${you} after the settlement fee.`;
+    return `${opening} ${usdShare(lock.payout.amount)} reached ${you} after the settlement fee.`;
   }
   if (lock.payout.kind === 'none') {
     return `${opening} Nothing reached ${you}.`;
