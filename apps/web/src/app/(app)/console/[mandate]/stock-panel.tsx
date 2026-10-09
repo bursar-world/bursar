@@ -152,6 +152,7 @@ function StockBody({ rwa, onChange }: { readonly rwa: RwaState; readonly onChang
           />
 
           {isOwner && <PolicyForm rwa={rwa} stocks={stocks} onChange={onChange} />}
+          {isOwner && <TakeOutForm stocks={holdings} onChange={onChange} />}
 
           {isAgent ? (
             <BuyForm rwa={rwa} stocks={stocks} classOn={classOn} onChange={onChange} />
@@ -262,6 +263,67 @@ function PolicyForm({ rwa, stocks, onChange }: { readonly rwa: RwaState; readonl
           })
         }
         onConfirmed={onChange}
+      />
+    </div>
+  );
+}
+
+/** The owner's way to the stocks the agent bought: the whole holding, to the connected wallet. */
+function TakeOutForm({ stocks, onChange }: { readonly stocks: readonly RwaAsset[]; readonly onChange: () => void }) {
+  const { address, connected, system, writeContext, refresh } = useMandateScope();
+  const { writeContractAsync } = useWriteContract();
+  const [pick, setPick] = useState('');
+  const asset = stocks.find((entry) => entry.symbol === pick) ?? stocks[0];
+  if (asset === undefined) return null;
+  const held = asset.held ?? 0n;
+
+  return (
+    <div className="space-y-4 border border-[color:var(--color-line)] p-4">
+      <div>
+        <h3 className="text-sm font-semibold">Take stocks out</h3>
+        <p className="mt-0.5 text-detail text-[color:var(--color-muted)]">
+          Sends a holding to your wallet, where you can keep it, sell it or post it as collateral.
+        </p>
+      </div>
+      <FieldGrid columns={2}>
+        <Field label="Holding">
+          <select
+            aria-label="Holding to take out"
+            value={asset.symbol}
+            onChange={(event) => setPick(event.target.value)}
+            className="h-11 w-full border border-[color:var(--color-line)] bg-surface px-3 text-sm"
+          >
+            {stocks.map((entry) => (
+              <option key={entry.address} value={entry.symbol}>
+                {entry.symbol}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Amount" hint="All of it.">
+          <span className="tabular">
+            {tokenAmount(held, asset.config?.decimals)} {asset.symbol}
+          </span>
+        </Field>
+      </FieldGrid>
+      <TxButton
+        label={`Send the ${asset.symbol} to your wallet`}
+        tone="secondary"
+        disabled={connected === undefined || held === 0n}
+        blockedBy={transferGates(system)}
+        context={writeContext}
+        send={() =>
+          writeContractAsync({
+            address,
+            abi: mandateAccountAbi as Abi,
+            functionName: 'withdraw',
+            args: [asset.address, connected as `0x${string}`, held],
+          })
+        }
+        onConfirmed={() => {
+          onChange();
+          refresh();
+        }}
       />
     </div>
   );
