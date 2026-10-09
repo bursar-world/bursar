@@ -120,10 +120,15 @@ export type EscrowLockSchemeOptions = {
   readonly deployments?: readonly EscrowDeployment[];
   /** Seconds the merchant needs after verify to serve and release. Defaults to 60. */
   readonly minRemainingSeconds?: number;
+  /** Milliseconds between reads of a lock this endpoint does not see yet. Defaults to 1500. */
+  readonly unseenRetryMs?: number;
 };
 
-/** Lock status `Locked` in `IEscrow.LockStatus`. */
+/** Lock status `Locked` in `IEscrow.LockStatus`; `None` is an id no lock has been opened under. */
 const LOCKED = 1;
+const NONE = 0;
+/** Reads of an unseen lock before it is refused: about six seconds at the default spacing. */
+const UNSEEN_READS = 4;
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const HASH = /^0x[0-9a-fA-F]{64}$/;
@@ -179,6 +184,18 @@ export function createEscrowLockScheme(options: EscrowLockSchemeOptions): Paymen
   const refuse = (invalidReason: string, payer?: Address): VerifyResult =>
     payer === undefined ? { isValid: false, invalidReason } : { isValid: false, invalidReason, payer };
 
+  // The payer sends its payment the moment its own endpoint shows the lock, and this endpoint can
+  // be a block or two behind, where the id reads as no lock at all. Only that case is asked again; a
+  // lock in any other state is answered at once.
+  async function readOpened(escrow: Address, id: bigint): Promise<EscrowLock> {
+    let lock = await options.chain.lock(escrow, id);
+    for (let read = 1; lock.status === NONE && read < UNSEEN_READS; read += 1) {
+      await new Promise((resolve) => setTimeout(resolve, options.unseenRetryMs ?? 1500));
+      lock = await options.chain.lock(escrow, id);
+    }
+    return lock;
+  }
+
   async function verify(
     payload: PaymentPayload,
     requirements: PaymentRequirements,
@@ -201,7 +218,7 @@ export function createEscrowLockScheme(options: EscrowLockSchemeOptions): Paymen
 
     let lock: EscrowLock;
     try {
-      lock = await options.chain.lock(reference.escrow, reference.id);
+      lock = await readOpened(reference.escrow, reference.id);
       if (lock.status !== LOCKED) return refuse(ESCROW_REASON.notLocked, payer);
       if (!same(lock.payer, reference.mandate)) return refuse(ESCROW_REASON.payer, payer);
       if (!same(lock.payee, payTo)) return refuse(ESCROW_REASON.payee, payer);
