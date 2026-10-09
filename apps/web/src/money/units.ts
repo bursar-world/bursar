@@ -62,6 +62,18 @@ export function formatEth(value: Wei, options: AmountFormat = {}): string {
   return suffix ? `${body} ETH` : body;
 }
 
+/**
+ * An ETH estimate to two significant figures, for a fee that is a measurement rather than a
+ * balance: 0.00003986 reads "about 0.00004 ETH". The digits past the second are noise in the gas
+ * price, and printing them claims a precision the next block will not keep.
+ */
+export function formatEthApprox(value: Wei): string {
+  if (value <= 0n) return formatEth(value);
+  const unit = 10n ** BigInt(Math.max(0, value.toString().length - 2));
+  const rounded = ((value + unit / 2n) / unit) * unit;
+  return `about ${render(rounded, ETH_DECIMALS, 0, ETH_DECIMALS, true)} ETH`;
+}
+
 export function addBrsr(...values: readonly Brsr[]): Brsr {
   let total = 0n;
   for (const value of values) total += value;

@@ -20,7 +20,7 @@ import { Blockers } from '@/components/status';
 import { TxButton } from '@/components/tx-button';
 import type { TxContext, TxPhase } from '@/components/tx-button';
 import { ConnectButton } from '@/wallet/connect-button';
-import { formatEth } from '@/money';
+import { formatEth, formatEthApprox } from '@/money';
 import { DEPLOY_FEE, useSystemState } from '@/state';
 import type { AnyState } from '@/state';
 import { AddressInput, readAddress } from '@/components/address-input';
@@ -413,7 +413,7 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
                 {afterCreation(payees.length, capabilities.length, followUps)}
               </Field>
               <Field label="Creating it costs" hint="The network fee, paid from your wallet.">
-                <span className="tabular">{formatEth(DEPLOY_FEE)}</span>
+                <span className="tabular">{formatEthApprox(DEPLOY_FEE)}</span>
               </Field>
             </FieldGrid>
 
@@ -435,7 +435,7 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
 
             {shortOfFee && (
               <p className="text-detail" style={{ color: 'var(--color-state-blocked)' }}>
-                Your wallet holds {formatEth(feeBalance)}, and creating the mandate costs about {formatEth(DEPLOY_FEE)} in
+                Your wallet holds {formatEth(feeBalance)}, and creating the mandate costs {formatEthApprox(DEPLOY_FEE)} in
                 network fees. Add ETH to this wallet first.
               </p>
             )}

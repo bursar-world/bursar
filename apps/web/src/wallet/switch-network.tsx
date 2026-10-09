@@ -36,7 +36,7 @@ export function SwitchNetworkButton({
   const [refused, setRefused] = useState<string | undefined>(undefined);
 
   return (
-    <div className="space-y-2">
+    <div className="flex flex-col items-start gap-2">
       <Button
         tone={tone}
         size={size}

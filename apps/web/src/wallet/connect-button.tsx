@@ -45,12 +45,12 @@ export function ConnectButton() {
   return (
     <>
       <Button tone="secondary" size="sm" onClick={() => setOpen(true)}>
-        <span className="tabular">{shortAddress(address)}</span>
+        <span className="tabular normal-case">{shortAddress(address)}</span>
       </Button>
       <Modal open={open} onClose={() => setOpen(false)} title="Connected account" description={connector?.name}>
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-2 rounded-md border border-[color:var(--color-line)] px-3 py-2">
-            <span className="tabular text-detail break-all">{address}</span>
+            <span className="tabular text-note break-all">{address}</span>
             <CopyControl value={address} />
           </div>
           {explorerLink !== undefined && (

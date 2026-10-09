@@ -8,8 +8,8 @@ import type { Address } from 'viem';
 /**
  * An address field that answers before a wallet opens.
  *
- * Whatever case it is typed or pasted in, the checksum form is echoed underneath, because the
- * checksum is the only part of an address a person can check by eye. A value that is not an
+ * Typed or pasted in any other case, the checksum form is echoed underneath, because the checksum
+ * is the only part of an address a person can check by eye. A value that is not an
  * address is rejected here, long before a transaction is up in a wallet waiting to be signed.
  */
 export type AddressReading = { readonly value: Address | undefined; readonly problem: string | undefined };

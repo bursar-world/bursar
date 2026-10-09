@@ -15,7 +15,7 @@ import { Button } from '@/components/button';
 import { Card, EmptyState, Section, Skeleton } from '@/components/layout';
 import { ErrorSurface } from '@/components/error-surface';
 import { Stat, StatGrid } from '@/components/stat';
-import { StatusList } from '@/components/status';
+import { NETWORK_CONDITIONS, StatusList } from '@/components/status';
 import { Table } from '@/components/table';
 import { ConnectButton } from '@/wallet/connect-button';
 import { usd } from '@/money';
@@ -85,11 +85,14 @@ export function ConsoleView() {
           </Card>
         </Section>
 
-        <Section title="Current conditions" description="What stands between an agent and a settled payment, checked live.">
+        <Section
+          title="Current conditions"
+          description="The network and USDG, checked live. A mandate's own conditions are on its page."
+        >
           <Card>
             <div className="space-y-3">
               <ErrorSurface error={system.error} action="Reading the current conditions" onRetry={system.refresh} />
-              <StatusList system={system} />
+              <StatusList system={system} only={NETWORK_CONDITIONS} />
             </div>
           </Card>
         </Section>
@@ -168,7 +171,7 @@ export function ConsoleView() {
             </div>
           ) : (
             <Table
-              rows={list.mandates}
+              rows={byStanding(list.mandates)}
               rowKey={(row) => row.address}
               caption="Mandates owned by the connected wallet"
               onRowClick={(row) => router.push(`/console/${row.address}`)}
@@ -200,7 +203,7 @@ export function ConsoleView() {
                   secondary: true,
                   cell: (row) =>
                     isZeroAddress(row.agent) ? (
-                      <span className="text-detail text-[color:var(--color-muted)]">None seated</span>
+                      <span className="text-detail text-[color:var(--color-muted)]">No agent</span>
                     ) : (
                       <AddressView value={row.agent} />
                     ),
@@ -225,12 +228,12 @@ export function ConsoleView() {
                   header: 'Left in total',
                   align: 'right',
                   secondary: true,
-                  cell: (row) => (
-                    <span className="tabular">
-                      {usd(row.monthlyRemaining)}
-                      {!row.totalBudget && <span className="text-[color:var(--color-muted)]"> · rolling</span>}
-                    </span>
-                  ),
+                  cell: (row) =>
+                    row.totalBudget ? (
+                      <span className="tabular">{usd(row.monthlyRemaining)}</span>
+                    ) : (
+                      <span className="text-detail text-[color:var(--color-muted)]">No total</span>
+                    ),
                 },
               ]}
             />
@@ -240,12 +243,12 @@ export function ConsoleView() {
 
       <Section
         title="Current conditions"
-        description="Network and USDG checks, live. Open a mandate to see its own."
+        description="The network and USDG, checked live. A mandate's own conditions are on its page."
       >
         <Card>
           <div className="space-y-3">
             <ErrorSurface error={system.error} action="Reading the current conditions" onRetry={system.refresh} />
-            <StatusList system={system} />
+            <StatusList system={system} only={NETWORK_CONDITIONS} />
           </div>
         </Card>
       </Section>
@@ -284,6 +287,12 @@ function OpenByAddress() {
       />
     </form>
   );
+}
+
+/** Running mandates first, paused next, and those without an agent last, each group in the order read. */
+function byStanding(mandates: readonly MandateSummary[]): readonly MandateSummary[] {
+  const rank = (row: MandateSummary) => (row.revoked ? 2 : row.paused ? 1 : 0);
+  return [...mandates].sort((a, b) => rank(a) - rank(b));
 }
 
 /** A figure stands for itself only when the list under it arrived. Until then it says which it is. */

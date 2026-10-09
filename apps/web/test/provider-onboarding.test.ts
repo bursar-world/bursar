@@ -340,7 +340,7 @@ describe('the registry terms a reader sees before connecting anything', () => {
     expect(lines.creditLine).toBeNull();
     expect(lines.minStake).toBe('$5.00');
     expect(lines.slashBps).toBe('10%');
-    expect(lines.withdrawalDelay).toBe('7d');
+    expect(lines.withdrawalDelay).toBe('7 days');
     expect(lines.curveLine).toContain('$25.00');
     expect(lines.curveLine).toContain('$250.00');
   });

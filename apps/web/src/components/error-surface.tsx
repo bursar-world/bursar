@@ -63,14 +63,15 @@ export function ErrorSurface({ error, action, heading, onRetry, retryLabel = 'Tr
   const shaped = error as MandateShapedError;
   const code = typeof shaped.code === 'string' ? shaped.code : undefined;
   const title = headingFor(code, shaped, action, heading);
-  const message = messageFor(code, shaped, error);
+  // A message that opens with the heading's own sentence would say it twice in a row.
+  const message = afterLead(messageFor(code, shaped, error), title);
 
   return (
     <div role="alert" className="border border-l-2 border-[color:var(--color-line)] border-l-[color:var(--color-state-blocked)] bg-surface px-5 py-4">
       <p className="text-sm font-medium" style={{ color: 'var(--color-state-blocked)' }}>
         {title}
       </p>
-      <p className="mt-1 text-detail text-[color:var(--color-ink)]">{message}</p>
+      {message !== '' && <p className="mt-1 text-detail text-[color:var(--color-ink)]">{message}</p>}
       <ErrorFacts code={code} error={shaped} />
       {children}
       {onRetry && (
@@ -80,6 +81,11 @@ export function ErrorSurface({ error, action, heading, onRetry, retryLabel = 'Tr
       )}
     </div>
   );
+}
+
+function afterLead(message: string, title: string): string {
+  if (!message.toLowerCase().startsWith(title.toLowerCase())) return message;
+  return message.slice(title.length).replace(/^[.:\s]+/u, '');
 }
 
 /**

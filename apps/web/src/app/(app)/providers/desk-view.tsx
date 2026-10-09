@@ -18,7 +18,7 @@ import { Stat, StatGrid } from '@/components/stat';
 import { Unread } from '@/components/status';
 import { Table } from '@/components/table';
 import type { Column } from '@/components/table';
-import { formatDuration } from '@/lib';
+import { spellDuration } from '@/lib';
 import { bps, usd, usdExact } from '@/money';
 import { useSystemState } from '@/state';
 import type { AnyState } from '@/state';
@@ -194,11 +194,7 @@ export function DeskHeadline({ desk, owned }: { readonly desk: ProviderDesk; rea
         <Stat
           label={owned ? 'Waiting on your delivery' : 'Waiting on delivery'}
           value={owedToYou}
-          hint={
-            desk.complete
-              ? `${desk.working.length} open ${desk.working.length === 1 ? 'job' : 'jobs'}`
-              : 'Not read'
-          }
+          hint={desk.complete ? openJobsHint(desk.working) : 'Not read'}
           level={desk.working.some((lock) => lock.stage === 'deadline-passed') ? 'blocked' : undefined}
         />
         <Stat
@@ -529,7 +525,7 @@ function Terms({ desk }: { readonly desk: ProviderDesk }) {
             {ttlRange(terms) ?? 'Reading'}
           </Field>
           <Field label="Time to contest" hint="After payment, before the job can be recorded.">
-            {terms.disputeWindow === undefined ? 'Reading' : formatDuration(Number(terms.disputeWindow))}
+            {terms.disputeWindow === undefined ? 'Reading' : spellDuration(Number(terms.disputeWindow))}
           </Field>
           <Field
             label="Cost of contesting"
@@ -569,13 +565,17 @@ function Condition({ level, text }: { readonly level: 'ok' | 'attention' | 'bloc
 }
 
 function earlierNote(desk: ProviderDesk): string {
-  return desk.earlier
-    .map((entry) =>
-      entry.complete
-        ? ` Jobs on earlier contracts are included and marked.`
-        : ` Jobs on earlier contracts could not be read.`,
-    )
-    .join('');
+  if (desk.earlier.length === 0) return '';
+  return desk.earlier.every((entry) => entry.complete)
+    ? ' Jobs on earlier contracts are included and marked.'
+    : ' Jobs on earlier contracts are included and marked where they could be read.';
+}
+
+/** How many jobs are open, and how many of those a payer can already take back. */
+function openJobsHint(working: readonly ProviderLock[]): string {
+  const jobs = `${working.length} open ${working.length === 1 ? 'job' : 'jobs'}`;
+  const late = working.filter((lock) => lock.stage === 'deadline-passed').length;
+  return late === 0 ? jobs : `${jobs}, ${late === working.length ? (late === 1 ? 'past its' : 'all past their') : `${late} past their`} deadline`;
 }
 
 /** Lock ids restart with every escrow, so a row is named by both. */

@@ -76,8 +76,8 @@ describe('why a position counts for nothing toward borrowing', () => {
   });
 
   it('quotes the guard’s bounds when it has them, and stays true without them', () => {
-    expect(drawHaltLine('NoObservation', bounds)).toBe('The price check holds no reading of its pool old enough to count. A reading counts 5m after it is taken.');
-    expect(drawHaltLine('ObservationExpired', bounds)).toContain('more than 1h old');
+    expect(drawHaltLine('NoObservation', bounds)).toBe('The price check holds no reading of its pool old enough to count. A reading counts 5 minutes after it is taken.');
+    expect(drawHaltLine('ObservationExpired', bounds)).toContain('more than 1 hour old');
     expect(drawHaltLine('FeedJump', bounds)).toContain('moved more than 15% since');
     expect(drawHaltLine('FeedJump')).toContain('further since the price check’s last reading of its pool than a draw allows');
     expect(drawHaltLine('NoObservation')).toContain('A reading counts once it has aged.');

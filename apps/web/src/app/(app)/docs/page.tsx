@@ -1,10 +1,10 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
-import { ADDRESSES, RHC, CHAIN_ID } from '@/chain/rhc';
+import { ADDRESSES, RHC, CHAIN_ID, deployment } from '@/chain/rhc';
 import { Address, CopyControl } from '@/components/address';
 import { Card, Field, FieldGrid, Section } from '@/components/layout';
-import { formatEth } from '@/money';
+import { formatEthApprox } from '@/money';
 // Straight from the module. The state barrel re-exports hooks, and a static page that touches it
 // ships wagmi and the query client to every reader.
 import { ROUND_TRIP_FEE } from '@/state/evaluate';
@@ -13,6 +13,20 @@ export const metadata: Metadata = {
   title: 'Developers · Bursar',
   description: 'SDK quickstart, the MCP server, and x402 for a provider that wants to charge agents.',
 };
+
+/** Runs as printed with no key: it reads the live example, so a reader sees real figures first. */
+const READ = `import { formatUsdg, mandateAccount } from '@bursar/sdk';
+
+const mandate = await mandateAccount('${deployment().examples.mandate ?? 'MANDATE'}');
+const { balance, limits, remaining, paused } = await mandate.status();
+
+console.log({
+  balance: formatUsdg(balance),
+  perPayment: formatUsdg(limits.perCallCap),
+  leftThisPeriod: formatUsdg(remaining.daily),
+  periodResets: remaining.dailyResetsAt,
+  paused,
+});`;
 
 const QUICKSTART = `import { mandateAccount, usdg } from '@bursar/sdk';
 
@@ -66,16 +80,24 @@ const MCP_CONFIG = `{
   }
 }`;
 
+/** The server's own list, readers first. With no signer it offers the readers; with one, all of them. */
 const TOOLS: readonly { readonly name: string; readonly what: string; readonly writes: boolean }[] = [
   { name: 'mandate_inspect', what: 'The caps, what each window has left, when each resets, the approval threshold, the funded balance, and whether the mandate is running.', writes: false },
   { name: 'mandate_quote_spend', what: 'What the mandate would decide about a payment, before making it. Names the limit that would stop it.', writes: false },
   { name: 'mandate_list_settlements', what: 'What this mandate has paid for, newest first, and where each payment stands.', writes: false },
   { name: 'mandate_get_settlement', what: 'One settlement in full, with the next decision and the time it has to be made by.', writes: false },
   { name: 'mandate_get_dispute', what: 'Where a contested payment stands: the phase, the clock on it, and the ruling once there is one.', writes: false },
+  { name: 'mandate_collateral', what: 'The collateral posted, what it counts for after the haircut, the debt, and how much more the mandate can draw.', writes: false },
+  { name: 'shielded_pool_status', what: 'Whether the shielded USDG pool takes deposits, what it holds, and how much room is left.', writes: false },
   { name: 'mandate_pay_provider', what: 'Locks the amount in escrow against the mandate and hands the job to the provider.', writes: true },
   { name: 'mandate_hire_agent', what: 'The same against a brief: the task, what it runs on, and what counts as delivered, published with the payment.', writes: true },
   { name: 'mandate_open_dispute', what: 'Contests a settlement and hands the split to the resolver.', writes: true },
+  { name: 'mandate_buy_stock', what: 'Buys an eligible stock token with the mandate’s USDG, checked against the reference price.', writes: true },
+  { name: 'mandate_collateral_deposit', what: 'Posts a stock or treasury token from the signer as collateral for the mandate.', writes: true },
+  { name: 'mandate_collateral_repay', what: 'Repays the mandate’s credit in USDG from the signer.', writes: true },
 ];
+
+const READERS = TOOLS.filter((tool) => !tool.writes).length;
 
 export default function DocsPage() {
   return (
@@ -94,8 +116,22 @@ export default function DocsPage() {
         </Card>
       </Section>
 
-      <Section title="The SDK" description="An agent pays a provider in three lines.">
-        <Card>
+      <Section title="The SDK" description="Read any mandate with no key, then pay from one in three lines.">
+        <Card title="Read any mandate" description="No key and nothing signed. These are the same reads the console makes.">
+          <CodeBlock code={READ} label="Copy the read example" />
+          <p className="mt-3 max-w-3xl text-sm">
+            The SDK runs from a clone of the{' '}
+            <a href="https://github.com/bursar-world/bursar" className="underline underline-offset-2">
+              public repository
+            </a>
+            : run <code className="font-mono text-note">pnpm install</code> and{' '}
+            <code className="font-mono text-note">pnpm --filter @bursar/sdk build</code> there, and import it from a package
+            in that workspace. The address above is the live example mandate, so the figures printed are the ones the console
+            shows.
+          </p>
+        </Card>
+
+        <Card title="Pay a provider" description="An agent pays from its mandate, inside the limits.">
           <CodeBlock code={QUICKSTART} label="Copy the payment example" />
           <p className="mt-3 max-w-3xl text-sm">
             <code className="font-mono text-note">pay</code> reads the limits, opens an escrow lock against the
@@ -151,11 +187,11 @@ export default function DocsPage() {
             <code className="font-mono text-note">pnpm --filter @bursar/mcp build</code> there first.
           </p>
           <p className="mt-3 max-w-3xl text-sm">
-            As printed it holds no key and offers the five tools that read. To let it pay, choose one of two ways. Set <code className="font-mono text-note">BURSAR_SIGNER=local</code> and{' '}
+            As printed it holds no key and offers the {READERS} tools that read. To let it pay, choose one of two ways. Set <code className="font-mono text-note">BURSAR_SIGNER=local</code> and{' '}
             <code className="font-mono text-note">BURSAR_SIGNER_KEY</code> and the key stays in this process, able to
             sign for the one account above and for three calls on it. Point{' '}
             <code className="font-mono text-note">BURSAR_RELAY_URL</code> at a signer you run instead and the key never
-            reaches the process at all. Either way it offers eight tools. Both at once is refused, and so is a key
+            reaches the process at all. Either way it offers all {TOOLS.length}. Both at once is refused, and so is a key
             arriving under a name the server was not told to hold, such as{' '}
             <code className="font-mono text-note">AGENT_PRIVATE_KEY</code> or{' '}
             <code className="font-mono text-note">PRIVATE_KEY</code>. The refusal names the variable and the server
@@ -280,7 +316,7 @@ export default function DocsPage() {
         <Card>
           <FieldGrid columns={3}>
             <Field label="One payment" hint="The mandate check, the escrow lock and the release, end to end.">
-              <span className="tabular">{formatEth(ROUND_TRIP_FEE)}</span>
+              <span className="tabular">{formatEthApprox(ROUND_TRIP_FEE)}</span>
             </Field>
             <Field label="Settlement asset" hint="USDG, six decimals. Transaction fees are paid in ETH and come out of the signer's own balance.">
               <Address value={ADDRESSES.usdg} />

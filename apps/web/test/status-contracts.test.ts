@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { contractGroups } from '@/app/(app)/status/status-view';
+import { contractGroups, earlierContracts } from '@/app/(app)/status/status-view';
 
 // The records as they stood before v3, so the addresses below hold whatever a later deploy adds.
 vi.mock('@bursar/core', async (importOriginal) => {
@@ -11,7 +11,10 @@ vi.mock('@bursar/core', async (importOriginal) => {
 
 describe('the contracts on the status page', () => {
   const groups = contractGroups();
-  const addresses = groups.flatMap((group) => group.rows.map((row) => row.address.toLowerCase()));
+  const addresses = [
+    ...groups.flatMap((group) => group.rows.map((row) => row.address.toLowerCase())),
+    ...earlierContracts().flatMap((row) => row.addresses.map((address) => address.toLowerCase())),
+  ];
 
   it('lists the stock, collateral, private and shielded contracts from the record', () => {
     for (const address of [
@@ -32,7 +35,8 @@ describe('the contracts on the status page', () => {
     expect(addresses).toContain('0x135ef562ac57845aea1bb650fc0e74d67a4a866b');
   });
 
-  it('lists each address once within a group', () => {
+  it('lists each address once', () => {
     for (const group of groups) expect(new Set(group.rows.map((row) => row.address)).size).toBe(group.rows.length);
+    expect(new Set(addresses).size).toBe(addresses.length);
   });
 });

@@ -1,7 +1,7 @@
 import { micro } from '@bursar/core';
 import type { Micro } from '@bursar/core';
 
-import { formatDuration } from '@/lib';
+import { spellDuration } from '@/lib';
 import { bps, usd } from '@/money';
 
 import type { ProviderDesk, ProviderRecord, RegistryTerms, WithdrawalRequest } from './desk';
@@ -304,7 +304,7 @@ export function registryTermLines(terms: RegistryTerms | undefined): RegistryTer
   return {
     minStake: terms.minStake === undefined ? undefined : usd(terms.minStake),
     slashBps: terms.slashBps === undefined ? undefined : bps(terms.slashBps),
-    withdrawalDelay: terms.withdrawalDelay === undefined ? undefined : formatDuration(Number(terms.withdrawalDelay)),
+    withdrawalDelay: terms.withdrawalDelay === undefined ? undefined : spellDuration(Number(terms.withdrawalDelay)),
     baseCap: terms.baseCap === undefined ? undefined : usd(terms.baseCap),
     curveLine,
     creditLine: creditLine(terms),

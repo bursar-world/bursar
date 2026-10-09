@@ -25,7 +25,7 @@ export function PayeeDesk({ payee }: { readonly payee: Address }) {
         <Link href="/providers" className="underline underline-offset-2">
           Providers
         </Link>{' '}
-        / this desk
+        / Desk
       </p>
       <DeskView payee={payee} owned={owned} />
     </div>

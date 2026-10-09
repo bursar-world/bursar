@@ -53,15 +53,17 @@ function per(seconds: number): string {
   return `per ${formatDuration(seconds)}`;
 }
 
-export function describeApproval(threshold: Micro, perCallCap: Micro): string {
-  switch (approvalModeOf(threshold, perCallCap)) {
-    case 'every':
-      return 'You approve every payment';
-    case 'never':
-      return 'No payment needs your approval';
-    case 'above':
-      return `You approve payments of ${usd(threshold)} and above`;
+/** Said to the owner by default; a reader who does not own the mandate is told who approves. */
+export function describeApproval(threshold: Micro, perCallCap: Micro, reader: 'owner' | 'visitor' = 'owner'): string {
+  const mode = approvalModeOf(threshold, perCallCap);
+  if (reader === 'visitor') {
+    if (mode === 'every') return 'The owner approves every payment';
+    if (mode === 'never') return 'No payment needs the owner’s approval';
+    return `The owner approves payments of ${usd(threshold)} and above`;
   }
+  if (mode === 'every') return 'You approve every payment';
+  if (mode === 'never') return 'No payment needs your approval';
+  return `You approve payments of ${usd(threshold)} and above`;
 }
 
 /** What a lock is doing with the money right now. */
@@ -184,10 +186,10 @@ export function returnable(
  */
 export const OVERDUE_WORD = 'Past its deadline';
 
-export const OVERDUE_DETAIL = 'The provider did not deliver by the deadline. The money is held until you take it back.';
+export const OVERDUE_DETAIL = 'Not delivered in time. The money is yours to take back.';
 
 export function gateWord(gate: MerchantGate): string {
-  return gate === MerchantGate.MerkleRoot ? 'Published list' : 'Your own list';
+  return gate === MerchantGate.MerkleRoot ? 'Published list' : 'Listed on this mandate';
 }
 
 export function gateDetail(gate: MerchantGate): string {

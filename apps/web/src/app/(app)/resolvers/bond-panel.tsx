@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import type { Address } from 'viem';
 
-import { TOKEN_ADDRESSES, brsrAbi, oracleRegistryAbi } from '@/chain';
+import { TOKEN_ADDRESSES, brsrAbi, closedBench, oracleRegistryAbi } from '@/chain';
 import { Address as AddressLine } from '@/components/address';
 import { AmountInput } from '@/components/amount-input';
 import { Card, Field, FieldGrid } from '@/components/layout';
@@ -49,6 +49,42 @@ export function BondPanel({
   const active = standing?.status === ResolverStatus.Active;
   const unbonding = standing?.status === ResolverStatus.Unbonding;
 
+  if (account === undefined) {
+    return (
+      <Card
+        title="The bond"
+        description="The BRSR a resolver posts to vote on disputes. A vote that goes wrong costs part of it, and nothing else is at risk."
+      >
+        <FieldGrid columns={4}>
+          <Field
+            label="Floor for a new resolver"
+            hint={
+              closedBench(desk?.minBond)
+                ? 'Set at the whole supply, so no new address can bond. Governance sets each admitted resolver’s own floor.'
+                : 'The smallest bond that can vote, set by the staking pool'
+            }
+          >
+            {closedBench(desk?.minBond) ? (
+              'Closed to new resolvers'
+            ) : (
+              <span className="tabular">{desk?.minBond === undefined ? unread : `${formatBrsr(desk.minBond)} BRSR`}</span>
+            )}
+          </Field>
+          <Field label="Bond asset" hint="Bonds are in BRSR. Rewards are paid in USDG.">
+            {desk?.bondAsset === undefined ? unread : <AddressLine value={desk.bondAsset} label="BRSR" />}
+          </Field>
+          <Field label="Floor held by" hint="The staking pool sets the floor and any bar for each address.">
+            {desk?.bondPool === undefined ? unread : <AddressLine value={desk.bondPool} />}
+          </Field>
+          <Field label="Bonded across the bench" hint={`${desk?.resolverCount ?? 0} resolvers registered`}>
+            <span className="tabular">{desk?.totalBonded === undefined ? unread : `${formatBrsr(desk.totalBonded)} BRSR`}</span>
+          </Field>
+        </FieldGrid>
+        <p className="mt-4 text-detail text-[color:var(--color-muted)]">Connect a wallet to see your own bond and post one.</p>
+      </Card>
+    );
+  }
+
   return (
     <Card
       title="Your bond"
@@ -58,12 +94,12 @@ export function BondPanel({
         <Stat
           label="Bonded"
           value={standing?.bond === undefined ? unread : `${formatBrsr(standing.bond)} BRSR`}
-          hint={account === undefined ? 'Connect a wallet to see your bond' : statusWord(standing?.status)}
+          hint={statusWord(standing?.status)}
           level={levelFor(standing?.bond, floor, standing?.barred)}
         />
         <Stat
-          label={account === undefined ? 'Floor for a new resolver' : 'Your floor'}
-          value={floor === undefined ? unread : `${formatBrsr(floor)} BRSR`}
+          label="Your floor"
+          value={floor === undefined ? unread : closedBench(floor) ? 'Closed to new resolvers' : `${formatBrsr(floor)} BRSR`}
           hint={
             standing?.floor !== undefined && desk?.minBond !== undefined && standing.floor > desk.minBond
               ? `Raised above the global floor of ${formatBrsr(desk.minBond)} BRSR for this address`
@@ -72,12 +108,12 @@ export function BondPanel({
         />
         <Stat
           label="In your wallet"
-          value={standing?.balance === undefined ? (account === undefined ? 'No wallet' : unread) : `${formatBrsr(standing.balance)} BRSR`}
+          value={standing?.balance === undefined ? unread : `${formatBrsr(standing.balance)} BRSR`}
           hint="BRSR the connected wallet holds"
         />
         <Stat
           label="Disputes ruled"
-          value={standing?.finalized === undefined ? (account === undefined ? 'No wallet' : unread) : standing.finalized.toString()}
+          value={standing?.finalized === undefined ? unread : standing.finalized.toString()}
           hint={standing?.slashes === undefined ? 'Votes that reached a ruling' : `${standing.slashes} slashed`}
         />
       </StatGrid>

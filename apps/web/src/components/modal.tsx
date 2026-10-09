@@ -20,15 +20,25 @@ export type ModalProps = {
 export function Modal({ open, onClose, title, description, children, footer, width = 420 }: ModalProps) {
   const panel = useRef<HTMLDivElement>(null);
   const opener = useRef<Element | null>(null);
+  // Callers pass a fresh onClose on every render. Keyed on it, the effect below re-ran on each
+  // keystroke in a field inside the dialog and moved focus off the field after one letter, so a
+  // typed confirmation could not be typed.
+  const close = useRef(onClose);
+  useEffect(() => {
+    close.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
     opener.current = document.activeElement;
-    const focusable = panel.current?.querySelector<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+    // A dialog that asks for something typed opens on that field; otherwise on its first control.
+    const focusable =
+      panel.current?.querySelector<HTMLElement>('input, select, textarea') ??
+      panel.current?.querySelector<HTMLElement>('button, [href], [tabindex]:not([tabindex="-1"])');
     focusable?.focus();
 
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') close.current();
     };
     document.addEventListener('keydown', onKey);
     const previousOverflow = document.body.style.overflow;
@@ -39,12 +49,14 @@ export function Modal({ open, onClose, title, description, children, footer, wid
       document.body.style.overflow = previousOverflow;
       (opener.current as HTMLElement | null)?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   const stop = useCallback((event: { stopPropagation: () => void }) => event.stopPropagation(), []);
 
   if (!open) return null;
 
+  // The panel sets its own alignment: a control in a right-aligned table cell opens it, and the
+  // dialog would otherwise read right-aligned too.
   return (
     <div
       className="dialog-scrim fixed inset-0 z-50 flex items-end justify-center bg-scrim p-4 sm:items-center"
@@ -58,7 +70,7 @@ export function Modal({ open, onClose, title, description, children, footer, wid
         aria-label={typeof title === 'string' ? title : undefined}
         onClick={stop}
         style={{ maxWidth: width }}
-        className="dialog-panel w-full border border-[color:var(--color-line)] bg-surface"
+        className="dialog-panel w-full border border-[color:var(--color-line)] bg-surface text-left"
       >
         <header className="flex items-start justify-between gap-4 border-b border-[color:var(--color-line)] px-6 pb-4 pt-5">
           <div>

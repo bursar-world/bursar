@@ -10,7 +10,7 @@ import { AmountInput } from '@/components/amount-input';
 import { Card, Field, FieldGrid, Section } from '@/components/layout';
 import { Stat, StatGrid } from '@/components/stat';
 import { TxButton } from '@/components/tx-button';
-import { formatEth, usd, usdg } from '@/money';
+import { formatEth, formatEthApprox, usd, usdHeld } from '@/money';
 import { ROUND_TRIP_FEE } from '@/state';
 import { fundingAmounts } from '../lib/amount';
 import { transferGates } from '../lib/write-gates';
@@ -58,10 +58,10 @@ export function FundingPanel() {
     <Section title="Funding" description="USDG in the mandate pays providers. ETH in your wallet pays network fees.">
       <Card>
         <div className="space-y-6">
-          <StatGrid columns={3}>
+          <StatGrid columns={connected === undefined ? 2 : 3}>
             <Stat
               label="The mandate holds, for payments"
-              value={usdg(balance)}
+              value={usdHeld(balance)}
               hint={
                 balance === 0n
                   ? 'No USDG yet. Payments are refused until it is funded.'
@@ -69,21 +69,21 @@ export function FundingPanel() {
               }
               level={balance === 0n ? 'blocked' : 'ok'}
             />
-            <Stat
-              label="Your wallet holds, for fees"
-              value={gas === undefined ? 'Unread' : formatEth(gas)}
-              hint={
-                connected === undefined
-                  ? 'Connect a wallet to see its ETH for fees.'
-                  : trips === undefined
+            {connected !== undefined && (
+              <Stat
+                label="Your wallet holds, for fees"
+                value={gas === undefined ? 'Not read' : formatEth(gas)}
+                hint={
+                  trips === undefined
                     ? 'ETH for network fees.'
                     : `Enough for about ${trips.toString()} more payment${trips === 1n ? '' : 's'}.`
-              }
-              level={gas === undefined ? 'unknown' : gas < ROUND_TRIP_FEE ? 'blocked' : 'ok'}
-            />
+                }
+                level={gas === undefined ? 'unknown' : gas < ROUND_TRIP_FEE ? 'blocked' : 'ok'}
+              />
+            )}
             <Stat
               label="One payment costs"
-              value={formatEth(ROUND_TRIP_FEE)}
+              value={formatEthApprox(ROUND_TRIP_FEE)}
               hint="Network fees for one payment and its release, at current prices."
             />
           </StatGrid>

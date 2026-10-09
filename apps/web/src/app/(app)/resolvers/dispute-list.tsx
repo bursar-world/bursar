@@ -139,17 +139,20 @@ function ScanNote({ desk }: { readonly desk: ResolverDesk }) {
 
   const current =
     desk.scanned.to === 0n
-      ? 'No disputes on the current contracts.'
+      ? 'No disputes on the current contracts yet.'
       : desk.scanned.truncated
         ? `Showing disputes ${desk.scanned.from.toString()} to ${desk.scanned.to.toString()}, the latest ${(desk.scanned.to - desk.scanned.from + 1n).toString()}.`
         : `All ${desk.scanned.to.toString()} disputes shown.`;
-  const earlier = desk.earlier.map((entry) =>
-    !entry.disputesReadable
-      ? 'Disputes on earlier contracts could not be read.'
-      : `${entry.scanned.to.toString()} on earlier contracts.`,
-  );
+  // One sentence for every earlier registry together: a count per registry reads as a list of
+  // unexplained numbers, and the earlier disputes are all listed below under Closed.
+  const earlierTotal = desk.earlier.reduce((total, entry) => total + (entry.disputesReadable ? entry.scanned.to : 0n), 0n);
+  const earlier = desk.earlier.some((entry) => !entry.disputesReadable)
+    ? 'Some disputes on earlier contracts could not be read.'
+    : earlierTotal === 0n
+      ? ''
+      : `${earlierTotal.toString()} on earlier contracts.`;
 
-  return <span className="text-note text-[color:var(--color-muted)]">{[current, ...earlier].join(' ')}</span>;
+  return <span className="text-note text-[color:var(--color-muted)]">{[current, earlier].filter(Boolean).join(' ')}</span>;
 }
 
 /**

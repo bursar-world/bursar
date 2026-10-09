@@ -2,12 +2,14 @@
 
 import { deploymentsForChain, micro, mulBps } from '@bursar/core';
 import type { Deployment, Micro } from '@bursar/core';
+import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { isAddress } from 'viem';
 import type { Address as EvmAddress } from 'viem';
 
 import { ADDRESSES, CHAIN_ID, RHC, TOKEN_ADDRESSES, TOKEN_ROLES } from '@/chain';
-import { deployment } from '@/chain/rhc';
+import { exampleMandate } from '@/chain/mandates';
+import { deployment, sameAddress } from '@/chain/rhc';
 import { Address } from '@/components/address';
 import { LevelDot } from '@/components/badge';
 import { Button } from '@/components/button';
@@ -15,14 +17,15 @@ import { Instant } from '@/components/instant';
 import { ErrorSurface } from '@/components/error-surface';
 import { Card, Field, FieldGrid, Section } from '@/components/layout';
 import { Stat, StatGrid } from '@/components/stat';
-import { StatusList } from '@/components/status';
+import { NETWORK_CONDITIONS, StatusList } from '@/components/status';
 import { Table } from '@/components/table';
-import { formatDuration } from '@/lib';
-import { bps, formatEth, usd, usdExact } from '@/money';
+import { spellDuration } from '@/lib';
+import { bps, formatEthApprox, usd, usdExact } from '@/money';
 import { DEPLOY_FEE, DEPLOY_GAS, ROUND_TRIP_FEE, ROUND_TRIP_GAS, useSystemState } from '@/state';
 
 type ContractRow = { readonly name: string; readonly address: EvmAddress; readonly role: string };
-type ContractGroup = { readonly title: string; readonly note?: string; readonly rows: readonly ContractRow[] };
+type ContractGroup = { readonly title: string; readonly rows: readonly ContractRow[] };
+type EarlierRow = { readonly name: string; readonly addresses: readonly EvmAddress[]; readonly role: string };
 
 /**
  * Every contract a user can touch, from the deployment records, so a contract added to a record is
@@ -34,8 +37,6 @@ export function contractGroups(): readonly ContractGroup[] {
   const privacy = current.privacy;
   const shielded = privacy?.shielded;
   const collateral = rwa?.collateral;
-  const older = deploymentsForChain(CHAIN_ID).filter((d) => d.network !== current.network);
-
   const groups: ContractGroup[] = [
     {
       title: 'Payments',
@@ -111,59 +112,70 @@ export function contractGroups(): readonly ContractGroup[] {
       { name: 'Staking', address: TOKEN_ADDRESSES.Staking, role: 'Holds staked BRSR and pays out the buyback and the spread on collateral-backed credit.' },
       { name: 'Vesting', address: TOKEN_ADDRESSES.Vesting, role: 'Holds the team grant for its term.' },
       { name: 'Buyback', address: TOKEN_ADDRESSES.Buyback, role: 'Turns fee revenue into BRSR for the staking pool.' },
+      ...(sameAddress(TOKEN_ROLES.adminTimelock, ADDRESSES.adminTimelock)
+        ? []
+        : [{ name: 'Token governance delay', address: TOKEN_ROLES.adminTimelock, role: 'Changes to the token and staking wait out its delay.' }]),
     ],
-  });
-
-  older.forEach((d, index) => {
-    const administersToken = d.contracts.AdminTimelock.toLowerCase() === TOKEN_ROLES.adminTimelock.toLowerCase();
-    groups.push({
-      title: older.length === 1 ? 'Earlier payment contracts' : `Earlier payment contracts, ${SET_ORDINALS[older.length - 1 - index] ?? 'an earlier'} set`,
-      note: 'Still settling the payments and disputes opened on them. The console only reads them. New mandates use the contracts above.',
-      rows: [
-        { name: 'Mandate accounts', address: d.contracts.MandateAccountFactory, role: 'Created the mandates on these contracts, which still hold funds and history.' },
-        { name: 'Escrow', address: d.contracts.Escrow, role: 'Holds the payments opened on it until they close.' },
-        { name: 'Provider registry', address: d.contracts.AgentRegistry, role: 'Providers registered here.' },
-        { name: 'Reputation', address: d.contracts.Reputation, role: 'Scores earned here.' },
-        { name: 'Disputes', address: d.contracts.OracleRegistry, role: 'Rules on the disputes opened against this escrow until they close.' },
-        {
-          name: 'Governance delay',
-          address: d.contracts.AdminTimelock,
-          role: administersToken
-            ? 'Changes to the token, staking and these contracts wait out its delay.'
-            : 'Changes to these contracts wait out its delay.',
-        },
-        ...earlierLanes(d),
-      ],
-    });
   });
 
   return groups;
 }
 
 /**
- * The lanes an earlier set deployed. Parked value, posted collateral, private mandates and shielded
- * deposits stay where they were put, so the contracts holding them are listed with their set.
+ * What earlier contracts still hold, one row per kind, newest address first.
+ *
+ * Later records carried most contracts over at the same address, so a contract the live groups
+ * already list is left out here: listing the live escrow again under "earlier" would say it no
+ * longer takes payments. What remains still holds money or open work and is only read.
  */
-function earlierLanes(d: Deployment): readonly ContractRow[] {
-  const rows: ContractRow[] = [];
-  if (d.rwa) rows.push({ name: 'Treasury parking', address: d.rwa.TreasuryPark, role: 'Holds what was parked here until it is unparked.' });
-  if (d.rwa?.collateral) {
-    rows.push(
-      { name: 'Collateral vault', address: d.rwa.collateral.CollateralVault, role: 'Holds the collateral posted here.' },
-      { name: 'Credit pool', address: d.rwa.collateral.CreditPool, role: 'Holds the debt drawn here until it is repaid.' },
-    );
-  }
-  if (d.privacy) {
-    rows.push({ name: 'Private mandate accounts', address: d.privacy.CommittedMandateFactory, role: 'Created the private mandates on these contracts.' });
-  }
-  if (d.privacy?.shielded) {
-    rows.push({ name: 'Shielded pool', address: d.privacy.shielded.ShieldedPool, role: 'Holds what was deposited here until it is withdrawn.' });
-  }
-  return rows;
+export function earlierContracts(): readonly EarlierRow[] {
+  const current = deployment();
+  const live = new Set(contractGroups().flatMap((group) => group.rows.map((row) => row.address.toLowerCase())));
+  const older = deploymentsForChain(CHAIN_ID).filter((d) => d.network !== current.network);
+
+  return EARLIER_KINDS.map((kind) => {
+    const seen = new Set<string>();
+    const addresses = older
+      .flatMap((d) => kind.pick(d))
+      .filter((address): address is EvmAddress => address !== undefined)
+      .filter((address) => {
+        const key = address.toLowerCase();
+        if (live.has(key) || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    return { name: kind.name, role: kind.role, addresses };
+  }).filter((row) => row.addresses.length > 0);
 }
 
-/** How the earlier sets are told apart, oldest first. */
-const SET_ORDINALS = ['first', 'second', 'third', 'fourth'] as const;
+const EARLIER_KINDS: readonly {
+  readonly name: string;
+  readonly role: string;
+  readonly pick: (d: Deployment) => readonly (EvmAddress | undefined)[];
+}[] = [
+  { name: 'Mandate accounts', role: 'Created mandates that still hold their funds and history.', pick: (d) => [d.contracts.MandateAccountFactory] },
+  { name: 'Escrow', role: 'Payments opened here are settled here until they close.', pick: (d) => [d.contracts.Escrow] },
+  { name: 'Provider registry', role: 'Providers registered here, and the stake they posted.', pick: (d) => [d.contracts.AgentRegistry] },
+  { name: 'Reputation', role: 'Scores earned here.', pick: (d) => [d.contracts.Reputation] },
+  { name: 'Disputes', role: 'Disputes opened here are ruled on here until they close.', pick: (d) => [d.contracts.OracleRegistry] },
+  { name: 'Governance delay', role: 'Changes to these contracts wait out its delay.', pick: (d) => [d.contracts.AdminTimelock] },
+  { name: 'Treasury parking', role: 'What was parked here stays until it is unparked.', pick: (d) => [d.rwa?.TreasuryPark] },
+  { name: 'Collateral vault', role: 'Collateral posted here stays until it is withdrawn.', pick: (d) => [d.rwa?.collateral?.CollateralVault] },
+  { name: 'Credit pool', role: 'Debt drawn here stays until it is repaid.', pick: (d) => [d.rwa?.collateral?.CreditPool] },
+  { name: 'Private mandate accounts', role: 'Created private mandates that still hold their funds.', pick: (d) => [d.privacy?.CommittedMandateFactory] },
+  { name: 'Shielded pool', role: 'Deposits made here stay until they are withdrawn.', pick: (d) => [d.privacy?.shielded?.ShieldedPool] },
+];
+
+/** The three conditions a status page cannot read without a mandate, said rather than shown empty. */
+const PER_MANDATE: readonly { readonly label: string; readonly text: string }[] = [
+  { label: 'Mandate', text: 'Whether it is running, and what it can still spend in each window.' },
+  { label: 'Permission', text: 'Whether the payee and the kind of work are on its lists.' },
+  { label: 'Funding', text: 'USDG in the mandate for the payment, and ETH in the signer’s wallet for the fee.' },
+];
+
+function addressHeader(rows: readonly EarlierRow[]): string {
+  return rows.some((row) => row.addresses.length > 1) ? 'Addresses, newest first' : 'Address';
+}
 
 /** One hundred USDG, as the worked example the settlement fee is easiest to read against. */
 const EXAMPLE_PAYMENT: Micro = micro(100_000_000n);
@@ -185,12 +197,14 @@ export function StatusView() {
   const asset = system.assetRead;
   const timelockPeriod = system.snapshot?.governance.period;
   const blocked = checked === undefined ? undefined : system.asset.facts.blocked[checked.toLowerCase()];
+  const example = exampleMandate();
+  const earlier = earlierContracts();
 
   return (
     <div className="space-y-10">
       <Section
         title="Conditions right now"
-        description="Five conditions decide whether an agent’s payment settles. Each is shown separately, because each has a different owner and fix."
+        description="Five conditions decide whether an agent’s payment settles. Two apply to everyone and are read here. The other three belong to each mandate."
         actions={
           <Button size="sm" onClick={system.refresh} disabled={system.isFetching}>
             {system.isFetching ? 'Checking' : 'Check again'}
@@ -198,20 +212,31 @@ export function StatusView() {
         }
       >
         <Card>
-          <StatusList system={system} detailed />
+          <StatusList system={system} only={NETWORK_CONDITIONS} detailed />
         </Card>
         <ErrorSurface error={system.error} action="Reading the network" onRetry={system.refresh} />
-        <p className="text-note text-[color:var(--color-muted)]">
-          Connectivity and the asset apply to everyone. The mandate, its permissions and its funding are per account, so
-          they read as not in use until an account is named. Sign in to the console to see yours.
-          {system.snapshot && (
-            <>
-              {' '}
-              Updated <Instant at={system.snapshot.readAt} relative /> at block{' '}
-              {system.snapshot.blockNumber.toString()}.
-            </>
+        <Card title="On each mandate" description="Read on the mandate's own page, for the payment in front of it.">
+          <dl className="grid gap-4 text-detail sm:grid-cols-3">
+            {PER_MANDATE.map((entry) => (
+              <div key={entry.label}>
+                <dt className="text-label uppercase tracking-wide text-[color:var(--color-muted)]">{entry.label}</dt>
+                <dd className="mt-1">{entry.text}</dd>
+              </div>
+            ))}
+          </dl>
+          {example !== undefined && (
+            <p className="mt-4 text-detail">
+              <Link href={`/console/${example}`} className="underline underline-offset-2">
+                See all five on the example mandate
+              </Link>
+            </p>
           )}
-        </p>
+        </Card>
+        {system.snapshot && (
+          <p className="text-note text-[color:var(--color-muted)]">
+            Updated <Instant at={system.snapshot.readAt} relative /> at block {system.snapshot.blockNumber.toString()}.
+          </p>
+        )}
       </Section>
 
       <Section
@@ -244,7 +269,7 @@ export function StatusView() {
         <Card>
           <div className="space-y-3">
             <label className="block text-detail">
-              <span className="text-label uppercase tracking-wide text-[color:var(--color-muted)]">
+              <span className="block text-label uppercase tracking-wide text-[color:var(--color-muted)]">
                 Address
               </span>
               <input
@@ -286,7 +311,7 @@ export function StatusView() {
 
       <Section title="Contracts" description={`On ${RHC.name}, chain ID ${RHC.chainId}. Every address below is public.`}>
         {contractGroups().map((group) => (
-          <Card key={group.title} title={group.title} description={group.note}>
+          <Card key={group.title} title={group.title}>
             <Table
               caption={group.title}
               rows={group.rows}
@@ -299,6 +324,33 @@ export function StatusView() {
             />
           </Card>
         ))}
+        {earlier.length > 0 && (
+          <Card
+            title="Earlier contracts"
+            description="Still settling what was opened on them, and read by the console. New mandates use the contracts above."
+          >
+            <Table
+              caption="Earlier contracts"
+              rows={earlier}
+              rowKey={(row) => row.name}
+              columns={[
+                { key: 'name', header: 'Contract', cell: (row) => <span className="font-medium">{row.name}</span> },
+                {
+                  key: 'addresses',
+                  header: addressHeader(earlier),
+                  cell: (row) => (
+                    <span className="flex flex-col items-start gap-0.5">
+                      {row.addresses.map((value) => (
+                        <Address key={value} value={value} />
+                      ))}
+                    </span>
+                  ),
+                },
+                { key: 'role', header: 'What it still does', secondary: true, cell: (row) => <span className="text-[color:var(--color-muted)]">{row.role}</span> },
+              ]}
+            />
+          </Card>
+        )}
       </Section>
 
       <Section title="Parameters" description="Live from the contracts.">
@@ -310,10 +362,10 @@ export function StatusView() {
             <Field label="Delivery window" hint="The deadlines a payer can choose from.">
               {escrow?.minTtl === undefined || escrow.maxTtl === undefined
                 ? 'Reading'
-                : `${formatDuration(Number(escrow.minTtl))} to ${formatDuration(Number(escrow.maxTtl))}`}
+                : `${spellDuration(Number(escrow.minTtl))} to ${spellDuration(Number(escrow.maxTtl))}`}
             </Field>
             <Field label="Time to contest" hint="After a payment, how long the payer has to challenge it.">
-              {escrow?.disputeWindow === undefined ? 'Reading' : formatDuration(Number(escrow.disputeWindow))}
+              {escrow?.disputeWindow === undefined ? 'Reading' : spellDuration(Number(escrow.disputeWindow))}
             </Field>
             <Field label="Cost of contesting" hint="A bond from whoever contests, returned if the ruling goes their way.">
               {escrow?.disputeBondBps === undefined ? 'Reading' : `${bps(escrow.disputeBondBps)} of the payment`}
@@ -324,7 +376,7 @@ export function StatusView() {
               </Field>
             )}
             <Field label="Governance delay" hint="Every setting change waits this long first.">
-              {timelockPeriod === undefined ? 'Reading' : formatDuration(Number(timelockPeriod))}
+              {timelockPeriod === undefined ? 'Reading' : spellDuration(Number(timelockPeriod))}
             </Field>
             <Field label="Settlement asset" hint="Transaction fees are paid separately, in ETH.">
               {asset?.symbol === undefined || asset.decimals === undefined
@@ -338,8 +390,8 @@ export function StatusView() {
       <Section title="What a transaction costs" description="Measured from real transactions on this network.">
         <Card>
           <StatGrid columns={3}>
-            <Stat label="One payment" value={formatEth(ROUND_TRIP_FEE)} hint={`${ROUND_TRIP_GAS.toLocaleString('en-US')} gas to lock and release, at the observed price`} />
-            <Stat label="One mandate account" value={formatEth(DEPLOY_FEE)} hint={`${DEPLOY_GAS.toLocaleString('en-US')} gas to create an account at its computed address`} />
+            <Stat label="One payment" value={formatEthApprox(ROUND_TRIP_FEE)} hint={`${ROUND_TRIP_GAS.toLocaleString('en-US')} gas to lock and release, at the observed price`} />
+            <Stat label="One mandate account" value={formatEthApprox(DEPLOY_FEE)} hint={`${DEPLOY_GAS.toLocaleString('en-US')} gas to create an account at its computed address`} />
             <Stat
               label={`Fee on a ${usd(EXAMPLE_PAYMENT)} payment`}
               value={escrow?.feeBps === undefined ? '—' : usd(mulBps(EXAMPLE_PAYMENT, escrow.feeBps))}
@@ -362,7 +414,7 @@ export function StatusView() {
             </p>
             <p>
               Settings that can change, including the reputation curve and the dispute settings, wait{' '}
-              {timelockPeriod === undefined ? 'a fixed period' : formatDuration(Number(timelockPeriod))} before a change
+              {timelockPeriod === undefined ? 'a fixed period' : spellDuration(Number(timelockPeriod))} before a change
               takes effect. Each change is public from the moment it is proposed, so anyone relying on the old value has
               that long to act.
             </p>

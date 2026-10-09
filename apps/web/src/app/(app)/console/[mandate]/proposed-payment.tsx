@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { classLabel, classOfLabel } from '@bursar/core';
 import type { Micro } from '@bursar/core';
+import { useState } from 'react';
 import type { Address } from 'viem';
 
 import { Button } from '@/components/button';
@@ -22,7 +23,7 @@ import { useMandateScope } from './mandate-scope';
  * else on the screen. The answer shown is the contract's, never this app's reading of the limits.
  */
 export function ProposedPayment() {
-  const { account, system, proposed, propose } = useMandateScope();
+  const { account, system, proposed, propose, isOwner } = useMandateScope();
   const { remember } = useCapabilityLabels();
   const [payee, setPayee] = useState('');
   const [capability, setCapability] = useState('');
@@ -32,6 +33,7 @@ export function ProposedPayment() {
 
   const payeeReading = readAddress(payee);
   const amountReading = readUsdgAmount(amountText);
+  const work = readWork(capability);
   const asked = proposed.merchant !== undefined || proposed.capability !== undefined;
 
   // Anything typed has to be readable before the account is asked. A payee half typed and an
@@ -44,11 +46,11 @@ export function ProposedPayment() {
   const ask = () => {
     const next: { merchant?: Address; capability?: string; amount?: Micro } = {};
     if (payeeReading.value !== undefined) next.merchant = payeeReading.value;
-    if (capability.trim() !== '') {
-      next.capability = capability.trim();
+    if (work !== undefined) {
+      next.capability = work;
       // The account is asked about this name by its hash, and the panel below reads hashes. A name
       // this screen has already resolved once is a name the gate table can show in place of bytes.
-      remember(capability.trim());
+      remember(work);
     }
     if (amountReading.value !== undefined) next.amount = amountReading.value;
     propose(next);
@@ -97,7 +99,9 @@ export function ProposedPayment() {
                 onChange={(event) => setCapability(event.target.value)}
                 className="h-11 w-full border border-[color:var(--color-line)] bg-surface px-3.5 text-sm outline-none focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-[color:var(--color-ring)]"
               />
-              <p className="text-note text-[color:var(--color-muted)]">The kind of work being bought.</p>
+              <p className="text-note text-[color:var(--color-muted)]">
+                {work !== undefined && work !== capability.trim() ? `Checked as ${work}` : 'The kind of work being bought.'}
+              </p>
             </div>
             <AmountInput
               label="Amount"
@@ -127,7 +131,7 @@ export function ProposedPayment() {
             )}
           </div>
 
-          {asked && <Verdict />}
+          {asked && <Verdict owner={isOwner} />}
 
           {asked && (
             <div className="rounded-md border border-[color:var(--color-line)] px-4">
@@ -144,12 +148,24 @@ export function ProposedPayment() {
 }
 
 /**
+ * A bare name is asked about as a service, the way the SDK and the MCP server pay it, so
+ * "gpu.render:1" here and in an agent's code are the same question. A namespaced label or a
+ * 32-byte id goes as typed.
+ */
+function readWork(typed: string): string | undefined {
+  const text = typed.trim();
+  if (text === '') return undefined;
+  if (classOfLabel(text) !== undefined || /^0x[0-9a-fA-F]{64}$/.test(text)) return text;
+  return classLabel('service', text);
+}
+
+/**
  * The answer in one line, over the rows that explain it. The rows name each condition on its own;
  * this says what they add up to for the payment on the screen, funds included, since the contract's
  * preview checks the limits and not the balance. Nor does it check the escrow's floor, which a
  * payment under would clear every limit and still be refused at.
  */
-function Verdict() {
+function Verdict({ owner }: { readonly owner: boolean }) {
   const { system, proposed } = useMandateScope();
   const amount = proposed.amount;
   const held = system.funding.facts.mandateBalance;
@@ -168,7 +184,7 @@ function Verdict() {
     : underFloor
       ? `A payment of ${usdExact(amount)} is below the ${usdExact(floor)} minimum and would be refused.`
       : waits
-        ? `${subject} would wait for your approval before it settles.`
+        ? `${subject} would wait for ${owner ? 'your' : 'the owner’s'} approval before it settles.`
         : `${subject} would go through within the limits.`;
 
   return (

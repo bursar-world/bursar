@@ -247,8 +247,15 @@ describe('the bond floor without a wallet', () => {
 
   it('offers no control and claims no balance without a wallet', () => {
     const markup = bond({});
-    expect(markup).toContain('No wallet');
+    expect(markup).not.toContain('In your wallet');
+    expect(markup).toContain('Connect a wallet to see your own bond');
     expect(markup).not.toContain('Post the bond');
+  });
+
+  it('says the bench is closed when the floor is the whole supply', () => {
+    const markup = bond({ minBond: brsr(10n ** 27n) });
+    expect(markup).toContain('Closed to new resolvers');
+    expect(markup).not.toContain('1,000,000,000');
   });
 });
 

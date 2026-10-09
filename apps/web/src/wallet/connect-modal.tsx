@@ -69,7 +69,7 @@ export function ConnectModal({ open, onClose }: { readonly open: boolean; readon
 
       {!WALLETCONNECT_CONFIGURED && (
         <p className="mt-3 text-note text-[color:var(--color-muted)]">
-          Mobile wallets connect over WalletConnect, which this build does not have a project id for.
+          On a phone, open Bursar in your wallet app’s browser to connect.
         </p>
       )}
 

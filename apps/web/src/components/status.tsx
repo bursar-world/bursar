@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { AnyState, Check, NextAction, SystemState } from '../state';
+import type { AnyState, Check, NextAction, StateKey, SystemState } from '../state';
 import { LevelBadge, LevelDot, levelWord } from './badge';
 import { Button } from './button';
 import { Instant } from './instant';
@@ -116,13 +116,31 @@ export function ChecksList({ checks }: { readonly checks: readonly Check[] }) {
 }
 
 /**
+ * The two conditions that hold for everyone. The other three belong to one mandate, so a page that
+ * has none open shows these two rather than three rows saying there is nothing to read.
+ */
+export const NETWORK_CONDITIONS: readonly StateKey[] = ['connectivity', 'asset'];
+
+function pick(system: SystemState, only: readonly StateKey[] | undefined): readonly AnyState[] {
+  return only === undefined ? system.all : system.all.filter((state) => only.includes(state.key));
+}
+
+/**
  * All five, in reading order. Connectivity first because nothing below it means anything if the
  * chain is unreachable.
  */
-export function StatusList({ system, detailed = false }: { readonly system: SystemState; readonly detailed?: boolean }) {
+export function StatusList({
+  system,
+  detailed = false,
+  only,
+}: {
+  readonly system: SystemState;
+  readonly detailed?: boolean;
+  readonly only?: readonly StateKey[];
+}) {
   return (
     <div>
-      {system.all.map((state) => (
+      {pick(system, only).map((state) => (
         <StatusRow key={state.key} state={state} onRetry={system.refresh}>
           {detailed && <ChecksList checks={state.checks} />}
         </StatusRow>
@@ -132,13 +150,13 @@ export function StatusList({ system, detailed = false }: { readonly system: Syst
 }
 
 /**
- * A compact reading of all five for a header. Five marks, never one: a single light here would be
- * the same lie in less space.
+ * A compact reading for a header, one mark per condition, never one mark for all: a single light
+ * here would be the same lie in less space.
  */
-export function StatusStrip({ system }: { readonly system: SystemState }) {
+export function StatusStrip({ system, only }: { readonly system: SystemState; readonly only?: readonly StateKey[] }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {system.all.map((state) => (
+      {pick(system, only).map((state) => (
         <LevelBadge key={state.key} level={state.level}>
           {state.label}
         </LevelBadge>

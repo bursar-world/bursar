@@ -9,7 +9,7 @@ import { Address } from '@/components/address';
 import { Countdown, Instant } from '@/components/instant';
 import { Card, Field, FieldGrid, Section } from '@/components/layout';
 import { TxButton } from '@/components/tx-button';
-import { formatDuration } from '@/lib';
+import { spellDuration } from '@/lib';
 import { bps, usdExact } from '@/money';
 import type { AnyState } from '@/state';
 
@@ -157,7 +157,7 @@ export function FeeFlowSection({
             hint={
               buyback?.maxCeilingAge === undefined
                 ? 'After this every buy is refused until governance sets the ceiling again.'
-                : `A ceiling stays usable for ${formatDuration(Number(buyback.maxCeilingAge))} after it is set.`
+                : `A ceiling stays usable for ${spellDuration(Number(buyback.maxCeilingAge))} after it is set.`
             }
           >
             {staleAt === undefined ? unread : stale ? <Instant at={staleAt} /> : <Countdown to={staleAt} />}

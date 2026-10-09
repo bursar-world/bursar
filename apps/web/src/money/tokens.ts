@@ -23,13 +23,14 @@ export function tokenInfo(token: Address): TokenInfo | undefined {
 
 /**
  * A raw amount of any token, in that token's own unit. USDG reads in dollars to the cent; anything
- * else shows up to eight significant places after the point, rounded, with its symbol.
+ * else shows `places` significant digits after the point, three unless a line asks for more,
+ * rounded, with its symbol: what the holdings tables show.
  */
-export function tokenAmountText(raw: bigint, token: Address): string {
+export function tokenAmountText(raw: bigint, token: Address, places = 3): string {
   const info = tokenInfo(token);
   if (info === undefined) return `${raw.toString()} units of ${shortAddress(token)}`;
   if (info.settlement) return usd(raw as Micro);
-  return `${roundedUnits(raw, info.decimals, 3)} ${info.symbol}`;
+  return `${roundedUnits(raw, info.decimals, places)} ${info.symbol}`;
 }
 
 /** A decimal string of `raw`, rounded half up to `places` significant fraction digits once leading zeros end. */

@@ -6,7 +6,7 @@ import { LockStatus } from '@bursar/sdk';
 import type { Address } from 'viem';
 
 import { deploymentLabel, oracleRegistryAbi, shortAddress, splitSettlement } from '@/chain';
-import { publishedCapability } from '@/chain/capabilities';
+import { bareLabel, publishedCapability } from '@/chain/capabilities';
 import { Address as AddressLine } from '@/components/address';
 import { LevelBadge } from '@/components/badge';
 import { Countdown, Instant } from '@/components/instant';
@@ -124,7 +124,13 @@ export function DisputeCard({
             <Instant at={dispute.openedAt} />
           </Field>
           <Field label="Kind of work" hint="What the payer bought.">
-            {settlement === undefined ? 'Not read' : (capability ?? <span className="tabular text-detail">{shortAddress(settlement.capabilityId, 10, 6)}</span>)}
+            {settlement === undefined ? (
+              'Not read'
+            ) : capability === undefined ? (
+              <span className="tabular text-detail">{shortAddress(settlement.capabilityId, 10, 6)}</span>
+            ) : (
+              <span title={capability}>{bareLabel(capability)}</span>
+            )}
           </Field>
         </FieldGrid>
 
@@ -281,7 +287,7 @@ function Outcome({ dispute, resolverFeeBps }: { readonly dispute: DisputeRow; re
   return (
     <p className="text-sm">
       Closed without a ruling. The refund was set to {bps(dispute.refundBps)}. {money} No resolver earned a share of the
-      fee, so it stays on the registry until it is swept to the slash sink.
+      fee, so it stays with the dispute registry until it is swept to the penalty account.
     </p>
   );
 }

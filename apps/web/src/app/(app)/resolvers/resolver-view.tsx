@@ -9,7 +9,7 @@ import { Instant } from '@/components/instant';
 import { Card, Section, Skeleton } from '@/components/layout';
 import { Stat, StatGrid } from '@/components/stat';
 import { Unread } from '@/components/status';
-import { formatDuration } from '@/lib';
+import { spellDuration } from '@/lib';
 import { bps, formatBrsr, usdExact } from '@/money';
 import { useSystemState } from '@/state';
 import { ConnectModal } from '@/wallet';
@@ -131,7 +131,7 @@ export function ResolverView() {
  */
 function Operator({ commitWindow }: { readonly commitWindow: bigint | undefined }) {
   // The ruling service stops counting evidence halfway through the sealing window.
-  const cutoff = commitWindow === undefined ? 'halfway through the sealing window' : `${formatDuration(Number(commitWindow) / 2)} after the dispute opens`;
+  const cutoff = commitWindow === undefined ? 'halfway through the sealing window' : `${spellDuration(Number(commitWindow) / 2)} after the dispute opens`;
   return (
     <Card title="Who rules today">
       <div className="max-w-3xl space-y-3 text-sm">
@@ -167,30 +167,40 @@ function Headline({ desk, account }: { readonly desk: ResolverDesk | undefined; 
 
   return (
     <Card>
-      <StatGrid columns={4}>
+      <StatGrid columns={account ? 4 : 3}>
         <Stat
           label="Open disputes"
           value={open === undefined ? unread : open.toString()}
           hint={open === 0 ? 'Nothing is contested right now' : 'Contested settlements not yet closed'}
           level={open === undefined ? 'unknown' : undefined}
         />
-        <Stat
-          label="Reveals you owe"
-          value={account ? (owed === undefined ? unread : owed.toString()) : 'No wallet'}
-          hint="Sealed scores to reveal now. A missed reveal costs part of the bond."
-          level={owed !== undefined && owed > 0 ? 'blocked' : undefined}
-        />
+        {account && (
+          <Stat
+            label="Reveals you owe"
+            value={owed === undefined ? unread : owed.toString()}
+            hint="Sealed scores to reveal now. A missed reveal costs part of the bond."
+            level={owed !== undefined && owed > 0 ? 'blocked' : undefined}
+          />
+        )}
         <Stat
           label="Ready to close"
           value={closable === undefined ? unread : closable.toString()}
           hint="Voting is over. Anyone can close these to release the money."
           level={closable !== undefined && closable > 0 ? 'attention' : undefined}
         />
-        <Stat
-          label="Yours to claim"
-          value={account ? (standing?.rewards === undefined ? unread : usdExact(standing.rewards)) : 'No wallet'}
-          hint="Resolver fees earned on settled disputes, in USDG"
-        />
+        {account ? (
+          <Stat
+            label="Yours to claim"
+            value={standing?.rewards === undefined ? unread : usdExact(standing.rewards)}
+            hint="Resolver fees earned on settled disputes, in USDG"
+          />
+        ) : (
+          <Stat
+            label="Resolvers"
+            value={desk?.resolverCount === undefined ? unread : desk.resolverCount.toString()}
+            hint={desk?.totalBonded === undefined ? 'Bonded in BRSR' : `${formatBrsr(desk.totalBonded)} BRSR bonded between them`}
+          />
+        )}
       </StatGrid>
 
       {account && standing?.status === ResolverStatus.None && (
@@ -219,12 +229,12 @@ function Rules({ desk }: { readonly desk: ResolverDesk | undefined }) {
         <StatGrid columns={4}>
           <Stat
             label="Sealing window"
-            value={config === undefined ? unread : formatDuration(Number(config.commitWindow))}
+            value={config === undefined ? unread : spellDuration(Number(config.commitWindow))}
             hint="Opens when the payer contests"
           />
           <Stat
             label="Reveal window"
-            value={config === undefined ? unread : formatDuration(Number(config.revealWindow))}
+            value={config === undefined ? unread : spellDuration(Number(config.revealWindow))}
             hint="Opens when the sealing window closes"
           />
           <Stat

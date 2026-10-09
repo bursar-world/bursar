@@ -27,9 +27,9 @@ import type { Brsr } from '@/money';
  */
 export type SupplyHolders = {
   /**
-   * The governance delay the token record names as the community holder. It is the earlier of the
-   * two timelocks, the one that administers the token contracts, so every community release is a
-   * proposal that waits out its delay.
+   * The governance delay that administers the token today, which is where the community share sits:
+   * it moved there from the first timelock when token governance did, so every community release is
+   * a proposal that waits out this delay.
    */
   readonly community: Brsr | undefined;
   /** The vesting contract, which is where the team grant sits for the whole term. */
@@ -123,7 +123,7 @@ export async function readTokenExtras(account?: Address): Promise<TokenExtras> {
   const blockNumber = addBlockNumber(batch);
 
   const holders = {
-    community: batch.add<bigint>('brsr.balanceOf:community', token('balanceOf', [TOKEN_ROLES.community])),
+    community: batch.add<bigint>('brsr.balanceOf:community', token('balanceOf', [TOKEN_ROLES.adminTimelock])),
     team: batch.add<bigint>('brsr.balanceOf:vesting', token('balanceOf', [TOKEN_ADDRESSES.Vesting])),
     treasury: batch.add<bigint>('brsr.balanceOf:treasury', token('balanceOf', [TOKEN_ROLES.treasury])),
     liquidity: batch.add<bigint>('brsr.balanceOf:liquidity', token('balanceOf', [TOKEN_ROLES.liquidity])),

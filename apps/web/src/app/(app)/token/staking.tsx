@@ -12,7 +12,7 @@ import { Card, EmptyState, Field, FieldGrid, Section } from '@/components/layout
 import { Stat, StatGrid } from '@/components/stat';
 import { Table } from '@/components/table';
 import { TxButton } from '@/components/tx-button';
-import { formatDuration } from '@/lib';
+import { spellDuration } from '@/lib';
 import { ZERO_BRSR, bps, formatBrsr, usdExact } from '@/money';
 import type { Brsr } from '@/money';
 import type { AnyState } from '@/state';
@@ -53,7 +53,7 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
             stock and treasury tokens. If a line&rsquo;s collateral cannot repay its debt, the vault seizes the
             collateral for the lender first, up to the debt&rsquo;s value at the price feed. Where the staking contract
             names that pool as its slasher, stake is then taken for the part the collateral did not cover, converted to
-            BRSR at the buyback&rsquo;s price ceiling and sent to the slash sink. The lender carries the uncovered part
+            BRSR at the buyback&rsquo;s price ceiling and sent to the penalty account. The lender carries the uncovered part
             in USDG. Slashed stake is a penalty and does not repay the lender.
           </p>
           <p>{capSentence(pool)}</p>
@@ -109,10 +109,10 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
             <span className="tabular">{amountOr(pool?.slashAllowance, unread)}</span>
           </Field>
           <Field label="Exit wait" hint="How long an exit request waits before it can complete, earning nothing.">
-            {pool?.unbondingPeriod === undefined ? unread : formatDuration(Number(pool.unbondingPeriod))}
+            {pool?.unbondingPeriod === undefined ? unread : spellDuration(Number(pool.unbondingPeriod))}
           </Field>
           <Field label="Time to complete" hint="How long a ready request stays open before it lapses.">
-            {pool?.unbondWindow === undefined ? unread : formatDuration(Number(pool.unbondWindow))}
+            {pool?.unbondWindow === undefined ? unread : spellDuration(Number(pool.unbondWindow))}
           </Field>
           <Field label="In the pool" hint="Earning stake plus stake waiting to exit.">
             <span className="tabular">{amountOr(pool?.totalStaked, unread)}</span>
@@ -402,8 +402,8 @@ function ExitCard({ data, blockedBy }: { readonly data: TokenPageData; readonly 
 
       {pool?.unbondingPeriod !== undefined && pool.unbondWindow !== undefined && (
         <p className="mt-3 text-detail text-[color:var(--color-muted)]">
-          It can complete after {formatDuration(Number(pool.unbondingPeriod))} and stays open for{' '}
-          {formatDuration(Number(pool.unbondWindow))} after that. If it is not completed by then, it lapses and earns
+          It can complete after {spellDuration(Number(pool.unbondingPeriod))} and stays open for{' '}
+          {spellDuration(Number(pool.unbondWindow))} after that. If it is not completed by then, it lapses and earns
           nothing until you put it back to work.
         </p>
       )}

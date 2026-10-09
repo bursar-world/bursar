@@ -182,7 +182,7 @@ describe('what staking exposes a staker to', () => {
     const sentence = capSentence(pool());
 
     expect(sentence).toContain('at most 10% of the pool');
-    expect(sentence).toContain('refills evenly over 7d');
+    expect(sentence).toContain('refills evenly over 7 days');
     expect(sentence).toContain('including stake waiting to exit');
   });
 

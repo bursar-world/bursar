@@ -277,7 +277,7 @@ describe('a mandate that draws parked value or credit inside a payment', () => {
   });
 
   it('still warns when the two together fall short, and says both', () => {
-    const state = evaluateFunding(snapshot({ mandateBalance: micro(1n) }), NOW, false, micro(1n) as Micro);
+    const state = evaluateFunding(snapshot({ mandateBalance: micro(10_000n) }), NOW, false, micro(10_000n) as Micro);
     expect(state.level).toBe('attention');
     expect(state.detail).toContain('Together that is less than');
   });

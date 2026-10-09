@@ -38,7 +38,7 @@ describe('CapabilityName', () => {
     expect(markup).toContain('doc.summarize:1');
   });
 
-  it('keeps the hash alongside the name, because the hash is what the contract holds', () => {
+  it('keeps the hash with the name, because the hash is what the contract holds', () => {
     const markup = renderToStaticMarkup(<CapabilityName id={SUMMARIZE} />);
     expect(markup).toContain('0x8fb1176b');
   });
@@ -67,6 +67,6 @@ describe('spend-class namespaces', () => {
   it('shows the class beside the name, and the full label on hover', () => {
     const markup = renderToStaticMarkup(<CapabilityName id={toCapabilityId('service:doc.summarize:1')} />);
     expect(markup).toContain('Services');
-    expect(markup).toContain('title="service:doc.summarize:1"');
+    expect(markup).toContain('title="service:doc.summarize:1 · 0x');
   });
 });

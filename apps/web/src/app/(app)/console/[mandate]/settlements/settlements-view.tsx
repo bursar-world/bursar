@@ -7,6 +7,7 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import type { Hex } from 'viem';
 
+import { bareLabel } from '@/chain/capabilities';
 import { shortAddress } from '@/chain/rhc';
 import { Address as AddressView, TxHash } from '@/components/address';
 import { LevelDot } from '@/components/badge';
@@ -15,9 +16,9 @@ import { Countdown, Instant } from '@/components/instant';
 import { ErrorSurface } from '@/components/error-surface';
 import { Stat, StatGrid } from '@/components/stat';
 import { Table } from '@/components/table';
-import { usd } from '@/money';
+import { usd, usdExact } from '@/money';
 import { useCapabilityLabels } from '../../lib/capability-labels';
-import { OVERDUE_DETAIL, OVERDUE_WORD, contestable, lockDetail, lockLevel, lockWord, returnable } from '../../lib/format';
+import { OVERDUE_WORD, contestable, lockDetail, lockLevel, lockWord, returnable } from '../../lib/format';
 import type { LockEvents, MandateEvent } from '../../lib/activity';
 import type { LockRecord } from '../../lib/reads';
 import { refusalOf, weaker } from '../../lib/reading';
@@ -62,11 +63,14 @@ export function SettlementsView() {
     (carry, row) => {
       const status = row.lock?.status;
       if (status === LockStatus.Released || status === LockStatus.Resolved) return { ...carry, paid: add(carry.paid, row.spent.amount) };
-      if (status === LockStatus.Locked) return { ...carry, held: add(carry.held, row.spent.amount) };
+      if (status === LockStatus.Locked) {
+        const overdue = returnable(row.lock, ledger.chainTime) ? add(carry.overdue, row.spent.amount) : carry.overdue;
+        return { ...carry, held: add(carry.held, row.spent.amount), overdue };
+      }
       if (status === LockStatus.TimedOut || status === LockStatus.Cancelled) return { ...carry, returned: add(carry.returned, row.spent.amount) };
       return carry;
     },
-    { paid: micro(0n), held: micro(0n), returned: micro(0n) },
+    { paid: micro(0n), held: micro(0n), overdue: micro(0n), returned: micro(0n) },
   );
 
   return (
@@ -83,7 +87,16 @@ export function SettlementsView() {
             <Stat
               label="Held by the escrow"
               value={<Figure reading={outcomes}>{usd(totals.held)}</Figure>}
-              hint={figureHint(outcomes, 'Waiting for the provider to deliver and claim.')}
+              hint={figureHint(
+                outcomes,
+                // Past its deadline the provider can no longer claim it, and the money is the owner's
+                // to take back. "Waiting for the provider" would send the reader the wrong way.
+                totals.overdue === 0n
+                  ? 'Waiting for the provider to deliver and claim.'
+                  : totals.overdue === totals.held
+                    ? 'Past its deadline. Return it from the exceptions page.'
+                    : `${usd(totals.overdue)} of it is past its deadline. Return that from the exceptions page.`,
+              )}
               level={outcomes.state !== 'read' ? 'unknown' : totals.held > 0n ? 'attention' : 'ok'}
             />
             <Stat
@@ -124,7 +137,7 @@ export function SettlementsView() {
                   key: 'when',
                   header: 'When',
                   cell: (row) => (
-                    <span className="text-detail">
+                    <span className="whitespace-nowrap text-detail">
                       <Instant at={row.spent.at} relative />
                     </span>
                   ),
@@ -132,7 +145,11 @@ export function SettlementsView() {
                 {
                   key: 'payee',
                   header: 'Paid to',
-                  cell: (row) => <AddressView value={row.spent.merchant} />,
+                  cell: (row) => (
+                    <span className="whitespace-nowrap">
+                      <AddressView value={row.spent.merchant} />
+                    </span>
+                  ),
                 },
                 {
                   key: 'capability',
@@ -148,8 +165,8 @@ export function SettlementsView() {
                     <span className="tabular">
                       {usd(row.spent.amount)}
                       {row.lock?.status === LockStatus.Released && feeBps !== undefined && (
-                        <span className="block text-note text-[color:var(--color-muted)]">
-                          {usd(subMicro(row.spent.amount, mulBps(row.spent.amount, feeBps)))} to the provider
+                        <span className="block whitespace-nowrap text-note text-[color:var(--color-muted)]">
+                          {usdExact(subMicro(row.spent.amount, mulBps(row.spent.amount, feeBps)))} to the provider
                         </span>
                       )}
                       {row.lock?.status === LockStatus.Resolved && row.events?.resolved && (
@@ -185,15 +202,16 @@ export function SettlementsView() {
                   cell: (row) => (
                     <span className="inline-flex flex-col items-end gap-1">
                       <span className="text-note text-[color:var(--color-muted)]">
-                        Paid <TxHash hash={row.spent.transactionHash} />
+                        {/* The agent's transaction moves the money into the escrow; the provider is paid only on its claim. */}
+                        Sent <TxHash hash={row.spent.transactionHash} />
                       </span>
                       {row.events?.released && (
-                        <span className="text-note text-[color:var(--color-muted)]">
+                        <span className="whitespace-nowrap text-note text-[color:var(--color-muted)]">
                           Claimed <TxHash hash={row.events.released.transactionHash} />
                         </span>
                       )}
                       {row.events?.timedOut && (
-                        <span className="text-note text-[color:var(--color-muted)]">
+                        <span className="whitespace-nowrap text-note text-[color:var(--color-muted)]">
                           Returned <TxHash hash={row.events.timedOut.transactionHash} />
                         </span>
                       )}
@@ -268,9 +286,9 @@ function Outcome({ row, chainTime }: { readonly row: Row; readonly chainTime: Da
       <span className="block text-note text-[color:var(--color-muted)]">
         {past ? (
           <>
-            {OVERDUE_DETAIL}{' '}
+            Not delivered in time.{' '}
             <Link href="./exceptions" className="underline underline-offset-2">
-              Return it from the exceptions page
+              Take it back
             </Link>
             .
           </>
@@ -289,7 +307,9 @@ function Outcome({ row, chainTime }: { readonly row: Row; readonly chainTime: Da
 function Capability({ id, labelFor }: { readonly id: Hex; readonly labelFor: (id: Hex) => string | undefined }) {
   const label = labelFor(id);
   return label ? (
-    <span className="text-detail">{label}</span>
+    <span className="text-detail" title={label}>
+      {bareLabel(label)}
+    </span>
   ) : (
     <span className="tabular text-detail text-[color:var(--color-muted)]" title={id}>
       {shortAddress(id, 10, 6)}

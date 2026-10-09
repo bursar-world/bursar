@@ -1,7 +1,7 @@
 'use client';
 
-import { toCapabilityId } from '@bursar/core';
-import type { Micro } from '@bursar/core';
+import { classLabel, classOfLabel, toCapabilityId } from '@bursar/core';
+import type { ContractSet, Micro } from '@bursar/core';
 import { SPEND_APPROVAL_TYPES, mandateDomain } from '@bursar/sdk';
 import type { SpendApproval } from '@bursar/sdk';
 import { useRef, useState } from 'react';
@@ -80,16 +80,17 @@ export function ApprovalsView() {
   const [signed, setSigned] = useState<{ readonly bundle: string; readonly signature: Hex } | undefined>(undefined);
   const [signingError, setSigningError] = useState<unknown>(null);
   const [burnText, setBurnText] = useState('');
-  const [registered, setRegistered] = useState<Hex | undefined>(undefined);
+  const [registered, setRegistered] = useState<{ readonly id: Hex; readonly bundle: string } | undefined>(undefined);
 
   // The id of the approval the transaction in flight carries. The form clears itself when the
   // receipt lands, so the id has to be held somewhere the clearing does not reach.
-  const sent = useRef<Hex | undefined>(undefined);
+  const sent = useRef<SpendApproval | undefined>(undefined);
 
   if (!account) return null;
 
   const merchant = readAddress(merchantText).value;
-  const capabilityId = capabilityText.trim() === '' ? undefined : toCapabilityId(capabilityText.trim());
+  const capability = chainCapability(capabilityText, account.contractSet);
+  const capabilityId = capability.id;
   const reading = readUsdgAmount(amountText, { whenEmpty: 'Set the most this payment may cost.' });
   const amount = reading.value;
 
@@ -157,26 +158,8 @@ export function ApprovalsView() {
         primaryType: 'SpendApproval',
         message: approval,
       });
-      remember(capabilityText.trim());
-      setSigned({
-        signature,
-        bundle: JSON.stringify(
-          {
-            mandate: address,
-            chainId: CHAIN_ID,
-            approval: {
-              approvalId: approval.approvalId,
-              merchant: approval.merchant,
-              capabilityId: approval.capabilityId,
-              amount: approval.amount.toString(),
-              expiry: approval.expiry.toString(),
-            },
-            signature,
-          },
-          null,
-          2,
-        ),
-      });
+      remember(capability.label ?? capabilityText.trim());
+      setSigned({ signature, bundle: bundleOf(address, approval, signature) });
     } catch (caught) {
       setSigningError(caught);
     }
@@ -197,10 +180,10 @@ export function ApprovalsView() {
         <Card>
           <FieldGrid columns={3}>
             <Field label="Threshold in force" hint="Set with the limits.">
-              {describeApproval(account.limits.approvalThreshold, account.limits.perCallCap)}
+              {describeApproval(account.limits.approvalThreshold, account.limits.perCallCap, isOwner ? 'owner' : 'visitor')}
             </Field>
             <Field label="How an approval works" hint="Good for one payment.">
-              The agent presents it with the payment. The payee, the kind of work and the amount have to match.
+              The agent presents it with the payment. The payee and the kind of work have to match.
             </Field>
             <Field label="The amount" hint="A payment at or under it goes through.">
               The amount you approve is a maximum, not an exact price.
@@ -245,8 +228,14 @@ export function ApprovalsView() {
                     }}
                     className="h-11 w-full border border-[color:var(--color-line)] bg-surface px-3.5 text-sm outline-none focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-[color:var(--color-ring)]"
                   />
-                  <p className="tabular break-all text-note text-[color:var(--color-muted)]">
-                    {capabilityId === undefined ? 'The kind of work being bought.' : `Code: ${capabilityId}`}
+                  <p
+                    className="break-all text-note"
+                    style={{ color: capability.problem ? 'var(--color-state-blocked)' : 'var(--color-muted)' }}
+                  >
+                    {capability.problem ??
+                      (capability.label !== undefined && capability.label !== capabilityText.trim()
+                        ? `Approved as ${capability.label}.`
+                        : 'The kind of work being bought, as the mandate lists it.')}
                   </p>
                 </div>
               </FieldGrid>
@@ -261,7 +250,7 @@ export function ApprovalsView() {
                     fieldChanged();
                   }}
                   {...(amountText.trim() === '' || reading.problem === undefined ? {} : { problem: reading.problem })}
-                  hint={`A maximum, not a price. The limits still apply: up to ${usd(account.limits.perCallCap)} per payment.`}
+                  hint={`The limits still apply: up to ${usd(account.limits.perCallCap)} per payment.`}
                 />
                 <div className="space-y-1">
                   <label htmlFor="approval-lifetime" className="block text-label uppercase tracking-wide text-[color:var(--color-muted)]">
@@ -347,12 +336,12 @@ export function ApprovalsView() {
                       ...writeContext,
                       ...(merchant === undefined ? {} : { merchant }),
                       ...(amount === undefined ? {} : { amount }),
-                      ...(capabilityId === undefined ? {} : { capabilityId, capability: capabilityText.trim() }),
+                      ...(capabilityId === undefined ? {} : { capabilityId, capability: capability.label ?? capabilityText.trim() }),
                     }}
                     send={() => {
                       const approval = newApproval();
-                      remember(capabilityText.trim());
-                      sent.current = approval.approvalId;
+                      remember(capability.label ?? capabilityText.trim());
+                      sent.current = approval;
                       return writeContractAsync({
                         address,
                         abi: mandateAccountAbi,
@@ -361,7 +350,9 @@ export function ApprovalsView() {
                       });
                     }}
                     onConfirmed={() => {
-                      setRegistered(sent.current);
+                      // The agent presents the registered approval itself, with no signature, so it
+                      // is handed over the same way as a signed one.
+                      if (sent.current) setRegistered({ id: sent.current.approvalId, bundle: bundleOf(address, sent.current) });
                       clear();
                       refresh();
                       // The capability is in the calldata of the grant that just landed, and
@@ -371,8 +362,8 @@ export function ApprovalsView() {
                     }}
                   />
                   <p className="max-w-xs text-note text-[color:var(--color-muted)]">
-                    A transaction from your wallet. The agent needs nothing further, and contract wallets such as Safe
-                    can approve this way.
+                    A transaction from your wallet. The agent then needs no signature, and contract wallets such as
+                    Safe can approve this way.
                   </p>
                 </div>
               </div>
@@ -382,14 +373,14 @@ export function ApprovalsView() {
               {registered && (
                 <div className="space-y-2 rounded-md border border-[color:var(--color-line)] p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <h3 className="text-sm font-semibold">Registered. This is the approval id.</h3>
-                    <CopyControl value={registered} label="Copy the approval id" />
+                    <h3 className="text-sm font-semibold">Registered. Give this to the agent.</h3>
+                    <CopyControl value={registered.bundle} label="Copy the approval" />
                   </div>
-                  <p className="tabular break-all text-note">{registered}</p>
                   <p className="text-detail text-[color:var(--color-muted)]">
-                    The mandate holds the approval, so the agent needs nothing from you. Use this id to withdraw it.
-                    It also appears in the list below.
+                    The mandate holds the approval, so the agent presents it without a signature. It is listed below,
+                    where you can withdraw it.
                   </p>
+                  <pre className="tabular whitespace-pre-wrap break-all bg-[color:var(--color-raised)] p-3 text-note">{registered.bundle}</pre>
                 </div>
               )}
 
@@ -402,7 +393,7 @@ export function ApprovalsView() {
                   <p className="text-detail text-[color:var(--color-muted)]">
                     Nothing is sent or stored, so copy it now. Leaving this screen loses it.
                   </p>
-                  <pre className="tabular overflow-x-auto bg-[color:var(--color-raised)] p-3 text-note">{signed.bundle}</pre>
+                  <pre className="tabular whitespace-pre-wrap break-all bg-[color:var(--color-raised)] p-3 text-note">{signed.bundle}</pre>
                   <Button size="sm" tone="quiet" onClick={clear}>
                     Start another
                   </Button>
@@ -662,4 +653,46 @@ function grantedApprovals(
   }
 
   return rows;
+}
+
+/**
+ * The capability an approval names, under the rule a payment is made by: a bare name is a
+ * service, a name already in a class stays in it, and a 32-byte id is the id it is. Hashing the
+ * bare text instead named a capability no payment carries, so the approval could never be used.
+ * A first-set account keeps no classes and takes the text as written.
+ */
+export function chainCapability(
+  text: string,
+  set: ContractSet,
+): { readonly id: Hex | undefined; readonly label: string | undefined; readonly problem: string | undefined } {
+  const written = text.trim();
+  if (written === '') return { id: undefined, label: undefined, problem: undefined };
+  if (/^0x[0-9a-fA-F]{64}$/u.test(written)) return { id: written as Hex, label: undefined, problem: undefined };
+  if (set === 'v1') return { id: toCapabilityId(written), label: written, problem: undefined };
+  try {
+    const label = classOfLabel(written) === undefined ? classLabel('service', written) : written;
+    return { id: toCapabilityId(label), label, problem: undefined };
+  } catch (error) {
+    return { id: undefined, label: undefined, problem: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** What the agent is handed: the approval's terms, and the signature when there is one. */
+function bundleOf(mandate: Address, approval: SpendApproval, signature?: Hex): string {
+  return JSON.stringify(
+    {
+      mandate,
+      chainId: CHAIN_ID,
+      approval: {
+        approvalId: approval.approvalId,
+        merchant: approval.merchant,
+        capabilityId: approval.capabilityId,
+        amount: approval.amount.toString(),
+        expiry: approval.expiry.toString(),
+      },
+      ...(signature === undefined ? {} : { signature }),
+    },
+    null,
+    2,
+  );
 }

@@ -93,6 +93,7 @@ export type {
 
 export {
   BRSR_SUPPLY,
+  closedBench,
   TOKEN_ADDRESSES,
   TOKEN_ROLES,
   buybackAbi,

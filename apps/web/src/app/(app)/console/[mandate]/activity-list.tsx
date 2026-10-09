@@ -6,6 +6,7 @@ import { shortAddress } from '@/chain/rhc';
 import { TxHash } from '@/components/address';
 import { Instant } from '@/components/instant';
 import { tokenAmountText, usd } from '@/money';
+import { bareLabel, classNameOf } from '@/chain/capabilities';
 import { useCapabilityLabels } from '../lib/capability-labels';
 import type { MandateEvent } from '../lib/activity';
 import { refusalOf } from '../lib/reading';
@@ -81,7 +82,9 @@ const PARKING_VAULT = 'the parking vault';
 function describe(event: MandateEvent, labelFor: (id: Hex) => string | undefined, nameOf: (who: Address) => string): string {
   switch (event.kind) {
     case 'spent':
-      return `Paid ${usd(event.amount)} to ${shortAddress(event.merchant)} for ${capability(event.capabilityId, labelFor)}`;
+      // The money goes into the escrow here and the provider is paid only when it claims, so the row
+      // names the payment rather than calling it paid. Numbered to match "used on payment 8".
+      return `Payment ${event.escrowId.toString()}: ${usd(event.amount)} to ${shortAddress(event.merchant)} for ${capability(event.capabilityId, labelFor)}`;
     case 'credited':
       return `${usd(event.amount)} returned to the budget from payment ${event.escrowId.toString()}`;
     case 'approval-granted':
@@ -112,8 +115,12 @@ function describe(event: MandateEvent, labelFor: (id: Hex) => string | undefined
       return `Agent revoked: ${shortAddress(event.agent)}`;
     case 'merchant-updated':
       return `${shortAddress(event.merchant)} ${event.allowed ? 'allowed as a payee' : 'removed as a payee'}`;
-    case 'capability-updated':
-      return `${capability(event.capabilityId, labelFor)} ${event.allowed ? 'allowed' : 'removed'}`;
+    case 'capability-updated': {
+      const label = labelFor(event.capabilityId);
+      const kind = label === undefined ? undefined : classNameOf(label);
+      const name = capability(event.capabilityId, labelFor);
+      return `${kind === undefined ? name : `${kind}: ${name}`} ${event.allowed ? 'allowed' : 'removed'}`;
+    }
     case 'gate-updated':
       return event.gate === 1 ? 'Payee list switched to a published list' : 'Payee list switched to the mandate’s own list';
     case 'document-anchored':
@@ -128,5 +135,6 @@ function describe(event: MandateEvent, labelFor: (id: Hex) => string | undefined
 const ZERO = '0x0000000000000000000000000000000000000000';
 
 function capability(id: Hex, labelFor: (id: Hex) => string | undefined): string {
-  return labelFor(id) ?? shortAddress(id, 10, 6);
+  const label = labelFor(id);
+  return label === undefined ? shortAddress(id, 10, 6) : bareLabel(label);
 }

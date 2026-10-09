@@ -6,7 +6,7 @@ import { oracleRegistryAbi } from '@/chain';
 import { Countdown, Instant } from '@/components/instant';
 import { Card, Field, FieldGrid } from '@/components/layout';
 import { TxButton } from '@/components/tx-button';
-import { formatDuration, isPast } from '@/lib';
+import { isPast, spellDuration } from '@/lib';
 import { formatBrsr } from '@/money';
 import type { AnyState } from '@/state';
 
@@ -40,7 +40,7 @@ export function UnbondPanel({
   const registry = desk?.registry;
   const config = desk?.config;
 
-  const period = config === undefined ? undefined : formatDuration(Number(config.unbondingPeriod));
+  const period = config === undefined ? undefined : spellDuration(Number(config.unbondingPeriod));
   const waiting = standing?.status === ResolverStatus.Unbonding;
   const active = standing?.status === ResolverStatus.Active;
   const openVotes = standing?.openVotes;
