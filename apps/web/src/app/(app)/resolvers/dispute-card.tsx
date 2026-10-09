@@ -139,7 +139,7 @@ export function DisputeCard({
             <Field label="What was asked for" hint="Published by the payer when the payment was locked.">
               <Evidence uri={settlement.inputURI} />
             </Field>
-            <Field label="What was delivered" hint="Published by the payee at release.">
+            <Field label="What was delivered" hint="What the payee published when it took the payment. Delivery evidence for a dispute goes to the resolvers, and the ruling below counts it.">
               <Evidence uri={settlement.outputURI} />
             </Field>
           </FieldGrid>
@@ -187,7 +187,7 @@ const INLINE_JSON = 'data:application/json;base64,';
  * holding a wallet is not a thing this product does.
  */
 function Evidence({ uri }: { readonly uri: string }) {
-  if (uri === '') return <span className="text-[color:var(--color-muted)]">Nothing published</span>;
+  if (uri === '') return <span className="text-[color:var(--color-muted)]">Nothing published at release</span>;
 
   const inline = decodeInline(uri);
   if (inline !== undefined) {
