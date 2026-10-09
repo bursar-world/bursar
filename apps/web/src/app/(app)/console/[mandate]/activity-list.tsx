@@ -2,7 +2,8 @@
 
 import type { Address, Hex } from 'viem';
 
-import { shortAddress } from '@/chain/rhc';
+import { collateralLane } from '@/chain/collateral';
+import { sameAddress, shortAddress } from '@/chain/rhc';
 import { TxHash } from '@/components/address';
 import { Instant } from '@/components/instant';
 import { tokenAmountText, usd } from '@/money';
@@ -10,7 +11,7 @@ import { bareLabel, classNameOf } from '@/chain/capabilities';
 import { useCapabilityLabels } from '../lib/capability-labels';
 import type { MandateEvent } from '../lib/activity';
 import { refusalOf } from '../lib/reading';
-import { useRwa } from '../lib/rwa';
+import { rwaLane, useRwa } from '../lib/rwa';
 import { useMandateScope } from './mandate-scope';
 
 /**
@@ -104,7 +105,9 @@ function describe(event: MandateEvent, labelFor: (id: Hex) => string | undefined
     case 'router-updated':
       return event.router === ZERO ? 'Stock purchases switched off' : `Stock purchases routed through ${shortAddress(event.router)}`;
     case 'park-updated':
-      return event.park === ZERO ? 'Parking switched off' : `Idle funds now park at ${shortAddress(event.park)}`;
+      if (event.park === ZERO) return 'Parking switched off';
+      if (sameAddress(event.park, collateralLane()?.CollateralVault)) return 'Short payments now borrow against the collateral';
+      return sameAddress(event.park, rwaLane()?.TreasuryPark) ? 'Parking turned on' : `Idle funds now park at ${shortAddress(event.park)}`;
     case 'limits-updated':
       return `Limits changed, now version ${event.version.toString()}`;
     case 'paused':
