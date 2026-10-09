@@ -5,7 +5,7 @@ import { getAddress, isAddress } from 'viem';
 import type { Address, Hex } from 'viem';
 
 import { rhcClient } from './client';
-import { formatDuration } from '../lib/time';
+import { chainNow, formatDuration } from '../lib/time';
 import { privateContracts } from './private';
 import { CHAIN_ID } from './rhc';
 
@@ -84,7 +84,7 @@ export function depositProblem(args: {
   if (amount < limits.minimumDeposit) return `The smallest deposit is ${usdgText(limits.minimumDeposit)} USDG.`;
   if (amount > limits.maxDeposit) return `One deposit can be at most ${usdgText(limits.maxDeposit)} USDG.`;
   if (room !== undefined && amount > room.room) {
-    const resets = room.resetsAt === null ? '' : ` ${resetLine(room.resetsAt, args.now ?? new Date())}`;
+    const resets = room.resetsAt === null ? '' : ` ${resetLine(room.resetsAt, args.now ?? chainNow())}`;
     return room.room === 0n
       ? `This wallet has put in ${usdgText(room.cap)} USDG, the most one wallet can in ${windowText(room.window)}.${resets}`
       : `This wallet can put in ${usdgText(room.room)} USDG more: one wallet can put in at most ${usdgText(room.cap)} USDG in ${windowText(room.window)}.${resets}`;
@@ -100,7 +100,7 @@ export function depositProblem(args: {
 }
 
 /** What this wallet may still put in, for the line under the deposit field. Undefined on a pool with no window. */
-export function depositRoomLine(room: DepositRoom | undefined, now: Date = new Date()): string | undefined {
+export function depositRoomLine(room: DepositRoom | undefined, now: Date = chainNow()): string | undefined {
   if (room === undefined) return undefined;
   const window = windowText(room.window);
   if (room.resetsAt === null) return `This wallet can put in up to ${usdgText(room.cap)} USDG in any ${window}.`;

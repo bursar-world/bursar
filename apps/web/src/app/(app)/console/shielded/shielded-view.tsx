@@ -156,6 +156,8 @@ function PoolPanel({ contracts }: { readonly contracts: ShieldedDeployment }) {
   const set = useSet(contracts, pool.data);
   const limits = poolLimits(contracts);
   const ready = setMatchesChain(set.data, pool.data?.latestRoot);
+  // The set poster answers no_root until it has posted a list, which is an answer, not a failure.
+  const unposted = (set.error as { code?: unknown } | null)?.code === 'no_root';
 
   return (
     <Section title="The pool" description="USDG only. These limits apply while the pool is new.">
@@ -175,15 +177,19 @@ function PoolPanel({ contracts }: { readonly contracts: ShieldedDeployment }) {
           />
           <Stat
             label="Approved deposits"
-            value={set.data ? `${set.data.labels.length} of ${pool.data?.events.deposits.length ?? 0}` : 'Loading'}
+            value={set.data ? `${set.data.labels.length} of ${pool.data?.events.deposits.length ?? 0}` : unposted ? 'None yet' : set.isError ? 'Not read' : 'Loading'}
             hint={
               set.data === undefined
-                ? 'Loading approved deposits.'
+                ? unposted
+                  ? 'No approved list has been posted yet. The first one follows the first deposit within a few minutes.'
+                  : set.isError
+                    ? 'The approved list could not be read. Read the page again.'
+                    : 'Loading approved deposits.'
                 : ready
                   ? 'Every deposit from a wallet the Robinhood access registry does not block. A withdrawal proves its deposit is on this list.'
                   : 'The newest deposits are waiting for approval. They can be withdrawn once the next approved list is posted.'
             }
-            level={set.data === undefined ? 'unknown' : ready ? 'ok' : 'attention'}
+            level={set.data === undefined ? (unposted ? 'attention' : 'unknown') : ready ? 'ok' : 'attention'}
           />
         </StatGrid>
       </Card>
