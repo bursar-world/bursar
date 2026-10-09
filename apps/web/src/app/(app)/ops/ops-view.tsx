@@ -6,7 +6,7 @@ import type { Address } from 'viem';
 
 import { collateralVaultAbi } from '@bursar/core';
 
-import { ADDRESSES, escrowAbi, isZeroAddress, sameAddress } from '@/chain';
+import { ADDRESSES, escrowAbi, isZeroAddress, sameAddress, shortAddress } from '@/chain';
 import { formatBps, formatBrsrAmount, formatUsdg, parseField } from '@/chain/admin-actions';
 import { Address as AddressLabel } from '@/components/address';
 import { Badge, LevelDot } from '@/components/badge';
@@ -371,7 +371,7 @@ function TreasurySection({
               blockedBy={blockedBy}
               confirmPhrase="ROTATE"
               confirmTitle="Name a successor to the escrow treasury"
-              confirmDescription="This names the address. It starts receiving only after it accepts from its own key, and once it accepts, nothing here and no proposal can undo it."
+              confirmDescription={`This names ${successorAddress === undefined ? 'the address' : shortAddress(successorAddress)}. It starts receiving only after it accepts from its own key, and once it accepts, nothing here and no proposal can undo it.`}
               send={() =>
                 writeContractAsync({
                   address: ADDRESSES.escrow,
