@@ -16,6 +16,7 @@ import {
   oracleRegistryAbi,
   reputationAbi,
   runBatch,
+  sameAddress,
   settlementAssetAbi,
   settlementComplianceAbi,
   splitSettlement,
@@ -510,15 +511,19 @@ export async function readProviderDesk(payee: Address, signal?: AbortSignal): Pr
   const settled = locks.filter(
     (lock) => lock.status !== LockStatus.Locked && lock.status !== LockStatus.Disputed,
   );
-  // Recording is a call to the escrow that holds the lock, and to the reputation contract behind
-  // it. Only the current set's locks feed the record on this page.
-  const unrecorded = locks.filter(
-    (lock) => lock.deployment.current && lock.status === LockStatus.Released && !lock.counted,
-  );
-  const recordable = unrecorded.filter((lock) => lock.stage === 'paid-unrecorded');
-
   const stats = headResults.get(slots.stats);
   const weights = headResults.get(slots.weights);
+
+  // Recording is a call to the escrow that holds the lock, and to the reputation contract behind
+  // it. Only the current set's locks feed the record on this page, and only those the contract
+  // scores: it skips a lock under its floor and one the payee paid itself, so offering to record
+  // either would promise a record that never moves.
+  const floor = weighed ? weights?.minScored : undefined;
+  const scored = (lock: ProviderLock) => !sameAddress(lock.payer, payee) && (floor === undefined || lock.amount >= floor);
+  const unrecorded = locks.filter(
+    (lock) => lock.deployment.current && lock.status === LockStatus.Released && !lock.counted && scored(lock),
+  );
+  const recordable = unrecorded.filter((lock) => lock.stage === 'paid-unrecorded');
   const record: ProviderRecord = {
     released: stats?.[0],
     timedOut: stats?.[1],
