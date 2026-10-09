@@ -70,8 +70,12 @@ function governedBy(address: Address, records: readonly Deployment[]): string {
       : contractSetOf(record) === 'v1'
         ? 'first payment contracts'
         : 'earlier payment, dispute and credit contracts';
+  // The current escrow's brake and restart sit with a delay of their own, named by the live record.
+  const current = records.find((d) => d.status === 'live');
+  const brake = current?.escrowPauser !== undefined && sameAddress(address, current.escrowPauser) && !sameAddress(address, ADDRESSES.adminTimelock);
 
-  if (payments === undefined) return 'Token, staking and buyback';
+  if (payments === undefined) return brake ? "The escrow's brake and restart" : 'Token, staking and buyback';
+  if (brake) return `The escrow's brake and restart, and the ${payments}`;
   return sameAddress(address, TOKEN_ROLES.adminTimelock) ? `Token, staking and buyback, and the ${payments}` : capitalised(payments);
 }
 

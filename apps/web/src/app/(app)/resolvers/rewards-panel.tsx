@@ -14,6 +14,13 @@ import { resolverFailure } from './refusal';
 import { useWriteContract } from '@/wallet/write';
 
 /**
+ * A cent. Splitting a fee three ways leaves a millionth of a dollar behind on most rulings, and a
+ * sweep costs more gas than that. Below this the remainder is left to collect, not put in front of
+ * every resolver as a task.
+ */
+const SWEEP_FLOOR = 10_000n;
+
+/**
  * What ruling has paid, and the two calls that move it.
  *
  * Rewards arrive in the settlement asset because they are a cut of a settlement denominated in it.
@@ -92,7 +99,7 @@ export function RewardsPanel({
           </p>
         )}
 
-        {unallocated !== undefined && unallocated > 0n && registry !== undefined && (
+        {unallocated !== undefined && unallocated >= SWEEP_FLOOR && registry !== undefined && (
           <div className="space-y-2 border-t border-[color:var(--color-line)] pt-4">
             <p className="text-sm">
               {usdExact(unallocated)} in resolver fees went to no resolver. That happens when a dispute closes without a

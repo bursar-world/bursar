@@ -108,8 +108,9 @@ export function UnbondPanel({
         </FieldGrid>
 
         <p className="text-sm">
-          Asking to unbond stops new votes from this address and starts the cooldown. Any score you sealed still has to
-          be revealed, and the bond stays locked until those disputes close, even after the cooldown ends.
+          {waiting
+            ? 'This address takes no new votes. Any score you sealed still has to be revealed, and the bond stays locked until those disputes close, even after the cooldown ends.'
+            : 'Asking to unbond stops new votes from this address and starts the cooldown. Any score you sealed still has to be revealed, and the bond stays locked until those disputes close, even after the cooldown ends.'}
         </p>
 
         {waiting ? (

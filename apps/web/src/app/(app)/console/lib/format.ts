@@ -100,7 +100,7 @@ export function lockDetail(status: LockStatus): string {
     case LockStatus.Cancelled:
       return 'Called off before it settled.';
     case LockStatus.Resolved:
-      return 'Resolvers ruled and split the amount between the two sides.';
+      return 'The resolvers decided where the money went.';
     case LockStatus.None:
     default:
       return 'No payment found under this id.';

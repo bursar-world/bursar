@@ -68,6 +68,12 @@ describe('the ruling note', () => {
     expect(html).not.toMatch(/scored \d/);
   });
 
+  it('says the reveal is open rather than counting down to a moment already past', () => {
+    const html = renderToStaticMarkup(<RulingNoteView reading={{ kind: 'sealed', revealsFrom: new Date(Date.now() - 33_000) }} />);
+    expect(html).toContain('The reveal is open');
+    expect(html).not.toContain('ago');
+  });
+
   it('says an unreadable service leaves the on-chain outcome alone', () => {
     expect(renderToStaticMarkup(<RulingNoteView reading={{ kind: 'unavailable' }} />)).toContain('unaffected');
   });

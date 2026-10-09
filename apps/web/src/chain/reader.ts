@@ -184,6 +184,8 @@ export type EscrowRead = {
    * Undefined without a mandate, or on an escrow before v3, which never holds a payout back.
    */
   readonly owed: Micro | undefined;
+  /** Stopped by the guardian. A paused escrow refuses every new lock, so no payment goes through. */
+  readonly paused: boolean | undefined;
 };
 
 export type ChainSnapshot = {
@@ -298,6 +300,7 @@ export async function readSystem(scope: ReadScope): Promise<ChainSnapshot> {
       disputeBondBps: batch.add<number>('escrow.disputeBondBps', escrowRead(escrow, 'disputeBondBps')),
       resolverFeeBps: batch.add<number>('escrow.resolverFeeBps', escrowRead(escrow, 'resolverFeeBps')),
       treasury: batch.add<Address>('escrow.treasury', escrowRead(escrow, 'treasury')),
+      paused: batch.add<boolean>('escrow.paused', escrowRead(escrow, 'paused')),
       minLock: floored ? batch.add<bigint>('escrow.minLock', escrowRead(escrow, 'minLock')) : undefined,
       owed: floored && scope.mandate ? batch.add<bigint>('escrow.owed:mandate', escrowRead(escrow, 'owed', [scope.mandate])) : undefined,
     };
@@ -482,6 +485,7 @@ export async function readSystem(scope: ReadScope): Promise<ChainSnapshot> {
       treasury: results.get(escrowSlot.treasury),
       minLock: asMicro(results.get(escrowSlot.minLock)),
       owed: asMicro(results.get(escrowSlot.owed)),
+      paused: results.get(escrowSlot.paused),
     },
     governance: {
       timelock: ADDRESSES.adminTimelock,

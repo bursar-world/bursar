@@ -49,7 +49,7 @@ export function FeeFlowSection({
 
   // A control that is off says why it is off, and an unread contract is not the same answer as an
   // empty one. Nothing is claimed until the reading has landed.
-  const now = Date.now();
+  const now = (data.token?.chainTime ?? new Date()).getTime();
   const { isKeeper, canTrigger, hold: holdReason } = buybackTrigger(buyback, data.account, data.token === undefined, now);
   const staleAt = ceilingStaleAt(buyback);
   const stale = staleAt !== undefined && staleAt.getTime() < now;

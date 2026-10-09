@@ -1597,6 +1597,13 @@ export class MandateAccountClient {
             'every lock at its face amount and refuses an asset that does not.',
         );
 
+      case 'EnforcedPause':
+        return new CallRefusedError(
+          revert.errorName,
+          'The escrow is stopped, so no payment can lock until a restart proposal runs through ' +
+            'governance. Payments it already holds still settle, and nothing was spent.',
+        );
+
       case 'ERC20InsufficientBalance':
         return new InsufficientFundsError(this.address, await this.balance(), context.amount);
 

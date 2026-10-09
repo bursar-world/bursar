@@ -6,7 +6,7 @@ import type { Address } from 'viem';
 
 import { collateralVaultAbi } from '@bursar/core';
 
-import { ADDRESSES, escrowAbi, isZeroAddress, sameAddress } from '@/chain';
+import { ADDRESSES, escrowAbi, isZeroAddress, sameAddress, shortAddress } from '@/chain';
 import { formatBps, formatBrsrAmount, formatUsdg, parseField } from '@/chain/admin-actions';
 import { Address as AddressLabel } from '@/components/address';
 import { Badge, LevelDot } from '@/components/badge';
@@ -94,7 +94,7 @@ export function OpsView() {
           <div className="mt-4">
             {data && (
               <p className="text-note text-[color:var(--color-muted)]">
-                Updated <Instant at={data.readAt} relative />
+                Updated <Instant at={data.readAt} relative local />
                 {data.blockNumber !== undefined && <> at block {data.blockNumber.toString()}</>}. Every figure below is
                 from that block.
               </p>
@@ -293,11 +293,6 @@ function FeesSection({
               send={() => writeContractAsync({ address: ADDRESSES.escrow, abi: escrowAbi, functionName: 'sweepFees' })}
               onConfirmed={onDone}
             />
-            {accrued === 0n && (
-              <p className="mt-2 text-detail text-[color:var(--color-muted)]">
-                The escrow refuses a sweep of zero.
-              </p>
-            )}
           </div>
         ) : (
           <p className="mt-5 text-detail text-[color:var(--color-muted)]">
@@ -376,7 +371,7 @@ function TreasurySection({
               blockedBy={blockedBy}
               confirmPhrase="ROTATE"
               confirmTitle="Name a successor to the escrow treasury"
-              confirmDescription="This names the address. It starts receiving only after it accepts from its own key, and once it accepts, nothing here and no proposal can undo it."
+              confirmDescription={`This names ${successorAddress === undefined ? 'the address' : shortAddress(successorAddress)}. It starts receiving only after it accepts from its own key, and once it accepts, nothing here and no proposal can undo it.`}
               send={() =>
                 writeContractAsync({
                   address: ADDRESSES.escrow,

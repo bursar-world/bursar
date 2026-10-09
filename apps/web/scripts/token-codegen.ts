@@ -78,8 +78,12 @@ const addresses = [...CONTRACTS, 'PoolManager' as const].map((name) => {
   return `  ${name}: '${value}',`;
 });
 
+// The community share sits with the token's governance delay, and moved with it when the delay was
+// replaced; reading it at the first delay showed 80% of the supply held by nobody.
+const followsTimelock = record.roles['community'] === record.roles['adminTimelock'];
 const roles = (['adminTimelock', 'community', 'treasury', 'liquidity'] as const).map((name) => {
-  const value = name === 'adminTimelock' && newer !== undefined ? newer.json.contracts['AdminTimelock'] : record.roles[name];
+  const live = newer !== undefined && (name === 'adminTimelock' || (name === 'community' && followsTimelock));
+  const value = live ? newer.json.contracts['AdminTimelock'] : record.roles[name];
   if (typeof value !== 'string') throw new Error(`roles.${name} is missing from the token deployment record.`);
   return `  ${name}: '${value}',`;
 });

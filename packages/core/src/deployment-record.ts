@@ -56,6 +56,11 @@ export type Deployment = {
   readonly settlementDecimals: 6;
   readonly deployer: Address;
   readonly contracts: Readonly<Record<MandateContractName, Address>>;
+  /**
+   * The timelock that keeps the escrow's brake, pause and unpause, where the record names one apart
+   * from its AdminTimelock. From v4 on it is the one-hour delay the third set was governed by.
+   */
+  readonly escrowPauser?: Address;
   readonly roles: DeploymentRoles;
   /**
    * Wiring read back from chain after the deploy, keyed as "contract.field". Empty for a v3 record,
@@ -246,6 +251,14 @@ export function parseDeployment(json: unknown, label = 'record'): Deployment {
     contracts[contract] = address(contractsRecord, name, contract);
   }
 
+  // A record file keeps it among its contracts; a parsed record carries it beside them.
+  const escrowPauser =
+    contractsRecord['escrowPauser'] !== undefined
+      ? address(contractsRecord, name, 'escrowPauser')
+      : record['escrowPauser'] !== undefined
+        ? address(record, name, 'escrowPauser')
+        : undefined;
+
   const rolesRecord = object(field(record, name, 'roles'), name, 'roles');
   const signers = rolesRecord['timelockSigners'];
   if (!Array.isArray(signers) || signers.length === 0) {
@@ -308,6 +321,7 @@ export function parseDeployment(json: unknown, label = 'record'): Deployment {
     settlementDecimals: MICRO_DECIMALS,
     deployer: address(record, name, 'deployer'),
     contracts: Object.freeze(contracts) as Readonly<Record<MandateContractName, Address>>,
+    ...(escrowPauser === undefined ? {} : { escrowPauser }),
     roles: Object.freeze({
       timelockSigners: Object.freeze(signers as Address[]),
       guardian: address(rolesRecord, name, 'guardian'),

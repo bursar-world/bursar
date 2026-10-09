@@ -13,7 +13,7 @@ import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
 import { Card, Section } from '@/components/layout';
 import { TxButton } from '@/components/tx-button';
-import { formatDuration } from '@/lib';
+import { spellDuration } from '@/lib';
 import type { AnyState } from '@/state';
 
 import { CalldataBuilder } from './builder';
@@ -98,7 +98,7 @@ export function ProposePanel({
       description={
         description ??
         `Proposing counts as your approval. The change then needs one more signer and the delay that administers it${
-          delaySeconds === undefined ? '' : `: ${formatDuration(Number(delaySeconds))} on the current contracts, longer on the token and staking`
+          delaySeconds === undefined ? '' : `, ${spellDuration(Number(delaySeconds))} on the current contracts`
         }.`
       }
     >
@@ -179,16 +179,20 @@ export function GuardianPanel({
   canPause,
   targets,
   delaySeconds,
+  escrowDelaySeconds,
   blockedBy,
   onPaused,
 }: {
   readonly canPause: Answer;
   readonly targets: readonly BrakeTarget[];
   readonly delaySeconds: bigint | undefined;
+  /** The delay of the timelock that keeps the escrow's brake, where it is not the current one. */
+  readonly escrowDelaySeconds?: bigint | undefined;
   readonly blockedBy: readonly AnyState[];
   readonly onPaused: () => void;
 }) {
   const allowed = permits(canPause);
+  const escrowRestart = escrowDelaySeconds === undefined || escrowDelaySeconds === delaySeconds ? undefined : spellDuration(Number(escrowDelaySeconds));
   const timelocks = governanceTimelocks();
   const outOfReach = targets.filter((target) => target.admin !== undefined && !timelocks.some((tag) => sameAddress(tag.address, target.admin)));
   const unread = targets.filter((target) => target.admin === undefined);
@@ -202,10 +206,10 @@ export function GuardianPanel({
         <div className="max-w-3xl space-y-3 text-sm">
           <p>
             The guardian key only pauses. The governance delay builds the call itself, and it is always{' '}
-            <code>pause()</code>. Restarting is an ordinary proposal: two signatures and{' '}
-            {delaySeconds === undefined ? 'the full delay' : formatDuration(Number(delaySeconds))} on the current
-            contracts. Stopping is instant and starting is not, so a stolen guardian key can cause an outage but cannot
-            move funds.
+            <code>pause()</code>. Restarting is an ordinary proposal: two signatures and the full delay of the contract
+            that paused it{delaySeconds === undefined ? '' : `, ${spellDuration(Number(delaySeconds))} on the current contracts`}
+            {escrowRestart === undefined ? '' : ` and ${escrowRestart} for the escrow`}. Stopping is instant and starting is
+            not, so a stolen guardian key can cause an outage but cannot move funds.
           </p>
           <p className="text-[color:var(--color-muted)]">
             The escrow, the dispute registry, the provider registry, the staking pool and the buyback can be paused.
@@ -250,6 +254,13 @@ export function GuardianPanel({
   );
 }
 
+/** "the escrow", or "the escrow and the buyback": what the confirmation is about to stop. */
+function namesOf(targets: readonly BrakeTarget[], chosen: readonly Address[]): string {
+  const names = targets.filter((target) => chosen.some((entry) => sameAddress(entry, target.address))).map((target) => target.name);
+  if (names.length <= 1) return names[0] ?? 'these contracts';
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
 function BrakeGroup({
   tag,
   targets,
@@ -272,7 +283,7 @@ function BrakeGroup({
   return (
     <div className="mt-5 space-y-2">
       <p className="text-detail text-[color:var(--color-muted)]">
-        {tag.name}, stopped through <AddressLabel value={tag.address} />
+        {tag.current ? 'Stopped through the current governance delay at' : 'Stopped through the delay at'} <AddressLabel value={tag.address} />
       </p>
       {tag.brake !== undefined && (
         <p className="text-detail text-[color:var(--color-muted)]">
@@ -307,8 +318,8 @@ function BrakeGroup({
           disabled={chosen.length === 0}
           blockedBy={blockedBy}
           confirmPhrase="PAUSE"
-          confirmTitle="Stop these contracts now"
-          confirmDescription="This lands in the next block with no approvals and no delay. Starting them again is a proposal, which takes two signatures and the full delay."
+          confirmTitle={`Stop ${namesOf(targets, chosen)} now`}
+          confirmDescription={`This lands in the next block with no approvals and no delay. Starting ${chosen.length > 1 ? 'them' : 'it'} again is a proposal, which takes two signatures and the full delay.`}
           send={() =>
             writeContractAsync({
               address: tag.address,

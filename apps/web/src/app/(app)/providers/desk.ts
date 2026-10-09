@@ -187,7 +187,10 @@ export type WithdrawalRequest = {
 export type ProviderStanding = {
   readonly name: string | undefined;
   readonly registered: boolean | undefined;
+  /** Payable: listed, switched on, not barred and staked at the floor. The registry's own answer. */
   readonly active: boolean | undefined;
+  /** The provider's own switch, before the floor and any bar are applied. */
+  readonly taking: boolean | undefined;
   readonly barred: boolean | undefined;
   readonly stake: Micro | undefined;
   readonly minStake: Micro | undefined;
@@ -564,6 +567,7 @@ export async function readProviderDesk(payee: Address, signal?: AbortSignal): Pr
       name: agent?.name,
       registered: headResults.get(slots.registered),
       active: headResults.get(slots.active),
+      taking: agent?.active,
       barred: headResults.get(slots.barred),
       stake: asMicro(headResults.get(slots.stake)),
       minStake: asMicro(headResults.get(slots.minStake)),

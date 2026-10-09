@@ -203,8 +203,8 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
                 <Field label="In your wallet">
                   <span className="tabular">{amountOr(data.token?.balance, unread)}</span>
                 </Field>
-                <Field label="Earning shares" hint="Your fraction of the pool.">
-                  <span className="tabular">{position?.shares === undefined ? unread : position.shares.toString()}</span>
+                <Field label="Share of the pool" hint="Your earning shares as a part of all earning shares.">
+                  <span className="tabular">{poolShare(position?.shares, data.token?.pool?.totalShares) ?? unread}</span>
                 </Field>
                 <Field label="Staking contract">
                   <Address value={TOKEN_ADDRESSES.Staking} />
@@ -222,9 +222,20 @@ export function StakingSection({ data, blockedBy }: { readonly data: TokenPageDa
   );
 }
 
+/** A raw share count means nothing to a reader; the part of the pool it is does. */
+function poolShare(shares: bigint | undefined, total: bigint | undefined): string | undefined {
+  if (shares === undefined || total === undefined) return undefined;
+  if (shares === 0n || total === 0n) return '0%';
+  const percent = Number((shares * 1_000_000n) / total) / 10_000;
+  return percent >= 0.01 ? `${percent.toLocaleString('en-US', { maximumFractionDigits: 2 })}%` : 'under 0.01%';
+}
+
 function StakeCard({ data, blockedBy }: { readonly data: TokenPageData; readonly blockedBy: readonly AnyState[] }) {
   const [text, setText] = useState('');
   const [atomic, setAtomic] = useState<bigint | undefined>(undefined);
+  // The allowance that just landed. Its receipt is the token saying yes, so Stake is offered on it
+  // rather than after a re-read the reader has to ask for.
+  const [approved, setApproved] = useState<bigint | undefined>(undefined);
   const { writeContractAsync } = useWriteContract();
 
   const balance = data.token?.balance;
@@ -237,7 +248,8 @@ function StakeCard({ data, blockedBy }: { readonly data: TokenPageData; readonly
   // wallet ends up signing a transaction that reverts on transferFrom. The balance and the brake
   // are the same story: each one decides whether this deposit can land at all.
   const allowanceKnown = allowance !== undefined;
-  const needsAllowance = allowanceKnown && amount > allowance;
+  const approvedNow = approved !== undefined && amount <= approved;
+  const needsAllowance = allowanceKnown && amount > allowance && !approvedNow;
   const ready = amount > 0n && !overBalance && paused === false && allowanceKnown && balance !== undefined;
 
   // Named only once both readings have landed, so a control that is off while the page is still
@@ -294,7 +306,10 @@ function StakeCard({ data, blockedBy }: { readonly data: TokenPageData; readonly
                 throw tokenFailure(caught, { action: 'Allow the staking contract', contract: 'staking' });
               })
             }
-            onContinue={data.refresh}
+            onConfirmed={() => {
+              setApproved(amount);
+              data.refresh();
+            }}
           />
         ) : (
           <TxButton
@@ -315,6 +330,7 @@ function StakeCard({ data, blockedBy }: { readonly data: TokenPageData; readonly
             onConfirmed={() => {
               setText('');
               setAtomic(undefined);
+              setApproved(undefined);
               data.refresh();
             }}
           />
@@ -396,7 +412,7 @@ function ExitCard({ data, blockedBy }: { readonly data: TokenPageData; readonly 
 
       {sharesToExit > 0n && shares !== undefined && (
         <p className="mt-3 text-detail text-[color:var(--color-muted)]">
-          That is {sharesToExit.toString()} of your {shares.toString()} earning shares.
+          {sharesToExit >= shares ? 'That is all of your earning stake.' : `That is ${poolShare(sharesToExit, shares) ?? 'part'} of your earning stake.`}
         </p>
       )}
 
@@ -459,7 +475,7 @@ function PendingExitCard({
   readonly blockedBy: readonly AnyState[];
 }) {
   const { writeContractAsync } = useWriteContract();
-  const stage = exitStage(exit, pool, Date.now());
+  const stage = exitStage(exit, pool, (data.token?.chainTime ?? new Date()).getTime());
   const lapsed = stage === 'lapsed';
   const matured = stage !== 'waiting';
   const heldUntil = pool?.exitsHeldUntil;

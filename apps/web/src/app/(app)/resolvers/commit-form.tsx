@@ -10,7 +10,7 @@ import { Button } from '@/components/button';
 import { ErrorSurface } from '@/components/error-surface';
 import { Card } from '@/components/layout';
 import { TxButton } from '@/components/tx-button';
-import { formatDuration } from '@/lib';
+import { spellDuration } from '@/lib';
 import type { AnyState } from '@/state';
 
 import type { DisputeRow, OracleConfig } from './desk';
@@ -168,7 +168,7 @@ export function CommitForm({
           style={{ borderColor: 'var(--color-state-attention)', color: 'var(--color-state-attention)' }}
         >
           After sealing, you have to come back to reveal. The reveal window opens when the sealing window closes and
-          lasts {formatDuration(Number(config.revealWindow))}. A sealed score that is never revealed loses{' '}
+          lasts {spellDuration(Number(config.revealWindow))}. A sealed score that is never revealed loses{' '}
           {(config.slashBps / 100).toFixed(config.slashBps % 100 === 0 ? 0 : 2)}% of your bond, and only you can reveal
           it. Your bond stays locked until this dispute closes, even if you start unbonding.
         </div>
@@ -267,6 +267,9 @@ function SaltPanel({
   readonly onKeep: () => void;
   readonly onRandom: () => void;
 }) {
+  // With the salt, a score is found by trying 0 to 100 against the sealed hash, so a salt on
+  // screen is a score anyone watching can read before the reveal.
+  const [shown, setShown] = useState(false);
   return (
     <div className="space-y-3 rounded-md border border-[color:var(--color-line)] bg-[color:var(--color-raised)] px-4 py-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -294,7 +297,17 @@ function SaltPanel({
         </>
       ) : (
         <>
-          <p className="tabular break-all text-detail">{salt.value}</p>
+          <p className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-detail">
+            <span className="tabular break-all">{shown ? salt.value : `${salt.value.slice(0, 6)}…${salt.value.slice(-4)}`}</span>
+            <button type="button" onClick={() => setShown((value) => !value)} className="text-note underline underline-offset-2">
+              {shown ? 'Hide the salt' : 'Show the salt'}
+            </button>
+          </p>
+          {!shown && (
+            <p className="text-note text-[color:var(--color-muted)]">
+              Hidden on screen: anyone who reads the salt can work out your score before you reveal it.
+            </p>
+          )}
           <p className="text-detail text-[color:var(--color-muted)]">
             {salt.source === 'wallet'
               ? `Drawn from ${shortAddress(account)}, which signed the message the same way twice, so signing again recovers it on any machine. Download the copy too if you might reveal from a different wallet.`

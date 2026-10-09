@@ -10,7 +10,7 @@ import { AmountInput } from '@/components/amount-input';
 import { Countdown, Instant } from '@/components/instant';
 import { Card, Field, FieldGrid } from '@/components/layout';
 import { TxButton, preventNavigation } from '@/components/tx-button';
-import { formatDuration } from '@/lib';
+import { spellDuration } from '@/lib';
 import { bps, usd } from '@/money';
 import type { AnyState } from '@/state';
 
@@ -48,6 +48,8 @@ export function RegisterCard({
   // the gate note under the button would answer the empty form and read as a failure under a
   // confirmation.
   const [landed, setLanded] = useState(false);
+  // What was registered, kept for the confirmation once the form has been cleared.
+  const [listed, setListed] = useState<{ readonly name: string; readonly stake: bigint } | undefined>(undefined);
   const { writeContractAsync } = useWriteContract();
 
   const facts = factsOf(desk);
@@ -63,50 +65,58 @@ export function RegisterCard({
       description="List your address so payers can pay you."
     >
       <form className="space-y-4" onSubmit={preventNavigation}>
-        <FieldGrid columns={2}>
-          <div className="space-y-1">
-            <label
-              htmlFor="provider-handle"
-              className="block text-label uppercase tracking-wide text-[color:var(--color-muted)]"
-            >
-              Handle
-            </label>
-            <input
-              id="provider-handle"
-              value={name}
-              maxLength={NAME_MAX_LENGTH}
-              autoComplete="off"
-              spellCheck={false}
-              placeholder="transcribe_eu"
-              aria-invalid={nameProblem(name) !== undefined}
-              onChange={(event) => setName(event.target.value)}
-              className="h-11 w-full border bg-surface px-3.5 text-sm outline-none focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-[color:var(--color-ring)]"
-              style={{ borderColor: nameProblem(name) ? 'var(--color-state-blocked)' : 'var(--color-line)' }}
+        {landed && listed !== undefined && (
+          <p className="text-sm">
+            Listed as <span className="font-medium">{listed.name}</span> with a stake of {usd(micro(listed.stake))}. Payers
+            can open jobs with this address now.
+          </p>
+        )}
+        {!landed && (
+          <FieldGrid columns={2}>
+            <div className="space-y-1">
+              <label
+                htmlFor="provider-handle"
+                className="block text-label uppercase tracking-wide text-[color:var(--color-muted)]"
+              >
+                Handle
+              </label>
+              <input
+                id="provider-handle"
+                value={name}
+                maxLength={NAME_MAX_LENGTH}
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="transcribe_eu"
+                aria-invalid={nameProblem(name) !== undefined}
+                onChange={(event) => setName(event.target.value)}
+                className="h-11 w-full border bg-surface px-3.5 text-sm outline-none focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-[color:var(--color-ring)]"
+                style={{ borderColor: nameProblem(name) ? 'var(--color-state-blocked)' : 'var(--color-line)' }}
+              />
+              <p className="text-note" style={{ color: nameProblem(name) ? 'var(--color-state-blocked)' : 'var(--color-muted)' }}>
+                {nameProblem(name) ??
+                  'A display name. Your address remains your identity.'}
+              </p>
+            </div>
+
+            <AmountInput
+              label="Stake"
+              asset="USDG"
+              value={text}
+              onChange={(next, value) => {
+                setText(next);
+                setAtomic(value);
+              }}
+              max={desk.balance === undefined ? undefined : { atomic: desk.balance, label: 'All of it' }}
+              hint={
+                floor === undefined
+                  ? 'The minimum stake could not be read.'
+                  : `At least ${usd(floor)}. A ruling against a job can take part of it.`
+              }
             />
-            <p className="text-note" style={{ color: nameProblem(name) ? 'var(--color-state-blocked)' : 'var(--color-muted)' }}>
-              {nameProblem(name) ??
-                'A display name. Your address remains your identity.'}
-            </p>
-          </div>
+          </FieldGrid>
+        )}
 
-          <AmountInput
-            label="Stake"
-            asset="USDG"
-            value={text}
-            onChange={(next, value) => {
-              setText(next);
-              setAtomic(value);
-            }}
-            max={desk.balance === undefined ? undefined : { atomic: desk.balance, label: 'All of it' }}
-            hint={
-              floor === undefined
-                ? 'The minimum stake could not be read.'
-                : `At least ${usd(floor)}. A ruling against a job can take part of it.`
-            }
-          />
-        </FieldGrid>
-
-        <StakeTerms desk={desk} />
+        {!landed && <StakeTerms desk={desk} />}
 
         {/*
           Keyed apart because these are two different actions in one slot. Without the keys React
@@ -146,6 +156,7 @@ export function RegisterCard({
               })
             }
             onConfirmed={() => {
+              setListed({ name, stake: amount });
               setText('');
               setAtomic(undefined);
               setLanded(true);
@@ -158,11 +169,13 @@ export function RegisterCard({
 
         {!landed && <GateNote gate={gate} />}
 
-        <p className="text-detail text-[color:var(--color-muted)]">
-          Two transactions: allow the registry to take the stake, then register. The stake is paid in USDG and transaction
-          fees in ETH.
-          {ruling !== undefined && ` One ruling can take up to ${bps(ruling)} of the stake.`}
-        </p>
+        {!landed && (
+          <p className="text-detail text-[color:var(--color-muted)]">
+            Two transactions: allow the registry to take the stake, then register. The stake is paid in USDG and
+            transaction fees in ETH.
+            {ruling !== undefined && ` One ruling can take up to ${bps(ruling)} of the stake.`}
+          </p>
+        )}
       </form>
     </Card>
   );
@@ -172,6 +185,8 @@ export function RegisterCard({
 export function AddStakeCard({ desk, blockedBy, onDone }: PanelProps) {
   const [text, setText] = useState('');
   const [atomic, setAtomic] = useState<bigint | undefined>(undefined);
+  // Cleared by a confirmed top-up; the empty field's note would read as a refusal under it.
+  const [added, setAdded] = useState(false);
   const { writeContractAsync } = useWriteContract();
 
   const facts = factsOf(desk);
@@ -189,6 +204,7 @@ export function AddStakeCard({ desk, blockedBy, onDone }: PanelProps) {
           onChange={(next, value) => {
             setText(next);
             setAtomic(value);
+            setAdded(false);
           }}
           max={desk.balance === undefined ? undefined : { atomic: desk.balance, label: 'All of it' }}
           hint="Only your score raises the job ceiling."
@@ -234,12 +250,13 @@ export function AddStakeCard({ desk, blockedBy, onDone }: PanelProps) {
             onConfirmed={() => {
               setText('');
               setAtomic(undefined);
+              setAdded(true);
               onDone();
             }}
           />
         )}
 
-        <GateNote gate={gate} />
+        {!added && <GateNote gate={gate} />}
 
         {pending && (
           <p className="text-detail" style={{ color: 'var(--color-state-attention)' }}>
@@ -263,12 +280,14 @@ export function AddStakeCard({ desk, blockedBy, onDone }: PanelProps) {
 export function WithdrawalCard({ desk, blockedBy, onDone }: PanelProps) {
   const [text, setText] = useState('');
   const [atomic, setAtomic] = useState<bigint | undefined>(undefined);
+  // Cleared by a confirmed request; the empty field's note would read as a refusal under it.
+  const [asked, setAsked] = useState(false);
   const { writeContractAsync } = useWriteContract();
 
   const facts = factsOf(desk);
   const { standing } = desk;
   const pending = standing.withdrawal;
-  const delay = standing.withdrawalDelay === undefined ? undefined : formatDuration(Number(standing.withdrawalDelay));
+  const delay = standing.withdrawalDelay === undefined ? undefined : spellDuration(Number(standing.withdrawalDelay));
 
   const requestGate = withdrawalRequestGate(facts, atomic);
   const executeGate = withdrawalExecuteGate(facts);
@@ -372,12 +391,15 @@ export function WithdrawalCard({ desk, blockedBy, onDone }: PanelProps) {
           onChange={(next, value) => {
             setText(next);
             setAtomic(value);
+            setAsked(false);
           }}
           max={standing.stake === undefined ? undefined : { atomic: standing.stake, label: 'All of it' }}
           hint={
-            standing.minStake === undefined
-              ? 'While you take work, the minimum stake has to stay.'
-              : `While you take work, ${usd(standing.minStake)} has to stay. Stop taking work to withdraw all of it.`
+            standing.active === false
+              ? 'You are not taking work, so all of it can come out.'
+              : standing.minStake === undefined
+                ? 'While you take work, the minimum stake has to stay.'
+                : `While you take work, ${usd(standing.minStake)} has to stay. Stop taking work to withdraw all of it.`
           }
         />
 
@@ -397,11 +419,12 @@ export function WithdrawalCard({ desk, blockedBy, onDone }: PanelProps) {
           onConfirmed={() => {
             setText('');
             setAtomic(undefined);
+            setAsked(true);
           }}
           onContinue={onDone}
         />
 
-        <GateNote gate={requestGate} />
+        {!asked && <GateNote gate={requestGate} />}
 
         <p className="text-detail text-[color:var(--color-muted)]">{caveat}</p>
       </form>
@@ -416,6 +439,9 @@ export function AvailabilityCard({ desk, blockedBy, onDone }: PanelProps) {
   const stop = deactivateGate(facts);
   const start = reactivateGate(facts);
   const active = desk.standing.active;
+  const { taking, stake, minStake } = desk.standing;
+  // Switched on, and still not payable: the floor rose above the stake, or governance barred the address.
+  const underFloor = active === false && taking === true && stake !== undefined && minStake !== undefined && stake < minStake;
 
   return (
     <Card title="Taking work" description="Whether payers can open new jobs with you.">
@@ -425,11 +451,13 @@ export function AvailabilityCard({ desk, blockedBy, onDone }: PanelProps) {
             ? 'Could not read whether you are taking work. Read the desk again.'
             : active
               ? 'Payers can open jobs with you. Stopping refuses new jobs right away, and open jobs still need delivering.'
-              : 'You are not taking new jobs. Your stake stays posted, and a ruling can still take from it.'}
+              : underFloor
+                ? `Payers cannot open jobs with you: your stake of ${usd(stake)} is under the ${usd(minStake)} minimum. Add to the stake to take work again.`
+                : 'You are not taking new jobs. Your stake stays posted, and a ruling can still take from it.'}
         </p>
 
         <div className="flex flex-wrap items-start gap-3">
-          {active === false ? (
+          {underFloor ? null : active === false ? (
             <TxButton
               key="reactivate"
               label="Take work again"
@@ -466,7 +494,7 @@ export function AvailabilityCard({ desk, blockedBy, onDone }: PanelProps) {
           )}
         </div>
 
-        <GateNote gate={active === false ? start : stop} />
+        {!underFloor && <GateNote gate={active === false ? start : stop} />}
       </div>
     </Card>
   );
@@ -475,7 +503,7 @@ export function AvailabilityCard({ desk, blockedBy, onDone }: PanelProps) {
 /** What the stake buys and what takes it, read from the registry rather than written into the page. */
 function StakeTerms({ desk }: { readonly desk: ProviderDesk }) {
   const { standing } = desk;
-  const delay = standing.withdrawalDelay === undefined ? undefined : formatDuration(Number(standing.withdrawalDelay));
+  const delay = standing.withdrawalDelay === undefined ? undefined : spellDuration(Number(standing.withdrawalDelay));
 
   return (
     <FieldGrid columns={3}>
@@ -521,6 +549,8 @@ export function GateNote({ gate }: { readonly gate: Gate }): ReactNode {
       </p>
     );
   }
+
+  if (gate.quiet === true) return <p className="text-detail text-[color:var(--color-muted)]">{gate.reason}</p>;
 
   return (
     <p className="flex items-start gap-2 text-detail">

@@ -17,7 +17,7 @@ import { bps, usd, usdExact } from '@/money';
 import type { AnyState } from '@/state';
 
 import { CommitForm } from './commit-form';
-import type { DisputeRow, OracleConfig } from './desk';
+import type { ContestedSettlement, DisputeRow, OracleConfig } from './desk';
 import { ROSTER_SEATS, commitCheck, phaseLabel, phaseLevel, revealCheck, silenceSlash } from './phases';
 import type { CommitBlocker, RevealBlocker } from './phases';
 import { resolverFailure } from './refusal';
@@ -108,8 +108,8 @@ export function DisputeCard({
             nothing. The escrow held 0.005 USDG against dispute 1 and this field read $0.00, which
             tells a resolver the disputer has staked nothing when they have.
           */}
-          <Field label="Contest bond" hint="Posted by whoever contested, and the ruling decides whether it comes back.">
-            <span className="tabular">{settlement === undefined ? 'Not read' : usdExact(settlement.bond)}</span>
+          <Field label="Contest bond" hint={bondHint(dispute)}>
+            <span className="tabular">{settlement === undefined ? 'Not read' : bondValue(dispute, settlement)}</span>
           </Field>
         </FieldGrid>
 
@@ -278,7 +278,7 @@ function Outcome({ dispute, resolverFeeBps }: { readonly dispute: DisputeRow; re
     return (
       <p className="text-sm">
         The panel ruled with a median score of <span className="tabular font-semibold">{dispute.medianScore}</span>,
-        setting the refund at {bps(dispute.refundBps)}. The payee keeps the rest. {money} The fee is split between
+        setting the refund at {bps(dispute.refundBps)}. {money} The fee is split between
         the {dispute.rewardShares} {dispute.rewardShares === 1 ? 'score' : 'scores'} that held.
       </p>
     );
@@ -292,11 +292,44 @@ function Outcome({ dispute, resolverFeeBps }: { readonly dispute: DisputeRow; re
   );
 }
 
+/**
+ * Where the money went, said for the side that got it. The payee's share is what the ruling
+ * awarded before the escrow's settlement fee, which the escrow takes from that share alone.
+ */
 function refundSentence(amount: Micro, refundBps: number, resolverFeeBps: number): string {
   const split = splitSettlement(amount, refundBps, resolverFeeBps, 0);
-  return `The payer was refunded ${usdExact(split.refunded)} of the ${usd(amount)} held, after a ${bps(
-    resolverFeeBps,
-  )} resolver fee of ${usdExact(split.resolverFee)}.`;
+  const fee = `after a ${bps(resolverFeeBps)} resolver fee of ${usdExact(split.resolverFee)}`;
+  if (refundBps >= 10_000) return `The payer was refunded ${usdExact(split.refunded)} of the ${usd(amount)} held, ${fee}, and the payee was paid nothing.`;
+  if (refundBps === 0) return `Nothing went back to the payer. The payee was awarded ${usdExact(split.paid)} of the ${usd(amount)} held, ${fee}.`;
+  return `The payer was refunded ${usdExact(split.refunded)} and the payee was awarded ${usdExact(split.paid)} of the ${usd(amount)} held, ${fee}.`;
+}
+
+/**
+ * The escrow zeroes a lock's bond when it rules, so a closed dispute reads 0 there whatever was
+ * staked. What the ruling did with it follows from the refund: the disputer gets it back when the
+ * money moved its way, an even split counting for whoever contested.
+ */
+function bondSettled(dispute: DisputeRow, settlement: ContestedSettlement): 'returned' | 'forfeited' | undefined {
+  if (dispute.phase !== 'finalized' || settlement.status !== LockStatus.Resolved || settlement.bond !== 0n) return undefined;
+  if (dispute.bondBps === undefined || dispute.bondBps === 0) return undefined;
+  if (dispute.rewardShares === 0) return 'returned';
+  const byPayer = settlement.disputer.toLowerCase() === settlement.payer.toLowerCase();
+  return (byPayer ? dispute.refundBps >= 5_000 : dispute.refundBps <= 5_000) ? 'returned' : 'forfeited';
+}
+
+function bondValue(dispute: DisputeRow, settlement: ContestedSettlement): string {
+  const settled = bondSettled(dispute, settlement);
+  if (settled === 'returned') return 'Returned';
+  if (settled === 'forfeited') return 'Paid to the resolvers';
+  return usdExact(settlement.bond);
+}
+
+function bondHint(dispute: DisputeRow): string {
+  const settlement = dispute.settlement;
+  const settled = settlement === undefined ? undefined : bondSettled(dispute, settlement);
+  if (settled === 'returned') return 'The ruling went the way of whoever contested, so the bond went back to them.';
+  if (settled === 'forfeited') return 'The ruling went against whoever contested, so the bond was shared with the resolvers whose scores held.';
+  return 'Posted by whoever contested, and the ruling decides whether it comes back.';
 }
 
 function YourPart({ dispute }: { readonly dispute: DisputeRow }) {
@@ -410,7 +443,7 @@ function Action({
     const check = revealCheck(
       { status: dispute.status, commitEndsAt: dispute.commitEndsAt, revealEndsAt: dispute.revealEndsAt, commitCount: dispute.commitCount, revealCount: dispute.revealCount },
       { committed: dispute.yours?.committed, revealed: dispute.yours?.revealed },
-      new Date(),
+      chainTime,
     );
 
     if (!check.allowed) {

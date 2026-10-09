@@ -35,7 +35,7 @@ export function OverviewView() {
         </Card>
         {system.snapshot && (
           <p className="text-note text-[color:var(--color-muted)]">
-            Updated <Instant at={system.snapshot.readAt} relative />.
+            Updated <Instant at={system.snapshot.readAt} relative local />.
           </p>
         )}
       </Section>

@@ -69,7 +69,7 @@ export function DeskView({ payee, owned }: { readonly payee: Address; readonly o
             <span className="text-note text-[color:var(--color-muted)]">
               {desk ? (
                 <>
-                  Updated <Instant at={desk.readAt} relative />
+                  Updated <Instant at={desk.readAt} relative local />
                   {desk.blockNumber !== undefined && <> at block {desk.blockNumber.toString()}</>}.
                 </>
               ) : (
@@ -564,11 +564,12 @@ function Condition({ level, text }: { readonly level: 'ok' | 'attention' | 'bloc
   );
 }
 
+/** One sentence for every earlier set together: each set used to add its own copy of the same one. */
 function earlierNote(desk: ProviderDesk): string {
   if (desk.earlier.length === 0) return '';
   return desk.earlier.every((entry) => entry.complete)
     ? ' Jobs on earlier contracts are included and marked.'
-    : ' Jobs on earlier contracts are included and marked where they could be read.';
+    : ' Jobs on some earlier contracts could not be read.';
 }
 
 /** How many jobs are open, and how many of those a payer can already take back. */

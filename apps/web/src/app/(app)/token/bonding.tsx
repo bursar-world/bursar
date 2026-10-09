@@ -157,7 +157,9 @@ export function BondingSection({ data }: { readonly data: TokenPageData }) {
 
           {!registered && bond?.yourStatus !== undefined && (
             <p className="mt-4 text-detail text-[color:var(--color-muted)]">
-              This wallet is not a resolver. Register from the Resolvers page with at least the minimum bond above.
+              {closed
+                ? 'This wallet is not a resolver. Resolvers are admitted by governance, each with a floor of its own.'
+                : 'This wallet is not a resolver. Register from the Resolvers page with at least the minimum bond above.'}
             </p>
           )}
         </Card>

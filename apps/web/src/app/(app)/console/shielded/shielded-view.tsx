@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import type { ShieldedDeployment } from '@bursar/core';
+import { relayFeeBpsFor } from '@bursar/sdk';
 import type { AssociationSet, OwnedNote, ShieldedKeys } from '@bursar/sdk';
 import type { Address, Hex } from 'viem';
 import { useSignTypedData } from 'wagmi';
@@ -28,6 +29,7 @@ import {
   readAssociationSet,
   readPool,
   readRoom,
+  relayFee,
   setMatchesChain,
   shieldedContracts,
   shieldedKeysFrom,
@@ -157,6 +159,8 @@ function PoolPanel({ contracts }: { readonly contracts: ShieldedDeployment }) {
   const deposits = pool.data?.events.deposits.length ?? 0;
   // An empty pool has nothing waiting: the posted list and the chain only disagree once a deposit lands.
   const ready = deposits === 0 || setMatchesChain(set.data, pool.data?.latestRoot);
+  // The set poster answers no_root until it has posted a list, which is an answer, not a failure.
+  const unposted = (set.error as { code?: unknown } | null)?.code === 'no_root';
 
   return (
     <Section title="The pool" description="USDG only. These limits apply while the pool is new.">
@@ -176,15 +180,19 @@ function PoolPanel({ contracts }: { readonly contracts: ShieldedDeployment }) {
           />
           <Stat
             label="Approved deposits"
-            value={set.data ? (deposits === 0 ? 'None yet' : ready ? `${set.data.labels.length} of ${deposits}` : 'Next list pending') : 'Loading'}
+            value={set.data ? (deposits === 0 ? 'None yet' : ready ? `${set.data.labels.length} of ${deposits}` : 'Next list pending') : unposted ? 'None yet' : set.isError ? 'Not read' : 'Loading'}
             hint={
               set.data === undefined
-                ? 'Loading approved deposits.'
+                ? unposted
+                  ? 'No approved list has been posted yet. The first one follows the first deposit within a few minutes.'
+                  : set.isError
+                    ? 'The approved list could not be read. Read the page again.'
+                    : 'Loading approved deposits.'
                 : ready
                   ? 'Every deposit from a wallet the Robinhood access registry does not block. A withdrawal proves its deposit is on this list.'
                   : 'The newest deposits are waiting for approval. They can be withdrawn once the next approved list is posted.'
             }
-            level={set.data === undefined ? 'unknown' : ready ? 'ok' : 'attention'}
+            level={set.data === undefined ? (unposted ? 'attention' : 'unknown') : ready ? 'ok' : 'attention'}
           />
         </StatGrid>
       </Card>
@@ -392,7 +400,8 @@ function NoteList({
         <Card>
           <div className="space-y-1 text-detail" role="status">
             <p>
-              The relayer sent {usdgText(last.amount)} USDG to <AddressView value={last.recipient} />.
+              {usdgText(last.amount - last.fee)} USDG arrived at <AddressView value={last.recipient} />, sent by the relayer
+              {last.fee > 0n ? ` after its ${usdgText(last.fee)} USDG fee` : ''}.
             </p>
             <TxHash hash={last.hash} />
           </div>
@@ -564,7 +573,7 @@ function WithdrawForm({
         events: reading.events,
         set,
       });
-      onSent({ hash: result.transactionHash, recipient: recipient.value, amount });
+      onSent({ hash: result.transactionHash, recipient: recipient.value, amount, fee: relayFee(amount, relayFeeBpsFor(quote.data, amount, gasDrop)) });
       onDone();
     } catch (error) {
       setProblem(`Nothing was sent: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`);
@@ -619,7 +628,8 @@ function WithdrawForm({
   );
 }
 
-type Withdrawn = { readonly hash: Hex; readonly recipient: Address; readonly amount: bigint };
+/** `fee` is what the relayer kept, so the confirmation can say what arrived rather than what left the pool. */
+type Withdrawn = { readonly hash: Hex; readonly recipient: Address; readonly amount: bigint; readonly fee: bigint };
 
 function Problem({ text }: { readonly text: string }) {
   return (
