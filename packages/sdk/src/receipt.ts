@@ -30,14 +30,10 @@ export async function awaitReceipt(
       timeout: connection.receiptTimeoutMs,
     });
   } catch (error) {
-    // Matched by name, not by class. `instanceof` is only true for the copy of viem that
-    // threw, and a workspace resolving two copies is ordinary; against the wrong copy the timeout
-    // would be rethrown raw and the caller would lose the one error that says do not resend.
-    if (error instanceof Error && error.name === 'WaitForTransactionReceiptTimeoutError') {
-      throw new SubmittedButUnconfirmedError(hash, connection.receiptTimeoutMs, error);
-    }
-
-    throw error;
+    // Once the hash exists the call may have landed, whatever went wrong reading it back: a timeout,
+    // or every endpoint failing at once. Rethrown raw, either reads as a failure, and a caller that
+    // retries a payment pays twice.
+    throw new SubmittedButUnconfirmedError(hash, connection.receiptTimeoutMs, error);
   }
 
   if (receipt.status !== 'success') throw new TransactionRevertedError(action, hash);

@@ -165,7 +165,15 @@ function gatewayFor(options: CollateralGatewayOptions, lane: CollateralDeploymen
     try {
       await client.call({ account: signer, to, data });
       const hash = await wallet.sendTransaction({ account: signer, chain: viemChain(options.chain), to, data });
-      const receipt = await client.waitForTransactionReceipt({ hash });
+      const receipt = await client.waitForTransactionReceipt({ hash }).catch(() => {
+        // Sent: a receipt that could not be read says nothing about whether it landed.
+        throw new ToolError(
+          'signer_unconfirmed',
+          `The ${action} was signed and submitted as ${hash}, and its receipt could not be read. It may have ` +
+            'landed. Look the transaction up before sending it again.',
+          { txHash: hash },
+        );
+      });
       if (receipt.status !== 'success') throw new ToolError('call_failed', `${action} reverted on chain in ${hash}.`);
       return hash;
     } catch (error) {

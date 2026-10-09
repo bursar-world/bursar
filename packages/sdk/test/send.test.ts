@@ -146,12 +146,15 @@ describe('sendCall', () => {
     await expect(failure).rejects.toMatchObject({ hash: FAKE_HASH });
   });
 
-  it('lets an unrelated failure through untouched', async () => {
-    const fake = fakeConnection({ receiptError: new Error('connect ECONNREFUSED') });
+  it('reports a receipt it could not read as sent, not as a failure to retry', async () => {
+    // The transaction went out before the endpoint refused the receipt read. Passed through raw, a
+    // refused connection reads as a failed payment, and a caller that retries pays twice.
+    const refused = new Error('connect ECONNREFUSED');
+    const fake = fakeConnection({ receiptError: refused });
 
-    await expect(
-      sendCall(fake.connection, { to: TARGET, data: DATA, action: 'spend' }),
-    ).rejects.toThrow('connect ECONNREFUSED');
+    const sent = sendCall(fake.connection, { to: TARGET, data: DATA, action: 'spend' });
+    await expect(sent).rejects.toBeInstanceOf(SubmittedButUnconfirmedError);
+    await expect(sent).rejects.toMatchObject({ cause: refused });
   });
 });
 

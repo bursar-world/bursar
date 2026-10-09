@@ -54,6 +54,21 @@ describe('RpcPool', () => {
     expect(seen).toEqual([PRIMARY]);
   });
 
+  it('reads method not found under an HTTP 400 as an answer, and keeps the breaker shut', async () => {
+    // dRPC answers eth_fillTransaction, which viem probes before every write, with HTTP 400 and
+    // -32601. Counted as failures, those probes opened the breaker on an endpoint that served every
+    // other call, and a payment that had landed came back as a failure.
+    const { fn, seen } = fetcher({
+      [PRIMARY]: { status: 400, body: { jsonrpc: '2.0', id: 1, error: { code: -32601, message: 'method is not available' } } },
+    });
+    const p = pool(fn);
+    for (let i = 0; i < 3; i += 1) {
+      await expect(p.request('eth_fillTransaction', [{}])).rejects.toBeInstanceOf(RpcResponseError);
+    }
+    expect(seen).toEqual([PRIMARY, PRIMARY, PRIMARY]);
+    expect(p.status()[0]).toMatchObject({ name: 'primary', state: 'closed', consecutiveFailures: 0 });
+  });
+
   it('falls through to the fallback on a 429, slows the primary and leaves its breaker alone', async () => {
     const events: RpcPoolEvent[] = [];
     const { fn, seen } = fetcher({

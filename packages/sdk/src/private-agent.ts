@@ -13,9 +13,13 @@ import { privateKeyToAccount } from 'viem/accounts';
 
 import type { CommittedClass } from './committed.js';
 import type { AgentHandoff } from './handoff.js';
+import { SubmittedButUnconfirmedError } from './errors.js';
 import { jobCommit, jobDocument, jobURI, type JobSpec } from './job.js';
 import { proveSpend, recoverState, spendArgs } from './prove.js';
 import { publishedViewingKey, sealedURI } from './seal.js';
+
+/** How long a spend waits for its receipt before it is reported as sent and unconfirmed. */
+const RECEIPT_WAIT_MS = 180_000;
 
 export type PrivatePayment = {
   readonly payee: Address;
@@ -81,7 +85,13 @@ export function privateAgent(handoff: AgentHandoff, client: Client) {
     // estimated per call rather than fixed.
     const gas = await client.estimateContractGas({ ...request, account });
     const hash = await wallet.writeContract({ ...request, gas: (gas * 6n) / 5n });
-    const receipt = await client.waitForTransactionReceipt({ hash });
+    let receipt: TransactionReceipt;
+    try {
+      receipt = await client.waitForTransactionReceipt({ hash, timeout: RECEIPT_WAIT_MS });
+    } catch (error) {
+      // The spend was sent; reading its receipt back failing says nothing about whether it landed.
+      throw new SubmittedButUnconfirmedError(hash, RECEIPT_WAIT_MS, error);
+    }
     if (receipt.status !== 'success') throw new Error(`The spend reverted: ${hash}`);
     return { hash, escrowId: result, sealed: viewingKey !== null, receipt };
   }

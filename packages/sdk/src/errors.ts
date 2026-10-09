@@ -546,7 +546,7 @@ export class SubmittedButUnconfirmedError extends BursarError {
   constructor(hash: Hex, timeoutMs: number, cause?: unknown) {
     super(
       'receipt_timeout',
-      `Transaction ${hash} was submitted but no receipt arrived within ${timeoutMs}ms. ` +
+      `Transaction ${hash} was submitted and its receipt was not read within ${timeoutMs}ms. ` +
         'It may still confirm. Report the hash and check it before sending the call again.',
       { hash, timeoutMs },
     );

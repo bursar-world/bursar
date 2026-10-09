@@ -138,19 +138,18 @@ export function createLocalSigner(options: LocalSignerOptions): SpendRelay {
     try {
       receipt = await client.waitForTransactionReceipt({ hash, timeout: timeoutMs });
     } catch (error) {
-      // Matched by name rather than by class: `instanceof` holds only for the copy of viem that
-      // threw, and a workspace resolving two copies is ordinary.
-      if (error instanceof Error && error.name === 'WaitForTransactionReceiptTimeoutError') {
-        throw new ToolError(
-          'signer_unconfirmed',
-          `The ${action} was signed and submitted as ${hash}, and no receipt arrived within ` +
-            `${timeoutMs}ms. It may still be mining. Read the settlements for this mandate before ` +
-            'paying again.',
-          { txHash: hash, timeoutMs },
-        );
-      }
-
-      throw error;
+      // Once the hash exists the payment may have landed, whatever went wrong reading it back. A
+      // timeout and every endpoint failing at once both end here; passed on raw, either reached the
+      // caller as call_failed, whose advice is to try again, and a retried payment pays twice.
+      // Matched by name rather than by class: `instanceof` holds only for the copy of viem that threw.
+      const timedOut = error instanceof Error && error.name === 'WaitForTransactionReceiptTimeoutError';
+      throw new ToolError(
+        'signer_unconfirmed',
+        `The ${action} was signed and submitted as ${hash}, and ` +
+          (timedOut ? `no receipt arrived within ${timeoutMs}ms. It may still be mining.` : 'its receipt could not be read. It may have landed.') +
+          ' Read the settlements for this mandate, or look the transaction up, before paying again.',
+        { txHash: hash, timeoutMs },
+      );
     }
 
     // viem resolves a reverted receipt as an ordinary result. Without this the caller would read a

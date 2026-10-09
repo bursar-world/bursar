@@ -1,4 +1,4 @@
-import { toMicro } from '@bursar/core';
+import { isBursarError, toMicro } from '@bursar/core';
 import type { Micro } from '@bursar/core';
 import { returnedNoData } from '@bursar/sdk';
 import { isAddress, isHex } from 'viem';
@@ -1261,8 +1261,8 @@ export type ErrorView = {
 
 const CALL_FAILED =
   'This server could not complete the call, and the reason stayed inside the process where the operator ' +
-  'reads it. Try the call again. If it was a payment, read mandate_list_settlements first: a call that ' +
-  'fails on the way out can still have landed on chain.';
+  'reads it. If it was a payment, do not send it again until mandate_list_settlements shows whether it ' +
+  'landed: a call that fails on the way out can still have reached the chain. Any other call can be tried again.';
 
 /**
  * A read that came back empty. The address holds no contract of the kind this server was told it
@@ -1335,6 +1335,12 @@ function describe(error: unknown): ErrorView {
     return Object.keys(error.detail).length === 0
       ? { error: error.code, message: error.message }
       : { error: error.code, message: error.message, detail: { ...error.detail } };
+  }
+
+  // The SDK's word for a write that was sent and not read back. It has to reach the caller as such:
+  // reduced to call_failed it would read as a payment that never happened.
+  if (isBursarError(error) && error.code === 'receipt_timeout') {
+    return { error: 'signer_unconfirmed', message: error.message, detail: { ...error.details } };
   }
 
   if (returnedNoData(error)) return { error: 'no_contract', message: NO_CONTRACT };

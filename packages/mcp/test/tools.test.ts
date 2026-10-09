@@ -523,7 +523,7 @@ describe('failures', () => {
     const result = await callTool(contextFor(fake), 'mandate_inspect', {});
 
     expect(parse(result)['error']).toBe('call_failed');
-    expect(parse(result)['message']).toContain('read mandate_list_settlements first');
+    expect(parse(result)['message']).toContain('do not send it again until mandate_list_settlements shows whether it');
   });
 
   /**

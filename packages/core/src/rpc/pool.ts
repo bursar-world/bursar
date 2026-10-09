@@ -667,6 +667,12 @@ export class RpcPool {
     }
 
     if (!response.ok) {
+      // Some providers send "method not found" with an HTTP error status. That is an answer about the
+      // method, not a sick endpoint: counted as a failure it opens the breaker of a provider that
+      // serves every other call, and viem probes optional methods such as eth_fillTransaction on
+      // every write.
+      const unsupported = await methodNotFound(response);
+      if (unsupported !== undefined) throw new RpcResponseError(provider.name, method, METHOD_NOT_FOUND, unsupported, undefined);
       throw new BursarError('rpc_http_error', `HTTP ${response.status} from ${provider.name}`, {
         provider: provider.name,
         status: response.status,
@@ -709,6 +715,19 @@ export class RpcPool {
     }
 
     return body.result as T;
+  }
+}
+
+const METHOD_NOT_FOUND = -32601;
+
+/** The JSON-RPC message of a "method not found" answer sent under an HTTP error status, if that is what it is. */
+async function methodNotFound(response: Response): Promise<string | undefined> {
+  try {
+    const body = (await response.json()) as JsonRpcResponse;
+    if (body.error?.code !== METHOD_NOT_FOUND) return undefined;
+    return typeof body.error.message === 'string' ? body.error.message : 'method not found';
+  } catch {
+    return undefined;
   }
 }
 
