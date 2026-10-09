@@ -12,7 +12,7 @@ import { Countdown, Instant } from '@/components/instant';
 import { Card, EmptyState, Field, FieldGrid, Section } from '@/components/layout';
 import { Unread } from '@/components/status';
 import { TxButton } from '@/components/tx-button';
-import { formatDuration } from '@/lib';
+import { spellDuration } from '@/lib';
 import { useSystemState } from '@/state';
 import type { AnyState } from '@/state';
 import { useWalletAccount } from '@/wallet/account';
@@ -66,8 +66,8 @@ export function GovernanceView() {
           <div className="max-w-3xl space-y-3 text-sm">
             <p>
               A change needs two of the three signers. The delay before it takes effect gives anyone relying on Bursar
-              time to read it and leave. Any one signer can cancel a proposal before it runs, so blocking a change is
-              easier than making one.
+              time to read it and leave. Before it runs, the proposer can withdraw it alone, and two signers can veto
+              anyone else's, so stopping a change takes no more than making one.
             </p>
             <p>
               Each governance delay is a timelock: a contract that holds an approved change until its wait is over. More
@@ -182,7 +182,7 @@ function TimelockFacts({ reading }: { readonly reading: TimelockReading }) {
       <p className="mb-2 text-sm font-medium">{reading.tag.name}</p>
       <FieldGrid columns={4}>
         <Field label="Delay" hint="Fixed for the life of the contract. Nothing can change it.">
-          {reading.delaySeconds === undefined ? NOT_READ : formatDuration(Number(reading.delaySeconds))}
+          {reading.delaySeconds === undefined ? NOT_READ : spellDuration(Number(reading.delaySeconds))}
         </Field>
         <Field label="Approvals needed" hint="Proposing counts as the proposer's approval.">
           {reading.requiredApprovals === undefined || reading.signerCount === undefined
@@ -190,7 +190,7 @@ function TimelockFacts({ reading }: { readonly reading: TimelockReading }) {
             : `${reading.requiredApprovals} of ${reading.signerCount}`}
         </Field>
         <Field label="Window to execute" hint="Opens after the delay. A proposal not executed in time must be proposed again.">
-          {reading.graceSeconds === undefined ? NOT_READ : formatDuration(Number(reading.graceSeconds))}
+          {reading.graceSeconds === undefined ? NOT_READ : spellDuration(Number(reading.graceSeconds))}
         </Field>
         <Field label="Governance contract">
           <Address value={reading.tag.address} />

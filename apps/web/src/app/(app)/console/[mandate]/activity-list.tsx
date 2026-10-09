@@ -109,7 +109,8 @@ function describe(event: MandateEvent, labelFor: (id: Hex) => string | undefined
       if (sameAddress(event.park, collateralLane()?.CollateralVault)) return 'Short payments now borrow against the collateral';
       return sameAddress(event.park, rwaLane()?.TreasuryPark) ? 'Parking turned on' : `Idle funds now park at ${shortAddress(event.park)}`;
     case 'limits-updated':
-      return `Limits changed, now version ${event.version.toString()}`;
+      // A mandate is created with its first limits, which is setting them, not changing them.
+      return event.version === 1n ? 'Limits set' : `Limits changed, now version ${event.version.toString()}`;
     case 'paused':
       return event.paused ? 'Mandate paused' : 'Mandate resumed';
     case 'agent-seated':

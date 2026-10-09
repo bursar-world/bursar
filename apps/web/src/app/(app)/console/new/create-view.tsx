@@ -20,7 +20,7 @@ import { Blockers } from '@/components/status';
 import { TxButton } from '@/components/tx-button';
 import type { TxContext, TxPhase } from '@/components/tx-button';
 import { ConnectButton } from '@/wallet/connect-button';
-import { formatEth, formatEthApprox } from '@/money';
+import { formatEthApprox, formatEthBalance } from '@/money';
 import { DEPLOY_FEE, useSystemState } from '@/state';
 import type { AnyState } from '@/state';
 import { AddressInput, readAddress } from '@/components/address-input';
@@ -435,7 +435,7 @@ export function CreateMandateView({ draftId, lane: askedLane }: { readonly draft
 
             {shortOfFee && (
               <p className="text-detail" style={{ color: 'var(--color-state-blocked)' }}>
-                Your wallet holds {formatEth(feeBalance)}, and creating the mandate costs {formatEthApprox(DEPLOY_FEE)} in
+                Your wallet holds {formatEthBalance(feeBalance)}, and creating the mandate costs {formatEthApprox(DEPLOY_FEE)} in
                 network fees. Add ETH to this wallet first.
               </p>
             )}

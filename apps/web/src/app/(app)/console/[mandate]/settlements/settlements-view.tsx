@@ -62,10 +62,12 @@ export function SettlementsView() {
   const totals = rows.reduce(
     (carry, row) => {
       const status = row.lock?.status;
-      // A ruling splits the payment: what came back is the refund, and the rest is spent for good.
+      // A ruling splits the payment three ways: the provider's award is settled, the refund came back,
+      // and the resolvers' fee is neither. Counting the fee as settled read "delivered and paid for"
+      // beside a ruling that paid the provider nothing.
       const ruled = status === LockStatus.Resolved ? row.events?.resolved : undefined;
       if (ruled !== undefined) {
-        return { ...carry, paid: add(carry.paid, micro(row.spent.amount - ruled.refunded)), returned: add(carry.returned, ruled.refunded) };
+        return { ...carry, paid: add(carry.paid, ruled.paid), returned: add(carry.returned, ruled.refunded) };
       }
       if (status === LockStatus.Released || status === LockStatus.Resolved) return { ...carry, paid: add(carry.paid, row.spent.amount) };
       if (status === LockStatus.Locked) {

@@ -124,6 +124,9 @@ export function ApprovalsView() {
     ledger.domainSeparator !== undefined && ledger.domainSeparator.toLowerCase() === domainSeparator({ domain }).toLowerCase();
 
   const rows = grantedApprovals(ledger.events, ledger.approvals, granted.byApproval);
+  // The hand-off card is for an approval the agent can still use. Once it is withdrawn or spent, the
+  // table says so, and a card inviting the owner to hand it over would contradict it.
+  const handOff = registered && !rows.some((row) => row.approvalId === registered.id && row.spent) ? registered : undefined;
   const burnId = /^0x[0-9a-fA-F]{64}$/.test(burnText.trim()) ? (burnText.trim() as Hex) : undefined;
 
   // The account hashes all five fields as one thing, so all five are minted at once and kept
@@ -370,17 +373,17 @@ export function ApprovalsView() {
 
               {signingError !== null && <ErrorSurface error={signingError} action="Signing the approval" />}
 
-              {registered && (
+              {handOff && (
                 <div className="space-y-2 rounded-md border border-[color:var(--color-line)] p-4">
                   <div className="flex items-center justify-between gap-3">
                     <h3 className="text-sm font-semibold">Registered. Give this to the agent.</h3>
-                    <CopyControl value={registered.bundle} label="Copy the approval" />
+                    <CopyControl value={handOff.bundle} label="Copy the approval" />
                   </div>
                   <p className="text-detail text-[color:var(--color-muted)]">
                     The mandate holds the approval, so the agent presents it without a signature. It is listed below,
                     where you can withdraw it.
                   </p>
-                  <pre className="tabular whitespace-pre-wrap break-all bg-[color:var(--color-raised)] p-3 text-note">{registered.bundle}</pre>
+                  <pre className="tabular whitespace-pre-wrap break-all bg-[color:var(--color-raised)] p-3 text-note">{handOff.bundle}</pre>
                 </div>
               )}
 

@@ -11,13 +11,13 @@ import type { TermsDocument } from '@bursar/sdk';
 import { rhcClient } from '@/chain/client';
 import { committedFactories, privateContracts, termsProblem } from '@/chain/private';
 import { fundsKeyContext, shieldedHref, shieldedPayoutsOpen } from '@/chain/shielded';
-import { agentKeyFile, downloadFile, formatEth, ownerKeysFrom, scanOwnedMandates, sendFromStealth } from '@/chain/stealth';
+import { agentKeyFile, downloadFile, ownerKeysFrom, scanOwnedMandates, sendFromStealth } from '@/chain/stealth';
 import type { OwnedPrivateMandate, OwnerKeys } from '@/chain/stealth';
 import { Address as AddressView } from '@/components/address';
 import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
 import { Card, EmptyState, Field, FieldGrid, Section } from '@/components/layout';
-import { usd } from '@/money';
+import { formatEthBalance, usd } from '@/money';
 import { useWalletAccount } from '@/wallet/account';
 import { ConnectButton } from '@/wallet/connect-button';
 import type { OpenedTerms } from '../[mandate]/committed-view';
@@ -231,12 +231,12 @@ function OwnedMandate({
     >
       <div className="space-y-4">
         <FieldGrid columns={2}>
-          <Field label="Owner address" hint={`Gas: ${formatEth(entry.ownerGas)}. Pausing and resuming are sent from this address.`}>
+          <Field label="Owner address" hint={`Gas: ${formatEthBalance(entry.ownerGas)}. Pausing and resuming are sent from this address.`}>
             <AddressView value={entry.principal.stealthAddress as Address} />
           </Field>
           <Field
             label="Agent address"
-            hint={entry.agentMatch ? `Gas: ${formatEth(entry.agentGas)}. One of your stealth addresses.` : 'Not one of your stealth addresses.'}
+            hint={entry.agentMatch ? `Gas: ${formatEthBalance(entry.agentGas)}. One of your stealth addresses.` : 'Not one of your stealth addresses.'}
           >
             <AddressView value={entry.agent} />
           </Field>

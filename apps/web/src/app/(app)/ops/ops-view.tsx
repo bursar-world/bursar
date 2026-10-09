@@ -17,8 +17,9 @@ import { Instant } from '@/components/instant';
 import { Card, EmptyState, Field, FieldGrid, Section } from '@/components/layout';
 import { Table } from '@/components/table';
 import { TxButton } from '@/components/tx-button';
-import { formatDuration } from '@/lib';
-import { tokenAmountText } from '@/money';
+import { spellDuration } from '@/lib';
+import type { Micro } from '@bursar/core';
+import { tokenAmountText, usdHeld } from '@/money';
 import { useSystemState } from '@/state';
 import type { AnyState } from '@/state';
 
@@ -254,13 +255,13 @@ function FeesSection({
       <Card>
         <FieldGrid columns={3}>
           <Field label="Accrued and unswept" hint="Owed to the treasury and held in the escrow until swept.">
-            {accrued === undefined ? unread : <span className="tabular">{formatUsdg(accrued)}</span>}
+            {accrued === undefined ? unread : <span className="tabular">{usdHeld(accrued as Micro)}</span>}
           </Field>
           <Field label="Fee on a release" hint="Fixed for the life of the escrow, and governance cannot change it.">
             {data?.fees.feeBps === undefined ? unread : formatBps(BigInt(data.fees.feeBps))}
           </Field>
           <Field label="Escrow holds in total" hint="Includes locked payments. Only the accrued fees can be swept.">
-            {data?.fees.escrowBalance === undefined ? unread : <span className="tabular">{formatUsdg(data.fees.escrowBalance)}</span>}
+            {data?.fees.escrowBalance === undefined ? unread : <span className="tabular">{usdHeld(data.fees.escrowBalance as Micro)}</span>}
           </Field>
         </FieldGrid>
 
@@ -347,7 +348,7 @@ function TreasurySection({
               {pending === undefined ? unread : handoverOpen ? <AddressLabel value={pending} /> : 'None'}
             </Field>
             <Field label="Holds" hint="USDG at that address. Swept fees land here.">
-              {data?.treasury.balance === undefined ? unread : <span className="tabular">{formatUsdg(data.treasury.balance)}</span>}
+              {data?.treasury.balance === undefined ? unread : <span className="tabular">{usdHeld(data.treasury.balance as Micro)}</span>}
             </Field>
           </FieldGrid>
         </div>
@@ -508,10 +509,10 @@ function ParameterSections({
           {params !== undefined && (
             <div className="mt-4">
               <FieldGrid columns={4}>
-                <Field label="Spend per call">{formatUsdg(params.spendPerCall)}</Field>
-                <Field label="Ceiling per window">{formatUsdg(params.maxSpendPerWindow)}</Field>
-                <Field label="Window">{formatDuration(Number(params.window))}</Field>
-                <Field label="Wait between buys">{formatDuration(Number(params.minInterval))}</Field>
+                <Field label="Spend per call">{usdHeld(params.spendPerCall as Micro)}</Field>
+                <Field label="Ceiling per window">{usdHeld(params.maxSpendPerWindow as Micro)}</Field>
+                <Field label="Window">{spellDuration(Number(params.window))}</Field>
+                <Field label="Wait between buys">{spellDuration(Number(params.minInterval))}</Field>
               </FieldGrid>
             </div>
           )}

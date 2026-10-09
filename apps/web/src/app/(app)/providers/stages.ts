@@ -83,8 +83,8 @@ export function stageDetail(lock: ProviderLock, now: Date, voice: Voice = 'payee
     case 'paid-unrecorded':
       if (lock.scored === false) return `Paid ${formatRelative(lock.releasedAt ?? lock.deadline, now)} and not contested. ${UNSCORED}`;
       return mine
-        ? `Paid ${formatRelative(lock.releasedAt ?? lock.deadline, now)} and not contested. Record it to count it toward your job ceiling.`
-        : `Paid ${formatRelative(lock.releasedAt ?? lock.deadline, now)} and not contested. It counts toward this address's ceiling once it is recorded.`;
+        ? `Paid ${formatRelative(lock.releasedAt ?? lock.deadline, now)} and not contested. Record it to add it to your record.`
+        : `Paid ${formatRelative(lock.releasedAt ?? lock.deadline, now)} and not contested. It joins this address's record once it is recorded.`;
 
     case 'paid-recorded':
       return mine

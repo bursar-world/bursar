@@ -111,6 +111,8 @@ export function GatesPanel() {
                   cell: (row) =>
                     isOwner && !merkle && row.allowed !== undefined ? (
                       <TxButton
+                        // A fresh button when the row flips: the landed one would rest on Done beside "Not allowed".
+                        key={`${row.key}-${row.allowed ? 'allowed' : 'not-allowed'}`}
                         label={row.allowed ? 'Remove' : 'Allow'}
                         tone="secondary"
                         blockedBy={blockedBy}
@@ -189,6 +191,7 @@ export function GatesPanel() {
                   cell: (row) =>
                     isOwner && row.allowed !== undefined ? (
                       <TxButton
+                        key={`${row.key}-${row.allowed ? 'allowed' : 'not-allowed'}`}
                         label={row.allowed ? 'Remove' : 'Allow'}
                         tone="secondary"
                         blockedBy={blockedBy}

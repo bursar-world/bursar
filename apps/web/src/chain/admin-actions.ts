@@ -30,7 +30,7 @@ import {
   settlementAssetAbi,
 } from './abi';
 import { TOKEN_ADDRESSES, brsrAbi, buybackAbi, stakingAbi, vestingAbi } from './generated/token';
-import { formatDuration } from '../lib/time';
+import { spellDuration } from '../lib/time';
 
 // The contracts a proposal can target
 
@@ -1211,7 +1211,7 @@ function display(value: unknown, field: AdminField | undefined): string {
     case 'bps':
       return formatBps(amount);
     case 'seconds':
-      return formatDuration(Number(amount));
+      return spellDuration(Number(amount));
     case 'score':
       return `${amount.toString()} points`;
     default:
@@ -1285,7 +1285,7 @@ function bigintAt(value: unknown, key: string): bigint {
 }
 
 function seconds(value: unknown): string {
-  return typeof value === 'bigint' || typeof value === 'number' ? formatDuration(Number(value)) : 'an unread period';
+  return typeof value === 'bigint' || typeof value === 'number' ? spellDuration(Number(value)) : 'an unread period';
 }
 
 function sentenceFor(name: string, contract: GovernedContract | undefined, args: readonly unknown[], signature: string): string {

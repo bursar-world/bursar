@@ -382,7 +382,9 @@ export function TxButton({
                 Go back
               </Button>
               <Button
-                tone={tone === 'primary' ? 'destructive' : tone}
+                // A typed word guards only actions with consequences, so its button always reads as one,
+                // whatever tone the control that opened it carries on the page.
+                tone="destructive"
                 disabled={typed.trim() !== confirmPhrase}
                 onClick={() => {
                   setAsking(false);

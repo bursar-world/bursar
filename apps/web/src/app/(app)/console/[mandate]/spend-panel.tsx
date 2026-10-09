@@ -91,7 +91,7 @@ export function SpendPanel() {
             />
             <WindowStat window={account.daily} label="Period cap" />
             {secondCap && <WindowStat window={account.monthly} label="Second cap" />}
-            {total !== undefined && <TotalStat total={total} />}
+            {total !== undefined && <TotalStat total={total} owner={isOwner} />}
           </StatGrid>
 
           <FieldGrid columns={isOwner ? 3 : 2}>
@@ -185,7 +185,7 @@ export function SpendPanel() {
 }
 
 /** The total budget: it never resets, so it shows no countdown. */
-function TotalStat({ total }: { readonly total: TotalBudget }) {
+function TotalStat({ total, owner }: { readonly total: TotalBudget; readonly owner: boolean }) {
   const cap = Number(total.cap);
   const spent = Number(total.spent);
   const exhausted = total.remaining === 0n;
@@ -197,7 +197,7 @@ function TotalStat({ total }: { readonly total: TotalBudget }) {
         label="Total budget"
         value={usd(total.remaining)}
         level={level}
-        hint={`${usd(total.spent)} of ${usd(total.cap)} spent. It never refills; the owner can raise it.`}
+        hint={`${usd(total.spent)} of ${usd(total.cap)} spent. It never refills; ${owner ? 'you' : 'the owner'} can raise it.`}
       />
       <LimitBar used={spent} total={cap} level={level} />
     </div>

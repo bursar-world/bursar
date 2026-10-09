@@ -123,7 +123,7 @@ export function readPrivateForm(form: PrivateForm, now: number = Date.now()): Pr
     problems.push('The total budget cannot be smaller than the period cap.');
   }
   if (totalCap !== undefined && totalCap > PRIVATE_TOTAL_CEILING) {
-    problems.push('A private mandate can have a total budget of at most $25.00 for now.');
+    problems.push('A private mandate can have a total budget of at most $25.00.');
   }
   const capabilities = form.capabilities.filter((entry) => form.classes[entry.spendClass]).map((entry) => `${entry.spendClass}:${entry.label}`);
   if (!PRIVATE_CLASSES.some((id) => form.classes[id])) problems.push('Allow services, agent hires, or both.');

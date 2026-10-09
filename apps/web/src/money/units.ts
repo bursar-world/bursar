@@ -74,6 +74,17 @@ export function formatEthApprox(value: Wei): string {
   return `about ${render(rounded, ETH_DECIMALS, 0, ETH_DECIMALS, true)} ETH`;
 }
 
+/**
+ * A balance of ETH, to four significant figures: 0.001779154 reads "0.001779 ETH" and 0.994652003
+ * reads "0.9947 ETH". A balance is read at a glance; nine places are noise there.
+ */
+export function formatEthBalance(value: bigint): string {
+  if (value <= 0n) return formatEth(value as Wei);
+  const unit = 10n ** BigInt(Math.max(0, value.toString().length - 4));
+  const rounded = ((value + unit / 2n) / unit) * unit;
+  return `${render(rounded, ETH_DECIMALS, 0, ETH_DECIMALS, true)} ETH`;
+}
+
 export function addBrsr(...values: readonly Brsr[]): Brsr {
   let total = 0n;
   for (const value of values) total += value;

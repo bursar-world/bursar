@@ -50,8 +50,8 @@ export function LaneFields({
   const capText = cap.data === undefined ? 'a per-mandate limit set by governance' : `${usd(micro(cap.data))} per mandate`;
 
   const detail: Record<FundingLane, string> = {
-    prefund: 'The mandate holds USDG and pays from it. What you put in is the most it can spend.',
-    treasury: 'Idle USDG can be parked in a treasury token. A payment that needs more sells enough back in the same transaction.',
+    prefund: 'The mandate holds USDG and pays from it. What you put in is the most it can spend. You can park idle USDG and unpark it yourself.',
+    treasury: 'As Prefund, and a payment larger than the USDG on hand sells enough of the parked holding back in the same transaction.',
     collateral: `Post stock or treasury tokens as collateral. When the mandate runs short, a payment borrows the difference against them and you repay it. Borrowing is capped at ${capText}.`,
   };
 

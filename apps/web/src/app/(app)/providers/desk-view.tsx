@@ -19,7 +19,7 @@ import { Unread } from '@/components/status';
 import { Table } from '@/components/table';
 import type { Column } from '@/components/table';
 import { spellDuration } from '@/lib';
-import { bps, usd, usdExact } from '@/money';
+import { bps, usd, usdExact, usdHeld, usdShare } from '@/money';
 import { useSystemState } from '@/state';
 import type { AnyState } from '@/state';
 
@@ -670,9 +670,9 @@ function Payout({ lock, owned }: { readonly lock: ProviderLock; readonly owned: 
   return (
     <div className="space-y-0.5">
       {/* Exact, because these are payouts and two decimal places round a cent job to nothing. */}
-      <div className="tabular text-sm">{usdExact(payout.amount)}</div>
+      <div className="tabular text-sm">{usdShare(payout.amount)}</div>
       <div className="text-note text-[color:var(--color-muted)]">{note}</div>
-      <div className="tabular text-note text-[color:var(--color-muted)]">{usdExact(payout.fee)} fee</div>
+      <div className="tabular text-note text-[color:var(--color-muted)]">{usdHeld(payout.fee)} fee</div>
     </div>
   );
 }

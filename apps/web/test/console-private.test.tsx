@@ -71,7 +71,7 @@ describe('the private terms form', () => {
   });
 
   it('refuses a total budget above the $25.00 private ceiling, and takes one at it', () => {
-    expect(readPrivateForm({ ...filled, total: '25.01' }, NOW).problems).toEqual(['A private mandate can have a total budget of at most $25.00 for now.']);
+    expect(readPrivateForm({ ...filled, total: '25.01' }, NOW).problems).toEqual(['A private mandate can have a total budget of at most $25.00.']);
     expect(readPrivateForm({ ...filled, total: '25' }, NOW).problems).toEqual([]);
   });
 

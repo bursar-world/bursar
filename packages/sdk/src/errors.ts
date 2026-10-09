@@ -195,8 +195,8 @@ function clauseFor(denial: MandateDenial, now: Date): string {
       return snapshot
         ? `it is at or above the approval threshold of ${usd(
             snapshot.limits.approvalThreshold,
-          )} and carries no approval from the principal. Sign one with signApproval and pass it to pay.`
-        : 'it is at or above the approval threshold and carries no approval from the principal.';
+          )} and carries no approval from the owner. The owner signs one with signApproval, and the agent passes it to pay.`
+        : 'it is at or above the approval threshold and carries no approval from the owner.';
     case 'approval-mismatch':
       return 'the approval names a different merchant, capability, or a smaller amount than this spend.';
     case 'approval-expired':

@@ -245,7 +245,7 @@ export function GuardianPanel({
         )}
 
         {!allowed && (
-          <p className="mt-5 text-detail" style={{ color: 'var(--color-state-blocked)' }}>
+          <p className="mt-5 text-detail text-[color:var(--color-muted)]">
             The pause needs the guardian key. This wallet is not the guardian, and no signer key can send it.
           </p>
         )}

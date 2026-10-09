@@ -263,7 +263,7 @@ describe('the builder refuses what the contract refuses', () => {
     expect(built.ok).toBe(true);
     if (!built.ok) return;
     const sentence = readCall(ADDRESSES.oracleRegistry, built.data).sentence;
-    expect(sentence).toContain('6h to commit');
+    expect(sentence).toContain('6 hours to commit');
     expect(sentence).toContain('2 reveals needed with up to 64 resolvers voting');
     expect(sentence).toContain('10% of the bond slashed');
   });

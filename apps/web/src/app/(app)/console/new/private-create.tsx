@@ -31,11 +31,11 @@ import { StealthCreate, StealthCreated, StealthToggle } from './stealth-create';
 import type { StealthCreation } from './stealth-create';
 
 export const PRIVATE_LIMIT_LINE =
-  'Only your viewing key opens these terms. The amount and the provider of each payment are still visible on chain. A private mandate can hold a total budget of up to $25.00 for now.';
+  'Only your viewing key opens these terms. The amount and the provider of each payment are still visible on chain. A private mandate can hold a total budget of up to $25.00.';
 
 /** The same facts on the mandate's own page, which a visitor reads as well as the owner. */
 export const PRIVATE_PAGE_LINE =
-  "Only the owner's viewing key opens the terms. The amount and the provider of each payment are visible on chain. A private mandate can hold a total budget of up to $25.00 for now.";
+  "Only the owner's viewing key opens the terms. The amount and the provider of each payment are visible on chain. A private mandate can hold a total budget of up to $25.00.";
 
 type Created = { readonly address: Address; readonly hash: Hex; readonly terms: TermsDocument; readonly saved: boolean };
 

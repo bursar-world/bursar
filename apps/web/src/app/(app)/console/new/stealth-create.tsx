@@ -1,5 +1,6 @@
 'use client';
 
+import { formatEthBalance } from '@/money';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRef, useState } from 'react';
@@ -260,7 +261,7 @@ function GasFor({
   return (
     <div className="space-y-4">
       <Field label="Gas on the owner address" hint={`Covers the gas to ${purpose}.`}>
-        <span className="tabular">{reading.data ? formatEth(balance) : 'Reading'}</span>
+        <span className="tabular">{reading.data ? formatEthBalance(balance) : 'Reading'}</span>
       </Field>
       {!ready && reading.data && (
         <div className="space-y-3">

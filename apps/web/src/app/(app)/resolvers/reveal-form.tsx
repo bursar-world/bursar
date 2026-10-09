@@ -167,6 +167,8 @@ function OneTouchReveal({
             throw resolverFailure(caught, { action: 'Reveal your score' });
           })
         }
+        // Read the dispute again as soon as the reveal lands, so the line above stops saying it is not revealed.
+        onConfirmed={onDone}
         onContinue={onDone}
       />
     </div>

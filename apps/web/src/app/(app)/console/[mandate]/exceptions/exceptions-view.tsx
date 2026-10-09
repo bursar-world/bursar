@@ -175,9 +175,7 @@ export function ExceptionsView() {
               {refusalLine(outcomes.error)}
             </p>
           ) : incomplete.length === 0 ? (
-            <p className="text-detail text-[color:var(--color-muted)]">
-              Every payment this mandate made was delivered and settled.
-            </p>
+            <p className="text-detail text-[color:var(--color-muted)]">{deliveredLine(locks.length, held.length)}</p>
           ) : (
             <Table
               rows={incomplete}
@@ -515,4 +513,15 @@ function LockRuling({ escrow, lockId }: { readonly escrow: Address; readonly loc
   });
   if (tag === undefined || dispute.data === undefined || dispute.data === 0n) return null;
   return <RulingNote disputeId={dispute.data} {...(tag.current ? {} : { registry: tag.oracleRegistry })} />;
+}
+
+/**
+ * What an empty list of failed deliveries means. A payment still inside its deadline has not been
+ * delivered yet either, so "every payment was delivered" is only said once nothing is held.
+ */
+function deliveredLine(payments: number, held: number): string {
+  if (payments === 0) return 'This mandate has not paid anyone yet.';
+  if (held === 1) return 'Nothing has missed its deadline. One payment is still held, inside its deadline.';
+  if (held > 1) return `Nothing has missed its deadline. ${held} payments are still held, inside their deadlines.`;
+  return 'Every payment this mandate made was delivered and settled.';
 }

@@ -5,7 +5,7 @@ import type { Address } from 'viem';
 import { RHC, shortAddress } from '../chain/rhc';
 import type { ProviderHealth } from '../chain/client';
 import type { ChainSnapshot } from '../chain/reader';
-import { formatEth, formatEthApprox, toCents, usd, usdHeld, wei } from '../money';
+import { formatEth, formatEthApprox, formatEthBalance, toCents, usd, usdHeld, wei } from '../money';
 import type { Wei } from '../money';
 import { formatInstant, formatRelative, fromUnix, isPast } from '../lib/time';
 import type {
@@ -410,12 +410,12 @@ export function evaluateFunding(snapshot: ChainSnapshot | undefined, checkedAt: 
       id: 'gas-float',
       label: 'Transaction fees, ETH',
       level: funding.gasBalance < ROUND_TRIP_FEE ? 'blocked' : trips < GAS_WARNING_TRIPS ? 'attention' : 'ok',
-      detail: `${shortAddress(funding.gasPayer)} holds ${formatEth(funding.gasBalance)}, enough for about ${trips} payments at ${formatEthApprox(ROUND_TRIP_FEE)} each.`,
+      detail: `${shortAddress(funding.gasPayer)} holds ${formatEthBalance(funding.gasBalance)}, enough for about ${trips} payments at ${formatEthApprox(ROUND_TRIP_FEE)} each.`,
     });
   }
 
   if (funding.gasBalance !== undefined && funding.gasBalance < ROUND_TRIP_FEE) {
-    return report('funding', 'Funding', 'blocked', 'The signer has no ETH for fees.', `Fees on ${RHC.name} are paid in ETH. ${shortAddress(funding.gasPayer ?? '0x')} holds ${formatEth(funding.gasBalance)} and one payment costs about ${formatEth(ROUND_TRIP_FEE)}. USDG in the mandate cannot pay fees.`, { label: 'Send ETH to the signer', owner: 'principal', kind: 'fund' }, checks, facts, checkedAt, stale);
+    return report('funding', 'Funding', 'blocked', 'The signer has no ETH for fees.', `Fees on ${RHC.name} are paid in ETH. ${shortAddress(funding.gasPayer ?? '0x')} holds ${formatEthBalance(funding.gasBalance)} and one payment costs about ${formatEth(ROUND_TRIP_FEE)}. USDG in the mandate cannot pay fees.`, { label: 'Send ETH to the signer', owner: 'principal', kind: 'fund' }, checks, facts, checkedAt, stale);
   }
 
   if (account && funding.mandateBalance === 0n && draw === 0n) {
@@ -425,7 +425,7 @@ export function evaluateFunding(snapshot: ChainSnapshot | undefined, checkedAt: 
   const lowGas = funding.gasBalance !== undefined && funding.gasBalance / ROUND_TRIP_FEE < GAS_WARNING_TRIPS;
   if (lowGas && funding.gasBalance !== undefined) {
     const trips = funding.gasBalance / ROUND_TRIP_FEE;
-    return report('funding', 'Funding', 'attention', `ETH for about ${trips} more payments.`, `${shortAddress(funding.gasPayer ?? '0x')} holds ${formatEth(funding.gasBalance)} and a payment costs about ${formatEth(ROUND_TRIP_FEE)}. Add ETH before a run stops partway.`, { label: 'Send ETH to the signer', owner: 'principal', kind: 'fund' }, checks, facts, checkedAt, stale);
+    return report('funding', 'Funding', 'attention', `ETH for about ${trips} more payments.`, `${shortAddress(funding.gasPayer ?? '0x')} holds ${formatEthBalance(funding.gasBalance)} and a payment costs about ${formatEth(ROUND_TRIP_FEE)}. Add ETH before a run stops partway.`, { label: 'Send ETH to the signer', owner: 'principal', kind: 'fund' }, checks, facts, checkedAt, stale);
   }
 
   if (account && funding.mandateBalance !== undefined && funding.mandateBalance + draw < account.limits.perCallCap) {
@@ -433,7 +433,7 @@ export function evaluateFunding(snapshot: ChainSnapshot | undefined, checkedAt: 
   }
 
   const held = funding.mandateBalance === undefined ? '' : `The mandate holds ${usdHeld(funding.mandateBalance)} in USDG for payments.${drawNote} `;
-  const fees = funding.gasBalance === undefined ? '' : `The signer holds ${formatEth(funding.gasBalance)} for fees.`;
+  const fees = funding.gasBalance === undefined ? '' : `The signer holds ${formatEthBalance(funding.gasBalance)} for fees.`;
 
   // A balance that was asked for and did not answer is not a balance that passed. "Funded in both
   // assets" over a panel whose ETH line reads Unread is the state claiming a reading it never got,

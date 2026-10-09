@@ -10,7 +10,7 @@ import { AmountInput } from '@/components/amount-input';
 import { Card, Field, FieldGrid, Section } from '@/components/layout';
 import { Stat, StatGrid } from '@/components/stat';
 import { TxButton } from '@/components/tx-button';
-import { formatEth, formatEthApprox, usd, usdHeld } from '@/money';
+import { formatEthApprox, formatEthBalance, usd, usdHeld } from '@/money';
 import { ROUND_TRIP_FEE } from '@/state';
 import { fundingAmounts } from '../lib/amount';
 import { transferGates } from '../lib/write-gates';
@@ -72,7 +72,7 @@ export function FundingPanel() {
             {connected !== undefined && (
               <Stat
                 label="Your wallet holds, for fees"
-                value={gas === undefined ? 'Not read' : formatEth(gas)}
+                value={gas === undefined ? 'Not read' : formatEthBalance(gas)}
                 hint={
                   trips === undefined
                     ? 'ETH for network fees.'

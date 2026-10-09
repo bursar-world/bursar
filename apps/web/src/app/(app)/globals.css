@@ -90,6 +90,9 @@
 
   html {
     font-family: var(--font-sans);
+    /* The face's contextual alternates turn the x of "0x" into a multiplication sign in running text,
+       so an address in a sentence read "0×5210…". */
+    font-feature-settings: 'calt' 0;
     -webkit-text-size-adjust: 100%;
   }
 
