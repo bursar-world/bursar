@@ -1,7 +1,10 @@
 'use client';
 
+import { useState } from 'react';
+import { useSignMessage } from 'wagmi';
 
 import { ADDRESSES, escrowAbi } from '@/chain';
+import { Button } from '@/components/button';
 import { Card } from '@/components/layout';
 import { Countdown, Instant } from '@/components/instant';
 import { LevelDot } from '@/components/badge';
@@ -11,6 +14,7 @@ import { usd } from '@/money';
 import type { AnyState } from '@/state';
 
 import type { ProviderDesk, ProviderLock } from './desk';
+import { useWalletAccount } from '@/wallet/account';
 import { useWriteContract } from '@/wallet/write';
 
 /**
@@ -188,3 +192,72 @@ export function TakePayment({
     />
   );
 }
+
+type Brief = { readonly task?: string; readonly acceptance?: readonly string[]; readonly text: string };
+
+function readBrief(text: string): Brief {
+  try {
+    const parsed = JSON.parse(text) as { task?: unknown; acceptance?: unknown };
+    return {
+      text,
+      ...(typeof parsed.task === 'string' ? { task: parsed.task } : {}),
+      ...(Array.isArray(parsed.acceptance) ? { acceptance: parsed.acceptance.filter((line): line is string => typeof line === 'string') } : {}),
+    };
+  } catch {
+    return { text };
+  }
+}
+
+/**
+ * A private payment's brief is sealed to the provider's viewing key, so the desk opens it here: the
+ * wallet signs the viewing-key message, which costs nothing, and the key it yields never leaves the page.
+ */
+export function ReadBrief({ lock }: { readonly lock: ProviderLock }) {
+  const { address } = useWalletAccount();
+  const { signMessageAsync } = useSignMessage();
+  const [brief, setBrief] = useState<Brief | undefined>(undefined);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | undefined>(undefined);
+  if (!lock.inputURI.toLowerCase().startsWith(SEALED_PREFIX) || address === undefined) return null;
+
+  const open = async () => {
+    setBusy(true);
+    setProblem(undefined);
+    try {
+      const { deriveViewingKey, openSealedURI, viewingKeyMessage } = await import('@bursar/sdk');
+      const key = deriveViewingKey(await signMessageAsync({ message: viewingKeyMessage(address) }));
+      setBrief(readBrief(await openSealedURI(key.privateKey, lock.inputURI)));
+    } catch {
+      setProblem('The brief did not open with this wallet’s viewing key.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (brief) {
+    return (
+      <div className="max-w-sm space-y-1 text-left text-detail">
+        {brief.task ? <p>{brief.task}</p> : <p className="break-words font-mono text-note">{brief.text}</p>}
+        {brief.acceptance && brief.acceptance.length > 0 && (
+          <ul className="list-disc pl-4 text-[color:var(--color-muted)]">
+            {brief.acceptance.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1">
+      <Button size="sm" onClick={() => void open()} disabled={busy}>
+        {busy ? 'Waiting for the signature' : 'Read the brief'}
+      </Button>
+      {problem && <p className="text-detail" style={{ color: 'var(--color-state-blocked)' }}>{problem}</p>}
+    </div>
+  );
+}
+
+const SEALED_PREFIX = 'data:application/vnd.bursar.sealed;base64,';
+

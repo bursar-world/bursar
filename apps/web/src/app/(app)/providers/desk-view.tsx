@@ -27,7 +27,7 @@ import { RulingNote } from '../resolvers/ruling-note';
 import { EvidenceForm } from './[payee]/evidence-form';
 import type { ProviderDesk, ProviderLock } from './desk';
 import { AddStakeCard, AvailabilityCard, RegisterCard, WithdrawalCard } from './onboarding';
-import { RecordCard, TakePayment } from './record-card';
+import { ReadBrief, RecordCard, TakePayment } from './record-card';
 import { ReputationPanel } from './reputation';
 import { stageDetail, stageLabel, stageLevel, ttlRange } from './stages';
 import { useProviderDesk } from './use-desk';
@@ -305,7 +305,12 @@ function Work({
           key: 'take',
           header: '',
           align: 'right' as const,
-          cell: (lock: ProviderLock) => <TakePayment lock={lock} blockedBy={blockedBy} onTaken={onTaken} />,
+          cell: (lock: ProviderLock) => (
+            <div className="flex flex-col items-end gap-2">
+              <ReadBrief lock={lock} />
+              <TakePayment lock={lock} blockedBy={blockedBy} onTaken={onTaken} />
+            </div>
+          ),
         },
       ]
     : lockColumns(desk, owned);
