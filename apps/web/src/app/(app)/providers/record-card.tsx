@@ -62,12 +62,12 @@ export function RecordCard({
       ? `Your ceiling is ${usd(record.cap)}. Recording ${countWord(recordable.length, 'this one', `these ${recordable.length}`)} moves it to ${usd(desk.projectedCap)}.`
       : record.cap === undefined
         ? ''
-        : `Your ceiling is ${usd(record.cap)} and stays there until these are recorded.`;
+        : `Your ceiling is ${usd(record.cap)}. Recording adds ${countWord(unrecorded.length, 'this job', 'these jobs')} to your record.`;
 
   return (
     <Card
       title="Paid work to record"
-      description={`${unrecorded.length} paid ${unrecorded.length === 1 ? 'job' : 'jobs'} not yet counted toward your ceiling.`}
+      description={`${unrecorded.length} paid ${unrecorded.length === 1 ? 'job' : 'jobs'} not yet on your record.`}
     >
       <div className="space-y-4">
         <p className="text-sm">
