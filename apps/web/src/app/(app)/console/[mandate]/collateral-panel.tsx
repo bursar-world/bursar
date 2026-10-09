@@ -167,7 +167,11 @@ function CollateralBody({ state, onChange }: { readonly state: CollateralAccount
 function OwnerForms({ state, onChange }: { readonly state: CollateralAccount; readonly onChange: () => void }) {
   const { address, connected, system, writeContext, refresh } = useMandateScope();
   const { writeContractAsync } = useWriteContract();
-  const [symbol, setSymbol] = useState(state.positions[0]?.symbol ?? '');
+  const [pick, setPick] = useState('');
+  // Opens on something the wallet holds, rather than the first listed asset it may hold none of.
+  const symbol = state.positions.some((p) => p.symbol === pick)
+    ? pick
+    : (state.positions.find((p) => (p.walletHeld ?? 0n) > 0n) ?? state.positions[0])?.symbol ?? '';
   const [amountText, setAmountText] = useState('');
 
   const done = () => {
@@ -221,7 +225,7 @@ function OwnerForms({ state, onChange }: { readonly state: CollateralAccount; re
           <select
             aria-label="Collateral to post"
             value={symbol}
-            onChange={(event) => setSymbol(event.target.value)}
+            onChange={(event) => setPick(event.target.value)}
             className="h-11 w-full border border-[color:var(--color-line)] bg-surface px-3 text-sm"
           >
             {state.positions.map((p) => (
