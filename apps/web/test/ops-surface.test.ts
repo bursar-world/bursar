@@ -219,8 +219,8 @@ describe('what has accrued', () => {
   });
 
   it('says nothing has accrued only when the chain said zero', () => {
-    expect(sweepLine(0n, TREASURY, true)).toContain('Nothing has accrued');
-    expect(sweepLine(0n, TREASURY, true)).toContain('refuses a balance of zero');
+    expect(sweepLine(0n, TREASURY, true)).toContain('Nothing is waiting to be swept');
+    expect(sweepLine(undefined, TREASURY, true)).not.toContain('Nothing is waiting');
   });
 
   it('names the destination when there is something to sweep', () => {

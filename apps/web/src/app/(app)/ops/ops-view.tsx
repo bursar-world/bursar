@@ -293,11 +293,6 @@ function FeesSection({
               send={() => writeContractAsync({ address: ADDRESSES.escrow, abi: escrowAbi, functionName: 'sweepFees' })}
               onConfirmed={onDone}
             />
-            {accrued === 0n && (
-              <p className="mt-2 text-detail text-[color:var(--color-muted)]">
-                The escrow refuses a sweep of zero.
-              </p>
-            )}
           </div>
         ) : (
           <p className="mt-5 text-detail text-[color:var(--color-muted)]">

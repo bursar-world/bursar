@@ -197,7 +197,7 @@ export function sweepLine(accrued: bigint | undefined, treasury: string | undefi
     return 'Could not read what has accrued. It may not be zero, so the sweep stays available.';
   }
   if (accrued === 0n) {
-    return 'Nothing has accrued yet. Fees accrue as payments release, and the sweep refuses a balance of zero.';
+    return 'Nothing is waiting to be swept. Fees accrue here as payments release.';
   }
   return treasury === undefined
     ? 'Fees have accrued. Could not read the treasury they go to.'
