@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import type { ShieldedDeployment } from '@bursar/core';
+import { relayFeeBpsFor } from '@bursar/sdk';
 import type { AssociationSet, OwnedNote, ShieldedKeys } from '@bursar/sdk';
 import type { Address, Hex } from 'viem';
 import { useSignTypedData } from 'wagmi';
@@ -27,6 +28,7 @@ import {
   readAssociationSet,
   readPool,
   readRoom,
+  relayFee,
   setMatchesChain,
   shieldedContracts,
   shieldedKeysFrom,
@@ -393,7 +395,8 @@ function NoteList({
         <Card>
           <div className="space-y-1 text-detail" role="status">
             <p>
-              The relayer sent {usdgText(last.amount)} USDG to <AddressView value={last.recipient} />.
+              {usdgText(last.amount - last.fee)} USDG arrived at <AddressView value={last.recipient} />, sent by the relayer
+              {last.fee > 0n ? ` after its ${usdgText(last.fee)} USDG fee` : ''}.
             </p>
             <TxHash hash={last.hash} />
           </div>
@@ -565,7 +568,7 @@ function WithdrawForm({
         events: reading.events,
         set,
       });
-      onSent({ hash: result.transactionHash, recipient: recipient.value, amount });
+      onSent({ hash: result.transactionHash, recipient: recipient.value, amount, fee: relayFee(amount, relayFeeBpsFor(quote.data, amount, gasDrop)) });
       onDone();
     } catch (error) {
       setProblem(`Nothing was sent: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`);
@@ -614,7 +617,8 @@ function WithdrawForm({
   );
 }
 
-type Withdrawn = { readonly hash: Hex; readonly recipient: Address; readonly amount: bigint };
+/** `fee` is what the relayer kept, so the confirmation can say what arrived rather than what left the pool. */
+type Withdrawn = { readonly hash: Hex; readonly recipient: Address; readonly amount: bigint; readonly fee: bigint };
 
 function Problem({ text }: { readonly text: string }) {
   return (
