@@ -133,7 +133,20 @@ function describe(event: MandateEvent, labelFor: (id: Hex) => string | undefined
       return `Ownership offered to ${shortAddress(event.to)}`;
     case 'owner-transferred':
       return `Ownership moved to ${shortAddress(event.to)}`;
+    case 'parked':
+      return `Parked ${usd(event.usdgIn)} in ${parkedIn(event.adapter)}`;
+    case 'unparked':
+      return `${usd(event.usdgOut)} back from ${parkedIn(event.adapter)}`;
+    case 'idle-returned':
+      return `${usd(event.amount)} back from ${PARKING_VAULT}`;
   }
+}
+
+/** The holding an adapter parks into, by the symbol the record files it under. */
+function parkedIn(adapter: Address): string {
+  const entry = Object.entries(rwaLane()?.adapters ?? {}).find(([, address]) => sameAddress(address, adapter));
+  if (entry === undefined) return shortAddress(adapter);
+  return entry[0] === 'USDG' ? 'the USDG reserve' : entry[0];
 }
 
 const ZERO = '0x0000000000000000000000000000000000000000';

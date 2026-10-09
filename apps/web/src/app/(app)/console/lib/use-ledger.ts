@@ -6,7 +6,7 @@ import type { Micro } from '@bursar/core';
 import type { Address, Hex } from 'viem';
 
 import { ADDRESSES } from '@/chain/rhc';
-import { approvedCapabilities, decodeLockEvents, decodeMandateEvents } from './activity';
+import { approvedCapabilities, decodeLockEvents, decodeMandateEvents, decodeParkEvents, mergeHistories } from './activity';
 import type { LockEvents, MandateEvent } from './activity';
 import { historyLogs } from './chain-logs';
 import { indexedRevert, indexedTransactions, resetIndexBackoff } from './explorer';
@@ -14,6 +14,7 @@ import type { IndexedTransaction } from './explorer';
 import { readLedgerState } from './reads';
 import type { ApprovalState, GateEntry, LockRecord } from './reads';
 import { readingOf } from './reading';
+import { rwaLane } from './rwa';
 import type { Reading } from './reading';
 import { describeAttempt, refusalFor } from './refusals';
 import type { RefusalContext } from './refusals';
@@ -90,8 +91,27 @@ export function useMandateLedger(mandate: Address | undefined, owner?: Address, 
     refetchInterval: INDEX_REFETCH_MS,
   });
 
+  // The parking contract serves every mandate, so its log is fetched once and each mandate keeps its
+  // own entries: the sale that brings parked money back is the park's event, not the account's.
+  const park = rwaLane()?.TreasuryPark;
+  const parkLog = useQuery({
+    queryKey: ['console', 'park-log', park?.toLowerCase() ?? 'none'],
+    queryFn: async ({ signal }) => historyLogs(park as Address, signal),
+    enabled: park !== undefined && mandate !== undefined,
+    refetchInterval: INDEX_REFETCH_MS,
+  });
+
   const timelineData = timeline.data;
-  const events = timelineData ?? EMPTY_EVENTS;
+  const parkData = parkLog.data;
+  const events = useMemo(
+    () =>
+      timelineData === undefined
+        ? EMPTY_EVENTS
+        : parkData === undefined || mandate === undefined
+          ? timelineData
+          : mergeHistories(timelineData, decodeParkEvents(parkData, mandate)),
+    [timelineData, parkData, mandate],
+  );
 
   // The candidates are drawn from the log and their current state is read from the chain. A
   // merchant removed yesterday is still in the log, and only the mapping says which it is today.

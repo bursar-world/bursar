@@ -1,4 +1,4 @@
-import { micro } from '@bursar/core';
+import { micro, treasuryParkAbi } from '@bursar/core';
 import type { Micro } from '@bursar/core';
 import { decodeEventLog, decodeFunctionData } from 'viem';
 import type { Abi, Address, Hex } from 'viem';
@@ -44,6 +44,9 @@ export type MandateEvent = EventBase &
     | { readonly kind: 'document-anchored'; readonly documentHash: Hex }
     | { readonly kind: 'owner-transfer-started'; readonly from: Address; readonly to: Address }
     | { readonly kind: 'owner-transferred'; readonly from: Address; readonly to: Address }
+    | { readonly kind: 'parked'; readonly adapter: Address; readonly usdgIn: Micro; readonly rawOut: bigint }
+    | { readonly kind: 'unparked'; readonly adapter: Address; readonly rawIn: bigint; readonly usdgOut: Micro }
+    | { readonly kind: 'idle-returned'; readonly amount: Micro }
   );
 
 /** What the escrow did with one lock, joined to the spend that opened it. */
@@ -288,6 +291,37 @@ function decode(abi: Abi, log: IndexedLog): { eventName: string; args: Record<st
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The parking contract's side of a mandate's history. Parking leaves the account as a transfer it
+ * records, but the sale that brings the money back is the park's to emit, so without these the
+ * history showed money going in and never coming back.
+ */
+export function decodeParkEvents(logs: readonly IndexedLog[], mandate: Address): readonly MandateEvent[] {
+  const events: MandateEvent[] = [];
+
+  for (const log of logs) {
+    const entry = decode(treasuryParkAbi as Abi, log);
+    if (!entry || address(entry.args.mandate).toLowerCase() !== mandate.toLowerCase()) continue;
+    const base: EventBase = { at: log.at, transactionHash: log.transactionHash, blockNumber: log.blockNumber, logIndex: log.logIndex };
+    const args = entry.args;
+
+    if (entry.eventName === 'Parked') {
+      events.push({ ...base, kind: 'parked', adapter: address(args.adapter), usdgIn: amount(args.usdgIn), rawOut: big(args.rawOut) });
+    } else if (entry.eventName === 'Unparked') {
+      events.push({ ...base, kind: 'unparked', adapter: address(args.adapter), rawIn: big(args.rawIn), usdgOut: amount(args.usdgOut) });
+    } else if (entry.eventName === 'IdleReturned') {
+      events.push({ ...base, kind: 'idle-returned', amount: amount(args.amount) });
+    }
+  }
+
+  return events.sort(newestFirst);
+}
+
+/** Two newest-first histories as one. */
+export function mergeHistories(a: readonly MandateEvent[], b: readonly MandateEvent[]): readonly MandateEvent[] {
+  return b.length === 0 ? a : [...a, ...b].sort(newestFirst);
 }
 
 function newestFirst(a: EventBase, b: EventBase): number {
