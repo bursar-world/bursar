@@ -215,55 +215,113 @@ function OwnerForms({ state, onChange }: { readonly state: CollateralAccount; re
   const needsApproval = raw !== undefined && (target?.allowance ?? 0n) < raw;
 
   return (
-    <Field label="Post collateral" hint="Two steps the first time: approve the tokens, then post them.">
+    <FieldGrid columns={2}>
+      <Field label="Post collateral" hint="Two steps the first time: approve the tokens, then post them.">
+        <div className="space-y-3">
+          <select
+            aria-label="Collateral to post"
+            value={symbol}
+            onChange={(event) => setSymbol(event.target.value)}
+            className="h-11 w-full border border-[color:var(--color-line)] bg-surface px-3 text-sm"
+          >
+            {state.positions.map((p) => (
+              <option key={p.asset} value={p.symbol}>
+                {p.symbol}
+              </option>
+            ))}
+          </select>
+          <TextField
+            label="Token amount"
+            value={amountText}
+            onChange={setAmountText}
+            {...(amountText.trim() === '' || parsed.ok ? {} : { problem: parsed.problem })}
+            help={target?.walletHeld === undefined ? 'Connect the owner wallet to see its balance.' : `Your wallet holds ${tokenAmount(target.walletHeld)} ${symbol}.`}
+          />
+          {needsApproval ? (
+            <TxButton
+              key="approve"
+              label={`Approve ${symbol}`}
+              tone="secondary"
+              disabled={target === undefined}
+              blockedBy={callGates(system)}
+              context={writeContext}
+              send={() => writeContractAsync({ address: target?.asset as Address, abi: erc20Abi, functionName: 'approve', args: [vault, raw] })}
+              onConfirmed={done}
+            />
+          ) : (
+            <TxButton
+              key="post"
+              label="Post collateral"
+              disabled={raw === undefined || raw === 0n || target === undefined}
+              blockedBy={callGates(system)}
+              context={writeContext}
+              send={async () => {
+                const request = { address: vault, abi: collateralVaultAbi as Abi, functionName: 'deposit', args: [address, target?.asset, raw] } as const;
+                await checkFirst({ ...request, account: connected as Address });
+                return writeContractAsync(request);
+              }}
+              onConfirmed={() => {
+                setAmountText('');
+                done();
+              }}
+            />
+          )}
+        </div>
+      </Field>
+      <TakeBackForm state={state} onChange={onChange} />
+    </FieldGrid>
+  );
+}
+
+/** The whole of one posted position back to the owner's wallet, once nothing is owed against it. */
+function TakeBackForm({ state, onChange }: { readonly state: CollateralAccount; readonly onChange: () => void }) {
+  const { address, connected, system, writeContext, refresh } = useMandateScope();
+  const { writeContractAsync } = useWriteContract();
+  const posted = state.positions.filter((p) => p.raw > 0n);
+  const [pick, setPick] = useState('');
+  const position = posted.find((p) => p.symbol === pick) ?? posted[0];
+  if (position === undefined) return null;
+  const owes = (state.debt ?? 0n) > 0n;
+
+  return (
+    <Field label="Take collateral back" hint={owes ? 'Repay the debt first. What stays has to carry it.' : 'Returns the whole position to your wallet.'}>
       <div className="space-y-3">
         <select
-          value={symbol}
-          onChange={(event) => setSymbol(event.target.value)}
+          aria-label="Collateral to take back"
+          value={position.symbol}
+          onChange={(event) => setPick(event.target.value)}
           className="h-11 w-full border border-[color:var(--color-line)] bg-surface px-3 text-sm"
         >
-          {state.positions.map((p) => (
+          {posted.map((p) => (
             <option key={p.asset} value={p.symbol}>
               {p.symbol}
             </option>
           ))}
         </select>
-        <TextField
-          label="Token amount"
-          value={amountText}
-          onChange={setAmountText}
-          {...(amountText.trim() === '' || parsed.ok ? {} : { problem: parsed.problem })}
-          help={target?.walletHeld === undefined ? 'Connect the owner wallet to see its balance.' : `Your wallet holds ${tokenAmount(target.walletHeld)} ${symbol}.`}
+        <p className="tabular text-sm">
+          {tokenAmount(position.raw)} {position.symbol}
+        </p>
+        <TxButton
+          label={`Send the ${position.symbol} to your wallet`}
+          tone="secondary"
+          disabled={owes || connected === undefined}
+          blockedBy={callGates(system)}
+          context={writeContext}
+          send={async () => {
+            const request = {
+              address: state.lane.CollateralVault,
+              abi: collateralVaultAbi as Abi,
+              functionName: 'withdraw',
+              args: [address, position.asset, position.raw, connected],
+            } as const;
+            await checkFirst({ ...request, account: connected as Address });
+            return writeContractAsync(request);
+          }}
+          onConfirmed={() => {
+            onChange();
+            refresh();
+          }}
         />
-        {needsApproval ? (
-          <TxButton
-            key="approve"
-            label={`Approve ${symbol}`}
-            tone="secondary"
-            disabled={target === undefined}
-            blockedBy={callGates(system)}
-            context={writeContext}
-            send={() => writeContractAsync({ address: target?.asset as Address, abi: erc20Abi, functionName: 'approve', args: [vault, raw] })}
-            onConfirmed={done}
-          />
-        ) : (
-          <TxButton
-            key="post"
-            label="Post collateral"
-            disabled={raw === undefined || raw === 0n || target === undefined}
-            blockedBy={callGates(system)}
-            context={writeContext}
-            send={async () => {
-              const request = { address: vault, abi: collateralVaultAbi as Abi, functionName: 'deposit', args: [address, target?.asset, raw] } as const;
-              await checkFirst({ ...request, account: connected as Address });
-              return writeContractAsync(request);
-            }}
-            onConfirmed={() => {
-              setAmountText('');
-              done();
-            }}
-          />
-        )}
       </div>
     </Field>
   );
