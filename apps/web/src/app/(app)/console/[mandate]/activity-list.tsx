@@ -1,6 +1,6 @@
 'use client';
 
-import type { Hex } from 'viem';
+import type { Address, Hex } from 'viem';
 
 import { shortAddress } from '@/chain/rhc';
 import { TxHash } from '@/components/address';
@@ -9,6 +9,7 @@ import { tokenAmountText, usd } from '@/money';
 import { useCapabilityLabels } from '../lib/capability-labels';
 import type { MandateEvent } from '../lib/activity';
 import { refusalOf } from '../lib/reading';
+import { useRwa } from '../lib/rwa';
 import { useMandateScope } from './mandate-scope';
 
 /**
@@ -19,8 +20,16 @@ import { useMandateScope } from './mandate-scope';
  * failed request into a statement about the account.
  */
 export function ActivityList({ events, limit }: { readonly events: readonly MandateEvent[]; readonly limit?: number }) {
-  const { ledger } = useMandateScope();
+  const { ledger, address, connected } = useMandateScope();
   const { labelFor } = useCapabilityLabels();
+  // Shares the parking panel's read, so naming the vault costs no extra call.
+  const vault = useRwa(address, true).data?.vault;
+  const nameOf = (who: Address): string =>
+    connected !== undefined && who.toLowerCase() === connected.toLowerCase()
+      ? 'your wallet'
+      : vault !== undefined && who.toLowerCase() === vault.toLowerCase()
+        ? PARKING_VAULT
+        : shortAddress(who);
   const shown = limit === undefined ? events : events.slice(0, limit);
 
   if (ledger.timeline.state === 'loading') {
@@ -56,7 +65,7 @@ export function ActivityList({ events, limit }: { readonly events: readonly Mand
     <ul className="space-y-3">
       {shown.map((event) => (
         <li key={`${event.transactionHash}:${event.logIndex}`} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-          <span className="text-detail">{describe(event, labelFor)}</span>
+          <span className="text-detail">{describe(event, labelFor, nameOf)}</span>
           <span className="flex items-center gap-3 text-note text-[color:var(--color-muted)]">
             <Instant at={event.at} relative />
             <TxHash hash={event.transactionHash} />
@@ -67,7 +76,9 @@ export function ActivityList({ events, limit }: { readonly events: readonly Mand
   );
 }
 
-function describe(event: MandateEvent, labelFor: (id: Hex) => string | undefined): string {
+const PARKING_VAULT = 'the parking vault';
+
+function describe(event: MandateEvent, labelFor: (id: Hex) => string | undefined, nameOf: (who: Address) => string): string {
   switch (event.kind) {
     case 'spent':
       return `Paid ${usd(event.amount)} to ${shortAddress(event.merchant)} for ${capability(event.capabilityId, labelFor)}`;
@@ -80,9 +91,11 @@ function describe(event: MandateEvent, labelFor: (id: Hex) => string | undefined
     case 'approval-consumed':
       return `Approval ${shortAddress(event.approvalId, 8, 6)} used on payment ${event.escrowId.toString()}`;
     case 'deposited':
-      return `${usd(event.amount)} added by ${shortAddress(event.from)}`;
+      return `${usd(event.amount)} added by ${nameOf(event.from)}`;
     case 'withdrawn':
-      return `${tokenAmountText(event.amount, event.token)} taken out to ${shortAddress(event.to)}`;
+      return nameOf(event.to) === PARKING_VAULT
+        ? `${tokenAmountText(event.amount, event.token)} moved into ${PARKING_VAULT}`
+        : `${tokenAmountText(event.amount, event.token)} taken out to ${nameOf(event.to)}`;
     case 'bought':
       return `Bought ${tokenAmountText(event.amountOut, event.asset)} for ${usd(event.usdgIn)}`;
     case 'router-updated':
