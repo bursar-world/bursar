@@ -1,0 +1,16 @@
+name = "bursar-provider"
+main = "src/index.ts"
+compatibility_date = "2025-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# The address the escrow pays. List it on the provider desk at https://app.bursar.world/providers first.
+BURSAR_PROVIDER = "0x5210D8df060A9D5ce4c1305045ED5c9548fca374"
+# The capability each call falls under. A payer's mandate has to allow it.
+BURSAR_CAPABILITY = "service:render:1"
+# Priced routes, in USDG. METHOD /path=price, separated by commas.
+BURSAR_PRICES = "POST /render=0.01"
+
+# Secrets, set with `wrangler secret put <NAME>`:
+#   BURSAR_FACILITATOR_TOKEN   the token the facilitator issued you (required)
+#   BURSAR_PROVIDER_KEY        the provider's key, so the worker collects each payment itself (optional)

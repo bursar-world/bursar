@@ -2,6 +2,7 @@ packages:
   - 'apps/*'
   - 'packages/*'
   - 'services/*'
+  - 'templates/*'
   - 'circuits'
 
 # tsx and vitest both bundle esbuild, which unpacks a platform binary in a postinstall step.
@@ -12,11 +13,13 @@ packages:
 # the install.
 allowBuilds:
   esbuild: true
+  workerd: true
   bufferutil: false
   keccak: false
   utf-8-validate: false
 onlyBuiltDependencies:
   - esbuild
+  - workerd
 
 # A compromised release is usually noticed and pulled from the registry within hours. A new version
 # is not installed until it has been public for three days, which outlasts that window for every
