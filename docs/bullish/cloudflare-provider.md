@@ -15,8 +15,7 @@ endorsement, and the copy says none.
 
 Live on the branch, tests green:
 
-- `packages/provider-worker`, published as `@bursar/provider-worker` once the operator runs the
-  publish step. `withBursar(handler)` answers 402 with the offer (both x402 versions), verifies a
+- `packages/provider-worker`, published as `@bursar/provider-worker` 0.1.0 on npm. `withBursar(handler)` answers 402 with the offer (both x402 versions), verifies a
   presented payment with the facilitator, serves the route, settles, reports the settlement in the
   response headers, and with the provider's key as a secret releases the escrow lock after the
   response is sent. Configuration is by environment: `BURSAR_PROVIDER`, `BURSAR_CAPABILITY`,
@@ -27,7 +26,7 @@ Live on the branch, tests green:
 - `templates/cloudflare-worker`: a wrangler project with one priced route, `POST /render` at
   0.01 USDG, a README, and `scripts/pay.ts`, the agent side, which pays the Worker once from a
   mandate with `@bursar/sdk`.
-- `packages/create-provider`, published as `@bursar/create-provider`: `npm create @bursar/provider
+- `packages/create-provider`, published as `@bursar/create-provider` 0.1.0 on npm: `npm create @bursar/provider
   my-api` (or `npx @bursar/create-provider my-api`) copies the template, names the Worker after the
   directory and prints the next commands. Its build copies the template in and pins the published
   versions.
@@ -37,7 +36,6 @@ Live on the branch, tests green:
 
 Prepared, waiting on the operator:
 
-- Publishing the two packages to npm.
 - Deploying the demo Worker to the Cloudflare account. The token in `~/.config/bursar/cloudflare.env`
   reads and writes DNS on the `bursar.world` zone only: uploading a script answered "No access to the
   specified resource" and the Workers subdomain read answered "Authentication error", both tested
@@ -91,7 +89,8 @@ The film came from `npx tsx film/cloudflare-film.ts <url> <out dir>` in the same
 
 ## What the operator must do
 
-1. **Publish the packages**, with the npm token on the ops Mac:
+1. **Done 2026-10-10:** both packages are on npm (`@bursar/provider-worker` 0.1.0, `@bursar/create-provider`
+   0.1.0). The commands that published them:
    ```
    pnpm --filter "@bursar/provider-worker..." build && pnpm --filter @bursar/provider-worker test
    cd packages/provider-worker && pnpm publish --access public --no-git-checks
@@ -140,8 +139,6 @@ the demo keys.
 - A settle the facilitator does not answer is reported to the agent as `settlement_unconfirmed`,
   and the agent's SDK treats that as a failed payment. On the escrow scheme nothing was broadcast
   at settle, so a retry opens a second lock; the first returns at its deadline.
-- The two packages are not on npm until step 1. `npm create @bursar/provider` and the console copy
-  describe that state as current, so publish before the announcement.
 - The payee's record on the desk counts these calls as "paid, still contestable" for the dispute
   window and "not yet recorded" after it; recording is a separate call anyone can make.
 
@@ -154,7 +151,7 @@ the demo keys.
 - Console copy: <https://github.com/bursar-world/bursar/blob/bullish/cloudflare-provider/apps/web/src/components/worker-quickstart.tsx>
 - Branch diff: <https://github.com/bursar-world/bursar/compare/main...bullish/cloudflare-provider>
 - Pull request: to be opened from the diff above by the operator.
-- npm: `@bursar/provider-worker`, `@bursar/create-provider` (after the publish step)
+- npm: https://www.npmjs.com/package/@bursar/provider-worker · https://www.npmjs.com/package/@bursar/create-provider
 - Worker URL: `https://bursar-provider.<account subdomain>.workers.dev` (after the deploy step)
 - Provider desk: <https://app.bursar.world/providers/0x5210D8df060A9D5ce4c1305045ED5c9548fca374>
 - Transactions: the five in the table above, on robinhoodchain.blockscout.com
