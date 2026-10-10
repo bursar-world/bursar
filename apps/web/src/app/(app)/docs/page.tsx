@@ -61,16 +61,12 @@ if (!decision.allowed) {
 /** The keyless second endpoint the packages default to, so a quickstart needs no key to run. */
 const FALLBACK_RPC = 'https://robinhood.drpc.org';
 
-/**
- * The command is a path because `@bursar/mcp` is not on any registry. A published name in this
- * block resolves to nothing on a reader's machine and the client reports `ENOENT`, which says
- * nothing about what is missing.
- */
+/** `npx -y` fetches the published server on first use, so the block runs as printed on a clean machine. */
 const MCP_CONFIG = `{
   "mcpServers": {
     "mandate": {
-      "command": "node",
-      "args": ["<your clone>/packages/mcp/bin/bursar-mcp.mjs"],
+      "command": "npx",
+      "args": ["-y", "@bursar/mcp"],
       "env": {
         "RHC_RPC_PRIMARY": "${RHC.rpcUrl}",
         "RHC_RPC_FALLBACK": "${FALLBACK_RPC}",
@@ -120,14 +116,12 @@ export default function DocsPage() {
         <Card title="Read any mandate" description="No key and nothing signed. These are the same reads the console makes.">
           <CodeBlock code={READ} label="Copy the read example" />
           <p className="mt-3 max-w-3xl text-sm">
-            The SDK runs from a clone of the{' '}
+            Install it with <code className="font-mono text-note">npm install @bursar/sdk viem</code>, on Node 22 or newer.
+            The source is the{' '}
             <a href="https://github.com/bursar-world/bursar" className="underline underline-offset-2">
               public repository
             </a>
-            : run <code className="font-mono text-note">pnpm install</code> and{' '}
-            <code className="font-mono text-note">pnpm --filter @bursar/sdk build</code> there, and import it from a package
-            in that workspace. The address above is the live example mandate, so the figures printed are the ones the console
-            shows.
+            . The address above is the live example mandate, so the figures printed are the ones the console shows.
           </p>
         </Card>
 
@@ -183,8 +177,7 @@ export default function DocsPage() {
           <CodeBlock code={MCP_CONFIG} label="Copy the server configuration" />
           <p className="mt-3 max-w-3xl text-sm">
             One server, one mandate. Every value in angle brackets is one you supply, starting with the account you
-            created in the console. The command runs the server from your clone of the repository, so run{' '}
-            <code className="font-mono text-note">pnpm --filter @bursar/mcp build</code> there first.
+            created in the console. The client fetches the server on first use; nothing is built or cloned.
           </p>
           <p className="mt-3 max-w-3xl text-sm">
             As printed it holds no key and offers the {READERS} tools that read. To let it pay, choose one of two ways. Set <code className="font-mono text-note">BURSAR_SIGNER=local</code> and{' '}
