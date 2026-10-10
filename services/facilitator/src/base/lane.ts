@@ -237,8 +237,11 @@ export class BaseLane {
     if (validFor === null) return refuse(BASE_REASON.offer, `the offer's maxTimeoutSeconds is not a whole number of seconds from 1 to ${MAX_TIMEOUT_SECONDS}`, 400);
     const resource = typeof offer.resource === 'string' ? offer.resource : '';
 
-    const quote = await this.quoteFor(toMicro(amount), validFor);
-    if (quote.refused) return quote;
+    const amountMicro = toMicro(amount);
+    if (amountMicro > this.options.maxPaymentMicro) {
+      return refuse(BASE_REASON.tooLarge, `one Base payment is capped at ${this.options.maxPaymentMicro} USDC atomic units on this facilitator`);
+    }
+    const quote = this.price(amountMicro);
 
     const deployment = this.options.deployments.find((d) => same(d.escrow, reference.escrow));
     if (!deployment) return refuse(BASE_REASON.payer, `${reference.escrow} is not an escrow this facilitator settles for`);
@@ -273,6 +276,17 @@ export class BaseLane {
       return refuse(BASE_REASON.replay, `lock ${reference.id} already paid for a Base authorization`);
     }
 
+    // Judged before anything is signed, and judged again under the ledger's lock when the row is
+    // written. A pay the float cannot cover returns the lock now: it is payable to this lane.
+    const [signedBlock, balance, promised] = await Promise.all([
+      this.options.float.blockNumber(),
+      this.options.float.balance(),
+      this.options.ledger.promised(this.float),
+    ]);
+    if (toMicro(balance - promised) - amountMicro < this.options.floatMinimumMicro) {
+      return this.shortFloat(reference.escrow, reference.id, toMicro(balance - promised), amountMicro);
+    }
+
     const authorization: TransferAuthorization = {
       from: this.float,
       to: payTo,
@@ -281,11 +295,7 @@ export class BaseLane {
       validBefore,
       nonce: deriveNonce(binding),
     };
-    const [signature, signedBlock, balance] = await Promise.all([
-      this.options.float.signAuthorization(authorization),
-      this.options.float.blockNumber(),
-      this.options.float.balance(),
-    ]);
+    const signature = await this.options.float.signAuthorization(authorization);
 
     const opened = await this.options.ledger.open(
       {
@@ -299,7 +309,7 @@ export class BaseLane {
         asset: this.options.float.asset,
         payTo,
         resource,
-        amountMicro: toMicro(amount),
+        amountMicro,
         lockMicro: quote.lockMicro,
         feeMicro: quote.feeMicro,
         nonce: authorization.nonce,
@@ -311,9 +321,8 @@ export class BaseLane {
     );
     if (!opened.opened) {
       // The signature never left this process, so nothing is out there to spend.
-      return opened.reason === 'replay'
-        ? refuse(BASE_REASON.replay, `lock ${reference.id} already paid for a Base authorization`)
-        : refuse(BASE_REASON.float, `the Base float can cover ${opened.availableMicro} USDC atomic units beyond its reserve right now, and this payment needs ${amount}`);
+      if (opened.reason === 'replay') return refuse(BASE_REASON.replay, `lock ${reference.id} already paid for a Base authorization`);
+      return this.shortFloat(reference.escrow, reference.id, opened.availableMicro, amountMicro);
     }
 
     this.log(`base signed payment=${opened.payment.id} lock=${reference.id} usdc=${amount} usdg=${quote.lockMicro} to=${payTo}`);
@@ -329,6 +338,27 @@ export class BaseLane {
       },
       signature,
     };
+  }
+
+  /** The float cannot cover a lock already open for this lane: return the lock, then say so. */
+  private async shortFloat(escrow: Address, id: bigint, availableMicro: Micro, amountMicro: Micro): Promise<BaseRefusal> {
+    const returned = await this.returnLock(escrow, id);
+    return refuse(
+      BASE_REASON.float,
+      `the Base float can cover ${availableMicro > 0n ? availableMicro : 0n} USDC atomic units beyond its reserve right now, and this payment needs ${amountMicro}; ` +
+        (returned ? `lock ${id} was cancelled and its USDG is back in the mandate (${returned})` : `lock ${id} could not be cancelled yet and returns to the mandate on timeout() after its deadline`),
+    );
+  }
+
+  private async returnLock(escrow: Address, id: bigint): Promise<Hex | null> {
+    try {
+      const hash = await this.options.locks.cancel(escrow, id);
+      this.log(`base returned unsigned lock=${id} tx=${hash}`);
+      return hash;
+    } catch (error) {
+      this.log(`base could not return lock=${id} reason=${describe(error)}`);
+      return null;
+    }
   }
 
   async outcome(id: string, body: unknown): Promise<BasePayment | BaseRefusal> {

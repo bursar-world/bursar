@@ -202,3 +202,62 @@ lock, bounded by the lock.
 Works with any service on Coinbase's Bazaar or x402scan that accepts the `exact` scheme in USDC on
 Base, which is nearly all of them. Starts with a float measured in tens of dollars and a per-payment
 ceiling of five; both are stated on the facilitator's `/base/float`.
+
+## The demo and how to run it
+
+The rig runs the facilitator in the process that drives it, so a stranger needs the repository,
+Node 22, `anvil` (Foundry), a local Postgres, and two keys: the agent of a mandate and the lane's
+address. Both open from Web3 keystores under one password; nothing prints a key.
+
+```
+pnpm --filter @bursar/facilitator... build
+psql postgres://localhost/postgres -c 'CREATE DATABASE bursar_base_rig'
+export ETH_PASSWORD=/path/to/password-file   # source ops/rhc-env.sh writes one
+export BURSAR_AGENT_KEYSTORE=~/.config/bursar/keystore/payer
+export BURSAR_FLOAT_KEYSTORE=~/.config/bursar/keystore/payee
+cd services/facilitator
+
+# the whole path against a live Base service, with the Base side on a fork
+BASE_FORK_URL=https://base-rpc.publicnode.com npx tsx scripts/base-lane-rig.ts mainnet https://api.402rates.com/v1/ping
+
+# both chains forked, a local service, the full settle
+RHC_FORK_URL=<keyed 4663 endpoint> BASE_FORK_URL=https://base-rpc.publicnode.com npx tsx scripts/base-lane-rig.ts local
+```
+
+What `mainnet` does, step by step: forks Base on this machine and hands the lane's address 5 USDC
+there; starts the facilitator against the real Robinhood Chain and that fork; calls the service with
+`mandate.fetch(url, { lane: 'base' })` from the example mandate, which opens a real lock on Robinhood
+Chain for the lane's address; sends the facilitator's signed authorization to the service; the
+service's facilitator (Coinbase's) verifies it against the real Base, where the address holds no USDC,
+and refuses the transfer; the rig then waits for the lane's worker to see the authorization expire
+unused and cancel the lock, which returns the USDG to the mandate and credits its windows. The run
+writes everything it saw to `/tmp/base-lane-rig/mainnet.json`.
+
+What `local` does: the same, with Robinhood Chain forked too and a service on this machine that
+settles the authorization on the Base fork, so the worker finds the nonce used and releases the lock
+to the lane's address.
+
+## The honest limits
+
+- **No USDC has been paid to a Base service yet.** No Bursar key holds USDC on Base, and this build
+  spends nothing to obtain some. The live path was run up to the Base transfer: a real lock on
+  Robinhood Chain, a real authorization verified by the service's facilitator and refused only for
+  the empty balance, a real return of the lock. The full settle ran on forks of both chains with the
+  facilitator's own code. The first real USDC payment happens when the operator funds the float.
+- **The float is the operator's.** It starts at tens of dollars and is topped up by hand from the
+  USDG the lane collects. A short float refuses before anything is locked and says so.
+- **One payment is capped at 5 USDC** on the facilitator this build configures, and the float keeps
+  1 USDC in reserve. Both are settings.
+- **The fee is 1% with a floor of 0.2 cent, and a lock is never under one cent**, so a 0.1 cent
+  call locks one cent. The quote states the fee every time.
+- **The lane's address has to be on the mandate's merchant list.** The example mandate already
+  allows the demo address; other owners add the live address once it exists.
+- **Settlement waits for the chain.** The worker runs with the facilitator's maintenance pass, every
+  minute at most, so a lock settles or returns up to a minute after USDC answers, and a refused
+  payment returns only once its authorization has expired: the service's own work budget plus a
+  margin, five and a half minutes for a 300-second budget.
+- **The facilitator sees the service's address, the amount and the resource URL** without its query,
+  and nothing else of the call. It never proxies the request.
+- **Services were not paid for real in this build.** The service the demo calls, 402rates
+  (`/v1/ping`, 0.001 USDC), is a payment integration check on the Bazaar; it refused the empty float
+  exactly as the design says it should.

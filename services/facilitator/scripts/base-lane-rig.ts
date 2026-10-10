@@ -32,6 +32,7 @@ import type { Address, Hex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 
 import { decryptKeystore } from '../src/collateral/keystore.js';
+import { createPostgres } from '../src/db/postgres.js';
 import { compose } from '../src/main.js';
 
 const mode = process.argv[2] === 'local' ? 'local' : 'mainnet';
@@ -39,10 +40,12 @@ const SERVICE_URL = process.argv[3] ?? 'https://api.402rates.com/v1/ping';
 const OUT = process.env['BURSAR_RIG_OUT'] ?? join('/tmp', 'base-lane-rig', `${mode}.json`);
 const KEYSTORES = join(homedir(), '.config', 'bursar', 'keystore');
 const RHC_RPC = process.env['RHC_RPC_PRIMARY'] ?? 'https://robinhood.drpc.org';
+/** What the local fork of 4663 is forked from; a keyed endpoint forks in seconds where the public one is throttled. */
+const RHC_FORK_URL = process.env['RHC_FORK_URL'] ?? RHC_RPC;
 const RHC_RPC_FALLBACK = process.env['RHC_RPC_FALLBACK'] ?? RHC_MAINNET.rpcUrl;
 const BASE_FORK_URL = process.env['BASE_FORK_URL'] ?? BASE_MAINNET.rpcUrl;
 const BASE_PORT = 8546;
-const RHC_PORT = 8547;
+const RHC_PORT = 8557;
 const FACILITATOR_PORT = 8412;
 const SERVICE_PORT = 18403;
 const CAPABILITY = 'service:demo.x402:1';
@@ -70,13 +73,18 @@ function keyOf(envName: string, fallback: string): Hex {
   return decryptKeystore(readFileSync(path, 'utf8'), readFileSync(passwordFile, 'utf8').trim());
 }
 
+/**
+ * Robinhood Chain is an Orbit chain, and anvil 1.8 answers every `eth_call` on a fork of it with
+ * "Excess blob gas not set". Foundry 1.5.0 forks it; ANVIL_RHC names that binary. Base forks on either.
+ */
 async function anvil(port: number, forkUrl: string, chainId: number): Promise<string> {
-  const child = spawn('anvil', ['--port', String(port), '--fork-url', forkUrl, '--chain-id', String(chainId), '--silent', '--no-rate-limit', '--retries', '5', '--timeout', '45000'], { stdio: ['ignore', 'ignore', 'inherit'] });
+  const binary = chainId === 4663 ? (process.env['ANVIL_RHC'] ?? 'anvil') : 'anvil';
+  const child = spawn(binary, ['--port', String(port), '--fork-url', forkUrl, '--chain-id', String(chainId), '--block-time', '1', '--silent', '--no-rate-limit', '--retries', '5', '--timeout', '45000'], { stdio: ['ignore', 'ignore', 'inherit'] });
   children.push(child);
   const url = `http://127.0.0.1:${port}`;
   for (let attempt = 0; attempt < 120; attempt += 1) {
     try {
-      const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [] }) });
+      const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [] }), signal: AbortSignal.timeout(3_000) });
       const body = (await response.json()) as { result?: string };
       if (body.result && Number(body.result) === chainId) return url;
     } catch {
@@ -109,6 +117,22 @@ async function fundFloat(baseUrl: string, float: Address): Promise<{ from: Addre
   await client.waitForTransactionReceipt({ hash: data as Hex });
   await rpc(baseUrl, 'anvil_stopImpersonatingAccount', [richest.holder]);
   return { from: richest.holder, balance: await client.readContract({ address: BASE_MAINNET.usdc, abi: settlementAssetAbi, functionName: 'balanceOf', args: [float] }) };
+}
+
+async function freshDatabase(url: string): Promise<string> {
+  const target = new URL(url);
+  const name = target.pathname.replace(/^\//, '');
+  if (!/^[a-z_][a-z0-9_]*$/.test(name)) throw new Error(`DATABASE_URL names ${name}, which is not a name this rig will drop and recreate`);
+  const admin = new URL(url);
+  admin.pathname = '/postgres';
+  const db = createPostgres({ url: admin.toString() });
+  try {
+    await db.query(`DROP DATABASE IF EXISTS ${name}`);
+    await db.query(`CREATE DATABASE ${name}`);
+  } finally {
+    await db.close();
+  }
+  return url;
 }
 
 function encodeTransfer(to: Address, value: bigint): Hex {
@@ -183,14 +207,16 @@ async function main(): Promise<void> {
   let rhcPrimary = RHC_RPC;
   let rhcFallback = RHC_RPC_FALLBACK;
   if (mode === 'local') {
-    rhcPrimary = await anvil(RHC_PORT, RHC_RPC, 4663);
+    rhcPrimary = await anvil(RHC_PORT, RHC_FORK_URL, 4663);
     rhcFallback = `http://localhost:${RHC_PORT}`;
-    record('robinhood chain fork', { url: rhcPrimary, forkedFrom: RHC_RPC });
+    record('robinhood chain fork', { url: rhcPrimary, forkedFrom: new URL(RHC_FORK_URL).host });
   }
 
   const relayer = generatePrivateKey();
   const other = () => privateKeyToAccount(generatePrivateKey()).address;
-  const database = process.env['DATABASE_URL'] ?? 'postgres://localhost/bursar_base_rig';
+  // A fresh ledger every run. A fork of 4663 carries the chain id and the next lock id of the chain
+  // it was forked from, so a row left by a fork run would refuse the live lock as already paid.
+  const database = await freshDatabase(process.env['DATABASE_URL'] ?? 'postgres://localhost/bursar_base_rig');
   const env: Record<string, string> = {
     DATABASE_URL: database,
     FACILITATOR_MIGRATE: 'on-start',

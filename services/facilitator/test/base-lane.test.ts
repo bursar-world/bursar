@@ -33,6 +33,11 @@ const NOW = 1_800_000_000;
 const binding = { requestHash: hashRequest(BODY), salt: SALT };
 const document = requestDocument({ method: 'POST', url: URL, binding });
 const commit = requestCommit(document);
+/** The same call paid a second time: a fresh salt, so a fresh nonce and a fresh commitment. */
+const binding2 = { requestHash: hashRequest(BODY), salt: `0x${'5c'.repeat(32)}` as Hex };
+const document2 = requestDocument({ method: 'POST', url: URL, binding: binding2 });
+const commit2 = requestCommit(document2);
+const second = (h: ReturnType<typeof harness>, id: bigint) => openLock(h, id, { inputCommit: commit2, inputURI: requestURI(document2) });
 
 const offer = (overrides: Record<string, unknown> = {}) => ({
   scheme: 'exact',
@@ -117,11 +122,10 @@ describe('quote', () => {
 
   it('counts what is already promised against the float', async () => {
     const h = harness({ balance: 1_002_000n });
-    openLock(h, 1n);
     const first = await h.lane.pay({ lock: openLock(h, 1n), binding, offer: offer() });
     expect(first.refused).toBeUndefined();
-    const second = (await h.lane.quote({ amount: '1500', payTo: SERVICE })) as BaseRefusal;
-    expect(second).toMatchObject({ refused: true, reason: BASE_REASON.float });
+    const again = (await h.lane.quote({ amount: '1500', payTo: SERVICE })) as BaseRefusal;
+    expect(again).toMatchObject({ refused: true, reason: BASE_REASON.float });
   });
 
   it('caps one payment and refuses a malformed ask without reading anything', async () => {
@@ -229,9 +233,24 @@ describe('pay', () => {
     const lock = openLock(h, 1n);
     const first = await h.lane.pay({ lock, binding, offer: offer() });
     expect(first.refused).toBeUndefined();
-    const second = await h.lane.pay({ lock: openLock(h, 2n), binding, offer: offer() });
-    expect(second).toMatchObject({ reason: BASE_REASON.float });
+    const again = await h.lane.pay({ lock: second(h, 2n), binding: binding2, offer: offer() });
+    expect(again).toMatchObject({ reason: BASE_REASON.float });
     expect(h.float.signed).toHaveLength(1);
+    expect(h.locks.cancelled).toEqual([{ escrow: ESCROW, id: 2n }]);
+  });
+
+  it('returns a lock at once when the float moved between the quote and the pay', async () => {
+    const h = harness({ balance: 1_002_000n });
+    const first = await h.lane.pay({ lock: openLock(h, 1n), binding, offer: offer() });
+    expect(first.refused).toBeUndefined();
+    // Someone else's authorization took the float's room while this lock was opening.
+    h.float.balanceMicro = 1_000_500n;
+    const again = (await h.lane.pay({ lock: second(h, 2n), binding: binding2, offer: offer() })) as BaseRefusal;
+    expect(again).toMatchObject({ reason: BASE_REASON.float });
+    expect(again.detail).toContain('lock 2 was cancelled');
+    expect(h.locks.cancelled).toEqual([{ escrow: ESCROW, id: 2n }]);
+    expect(h.float.signed).toHaveLength(1);
+    expect(await h.ledger.promised(FLOAT_ACCOUNT.address)).toBe(1_000n);
   });
 });
 
