@@ -68,7 +68,7 @@ async function providerCard(subject: Address, site: string, fetchFn: typeof fetc
       : ` Record: ${released} delivered, ${disputed} contested, ${timedOut} returned to the payer.`;
   const standing =
     score.status === 'success' && cap.status === 'success'
-      ? score.result === 0n
+      ? score.result === 0
         ? ` A payer can open jobs up to ${usd(cap.result)} USDG.`
         : ` Score ${score.result} of 100, which lets a payer open jobs up to ${usd(cap.result)} USDG.`
       : '';
