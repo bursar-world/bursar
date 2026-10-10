@@ -4,9 +4,11 @@ pragma solidity ^0.8.24;
 import {Verifier} from "./lib/Verifier.sol";
 import {RecordKeys as K} from "./lib/RecordKeys.sol";
 import {RwaConfig} from "./lib/RwaConfig.sol";
+import {StockListings} from "./lib/StockListings.sol";
 
 import {IMandateAccountFactory} from "../src/interfaces/IMandateAccountFactory.sol";
 import {AssetRegistry} from "../src/rwa/AssetRegistry.sol";
+import {CollateralVault} from "../src/rwa/CollateralVault.sol";
 import {PriceGuard} from "../src/rwa/PriceGuard.sol";
 import {StockSpendRouter} from "../src/rwa/StockSpendRouter.sol";
 import {TreasuryPark} from "../src/rwa/TreasuryPark.sol";
@@ -111,7 +113,7 @@ abstract contract RwaChecks is Verifier {
         _is("AssetRegistry.settlementAsset", asset, registry.settlementAsset());
 
         RwaConfig.Term[] memory terms = RwaConfig.terms();
-        _isUint("AssetRegistry.assets", terms.length, registry.assets().length);
+        _isUint("AssetRegistry.assets", terms.length + _checkListings(registry), registry.assets().length);
         for (uint256 i; i < terms.length; ++i) {
             string memory at = string.concat(K.RWA_ASSETS, ".", terms[i].symbol);
             address token = _recordAddress(string.concat(at, ".address"));
@@ -132,6 +134,42 @@ abstract contract RwaChecks is Verifier {
             _isUint(string.concat(terms[i].symbol, ".totalCap"), terms[i].totalCap, a.totalCap);
             bytes32 built = keccak256(abi.encode(RwaConfig.pool(token, asset, terms[i].fee, terms[i].tickSpacing)));
             _isTrue(string.concat(terms[i].symbol, " trades through another pool"), registry.poolId(token) == built);
+        }
+    }
+
+    /// The stocks `ListStocks.s.sol` lists after launch, each on its terms and in its tier once it
+    /// is on chain; one the record names and the registry does not hold yet is owed, not wrong.
+    /// Returns how many the registry holds.
+    function _checkListings(AssetRegistry registry) private returns (uint256 held) {
+        address usdg = _settlementAsset();
+        address vault = _recordAddress(K.COLLATERAL_VAULT);
+        StockListings.Listing[] memory listings = StockListings.all();
+        for (uint256 i; i < listings.length; ++i) {
+            string memory symbol = listings[i].symbol;
+            string memory at = string.concat(K.EXTERNAL_ASSETS, ".", symbol);
+            if (!_recorded(string.concat(at, ".address"))) continue;
+            address token = _recordAddress(string.concat(at, ".address"));
+            if (!registry.isRegistered(token)) {
+                _owe(string.concat(symbol, " is not listed yet: ListStocks.s.sol proposes it"));
+                continue;
+            }
+            ++held;
+            AssetRegistry.Asset memory a = registry.get(token);
+            _is(string.concat(symbol, ".feed"), _recordAddress(string.concat(at, ".feed")), a.feed);
+            _isTrue(string.concat(symbol, " is not eligible"), a.eligible);
+            _isTrue(string.concat(symbol, " is not a stock"), a.isStock && !a.isTreasury);
+            _isUint(string.concat(symbol, ".bandBps"), 100, a.bandBps);
+            _isUint(string.concat(symbol, ".perTradeCap"), RwaConfig.STOCK_TRADE_CAP, a.perTradeCap);
+            bytes32 built = keccak256(abi.encode(RwaConfig.pool(token, usdg, listings[i].fee, listings[i].tickSpacing)));
+            _isTrue(string.concat(symbol, " trades through another pool"), registry.poolId(token) == built);
+            string memory recorded = string.concat(K.RWA_ASSETS, ".", symbol, ".address");
+            if (_recorded(recorded)) _is(string.concat("rwa.assets.", symbol, ".address"), token, _recordAddress(recorded));
+            else _owe(string.concat(symbol, " is listed and not yet in rwa.assets: ListStocks.s.sol record() writes it"));
+            if (vault != address(0)) {
+                uint8 tier = CollateralVault(vault).tierOf(token);
+                if (tier == 0) _owe(string.concat(symbol, " has no collateral tier yet: the batch's second proposal sets it"));
+                else _isUint(string.concat("CollateralVault.tierOf(", symbol, ")"), listings[i].tier, tier);
+            }
         }
     }
 }

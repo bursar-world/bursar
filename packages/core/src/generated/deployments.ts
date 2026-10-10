@@ -1873,6 +1873,84 @@ export const RAW_DEPLOYMENTS: Readonly<Record<RawDeploymentName, unknown>> = {
         "feed": "0x6B22A786bAa607d76728168703a39Ea9C99f2cD0",
         "kind": "stock",
         "poolId": "0xc748f4671a867db48b552f6b7650bf3255e05f80f00e3f7aad1b17ccb7898fdb"
+      },
+      "AMZN": {
+        "address": "0x12f190a9F9d7D37a250758b26824B97CE941bF54",
+        "feed": "0xD5a1508ceD74c084eBf3cBe853e2C968fB2a651C",
+        "kind": "stock",
+        "poolId": "0xefc94885c96b02696b9b45de43eeeb8ac53c0199cab42b4daae4911b96fb8825"
+      },
+      "BABA": {
+        "address": "0xad25Ac6C84D497db898fa1E8387bf6Af3532a1c4",
+        "feed": "0x62Cc8F9b5f56a33c9C8A60c8B92779f523c4E984",
+        "kind": "stock",
+        "poolId": "0x1791fc651cc794a282e5dbcb56d0b2b38eff8754b677c8876e86901521ecc439"
+      },
+      "COIN": {
+        "address": "0x6330D8C3178a418788dF01a47479c0ce7CCF450b",
+        "feed": "0xA3a468A452940B7D6b69991207B508c609a98Ef2",
+        "kind": "stock",
+        "poolId": "0xe2e1a0e32205e854525e0fb1d3667a53bd3b4919f032b9bcd2a038b6b6dac314"
+      },
+      "CRWV": {
+        "address": "0x5f10A1C971B69e47e059e1dC91901B59b3fB49C3",
+        "feed": "0xe1b3aABCAFAd1c94708dc1367dcfF8Aa4407487C",
+        "kind": "stock",
+        "poolId": "0x237014478f7ef98afbe7412ac35b6a3f96b8fb111de48b7c4dbf49dba4bd9c4b"
+      },
+      "DELL": {
+        "address": "0x941AE714EC6D8130c7B75d67160Ca08f1e7d11Dd",
+        "feed": "0x1C6c8cADBe02E19129c39dDB92281cE4c0bf206b",
+        "kind": "stock",
+        "poolId": "0x729651c09684919bdffda473141be4e908ee0e8cf8a43f41135831217fa7d3bb"
+      },
+      "GOOGL": {
+        "address": "0x2e0847E8910a9732eB3fb1bb4b70a580ADAD4FE3",
+        "feed": "0xF6f373a037c30F0e5010d854385cA89185AE638b",
+        "kind": "stock",
+        "poolId": "0xd4ecb79fdc521d7725d22b33ed43cb4e47aa96bfad76aa29577e3151f723ac5e"
+      },
+      "META": {
+        "address": "0xc0D6457C16Cc70d6790Dd43521C899C87ce02f35",
+        "feed": "0x7C38C00C30BEe9378381E7B6135d7283356D71b1",
+        "kind": "stock",
+        "poolId": "0xc58bb68060bcb7b3ea0f6d4a4afef1e57f628722e808db12afb6d1733552872f"
+      },
+      "MSFT": {
+        "address": "0xe93237C50D904957Cf27E7B1133b510C669c2e74",
+        "feed": "0x45C3C877C15E6BA2EBB19eA114Ea508d14C1Af2E",
+        "kind": "stock",
+        "poolId": "0x9194a557b6a6bb2236b49ea7e2bbccec5d3eeb705aef00903be4b3de1d949579"
+      },
+      "ORCL": {
+        "address": "0xb0992820E760d836549ba69BC7598b4af75dEE03",
+        "feed": "0x0e6a64a2B58A6693a531E6c555f3A5d042eEA844",
+        "kind": "stock",
+        "poolId": "0xc2ce4784e1e72cf0221b51b30c8aaadf6c0b12863cf03ab3687854fb7b1d850a"
+      },
+      "PLTR": {
+        "address": "0x894E1EC2D74FFE5AEF8Dc8A9e84686acCB964F2A",
+        "feed": "0x820ABedFF239034956B7A9d2F0a331f9F075eB4c",
+        "kind": "stock",
+        "poolId": "0xc59eaeda6d1a6f031bc7e1d039772f2d675e7b4de2c8668610f4471bd60b3802"
+      },
+      "SPCX": {
+        "address": "0x4a0E65A3EcceC6dBe60AE065F2e7bb85Fae35eEa",
+        "feed": "0xB265810950ba6c5C0Ff821c9963014a56fD8Bffb",
+        "kind": "stock",
+        "poolId": "0x8567e70dbf639a618ba5eaf9402743452b93ca45c9bf8b97462407f07d7b7448"
+      },
+      "TSLA": {
+        "address": "0x322F0929c4625eD5bAd873c95208D54E1c003b2d",
+        "feed": "0x4A1166a659A55625345e9515b32adECea5547C38",
+        "kind": "stock",
+        "poolId": "0x8517f8071ae5b831b738052f12125e8e3d6c158b78728aa44ce3b25e5104d32e"
+      },
+      "USO": {
+        "address": "0xa30FA36Db767ad9eD3f7a60fC79526fB4d56D344",
+        "feed": "0x75a9c76Ef439e2C7c2E5a34Ab105EcFe3766431c",
+        "kind": "stock",
+        "poolId": "0x1f2ad5a274a776d8e1408292bde1d92d8fa7b6444acf14ad60b9c3e4e5b66420"
       }
     }
   },
