@@ -15,7 +15,7 @@ had no facilitator anyone could call. This update supplies both.
 |---|---|
 | The `exact` scheme's standard profile in `@bursar/x402` | Built and tested on the branch. |
 | Keyless routes `/x402/supported`, `/x402/verify`, `/x402/settle` on the facilitator | Live on `facilitator.bursar.world` since 2026-10-10 20:36 UTC. A stock client paid the example endpoint through it at 20:43 UTC: one cent, 3.6 s end to end, [0x9aa420a7…90e201](https://robinhoodchain.blockscout.com/tx/0x9aa420a76c6b008872c449f6960e01545115c0b88d78900323f6c32b1f90e201). |
-| Robinhood Chain for the reference SDKs, exported from `@bursar/x402` | Published as `@bursar/x402` 0.1.0. The registry holds it as a staged version until a maintainer approves it on npmjs.com. |
+| Robinhood Chain for the reference SDKs, exported from `@bursar/x402` | Published: `@bursar/x402` 0.1.0 on npm. |
 | The upstream change to the x402 default-asset tables | Written as `docs/bullish/x402-rhc.patch`, applies cleanly to x402-foundation/x402 main `f8f8330`. The operator opens the pull request. |
 | The demo: a stock x402 client pays a Robinhood Chain endpoint in USDG | Ran on mainnet twice. Through the branch run locally, one cent settled in 1.08 s: [0xb29f…49ab](https://robinhoodchain.blockscout.com/tx/0xb29f4548ae08e4618aa85aeb71516b7ca9e34358d5b04ecd502e964bd3ed49ab). Through the live service, one cent in 3.6 s: [0x9aa420a7…90e201](https://robinhoodchain.blockscout.com/tx/0x9aa420a76c6b008872c449f6960e01545115c0b88d78900323f6c32b1f90e201). |
 
@@ -148,8 +148,7 @@ wanted after the deploy, the stock client runs in a browser against a wallet's `
    token, and the example above runs with no `FACILITATOR_URL`. Settlements through `/x402` draw
    on the live relayer's ETH and the shared daily budget (`FACILITATOR_DAILY_SETTLEMENTS`, 2,000
    unless set).
-2. **Published, pending approval.** `@bursar/x402` 0.1.0 is on the registry as a staged version; a maintainer
-   approves it on npmjs.com (Staged packages, 2FA). The command that published it:
+2. **Done.** `@bursar/x402` 0.1.0 is on npm. The command that published it:
    `pnpm --filter @bursar/x402 build && pnpm --filter @bursar/x402 publish --access public` (the
    package depends on `@bursar/core` 0.1.0, already published).
 3. **Open the upstream pull request** at https://github.com/x402-foundation/x402. Fork it, then:
@@ -227,7 +226,7 @@ relayer's ordinary gas.
 
 ## Announcement
 
-Publish once `@bursar/x402` is approved on npm.
+Ready to publish.
 
 **One line.** Any x402 agent can now pay for Robinhood Chain services in USDG, settled by Bursar.
 
