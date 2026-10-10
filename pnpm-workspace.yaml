@@ -3,6 +3,7 @@ packages:
   - 'packages/*'
   - 'packages/integrations/*'
   - 'services/*'
+  - 'templates/*'
   - 'circuits'
   - 'examples/*'
 
@@ -14,6 +15,7 @@ packages:
 # the install.
 allowBuilds:
   esbuild: true
+  workerd: true
   bufferutil: false
   keccak: false
   utf-8-validate: false
@@ -27,6 +29,7 @@ allowBuilds:
   secp256k1: false
 onlyBuiltDependencies:
   - esbuild
+  - workerd
 
 # A compromised release is usually noticed and pulled from the registry within hours. A new version
 # is not installed until it has been public for three days, which outlasts that window for every

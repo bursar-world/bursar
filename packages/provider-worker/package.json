@@ -1,0 +1,63 @@
+{
+  "name": "@bursar/provider-worker",
+  "version": "0.1.0",
+  "description": "Charge agents for a Cloudflare Worker route over x402, settled through Bursar on Robinhood Chain.",
+  "keywords": [
+    "bursar",
+    "cloudflare-workers",
+    "x402",
+    "ai-agents",
+    "payments",
+    "robinhood-chain",
+    "usdg"
+  ],
+  "homepage": "https://github.com/bursar-world/bursar/tree/main/packages/provider-worker#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bursar-world/bursar.git",
+    "directory": "packages/provider-worker"
+  },
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/bursar-world/bursar/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@bursar/core": "workspace:*",
+    "viem": "2.56.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261006.1",
+    "@types/node": "22.20.2",
+    "esbuild": "0.28.2",
+    "miniflare": "4.20260730.0",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

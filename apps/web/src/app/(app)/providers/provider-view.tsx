@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { Button } from '@/components/button';
 import { ErrorSurface } from '@/components/error-surface';
 import { Card, Field, FieldGrid, Section } from '@/components/layout';
+import { WorkerQuickstart } from '@/components/worker-quickstart';
 import { NETWORK_CONDITIONS, StatusList } from '@/components/status';
 import { useSystemState } from '@/state';
 import { ConnectModal } from '@/wallet';
@@ -66,6 +67,10 @@ function Introduction() {
         <Card>
           <OpenDesk />
         </Card>
+      </Section>
+
+      <Section title="Charge agents" description="Put a price on a route and agents pay it from their mandates.">
+        <WorkerQuickstart compact />
       </Section>
 
       <RegistryTerms />
