@@ -9,6 +9,7 @@ import type { AgentIdentity, IdentityReading } from '@/chain/erc8004';
 import { rhcClient } from '@/chain/client';
 import { shortAddress } from '@/chain/rhc';
 import { Address as AddressView } from '@/components/address';
+import { Button } from '@/components/button';
 import { ErrorSurface } from '@/components/error-surface';
 import { Card, Field, FieldGrid, Section, Skeleton } from '@/components/layout';
 import { TxButton } from '@/components/tx-button';
@@ -239,6 +240,15 @@ function Unregistered({
           <ExternalLink href={`https://www.8004scan.io/agents/${REGISTRIES?.scanChain}/${minted.toString()}`}>8004scan</ExternalLink>
           <ExternalLink href={`https://opensea.io/item/${REGISTRIES?.openseaChain}/${registry.toLowerCase()}/${minted.toString()}`}>OpenSea</ExternalLink>
         </p>
+        <Button
+          size="sm"
+          onClick={() => {
+            setMinted(undefined);
+            onChanged();
+          }}
+        >
+          Read it again
+        </Button>
       </div>
     );
   }
