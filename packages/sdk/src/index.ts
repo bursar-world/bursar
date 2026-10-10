@@ -26,7 +26,7 @@ export type {
 } from './mandate.js';
 
 export { RwaClient, RwaUnavailableError, UnknownAssetError, rwa } from './rwa.js';
-export type { BuyReceipt, FeedPrice, Holding, ParkedPosition, RwaAsset, RwaLane } from './rwa.js';
+export type { BuyReceipt, FeedPrice, Holding, ParkedPosition, RwaAsset, RwaLane, SellReceipt } from './rwa.js';
 export {
   CollateralClient,
   CollateralSetError,

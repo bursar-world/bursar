@@ -64,12 +64,23 @@ export type BuyReceipt = Sent & {
   readonly priceE8: bigint;
 };
 
+export type SellReceipt = Sent & {
+  readonly asset: Address;
+  /** Raw token units sold out of the mandate's custody. */
+  readonly amountIn: bigint;
+  /** USDG delivered to the mandate. */
+  readonly usdgOut: Micro;
+  readonly priceE8: bigint;
+};
+
 export type Holding = {
   readonly asset: RwaAsset;
   readonly raw: bigint;
   /** raw × feed price, in USDG. Zero when the price is not fresh. */
   readonly value: Micro;
   readonly price: FeedPrice;
+  /** Raw token units the principal has released for sale, held in the mandate's custody. */
+  readonly sellable: bigint;
 };
 
 export type ParkedPosition = {
@@ -403,12 +414,12 @@ export class RwaClient {
     };
   }
 
-  /** Stock tokens the mandate holds, valued at raw × feed price. */
+  /** Stock tokens the mandate holds, valued at raw × feed price, with what is released for sale. */
   async holdings(): Promise<Holding[]> {
     const assets = (await this.assets()).filter((a) => a.kind === 'stock');
     return Promise.all(
       assets.map(async (asset) => {
-        const [raw, price] = await Promise.all([
+        const [raw, price, sellable] = await Promise.all([
           this.#client.readContract({
             address: asset.address,
             abi: erc20Abi,
@@ -416,11 +427,163 @@ export class RwaClient {
             args: [this.mandate.address],
           }),
           this.price(asset.address),
+          this.sellable(asset.address),
         ]);
         const value = price.fresh ? rawToUsdgMicros(raw, price.priceE8, asset.decimals) : 0n;
-        return { asset, raw, value: micro(value), price };
+        return { asset, raw, value: micro(value), price, sellable };
       }),
     );
+  }
+
+  /** Where the principal sends stock the agent may sell: the mandate's custody on the router. */
+  async custody(): Promise<Address> {
+    return this.#client.readContract({
+      address: this.lane.StockSpendRouter,
+      abi: stockSpendRouterAbi,
+      functionName: 'custodyOf',
+      args: [this.mandate.address],
+    });
+  }
+
+  /** Raw token units of `asset` in the mandate's custody, which is what `sell` can sell. */
+  async sellable(assetOrSymbol: string): Promise<bigint> {
+    return this.#client.readContract({
+      address: this.lane.StockSpendRouter,
+      abi: stockSpendRouterAbi,
+      functionName: 'sellable',
+      args: [this.mandate.address, this.resolve(assetOrSymbol)],
+    });
+  }
+
+  /**
+   * The least USDG the router accepts for `raw` of an asset at the current feed price, and that
+   * price. A price the guard will not sell on (stale, paused, out of its pool band) throws the
+   * reading for it.
+   */
+  async sellQuote(assetOrSymbol: string, raw: bigint): Promise<{ priceE8: bigint; minUsdg: Micro }> {
+    const asset = this.resolve(assetOrSymbol);
+    const [priceE8, minUsdg] = await readingLane(
+      Promise.all([
+        this.#client.readContract({
+          address: this.lane.PriceGuard,
+          abi: priceGuardAbi,
+          functionName: 'exitPrice',
+          args: [asset, this.mandate.address],
+        }),
+        this.#client.readContract({
+          address: this.lane.StockSpendRouter,
+          abi: stockSpendRouterAbi,
+          functionName: 'minUsdgFor',
+          args: [this.mandate.address, asset, raw],
+        }),
+      ]),
+      'sell',
+      this.#context,
+    );
+    return { priceE8, minUsdg: micro(minUsdg) };
+  }
+
+  /**
+   * Principal only. Moves `raw` of a holding from the mandate to its custody, where the agent can
+   * sell it. One transaction, the account's own `withdraw`; the stock stays the mandate's, and
+   * `recall` brings it back without a price.
+   */
+  async release(assetOrSymbol: string, raw: bigint): Promise<Sent> {
+    const asset = this.resolve(assetOrSymbol);
+    const amount = checkPositiveAmount('raw', micro(raw));
+    return this.mandate.withdraw({ token: asset, to: await this.custody(), amount });
+  }
+
+  /** Principal or agent. Sends `raw` (or everything in custody) back to the mandate. */
+  async recall(assetOrSymbol: string, raw?: bigint): Promise<Sent> {
+    const asset = this.resolve(assetOrSymbol);
+    const amount = raw ?? (await this.sellable(asset));
+    if (amount <= 0n) throw new BursarError('rwa_nothing_released', `Nothing of ${assetOrSymbol} is in custody.`, { asset });
+    return sendCall(this.mandate.connection, {
+      to: this.lane.StockSpendRouter,
+      data: encodeFunctionData({
+        abi: stockSpendRouterAbi,
+        functionName: 'recall',
+        args: [this.mandate.address, asset, amount],
+      }),
+      action: 'recall',
+      explain: explainLane('recall', this.#context, { router: this.lane.StockSpendRouter }),
+    });
+  }
+
+  /**
+   * Sells `raw` of a stock (or everything the principal has released) back to USDG, delivered to
+   * the mandate. Sent by the agent or the principal. The principal must have allowed the asset for
+   * sale, and the fill has to be no worse than the feed price less the mandate's slippage limit.
+   * A sale is not a spend: it restores USDG the mandate can spend and credits nothing back to the
+   * limits the purchase counted against.
+   */
+  async sell(assetOrSymbol: string, raw?: bigint): Promise<SellReceipt> {
+    const asset = this.resolve(assetOrSymbol);
+    requireSigner(this.mandate.connection, 'sell');
+    const amount = raw ?? (await this.sellable(asset));
+    if (amount <= 0n) {
+      throw new BursarError(
+        'rwa_nothing_released',
+        `Nothing of ${assetOrSymbol} is in the mandate's custody. The principal releases a holding for sale ` +
+          'with release().',
+        { asset },
+      );
+    }
+    const { priceE8, minUsdg } = await this.sellQuote(asset, amount);
+    const sent = await sendCall(this.mandate.connection, {
+      to: this.lane.StockSpendRouter,
+      data: encodeFunctionData({
+        abi: stockSpendRouterAbi,
+        functionName: 'sell',
+        args: [this.mandate.address, asset, amount, minUsdg, priceE8],
+      }),
+      action: 'sell',
+      explain: explainLane('sell', this.#context, { mandate: this.mandate.address, router: this.lane.StockSpendRouter }),
+    });
+    const [sold] = parseEventLogs({
+      abi: stockSpendRouterAbi,
+      eventName: 'StockSold',
+      logs: sent.receipt.logs,
+    });
+    return {
+      ...sent,
+      asset,
+      amountIn: amount,
+      usdgOut: micro(sold?.args.usdgOut ?? 0n),
+      priceE8,
+    };
+  }
+
+  /** Principal only. Which assets the agent may sell out of custody. */
+  async setSalePolicy(input: { allow?: string[]; deny?: string[] }): Promise<Sent> {
+    const allow = (input.allow ?? []).map((a) => this.resolve(a));
+    const deny = (input.deny ?? []).map((a) => this.resolve(a));
+    return sendCall(this.mandate.connection, {
+      to: this.lane.StockSpendRouter,
+      data: encodeFunctionData({
+        abi: stockSpendRouterAbi,
+        functionName: 'setSalePolicy',
+        args: [this.mandate.address, [...allow, ...deny], [...allow.map(() => true), ...deny.map(() => false)]],
+      }),
+      action: 'setSalePolicy',
+      explain: explainLane('policy', this.#context, { router: this.lane.StockSpendRouter }),
+    });
+  }
+
+  async salePolicy(): Promise<{ allowed: Address[] }> {
+    const assets = this.lane.assets.filter((a) => a.kind === 'stock');
+    const flags = await Promise.all(
+      assets.map((a) =>
+        this.#client.readContract({
+          address: this.lane.StockSpendRouter,
+          abi: stockSpendRouterAbi,
+          functionName: 'saleAllowed',
+          args: [this.mandate.address, a.address],
+        }),
+      ),
+    );
+    return { allowed: assets.filter((_, i) => flags[i]).map((a) => a.address) };
   }
 
   /** Parked positions, one per adapter the lane knows. */
