@@ -4,10 +4,10 @@ import { classLabel, classOfLabel, toCapabilityId } from '@bursar/core';
 import type { ContractSet, Micro } from '@bursar/core';
 import { SPEND_APPROVAL_TYPES, mandateDomain } from '@bursar/sdk';
 import type { SpendApproval } from '@bursar/sdk';
-import { useRef, useState } from 'react';
-import { domainSeparator } from 'viem';
+import { useEffect, useRef, useState } from 'react';
+import { domainSeparator, hashTypedData } from 'viem';
 import type { Address, Hex } from 'viem';
-import { useSignTypedData } from 'wagmi';
+import { useBytecode, useReadContract, useSignTypedData } from 'wagmi';
 
 import { CHAIN_ID, shortAddress } from '@/chain/rhc';
 import { mandateAccountAbi } from '@/chain/abi';
@@ -27,6 +27,7 @@ import { AddressInput, readAddress } from '@/components/address-input';
 import { readUsdgAmount } from '../../lib/amount';
 import { useCapabilityLabels } from '../../lib/capability-labels';
 import { describeApproval } from '../../lib/format';
+import { SAFE_THRESHOLD_ABI, readSafeMessage, safeAppHome, safeMessageHash } from '../../lib/safe-signing';
 import { callGates } from '../../lib/write-gates';
 import type { MandateEvent } from '../../lib/activity';
 import { useApprovedCapabilities } from '../../lib/use-ledger';
@@ -60,13 +61,19 @@ type Granted = {
  * Above the threshold the contract refuses the agent outright, and nothing settles until the owner
  * has said yes to that exact payment. There are two ways to say it. A signature is produced in the
  * wallet, costs nothing, and is handed to the agent. Registering it on chain is a transaction, and
- * it is the path for a wallet that cannot sign a typed message, a Safe among them.
+ * it is the path for a wallet that cannot sign a typed message.
+ *
+ * A Safe signs too: the account checks its signature through ERC-1271, and the Safe app signs
+ * typed messages for a Safe opened inside it. With one owner the signature comes straight back.
+ * With more, the app hands back nothing until the other owners have confirmed, so the finished
+ * bundle is read from the Safe transaction service, which holds the message and every signature
+ * on it. A Safe connected any other way cannot sign here, and registers on chain instead.
  *
  * Either way the consent covers one payment, names the payee and the capability, carries a ceiling
  * the price has to land under, and is burned on use.
  */
 export function ApprovalsView() {
-  const { address, account, ledger, system, isOwner, writeContext, refresh } = useMandateScope();
+  const { address, account, ledger, system, connected, isOwner, writeContext, refresh } = useMandateScope();
   const { labelFor, remember } = useCapabilityLabels();
   const { writeContractAsync } = useWriteContract();
   const { signTypedDataAsync } = useSignTypedData();
@@ -81,6 +88,51 @@ export function ApprovalsView() {
   const [signingError, setSigningError] = useState<unknown>(null);
   const [burnText, setBurnText] = useState('');
   const [registered, setRegistered] = useState<{ readonly id: Hex; readonly bundle: string } | undefined>(undefined);
+  // A Safe with more than one owner: the message the owners confirm, and how many have.
+  const [collecting, setCollecting] = useState<
+    { readonly approval: SpendApproval; readonly messageHash: Hex; readonly confirmations: number; readonly problem?: string } | undefined
+  >(undefined);
+
+  // An owner with code is a contract wallet, a Safe in practice, and signs differently.
+  const { data: ownerCode } = useBytecode({ address: connected, query: { enabled: isOwner && connected !== undefined } });
+  const contractOwner = ownerCode !== undefined && ownerCode !== '0x';
+  const { data: threshold } = useReadContract({
+    address: connected,
+    abi: SAFE_THRESHOLD_ABI,
+    functionName: 'getThreshold',
+    query: { enabled: contractOwner },
+  });
+  const owners = threshold === undefined ? undefined : Number(threshold);
+
+  useEffect(() => {
+    if (collecting === undefined) return undefined;
+    let stopped = false;
+    const { approval, messageHash } = collecting;
+    const poll = async () => {
+      try {
+        const state = await readSafeMessage(messageHash);
+        if (stopped || state === undefined) return;
+        if (state.signature !== undefined) {
+          setSigned({ signature: state.signature, bundle: bundleOf(address, approval, state.signature) });
+          setCollecting(undefined);
+          return;
+        }
+        setCollecting((current) => (current?.messageHash === messageHash ? { ...current, confirmations: state.confirmations } : current));
+      } catch (caught) {
+        if (stopped) return;
+        const problem = caught instanceof Error ? caught.message : String(caught);
+        setCollecting((current) => (current?.messageHash === messageHash ? { ...current, problem } : current));
+      }
+    };
+    void poll();
+    const timer = setInterval(() => void poll(), 6_000);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+    // The message hash names the approval being collected; the count and the problem change under it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collecting?.messageHash, address]);
 
   // The id of the approval the transaction in flight carries. The form clears itself when the
   // receipt lands, so the id has to be held somewhere the clearing does not reach.
@@ -149,6 +201,7 @@ export function ApprovalsView() {
     setDraft(undefined);
     setSigned(undefined);
     setRegistered(undefined);
+    setCollecting(undefined);
   };
 
   const sign = async () => {
@@ -162,6 +215,12 @@ export function ApprovalsView() {
         message: approval,
       });
       remember(capability.label ?? capabilityText.trim());
+      // The Safe app answers with nothing while other owners still have to confirm.
+      if (signature === '0x' && connected !== undefined) {
+        const digest = hashTypedData({ domain, types: SPEND_APPROVAL_TYPES, primaryType: 'SpendApproval', message: approval });
+        setCollecting({ approval, messageHash: safeMessageHash(connected, CHAIN_ID, digest), confirmations: 1 });
+        return;
+      }
       setSigned({ signature, bundle: bundleOf(address, approval, signature) });
     } catch (caught) {
       setSigningError(caught);
@@ -174,6 +233,7 @@ export function ApprovalsView() {
     setAmountText('');
     setDraft(undefined);
     setSigned(undefined);
+    setCollecting(undefined);
     setSigningError(null);
   };
 
@@ -325,7 +385,11 @@ export function ApprovalsView() {
                     Sign it
                   </Button>
                   <p className="max-w-xs text-note text-[color:var(--color-muted)]">
-                    Signed in your wallet. Nothing is sent; give the result to the agent.
+                    {contractOwner
+                      ? owners !== undefined && owners > 1
+                        ? `Signed by your Safe. ${owners} owners confirm in Safe before the approval is complete.`
+                        : 'Signed by your Safe, from inside the Safe app. Nothing is sent; give the result to the agent.'
+                      : 'Signed in your wallet. Nothing is sent; give the result to the agent.'}
                   </p>
                 </div>
 
@@ -372,6 +436,35 @@ export function ApprovalsView() {
               </div>
 
               {signingError !== null && <ErrorSurface error={signingError} action="Signing the approval" />}
+              {signingError !== null && contractOwner && (
+                <p className="text-detail text-[color:var(--color-muted)]">
+                  A Safe signs approvals from inside the Safe app. Connected any other way, register the approval on
+                  chain instead; the agent then needs no signature.
+                </p>
+              )}
+
+              {collecting && (
+                <div className="space-y-2 rounded-md border border-[color:var(--color-line)] p-4">
+                  <h3 className="text-sm font-semibold">Waiting for your Safe.</h3>
+                  <p className="text-detail text-[color:var(--color-muted)]">
+                    {collecting.confirmations} of {owners ?? '?'} owners have signed. The others confirm the message in{' '}
+                    {connected === undefined ? (
+                      'Safe'
+                    ) : (
+                      <a href={safeAppHome(connected)} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+                        Safe
+                      </a>
+                    )}
+                    ; the finished approval appears here, ready for the agent. Registering it on chain works the same
+                    way and needs no second step.
+                  </p>
+                  {collecting.problem !== undefined && (
+                    <p className="text-detail" style={{ color: 'var(--color-state-attention)' }}>
+                      The Safe transaction service could not be read: {collecting.problem} Checking again shortly.
+                    </p>
+                  )}
+                </div>
+              )}
 
               {handOff && (
                 <div className="space-y-2 rounded-md border border-[color:var(--color-line)] p-4">

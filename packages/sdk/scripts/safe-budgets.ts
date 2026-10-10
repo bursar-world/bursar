@@ -9,7 +9,8 @@
  *
  * Every transaction lands in SAFE_BUDGETS_RECORD (docs/bullish/safe-budgets/record.json). A rerun
  * reads the record and skips what already happened, so a step that fails is retried without a
- * second Safe or a second mandate.
+ * second Safe or a second mandate. SAFE_BUDGETS_STOP_AFTER=<step> runs up to one named Safe
+ * transaction and stops, which is how a recording catches a single action landing.
  */
 import { createDecipheriv, scryptSync } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -175,8 +176,11 @@ const SAFE_EVENTS = [
  * One Safe transaction: drafted by the payer, signed by the payer and the payee, sent by the payer,
  * and refunded by the Safe at the gas price the signers approved, so the treasury pays its own gas.
  */
+const STOP_AFTER = process.env.SAFE_BUDGETS_STOP_AFTER;
+
 async function fromSafe(name: string, label: string, transactions: { to: Address; value?: bigint; data: Hex }[]) {
   if (record.steps[name]) return console.log(`  ${label}: already done, ${record.steps[name]!.explorer}`);
+  if (STOP_AFTER !== undefined && name !== STOP_AFTER) throw new Error(`stopped before ${name}: SAFE_BUDGETS_STOP_AFTER=${STOP_AFTER}`);
   const first = await safeAs(payer);
   const second = await safeAs(payee);
   const calls = transactions.map((tx) => ({ to: tx.to, value: (tx.value ?? 0n).toString(), data: tx.data }));
@@ -214,6 +218,10 @@ async function fromSafe(name: string, label: string, transactions: { to: Address
   if (outcome?.eventName !== 'ExecutionSuccess') throw new Error(`${label}: the Safe recorded ${outcome?.eventName ?? 'no outcome'}: ${link(hash)}`);
   record.steps[name] = { hash, explorer: link(hash), signers, note: `refunded ${formatEther(outcome.args.payment)} ETH to the sender` };
   save();
+  if (STOP_AFTER === name) {
+    console.log(`stopped after ${name}`);
+    process.exit(0);
+  }
 }
 
 const balance = async (address: Address) => ({
@@ -372,6 +380,17 @@ if (record.steps['pay'] === undefined) {
   record.steps['pay'] = { hash: receipt.hash, explorer: receipt.explorer, note: `escrow lock ${receipt.escrowId}, sent by the agent with the Safe's signature` };
   save();
 }
+
+// 10. The brake and the way out: pause, withdraw part of the budget to the Safe, resume.
+await fromSafe('pause', 'pause the mandate', [
+  { to: mandateAddress, data: encodeFunctionData({ abi: mandateAccountAbi, functionName: 'setPaused', args: [true] }) },
+]);
+await fromSafe('withdraw', 'withdraw $0.05 to the Safe', [
+  { to: mandateAddress, data: encodeFunctionData({ abi: mandateAccountAbi, functionName: 'withdraw', args: [usdgAddress, safeAddress, usdg('0.05')] }) },
+]);
+await fromSafe('resume', 'resume the mandate', [
+  { to: mandateAddress, data: encodeFunctionData({ abi: mandateAccountAbi, functionName: 'setPaused', args: [false] }) },
+]);
 
 const status = await (await mandateAccount(mandateAddress, { rpc: RPC })).status();
 console.log('mandate', { balance: formatUnits(status.balance, 6), perPayment: formatUnits(status.limits.perCallCap, 6), agent: record.agent });
