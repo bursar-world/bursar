@@ -24,34 +24,16 @@ addresses, so there is nothing to configure before the first call. Those address
 
 ## Install
 
-The package is not on npm. It is built and used from this workspace:
-
 ```
-pnpm install
-pnpm --filter "@bursar/sdk..." build
+npm install @bursar/sdk viem
 ```
 
-The trailing `...` builds the workspace packages the SDK imports, `@bursar/core` among them, before
-the SDK itself. On a fresh clone, `--filter @bursar/sdk` alone fails with a `TS2307` for each of
-those imports.
-
-Then depend on it by workspace path, which is what the apps and services here do:
-
-```json
-{ "dependencies": { "@bursar/sdk": "workspace:*", "viem": "^2.56.0" } }
-```
-
-Outside a workspace, point at the directory:
-
-```
-pnpm add /path/to/bursar/packages/sdk viem
-```
-
-Node 22 or newer. The package is ESM only.
+Node 22 or newer. The package is ESM only. Inside this repository the workspace links it instead:
+`pnpm install`, then `pnpm --filter "@bursar/sdk..." build`, which builds the packages it imports first.
 
 ## Connecting
 
-`connect()` targets Robinhood Chain mainnet, chain 4663. That is the only network BURSAR settles
+`connect()` targets Robinhood Chain mainnet, chain 4663. That is the only network Bursar settles
 on: testnet 46630 has no USDG contract, so nothing on it can be paid.
 
 Called with nothing, it resolves the deployment recorded for 4663 and hands back a read-only

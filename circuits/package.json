@@ -1,9 +1,20 @@
 {
   "name": "@bursar/circuits",
   "version": "0.1.0",
-  "private": true,
+  "description": "Groth16 circuits and proving artifacts for private Bursar mandates and the shielded USDG pool.",
+  "keywords": [
+    "bursar",
+    "zk",
+    "groth16",
+    "circom"
+  ],
+  "homepage": "https://bursar.world",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bursar-world/bursar.git",
+    "directory": "circuits"
+  },
   "license": "MIT",
-  "description": "Circom circuits and Groth16 artifacts for committed BURSAR mandates, and the vendored Privacy Pools artifacts for the shielded pool.",
   "type": "module",
   "main": "./index.js",
   "types": "./index.d.ts",
@@ -33,7 +44,8 @@
     "build",
     "privacy-pools.js",
     "privacy-pools.d.ts",
-    "privacy-pools"
+    "privacy-pools",
+    "README.md"
   ],
   "scripts": {
     "build": "node scripts/check-artifacts.mjs",
@@ -52,5 +64,8 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

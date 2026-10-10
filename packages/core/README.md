@@ -20,12 +20,12 @@ loading. Nothing else in the workspace hard-codes an address or talks to an RPC 
 
 ## Use
 
-The package is not published to npm. Inside this workspace, depend on it with
-`"@bursar/core": "workspace:*"` and build it once:
-
 ```sh
-pnpm --filter @bursar/core build
+npm install @bursar/core
 ```
+
+The SDK depends on it, so an agent rarely installs it directly. Inside this repository, depend on it
+with `"@bursar/core": "workspace:*"` and build it once with `pnpm --filter @bursar/core build`.
 
 ```ts
 import { createRhcClient, deploymentForChain, formatMicro, RHC_MAINNET } from '@bursar/core';

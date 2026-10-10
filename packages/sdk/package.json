@@ -1,18 +1,25 @@
 {
   "name": "@bursar/sdk",
   "version": "0.1.0",
-  "private": true,
-  "license": "MIT",
+  "description": "Agent-side client for Bursar spending mandates, escrowed settlement and x402 payments on Robinhood Chain.",
+  "keywords": [
+    "bursar",
+    "ai-agents",
+    "payments",
+    "x402",
+    "robinhood-chain",
+    "usdg"
+  ],
+  "homepage": "https://github.com/bursar-world/bursar/tree/main/packages/sdk#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/bursar-world/bursar.git",
     "directory": "packages/sdk"
   },
-  "homepage": "https://github.com/bursar-world/bursar/tree/main/packages/sdk#readme",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/bursar-world/bursar/issues"
   },
-  "description": "Agent-side client for BURSAR spending mandates, escrowed settlement and x402 payments on Robinhood Chain.",
   "type": "module",
   "sideEffects": false,
   "main": "./dist/index.js",
@@ -63,5 +70,8 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

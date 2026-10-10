@@ -1,14 +1,20 @@
 {
   "name": "@bursar/core",
   "version": "0.1.0",
-  "private": true,
-  "license": "MIT",
+  "description": "Shared types, deployment records, RPC pooling and money arithmetic for Bursar spending mandates on Robinhood Chain.",
+  "keywords": [
+    "bursar",
+    "robinhood-chain",
+    "usdg",
+    "mandate"
+  ],
+  "homepage": "https://github.com/bursar-world/bursar/tree/main/packages/core#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/bursar-world/bursar.git",
     "directory": "packages/core"
   },
-  "homepage": "https://github.com/bursar-world/bursar/tree/main/packages/core#readme",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/bursar-world/bursar/issues"
   },
@@ -43,5 +49,8 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

@@ -1,19 +1,25 @@
 {
   "name": "@bursar/mcp",
   "version": "0.1.0",
-  "private": true,
-  "license": "MIT",
+  "description": "Model Context Protocol server for Bursar spending mandates on Robinhood Chain.",
+  "keywords": [
+    "bursar",
+    "mcp",
+    "ai-agents",
+    "payments",
+    "robinhood-chain"
+  ],
+  "homepage": "https://github.com/bursar-world/bursar/tree/main/packages/mcp#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/bursar-world/bursar.git",
     "directory": "packages/mcp"
   },
-  "homepage": "https://github.com/bursar-world/bursar/tree/main/packages/mcp#readme",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/bursar-world/bursar/issues"
   },
   "type": "module",
-  "description": "Model Context Protocol server for BURSAR spending mandates on Robinhood Chain.",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
@@ -42,7 +48,7 @@
     "@bursar/circuits": "workspace:*",
     "@bursar/core": "workspace:*",
     "@bursar/sdk": "workspace:*",
-    "@modelcontextprotocol/sdk": "1.30.0",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "viem": "2.56.3"
   },
   "devDependencies": {
@@ -53,5 +59,8 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

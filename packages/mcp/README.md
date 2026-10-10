@@ -393,19 +393,14 @@ route. The resolver and provider routes are signed as the addresses the two vari
 
 ## Running it
 
-The package is not on npm, so `bursar-mcp` is not a command a package manager puts on PATH for
-you. Build it here and point the client at the executable in this directory:
-
-```
-pnpm install
-pnpm --filter @bursar/mcp build
-```
+An MCP client starts the server with npx, so there is nothing to build:
 
 ```json
 {
   "mcpServers": {
     "mandate": {
-      "command": "/absolute/path/to/bursar/packages/mcp/bin/bursar-mcp.mjs",
+      "command": "npx",
+      "args": ["-y", "@bursar/mcp"],
       "env": {
         "RHC_RPC_PRIMARY": "https://rpc.mainnet.chain.robinhood.com",
         "RHC_RPC_FALLBACK": "https://robinhood.drpc.org",
@@ -419,12 +414,9 @@ pnpm --filter @bursar/mcp build
 }
 ```
 
-An absolute path, because an MCP client starts the server with its own environment rather than the
-shell's. `bin/bursar-mcp.mjs` is committed rather than built, so it is there to be linked and to be
-pointed at before `dist/` exists; it runs the built server and says what to build if there is none.
-
-It speaks MCP over stdio. stdout carries the protocol and nothing else; diagnostics go to stderr.
-`pnpm --filter @bursar/mcp start` runs the same server from source.
+Node 22 or newer. To run it from a clone of this repository instead, build it with `pnpm install` and
+`pnpm --filter @bursar/mcp build`, and point `command` at `packages/mcp/bin/bursar-mcp.mjs` by its
+absolute path: a client starts the server with its own environment, not the shell's.
 
 ## Amounts
 
