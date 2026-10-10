@@ -68,7 +68,9 @@ async function providerCard(subject: Address, site: string, fetchFn: typeof fetc
       : ` Record: ${released} delivered, ${disputed} contested, ${timedOut} returned to the payer.`;
   const standing =
     score.status === 'success' && cap.status === 'success'
-      ? ` Score ${score.result} of 100, which lets a payer open jobs up to ${usd(cap.result)} USDG.`
+      ? released !== undefined && released === 0n
+        ? ` No score yet; a payer can open jobs up to ${usd(cap.result)} USDG.`
+        : ` Score ${score.result} of 100, which lets a payer open jobs up to ${usd(cap.result)} USDG.`
       : '';
 
   return {
@@ -81,7 +83,7 @@ async function providerCard(subject: Address, site: string, fetchFn: typeof fetc
     image: `${site}/brand/mark.png`,
     services: [
       { name: 'web', endpoint: desk },
-      { name: 'x402', endpoint: `${FACILITATOR}/supported`, version: '2' },
+      { name: 'x402', endpoint: `${FACILITATOR}/x402/supported`, version: '2' },
     ],
     x402Support: true,
     active: taking,

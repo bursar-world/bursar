@@ -830,7 +830,7 @@ export const RAW_DEPLOYMENTS: Readonly<Record<RawDeploymentName, unknown>> = {
   "$schema": "./schema.json",
   "network": "rhc-mainnet-v3",
   "chainId": 4663,
-  "status": "superseded",
+  "status": "retired",
   "dev": true,
   "rpc": "https://rpc.mainnet.chain.robinhood.com",
   "explorer": "https://robinhoodchain.blockscout.com",
@@ -1060,7 +1060,8 @@ export const RAW_DEPLOYMENTS: Readonly<Record<RawDeploymentName, unknown>> = {
     "factory": "0xBF48A1e16203401432caE992F3355A4Cc3a0D9cd",
     "salt": "0x5499e3f19b86ebe4a39c131be4b058a395bda0fbefaa0dc0faa84a732ede8f10"
   },
-  "supersededBy": "rhc-mainnet-v4"
+  "supersededBy": "rhc-mainnet-v4",
+  "retired": "Replaced by rhc-mainnet-v4. Nothing is open on its escrow, registries, credit pool, collateral vault or shielded pool."
 },
   "rhc-mainnet-v4": {
   "$schema": "./schema.json",
