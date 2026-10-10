@@ -362,7 +362,7 @@ function selectorRefusal(error: BaseError): ReturnType<typeof refusalForSelector
 
 const ASSET_PROPERTY = {
   type: 'string',
-  description: 'The token to post, by symbol ("SGOV", "SPY", "NVDA", "AAPL") or token address.',
+  description: 'The token to post, by symbol ("SGOV", "SPY", "NVDA", "AAPL") or token address. Only the launch assets have a collateral tier until governance tiers the stocks listed since.',
   pattern: '^(?:[A-Za-z]{1,10}|0x[0-9a-fA-F]{40})$',
   patternMessage: 'asset must be a ticker symbol or a 0x address',
 } as const;

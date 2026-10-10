@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import {
   COLLATERAL_LANE,
+  assetRegistryAbi,
   collateralVaultAbi,
   creditPoolAbi,
   deploymentsForChain,
@@ -27,6 +28,9 @@ import type { Answer, Contracts, FakeNode } from './node.js';
 
 const LOCAL = LOCAL_RECORD.rwa;
 const SPY = LOCAL.assets.SPY.address;
+const NVDA = LOCAL.assets.NVDA.address;
+/** A stock the registry lists that no record names: Robinhood's TSLA token. */
+const TSLA = '0x322F0929c4625eD5bAd873c95208D54E1c003b2d';
 const VAULT = LOCAL.collateral.CollateralVault;
 const POOL = LOCAL.collateral.CreditPool;
 const MANDATE = getAddress(ACCOUNT);
@@ -59,8 +63,35 @@ function token(): ReadonlyMap<Hex, Answer> {
   ]);
 }
 
-/** The local record's lane where the record puts it, with its SPY and USDG. */
+function stockTerms(asset: Address) {
+  return {
+    feed: '0x4A1166a659A55625345e9515b32adECea5547C38',
+    tradeStaleness: 93_600,
+    valuationStaleness: 93_600,
+    bandBps: 100,
+    haircutBps: 0,
+    collateralHaircutBps: 0,
+    decimals: 18,
+    eligible: true,
+    isStock: true,
+    isTreasury: false,
+    perTradeCap: 25_000_000n,
+    perMandateCap: 0n,
+    totalCap: 0n,
+    pool: { currency0: asset, currency1: LOCAL_RECORD.settlementAsset, fee: 500, tickSpacing: 10, hooks: '0x0000000000000000000000000000000000000000' },
+  };
+}
+
+/** The local record's lane where the record puts it, with its SPY and USDG. The registry lists TSLA as well. */
 const LANE: Contracts = new Map([
+  [
+    LOCAL.AssetRegistry.toLowerCase(),
+    new Map([
+      answer(assetRegistryAbi, 'assets', () => [SPY, NVDA, TSLA]),
+      answer(assetRegistryAbi, 'get', (args) => stockTerms(args[0] as Address)),
+    ]),
+  ],
+  [TSLA.toLowerCase(), new Map([answer(erc20Abi, 'symbol', () => 'TSLA')])],
   [LOCAL.PriceGuard.toLowerCase(), new Map([answer(priceGuardAbi, 'tradePrice', () => PRICE_E8)])],
   [LOCAL.StockSpendRouter.toLowerCase(), new Map([answer(stockSpendRouterAbi, 'minOutFor', () => MIN_OUT)])],
   [
@@ -171,13 +202,28 @@ describe('a server configured with a deployment record', () => {
     ]);
   });
 
-  it('refuses a stock the record does not list, though mainnet lists it', async () => {
+  it('refuses a stock the registry does not list, though mainnet lists it', async () => {
     const { node, context } = serve();
 
     const body = JSON.parse((await callTool(context, 'mandate_buy_stock', { asset: 'AAPL', amount: '5000000' })).text);
 
-    expect(body).toMatchObject({ error: 'invalid_arguments', message: 'AAPL is not an eligible stock. Eligible: SPY, NVDA.' });
+    expect(body).toMatchObject({ error: 'invalid_arguments', message: 'AAPL is not an eligible stock. Eligible: SPY, NVDA, TSLA.' });
     expect(node.transactions).toHaveLength(0);
+  });
+
+  it('buys a stock the registry lists and the record does not, named by its own token', async () => {
+    const { node, context } = serve();
+
+    const result = await callTool(context, 'mandate_buy_stock', { asset: 'tsla', amount: '5000000' });
+
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.text)).toMatchObject({ asset: TSLA, symbol: 'TSLA', received: MIN_OUT.toString() });
+    expect(readsAt(node, LOCAL.AssetRegistry, assetRegistryAbi)).toEqual([
+      { functionName: 'assets', args: undefined },
+      { functionName: 'get', args: [TSLA] },
+    ]);
+    expect(readsAt(node, TSLA, erc20Abi)).toEqual([{ functionName: 'symbol', args: undefined }]);
+    expect(sentTo(node, MANDATE, mandateAccountAbi)).toEqual([{ functionName: 'buy', args: [TSLA, 5_000_000n, MIN_OUT, PRICE_E8] }]);
   });
 
   it('reads the collateral line from the record’s vault and names positions by the record’s symbols', async () => {
