@@ -228,4 +228,6 @@ the steps for each assistant: app.bursar.world/demo/assistants.
   terminal script; Claude Code read the mandate over HTTP.
 - Paused by an API limit; resumed 20:28Z.
 - 20:35Z · Claude Code paid 0.25 USDG through the host (settlement 39). Recording and screenshots taken.
-- 20:45Z · Demo page, docs, assets committed.
+- 20:45Z · Demo page, docs and the recording committed; the console's production build passes (`next build`, output deleted).
+- 21:10Z · Panel screenshots re-taken once the test connections had been cut; every test connection on the demo
+  mandate is revoked and Claude Code stays seated. Final commit.
