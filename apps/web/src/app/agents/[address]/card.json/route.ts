@@ -50,7 +50,7 @@ export async function GET(request: Request, { params }: Params): Promise<Respons
 
 /** Where this deployment says it lives, else the origin the request arrived on. */
 export function siteFor(request: Request): string {
-  const declared = process.env['NEXT_PUBLIC_SITE_URL']?.trim();
+  const declared = process.env.NEXT_PUBLIC_SITE_URL?.trim();
   if (declared !== undefined && declared !== '') return declared.replace(/\/+$/, '');
 
   const url = new URL(request.url);

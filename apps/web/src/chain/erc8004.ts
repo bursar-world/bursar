@@ -77,7 +77,7 @@ export function cardUrl(site: string, subject: Address): string {
  * against mainnet included, points at the console that will keep serving the card.
  */
 export function siteOrigin(): string {
-  const declared = process.env['NEXT_PUBLIC_SITE_URL']?.trim();
+  const declared = process.env.NEXT_PUBLIC_SITE_URL?.trim();
   if (declared !== undefined && declared !== '') return declared.replace(/\/+$/, '');
   if (typeof window !== 'undefined') return window.location.origin;
   return 'https://app.bursar.world';
