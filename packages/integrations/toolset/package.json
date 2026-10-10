@@ -1,0 +1,58 @@
+{
+  "name": "@bursar/toolset",
+  "version": "0.1.0",
+  "description": "Bursar mandate tools for agent frameworks: inspect, quote, pay and settlements, strings in and out.",
+  "keywords": [
+    "bursar",
+    "ai-agents",
+    "payments",
+    "robinhood-chain",
+    "tools"
+  ],
+  "homepage": "https://github.com/bursar-world/bursar/tree/main/packages/integrations/toolset#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bursar-world/bursar.git",
+    "directory": "packages/integrations/toolset"
+  },
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/bursar-world/bursar/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@bursar/sdk": "workspace:*",
+    "viem": "2.56.3"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.2",
+    "tsx": "4.23.13",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
+  }
+}
