@@ -15,6 +15,8 @@ import { readRequest } from '../x402/facilitator.js';
 import { FACILITATOR_REASON } from '../x402/contract.js';
 import type { ApiRequest, ApiResponse } from './io.js';
 import { created, failure, ok } from './io.js';
+import type { BaseLane, BaseRefusal } from '../base/lane.js';
+import { BASE_REASON } from '../base/lane.js';
 
 /**
  * The route table, as a function from request to response.
@@ -51,6 +53,8 @@ export type RouterOptions = {
   readonly health?: () => Promise<Readonly<Record<string, unknown>>>;
   /** Absent only where a test builds a router by hand; the service always supplies it. */
   readonly ready?: () => Promise<Readiness>;
+  /** The Base lane, when this deployment holds a Base float. Absent, its routes answer `base_lane_off`. */
+  readonly base?: BaseLane | null;
 };
 
 export type Router = (request: ApiRequest) => Promise<ApiResponse>;
@@ -63,9 +67,18 @@ export type Router = (request: ApiRequest) => Promise<ApiResponse>;
  */
 export const PROVIDER_ROUTES: ReadonlySet<string> = new Set(['/healthz', '/readyz', '/supported', '/config', '/verify', '/settle']);
 
-export type RouteClass = 'provider' | 'admin';
+/**
+ * The routes an agent calls on the Base lane, open to anyone. A quote reads nothing but the float,
+ * a pay has to present a lock the agent's mandate already paid for, and the float's standing is an
+ * address and two balances anyone can read off the chains, so none of them hands a stranger
+ * anything the lock does not already bound.
+ */
+const PUBLIC_ROUTE = /^\/base\/(float|quote|pay|payments\/[^/]+(\/outcome)?)$/;
+
+export type RouteClass = 'public' | 'provider' | 'admin';
 
 export function routeClass(path: string): RouteClass {
+  if (PUBLIC_ROUTE.test(path)) return 'public';
   return PROVIDER_ROUTES.has(path) ? 'provider' : 'admin';
 }
 
@@ -148,6 +161,45 @@ export function createRouter(options: RouterOptions): Router {
           result.errorReason === FACILITATOR_REASON.payerRate;
         return { status: rateLimited ? 429 : 200, body: result };
       },
+    },
+
+    {
+      method: 'POST',
+      pattern: /^\/base\/quote$/,
+      handle: async (request) => {
+        const lane = baseLane();
+        const body = object(request.body);
+        return answer(await lane.quote({ amount: body['amount'], payTo: body['payTo'], resource: body['resource'], maxTimeoutSeconds: body['maxTimeoutSeconds'] }));
+      },
+    },
+
+    {
+      method: 'POST',
+      pattern: /^\/base\/pay$/,
+      handle: async (request) => {
+        const lane = baseLane();
+        const body = object(request.body);
+        const result = await lane.pay({ lock: body['lock'], binding: body['binding'], offer: body['offer'] });
+        return result.refused ? answer(result) : created(result);
+      },
+    },
+
+    {
+      method: 'GET',
+      pattern: /^\/base\/payments\/([^/]+)$/,
+      handle: async (_request, [id]) => answer(await baseLane().payment(uuid(id, 'paymentId'))),
+    },
+
+    {
+      method: 'POST',
+      pattern: /^\/base\/payments\/([^/]+)\/outcome$/,
+      handle: async (request, [id]) => answer(await baseLane().outcome(uuid(id, 'paymentId'), request.body)),
+    },
+
+    {
+      method: 'GET',
+      pattern: /^\/base\/float$/,
+      handle: async () => ok(await baseLane().status()),
     },
 
     {
@@ -602,6 +654,17 @@ export function createRouter(options: RouterOptions): Router {
     },
   ];
 
+  function baseLane(): BaseLane {
+    if (!options.base) {
+      throw new RequestError(
+        404,
+        BASE_REASON.off,
+        'This facilitator holds no Base float, so the Base lane is off. Set FACILITATOR_BASE_KEY to a funded key to run it.',
+      );
+    }
+    return options.base;
+  }
+
   return async (request) => {
     const answers = new Set<string>();
     for (const route of routes) {
@@ -659,6 +722,15 @@ export function errorResponse(error: unknown): ApiResponse {
     return { status, body: { error: error.code, detail: error.message, details: error.details } };
   }
   return { status: 500, body: { error: 'internal_error' } };
+}
+
+/** A lane answer: its refusal as the status and words it chose, anything else as 200. */
+function answer(result: BaseRefusal | object): ApiResponse {
+  if ('refused' in result && result.refused === true) {
+    const refusal = result as BaseRefusal;
+    return failure(refusal.status, refusal.reason, refusal.detail);
+  }
+  return ok(result);
 }
 
 /** The two rows every spend needs, worded the same wherever a route finds one missing. */

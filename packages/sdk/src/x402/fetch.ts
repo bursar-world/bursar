@@ -1,5 +1,6 @@
 import type { Address, Hex } from 'viem';
 import {
+  BASE_MAINNET,
   caip2,
   deriveNonce,
   escrowSettlementNonce,
@@ -12,7 +13,7 @@ import {
 import type { Micro, PaymentBinding } from '@bursar/core';
 
 import { requireSigner, type Connection } from '../connection.js';
-import { InvalidArgumentError, NoAcceptablePaymentError, PaymentRejectedError } from '../errors.js';
+import { BaseLaneRefusedError, InvalidArgumentError, NoAcceptablePaymentError, PaymentRejectedError } from '../errors.js';
 import { usd } from '../format.js';
 import { checkPositiveAmount } from '../guards.js';
 import {
@@ -60,10 +61,29 @@ export type PaymentRecord = {
    * mandate lane the settlement nonce derived from the lock.
    */
   readonly nonce: Hex;
-  /** The escrow lock the mandate opened, on the mandate lane, and the request it committed to. */
+  /** The escrow lock the mandate opened, on the mandate and Base lanes, and the request it committed to. */
   readonly lock?: { readonly escrow: Address; readonly id: bigint; readonly transaction: Hex; readonly inputCommit: Hex };
   readonly settlement: Settlement | undefined;
+  /** What the facilitator's Base lane signed, on the Base lane. */
+  readonly base?: BasePaymentTerms;
 };
+
+/** The facilitator's side of a Base lane payment, as it answered the pay. */
+export type BasePaymentTerms = {
+  /** The facilitator's record of this payment. `GET {facilitator}/base/payments/{id}` follows it. */
+  readonly paymentId: string;
+  /** The facilitator's address: the USDC float on Base and the lock's payee on Robinhood Chain. */
+  readonly float: Address;
+  /** USDG the mandate locked: the USDC amount plus the fee. */
+  readonly lockMicro: Micro;
+  readonly feeMicro: Micro;
+  /** Unix seconds. An authorization the service has not settled by then expires, and the lock returns. */
+  readonly validBefore: bigint;
+  readonly facilitator: string;
+};
+
+/** Where the Base lane finds Bursar's facilitator unless `facilitator` says otherwise. */
+export const DEFAULT_FACILITATOR_URL = 'https://facilitator.bursar.world';
 
 export type PaidResponse = {
   readonly response: Response;
@@ -96,6 +116,7 @@ export type MandateSpender = PaymentGate & {
     readonly capability: string;
     readonly inputCommit: Hex;
     readonly inputURI: string;
+    readonly ttlSeconds?: number;
   }): Promise<{ readonly escrowId: bigint; readonly hash: Hex }>;
 };
 
@@ -114,16 +135,24 @@ export type PaymentAuthority = {
  *   wallet   the agent's own wallet signs an EIP-3009 transfer under the `exact` scheme. Per-call
  *            only; windows client-enforced: the mandate is read before signing, but nothing on
  *            chain counts these payments against the daily or monthly window.
+ *   base     the mandate pays a service on Base in USDC. The account's `spend` locks USDG for the
+ *            quoted amount plus the facilitator's fee, payable to the facilitator's Base lane
+ *            address; the facilitator signs the USDC authorization from its float on Base and the
+ *            lock settles to it once the USDC has moved, or returns to the mandate if it never
+ *            does. Every limit the mandate holds applies, as on the mandate lane. Needs a server
+ *            that offers `exact` in USDC on Base, which is what the x402 ecosystem offers.
  */
-export type PaymentLane = 'mandate' | 'wallet';
+export type PaymentLane = 'mandate' | 'wallet' | 'base';
 
 /** The offer scheme each lane pays under. */
-export const LANE_SCHEME: Readonly<Record<PaymentLane, string>> = { mandate: 'escrow', wallet: 'exact' };
+export const LANE_SCHEME: Readonly<Record<PaymentLane, string>> = { mandate: 'escrow', wallet: 'exact', base: 'exact' };
 
 type PayRequestBase = {
   readonly connection: Connection;
-  /** Defaults to `wallet`. `mandate` needs `through` with a mandate that can pay. */
+  /** Defaults to `wallet`. `mandate` and `base` need `through` with a mandate that can pay. */
   readonly lane?: PaymentLane;
+  /** Bursar's facilitator, for the Base lane. Defaults to `DEFAULT_FACILITATOR_URL`. */
+  readonly facilitator?: string;
   /** How long the signed authorization stays valid. Defaults to the offer's own timeout. */
   readonly validForSeconds?: number;
   readonly fetchFn?: typeof fetch;
@@ -246,6 +275,19 @@ export async function payRequest(
   const maxAmount = options.maxAmount === undefined ? undefined : checkPositiveAmount('maxAmount', options.maxAmount);
 
   const lane = options.lane ?? 'wallet';
+  if (lane === 'base') {
+    return payThroughBase({
+      spender: mandateSpender(options.through),
+      through: options.through as PaymentAuthority,
+      facilitator: options.facilitator ?? DEFAULT_FACILITATOR_URL,
+      chainId: connection.chain.chainId,
+      challenge,
+      ...(maxAmount === undefined ? {} : { maxAmount }),
+      retryable,
+      resource,
+      fetchFn,
+    });
+  }
   const spender = lane === 'mandate' ? mandateSpender(options.through) : undefined;
   const scheme = LANE_SCHEME[lane];
 
@@ -358,11 +400,169 @@ function mandateSpender(through: PaymentAuthority | undefined): MandateSpender {
   if (!mandate || typeof mandate.pay !== 'function' || typeof mandate.escrow !== 'string') {
     throw new InvalidArgumentError(
       'lane',
-      'The mandate lane pays from the mandate account, so it needs `through` with a mandate that can pay, ' +
+      'The mandate and Base lanes pay from the mandate account, so they need `through` with a mandate that can pay, ' +
         'such as a MandateAccountClient with a signer.',
     );
   }
   return mandate as MandateSpender;
+}
+
+type BaseQuote = {
+  readonly float: Address;
+  readonly amountMicro: string;
+  readonly lockMicro: string;
+  readonly feeMicro: string;
+  readonly validForSeconds: number;
+  readonly lock: { readonly payee: Address; readonly amountMicro: string; readonly ttlSeconds: number };
+};
+
+type BaseSigned = {
+  readonly payment: { readonly id: string; readonly float: Address; readonly validBefore: string; readonly nonce: Hex };
+  readonly authorization: Readonly<Record<string, string>>;
+  readonly signature: Hex;
+};
+
+/** One call to the facilitator's Base lane. A refusal arrives as the facilitator's reason, in the SDK's words. */
+async function baseCall<T>(facilitator: string, path: string, body: unknown, resource: string, fetchFn: typeof fetch): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetchFn(`${facilitator.replace(/\/$/, '')}${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    throw new BaseLaneRefusedError(resource, 'base_facilitator_unreachable', error instanceof Error ? error.message : String(error));
+  }
+  const answer = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!response.ok) {
+    const reason = typeof answer['error'] === 'string' ? answer['error'] : `http_${response.status}`;
+    throw new BaseLaneRefusedError(resource, reason, typeof answer['detail'] === 'string' ? answer['detail'] : undefined);
+  }
+  return answer as T;
+}
+
+/**
+ * The Base lane: the mandate locks USDG for the facilitator, the facilitator's float pays the
+ * service in USDC.
+ *
+ * Order matters for what a refusal costs. The quote comes first and costs nothing: a float that
+ * cannot cover the call refuses before anything is locked. The mandate is asked next, against the
+ * lock it would open, so its own refusal lands before `spend`. Only then does the lock open, and only
+ * a lock already on chain is presented to the facilitator for a signature. The lock commits to the
+ * same request document the mandate lane publishes, so the facilitator can hold it to the body that
+ * reaches the service, and the authorization it signs carries the nonce that document binds.
+ */
+async function payThroughBase(input: {
+  readonly spender: MandateSpender;
+  readonly through: PaymentAuthority;
+  readonly facilitator: string;
+  readonly chainId: number;
+  readonly challenge: Awaited<ReturnType<typeof parseChallenge>>;
+  readonly maxAmount?: Micro;
+  readonly retryable: Request;
+  readonly resource: string;
+  readonly fetchFn: typeof fetch;
+}): Promise<PaidResponse> {
+  const { spender, challenge, resource, fetchFn, facilitator } = input;
+  const requirements = selectRequirement(challenge, {
+    network: BASE_MAINNET.network,
+    asset: BASE_MAINNET.usdc,
+    scheme: 'exact',
+    ...(input.maxAmount === undefined ? {} : { maxAmount: input.maxAmount }),
+  });
+  if (!requirements) {
+    throw new NoAcceptablePaymentError(
+      resource,
+      challenge.accepts.map(describe),
+      `exact in USDC on ${BASE_MAINNET.network}` + (input.maxAmount === undefined ? '' : `, up to ${usd(input.maxAmount)}`),
+    );
+  }
+
+  const quote = await baseCall<BaseQuote>(
+    facilitator,
+    '/base/quote',
+    { amount: requirements.amount.toString(), payTo: requirements.payTo, resource: requirements.resource ?? resource, maxTimeoutSeconds: requirements.maxTimeoutSeconds },
+    resource,
+    fetchFn,
+  );
+  const lockMicro = BigInt(quote.lockMicro) as Micro;
+  const feeMicro = BigInt(quote.feeMicro) as Micro;
+
+  await input.through.mandate.assertCanPay({ to: quote.float, amount: lockMicro, capability: input.through.capability });
+
+  const binding: PaymentBinding = {
+    requestHash: hashRequest(new Uint8Array(await input.retryable.clone().arrayBuffer())),
+    salt: randomSalt(),
+  };
+  const document = requestDocument({ method: input.retryable.method, url: resource, binding });
+  const inputCommit = requestCommit(document);
+
+  const paid = await spender.pay({
+    to: quote.float,
+    amount: lockMicro,
+    capability: input.through.capability,
+    inputCommit,
+    inputURI: requestURI(document),
+    ttlSeconds: quote.lock.ttlSeconds,
+  });
+  const lock = { escrow: spender.escrow, id: paid.escrowId, transaction: paid.hash, inputCommit };
+
+  const signed = await baseCall<BaseSigned>(
+    facilitator,
+    '/base/pay',
+    {
+      lock: { escrow: lock.escrow, id: lock.id.toString(), mandate: spender.address, transaction: lock.transaction, inputCommit },
+      binding,
+      offer: requirements.raw,
+    },
+    resource,
+    fetchFn,
+  );
+
+  const payload = { signature: signed.signature, authorization: signed.authorization };
+  const envelope =
+    challenge.version === 2
+      ? { x402Version: 2, accepted: requirements.raw, payload }
+      : { x402Version: 1, scheme: requirements.scheme, network: requirements.network, asset: requirements.asset, payTo: requirements.payTo, payload };
+
+  const headers = new Headers(input.retryable.headers);
+  headers.set(PAYMENT_HEADER[challenge.version], encodeBase64Json(envelope));
+
+  const response = await fetchFn(new Request(input.retryable, { headers }));
+  const settlement = settlementFrom(response.headers.get(SETTLEMENT_HEADER[challenge.version]));
+
+  // A hint for the facilitator's worker, which decides from the token and not from this.
+  void fetchFn(`${facilitator.replace(/\/$/, '')}/base/payments/${signed.payment.id}/outcome`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ transaction: settlement?.transaction ?? null, success: settlement?.success ?? null, status: response.status }),
+  }).catch(() => undefined);
+
+  const validBefore = BigInt(signed.payment.validBefore);
+  if (response.status === 402 || settlement?.success === false) {
+    throw new PaymentRejectedError(
+      resource,
+      response.status,
+      settlement?.errorReason ?? (await refusalReason(response)),
+      `Lock ${lock.id} (${usd(lockMicro)}) returns to the mandate once the authorization expires at ${new Date(Number(validBefore) * 1000).toISOString()}, unless the service settles it first.`,
+    );
+  }
+
+  return {
+    response,
+    payment: {
+      lane: 'base',
+      amount: requirements.amount,
+      payTo: requirements.payTo,
+      asset: requirements.asset,
+      network: requirements.network,
+      nonce: signed.payment.nonce,
+      lock,
+      settlement,
+      base: { paymentId: signed.payment.id, float: quote.float, lockMicro, feeMicro, validBefore, facilitator },
+    },
+  };
 }
 
 /**

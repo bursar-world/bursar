@@ -133,6 +133,11 @@ stay shut until an admin token is set as well. Send either token as `Authorizati
 | `FACILITATOR_GAS_FLOAT_MINIMUM_ETH` | yes | The relayer's ETH reserve, written as ETH: `0.004`, not a count of wei. ETH is the gas asset here and is not the settlement asset. Health reports degraded below it. |
 | `FACILITATOR_FEE_BPS` | yes | 0 to 9999. The fee on each settle this service broadcasts, before a staked payee's rebate. See [The fee](#the-fee). |
 | `FACILITATOR_FEE_FLOOR_MICRO` | yes | Atomic micro-USD. The smallest fee this deployment will spend a broadcast on. No rebate takes a fee below it. |
+| `FACILITATOR_BASE_KEY` | no | Turns the Base lane on. The key of the lane's one address: the USDC float on Base and the payee of every lock the lane opens on Robinhood Chain. Not the relayer, and none of the funding roles. See [The Base lane](#the-base-lane-1). |
+| `FACILITATOR_BASE_FEE_BPS`, `FACILITATOR_BASE_FEE_FLOOR_MICRO` | with the key | The fee on each Base payment, in basis points of the USDC amount, and the smallest fee in atomic units. Money, so no default. |
+| `FACILITATOR_BASE_FLOAT_MINIMUM_MICRO` | with the key | USDC atomic units the lane keeps in reserve. A payment that would dip into it is refused as `base_float_insufficient`. |
+| `FACILITATOR_BASE_MAX_PAYMENT_MICRO` | with the key | The most USDC one authorization may carry. |
+| `FACILITATOR_BASE_RPC_URL` | no | A Base JSON-RPC endpoint. Defaults to the keyless dRPC host, which reads and settles without rate-limiting a verification's burst of reads. |
 | `FACILITATOR_HOST`, `FACILITATOR_PORT` | no | `127.0.0.1:8402`. |
 | `FACILITATOR_AUTH_TOKEN` | off loopback | The provider token. Opens `/verify`, `/settle`, `/supported`, `/config`, `/healthz` and `/readyz`. Required when the host is not loopback. At least 32 characters. |
 | `FACILITATOR_ADMIN_TOKEN` | no | The admin token. Opens every other route. Must differ from the provider token; unset, those routes answer `admin_token_unset`. At least 32 characters. See [Two tokens](#two-tokens). |
@@ -208,6 +213,30 @@ The fee is the payee's. The payer pays the price and nothing more. The settlemen
 fee beside the amount, and the payee nets the difference. The fee accrues to
 `FACILITATOR_TREASURY`.
 
+## The Base lane
+
+A mandate pays an x402 service on Base in USDC, and nothing about the mandate changes to do it. The
+agent calls `mandate.fetch(url, { lane: 'base' })`. The SDK asks `POST /base/quote` what the lock has
+to hold, the mandate's own `spend` locks that USDG for the lane's address, and `POST /base/pay` answers
+an EIP-3009 authorization signed from the lane's USDC float on Base, bound to the request the lock
+commits to. The service's own facilitator settles it on Base. The maintenance pass then reads USDC: a
+nonce it reports used releases the lock to the float, with the Base transaction as the output
+commitment; an authorization past its window returns the lock to the mandate, which credits the
+mandate's windows through the escrow's callback.
+
+One USDG buys one USDC. The lock is the amount plus the larger of `FACILITATOR_BASE_FEE_BPS` of it and
+`FACILITATOR_BASE_FEE_FLOOR_MICRO`, and never less than the escrow's smallest lock; the quote states
+the fee as the difference. Promised float is the USDC sum of authorizations out and unexpired, and a
+quote that would leave the balance less that sum under `FACILITATOR_BASE_FLOAT_MINIMUM_MICRO` is
+refused before anything is locked. `GET /base/float` and `/healthz` report the float, what is
+promised, what is available, and how many payments sit past their lock's deadline.
+
+The lane's address needs USDC on Base and nothing else there: the settling facilitator pays the gas.
+On Robinhood Chain it needs a little ETH for release and cancel, a stake in the agent registry so the
+escrow admits it as a payee, and a place on each paying mandate's merchant list. Released USDG lands
+at that address; the operator sweeps it and refills USDC on Base. `bursar_base_payments` holds one row
+per lock with both transaction hashes, which is the ledger the two sides are reconciled from.
+
 ### The staking rebate
 
 A payee with BRSR staked pays less. The staking contract keeps a table of tiers, and
@@ -255,11 +284,12 @@ returns a JavaScript number and silently destroys any amount above 2^53 micro-US
 
 ## Routes
 
-Thirty of them, in the order a newcomer meets them. Every route answers JSON. Amounts are decimal
-strings of atomic micro-USD in both directions, and `amountMicro` is the name for that quantity
-here and on the underwriter. `GET /config`, `GET /supported`, `POST /verify`, `POST /settle`,
-`GET /healthz` and `GET /readyz` open to the provider token; every other route needs the admin
-token ([Two tokens](#two-tokens)).
+Thirty-five of them, in the order a newcomer meets them. Every route answers JSON. Amounts are
+decimal strings of atomic micro-USD in both directions, and `amountMicro` is the name for that
+quantity here and on the underwriter. `GET /config`, `GET /supported`, `POST /verify`, `POST /settle`,
+`GET /healthz` and `GET /readyz` open to the provider token; the five Base lane routes open to
+anyone, because an agent calls them; every other route needs the admin token
+([Two tokens](#two-tokens)).
 
 ### Before anything else
 
@@ -299,6 +329,20 @@ answers `account_not_found` or `pool_not_found` until they do.
 | `POST /verify` | Check a payment without broadcasting anything. Free. |
 | `POST /settle` | Record a payment, broadcasting it on the `exact` scheme. 429 when the daily or per-payer budget is spent. |
 
+### The Base lane
+
+A mandate pays a service on Base in USDC. The agent's SDK calls these; no token is needed. The lane
+is on when `FACILITATOR_BASE_KEY` is set and answers `base_lane_off` otherwise
+([The Base lane](#the-base-lane-1)).
+
+| Route | What it does |
+|---|---|
+| `POST /base/quote` | What a mandate has to lock, in USDG, to pay `amount` of USDC to `payTo`: the lane's payee address, the lock amount, the fee. Refuses before anything is locked when the float cannot cover it. |
+| `POST /base/pay` | Present a lock payable to the lane and the service's offer; answers the signed USDC authorization. One lock, one authorization. |
+| `GET /base/payments/:paymentId` | One payment and where it stands: `signed`, `paid`, `settled` or `returned`. |
+| `POST /base/payments/:paymentId/outcome` | What the agent saw from the service. A hint for the worker, which decides from the token. |
+| `GET /base/float` | The float's address, USDC balance, what is promised, what is available, and how many payments are open or stuck. |
+
 ### Paying out and repaying
 
 | Route | What it does |
@@ -332,6 +376,7 @@ answers `account_not_found` or `pool_not_found` until they do.
 | `gasFloat` | The relayer's address, which pays for every broadcast. |
 | `requireBinding` | Whether `/verify` and `/settle` refuse a payment not bound to its request. |
 | `underwriter` | `remote`, `in-process` or `none`. |
+| `baseLane` | The Base lane's network, asset, float address and fee, or null when no Base key is set. |
 | `trustTopic`, `trustSinkConfigured` | Where trust events are published, and whether a sink URL is set. |
 
 ### Errors

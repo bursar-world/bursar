@@ -5,6 +5,7 @@ import type { Address, Hex } from 'viem';
 
 import { eth, formatDeadline, toDate, usd } from './format.js';
 import { issuerRefusal } from './refusals.js';
+import { baseRefusal } from './x402/base-refusals.js';
 import type { Refusal } from './refusals.js';
 import type { MandateLimits, Remaining, SpendWindow, TotalSpend } from './types.js';
 
@@ -699,6 +700,28 @@ export class NoAcceptablePaymentError extends BursarError {
   }
 }
 
+/**
+ * The facilitator refused to quote or sign a Base payment. Nothing was locked when the refusal
+ * came at the quote; when it came at the pay, the message says what became of the lock.
+ */
+export class BaseLaneRefusedError extends BursarError {
+  readonly reason: string;
+  readonly refusal: Refusal | null;
+
+  constructor(resource: string, reason: string, detail: string | undefined) {
+    const refusal = baseRefusal(reason);
+    super(
+      'x402_base_refused',
+      `The facilitator would not pay ${resource} over Base: ${reason}` +
+        (refusal === null ? (detail ? `. ${detail}` : '.') : `. ${refusal.message}`) +
+        (refusal !== null && detail ? ` (${detail})` : ''),
+      { resource, reason, detail, owner: refusal?.owner },
+    );
+    this.reason = reason;
+    this.refusal = refusal;
+  }
+}
+
 /** The payment was made and the server still refused it. */
 export class PaymentRejectedError extends BursarError {
   readonly status: number;
@@ -710,7 +733,7 @@ export class PaymentRejectedError extends BursarError {
    */
   readonly refusal: Refusal | null;
 
-  constructor(resource: string, status: number, reason: string | undefined) {
+  constructor(resource: string, status: number, reason: string | undefined, note?: string) {
     const refusal = reason === undefined ? null : issuerRefusal(reason);
 
     super(
@@ -720,7 +743,8 @@ export class PaymentRejectedError extends BursarError {
           ? ` and answered ${status}.`
           : refusal === null
             ? `: ${reason}`
-            : `: ${reason}. ${refusal.message}`),
+            : `: ${reason}. ${refusal.message}`) +
+        (note ? `${reason !== undefined && refusal === null ? '.' : ''} ${note}` : ''),
       { resource, status, reason, owner: refusal?.owner },
     );
 

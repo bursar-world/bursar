@@ -52,6 +52,9 @@ export {
 } from './chain.js';
 export type { Caip2, Eip712Domain, RhcChain, RhcNetwork, RhcTestnet } from './chain.js';
 
+export { BASE_MAINNET, baseViemChain } from './base.js';
+export type { BaseChain } from './base.js';
+
 export {
   INDEX_ENV,
   RHC_INDEX_API_BASE,

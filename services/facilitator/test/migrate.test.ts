@@ -40,6 +40,7 @@ describe('migration files', () => {
       '0010_repayment_pool.sql',
       '0011_settlement_rebate.sql',
       '0012_lock_redemptions.sql',
+      '0013_base_lane.sql',
     ]);
   });
 

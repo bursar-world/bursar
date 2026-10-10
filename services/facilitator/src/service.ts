@@ -1,5 +1,5 @@
 import { checkGasFloat, createRhcClient } from '@bursar/core';
-import type { RhcClient } from '@bursar/core';
+import type { Micro, RhcClient } from '@bursar/core';
 import type { FacilitatorConfig } from './config.js';
 import { describeConfig, isLoopback } from './config.js';
 import { appliedMigrations, migrationPlan } from './db/migrate.js';
@@ -25,6 +25,11 @@ import { createRouter } from './http/routes.js';
 import type { Check, Readiness, Router } from './http/routes.js';
 import { createHttpServer, listen } from './http/server.js';
 import type { RunningServer } from './http/server.js';
+import { BaseLane } from './base/lane.js';
+import type { BaseFloat, LockWriter } from './base/ports.js';
+import { PostgresBaseLedger } from './base/ledger.js';
+import { createEscrowChain } from './x402/escrow-lock.js';
+import { deploymentsForChain } from '@bursar/core';
 
 /**
  * Everything assembled and wired, with the two things this service cannot build itself passed in.
@@ -69,6 +74,11 @@ export type ServiceOptions = {
    * through `rhc`; `null` charges every settle the full fee.
    */
   readonly rebateOf?: RebateReader | null;
+  /**
+   * The two sides of the Base lane, when `config.base` is set: the float on Base and the payee's
+   * moves on Robinhood Chain. `main` builds them from the key; a test passes doubles.
+   */
+  readonly baseLane?: { readonly float: BaseFloat; readonly locks: LockWriter; readonly minLockMicro: Micro } | null;
   readonly log?: (line: string) => void;
   readonly now?: () => Date;
 };
@@ -79,6 +89,7 @@ export type FacilitatorService = {
   readonly trust: TrustStore;
   readonly ledger: LaneLedger;
   readonly facilitator: Facilitator;
+  readonly base: BaseLane | null;
   readonly relay: TrustRelay;
   readonly router: Router;
   readonly rhc: RhcClient;
@@ -178,6 +189,28 @@ export function createFacilitatorService(options: ServiceOptions): FacilitatorSe
     log,
   });
 
+  const base =
+    config.base && options.baseLane
+      ? new BaseLane({
+          chainId: config.chain.chainId,
+          escrow: createEscrowChain({ chain: config.chain, providers: config.rpcProviders }),
+          deployments: deploymentsForChain(config.chain.chainId).map((d) => ({
+            escrow: d.contracts.Escrow,
+            factory: d.contracts.MandateAccountFactory,
+            asset: d.settlementAsset,
+          })),
+          float: options.baseLane.float,
+          locks: options.baseLane.locks,
+          ledger: new PostgresBaseLedger(db, options.now),
+          feeBps: config.base.feeBps,
+          feeFloorMicro: config.base.feeFloorMicro,
+          minLockMicro: options.baseLane.minLockMicro,
+          floatMinimumMicro: config.base.floatMinimumMicro,
+          maxPaymentMicro: config.base.maxPaymentMicro,
+          log,
+        })
+      : null;
+
   const sink =
     options.sink ??
     (config.trust.sinkUrl
@@ -206,10 +239,11 @@ export function createFacilitatorService(options: ServiceOptions): FacilitatorSe
    * would leave an operator guessing which one they have.
    */
   const health = async (): Promise<Readonly<Record<string, unknown>>> => {
-    const [gas, counts, migrations] = await Promise.allSettled([
+    const [gas, counts, migrations, baseFloat] = await Promise.allSettled([
       checkGasFloat(rhc.client, config.funding, config.gasFloatMinimumWei),
       trust.counts(db),
       appliedMigrations(db),
+      base ? base.status() : Promise.resolve(null),
     ]);
 
     // Wei, named as wei. The float is ETH and the ledger is micro-USD USDG, and a number that
@@ -233,6 +267,10 @@ export function createFacilitatorService(options: ServiceOptions): FacilitatorSe
       network: config.network,
       gasFloat,
       rpc: rhc.pool.status(),
+      baseLane:
+        baseFloat.status === 'fulfilled'
+          ? (baseFloat.value ?? { configured: false })
+          : { configured: true, healthy: false, summary: unread('the Base float', baseFloat.reason, log) },
       trustOutbox: counts.status === 'fulfilled' ? counts.value : { error: unread('the trust outbox', counts.reason, log, 'database') },
       migrations: migrations.status === 'fulfilled' ? migrations.value : { error: unread('the applied migrations', migrations.reason, log, 'database') },
     };
@@ -269,6 +307,7 @@ export function createFacilitatorService(options: ServiceOptions): FacilitatorSe
     treasury: config.funding.treasury,
     describe: () => describeConfig(config),
     ...(options.underwriterFor ? { underwriterFor: options.underwriterFor } : {}),
+    base,
     health,
     ready,
   });
@@ -307,6 +346,13 @@ export function createFacilitatorService(options: ServiceOptions): FacilitatorSe
     }
 
     await db.transaction((client) => trust.sweep(client, DEAD_LETTER_RETENTION_MS));
+
+    if (base) {
+      const pass = await base.reconcile();
+      if (pass.checked > 0) {
+        log(`base lane: ${pass.checked} open, ${pass.settled} settled, ${pass.returned} returned, ${pass.pending} pending, ${pass.failed} failed`);
+      }
+    }
   };
 
   let running: RunningServer | null = null;
@@ -330,6 +376,7 @@ export function createFacilitatorService(options: ServiceOptions): FacilitatorSe
     trust,
     ledger,
     facilitator,
+    base,
     relay,
     router,
     rhc,

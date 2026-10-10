@@ -20,6 +20,9 @@ import type { Database } from './db/sql.js';
 import { FacilitatorConfigError } from './errors.js';
 import { loadScheme } from './scheme-module.js';
 import { createEscrowChain, createEscrowLockScheme, routeSchemes } from './x402/escrow-lock.js';
+import { createBaseFloat, createLockWriter } from './base/viem.js';
+import { escrowAbi, deploymentsForChain, createRhcClient } from '@bursar/core';
+import type { Micro } from '@bursar/core';
 import type { Check } from './http/routes.js';
 import { createFacilitatorService } from './service.js';
 import type { FacilitatorService } from './service.js';
@@ -98,6 +101,7 @@ export async function compose(source: EnvSource = process.env): Promise<Composed
     );
 
     const { lookup, underwriter, ready } = await wireUnderwriter(config, source);
+    const baseLane = await wireBaseLane(config);
 
     const service = createFacilitatorService({
       config,
@@ -105,6 +109,7 @@ export async function compose(source: EnvSource = process.env): Promise<Composed
       db,
       ...(lookup ? { underwriterFor: lookup } : {}),
       underwriterReady: ready,
+      baseLane,
       log,
     });
 
@@ -256,6 +261,32 @@ async function wireUnderwriter(
     case 'unconfigured':
       throw new FacilitatorConfigError('underwriter_unconfigured', UNDERWRITER_UNCONFIGURED);
   }
+}
+
+/**
+ * The Base lane's two sides, from the one key, or null when no key is set.
+ *
+ * The escrow's floor is read once here: a quote never asks a mandate to lock less than the escrow
+ * would open, and the figure is immutable on the contract.
+ */
+async function wireBaseLane(
+  config: FacilitatorConfig,
+): Promise<{ float: ReturnType<typeof createBaseFloat>; locks: ReturnType<typeof createLockWriter>; minLockMicro: Micro } | null> {
+  if (!config.base) {
+    log('no FACILITATOR_BASE_KEY, so the Base lane is off');
+    return null;
+  }
+  const primary = config.rpcProviders[0]?.url ?? config.chain.rpcUrl;
+  const current = deploymentsForChain(config.chain.chainId)[0];
+  if (!current) throw new FacilitatorConfigError('base_lane_no_deployment', `no deployment record for chain ${config.chain.chainId}`);
+  const rhc = createRhcClient({ chain: config.chain, providers: config.rpcProviders });
+  const minLockMicro = (await rhc.client.readContract({ address: current.contracts.Escrow, abi: escrowAbi, functionName: 'minLock' })) as Micro;
+  log(`Base lane on: float ${config.base.float} pays USDC on Base and settles locks on ${config.chain.name}; smallest lock ${minLockMicro}`);
+  return {
+    float: createBaseFloat({ key: config.base.key, rpcUrl: config.base.rpcUrl }),
+    locks: createLockWriter({ key: config.base.key, chain: config.chain, rpcUrl: primary }),
+    minLockMicro,
+  };
 }
 
 /**

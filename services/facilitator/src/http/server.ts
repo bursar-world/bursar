@@ -29,7 +29,9 @@ export type HttpServerOptions = {
 };
 
 function refusal(options: HttpServerOptions, path: string, presented: string | null): ApiResponse | null {
-  if (routeClass(path) === 'provider') {
+  const kind = routeClass(path);
+  if (kind === 'public') return null;
+  if (kind === 'provider') {
     if (options.authToken === null || tokenMatches(presented, options.authToken)) return null;
     return failure(
       401,

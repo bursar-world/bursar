@@ -1,4 +1,5 @@
 import {
+  BASE_MAINNET,
   TestnetHasNoSettlementAsset,
   ZERO_MICRO,
   activeBrand,
@@ -11,6 +12,7 @@ import {
   parseEth,
   rhcChain,
   rhcRpcProviders,
+  toMicro,
   withDefault,
 } from '@bursar/core';
 import type {
@@ -167,6 +169,20 @@ const schema = {
   BURSAR_UNDERWRITER_URL: optional(envVar.url({ protocols: ['http:', 'https:'] })),
   BURSAR_UNDERWRITER_TOKEN: optional(envVar.string({ minLength: 16, secret: true })),
 
+  /**
+   * The Base lane, on when a key is set. The key signs USDC authorizations on Base from its address
+   * and releases or cancels that address's locks on Robinhood Chain, so one address serves the lane
+   * on both chains. It is not the relayer, and it is none of the four funding roles.
+   */
+  FACILITATOR_BASE_KEY: optional(envVar.string({ pattern: HEX32, secret: true })),
+  FACILITATOR_BASE_RPC_URL: withDefault(envVar.url({ protocols: ['http:', 'https:'] }), BASE_MAINNET.rpcUrl),
+  /** Required once the key is set: a fee is money and gets no default. */
+  FACILITATOR_BASE_FEE_BPS: optional(envVar.bps()),
+  FACILITATOR_BASE_FEE_FLOOR_MICRO: optional(envVar.micro()),
+  /** USDC the lane keeps in reserve. A payment that would dip into it is refused. */
+  FACILITATOR_BASE_FLOAT_MINIMUM_MICRO: optional(envVar.micro()),
+  FACILITATOR_BASE_MAX_PAYMENT_MICRO: optional(envVar.micro({ min: toMicro(1) })),
+
   TRUST_TOPIC: withDefault(envVar.string({ minLength: 1 }), 'mandate.trust.v1'),
   TRUST_SINK_URL: optional(envVar.url({ protocols: ['http:', 'https:'] })),
   TRUST_SINK_TOKEN: optional(envVar.string({ minLength: 16, secret: true })),
@@ -175,6 +191,16 @@ const schema = {
   TRUST_MAX_ATTEMPTS: withDefault(envVar.int({ min: 1, max: 64 }), 12),
   TRUST_LEASE_SECONDS: withDefault(envVar.seconds({ min: 5, max: 3_600 }), 60),
 } as const;
+
+export type BaseLaneConfig = {
+  readonly key: `0x${string}`;
+  readonly float: `0x${string}`;
+  readonly rpcUrl: string;
+  readonly feeBps: number;
+  readonly feeFloorMicro: Micro;
+  readonly floatMinimumMicro: Micro;
+  readonly maxPaymentMicro: Micro;
+};
 
 export type FacilitatorConfig = {
   readonly host: string;
@@ -206,6 +232,8 @@ export type FacilitatorConfig = {
   readonly requireBinding: boolean;
   readonly reservationTtlMs: number;
   readonly underwriter: UnderwriterWiring;
+  /** Null when no Base key is set, and the lane's routes answer `base_lane_off`. */
+  readonly base: BaseLaneConfig | null;
   readonly trust: {
     readonly topic: string;
     readonly sinkUrl: string | null;
@@ -307,6 +335,53 @@ export function loadConfig(source: EnvSource = process.env): FacilitatorConfig {
     );
   }
 
+  let base: BaseLaneConfig | null = null;
+  if (env.FACILITATOR_BASE_KEY) {
+    const key = env.FACILITATOR_BASE_KEY as `0x${string}`;
+    const float = accountAddress(key, 'FACILITATOR_BASE_KEY');
+    const roles: readonly (readonly [string, string])[] = [
+      ['gas float', funding.gasFloat],
+      ['settlement', funding.settlement],
+      ['collateral', funding.collateral],
+      ['treasury', env.FACILITATOR_TREASURY],
+    ];
+    const taken = roles.find(([, address]) => address.toLowerCase() === float.toLowerCase());
+    if (taken) {
+      throw new FacilitatorConfigError(
+        'base_float_not_isolated',
+        `FACILITATOR_BASE_KEY signs for ${float}, which is the ${taken[0]} address. The Base float holds USDC on another chain and releases locks here; give it its own key.`,
+        { float, role: taken[0] },
+      );
+    }
+    const money = {
+      FACILITATOR_BASE_FEE_BPS: env.FACILITATOR_BASE_FEE_BPS,
+      FACILITATOR_BASE_FEE_FLOOR_MICRO: env.FACILITATOR_BASE_FEE_FLOOR_MICRO,
+      FACILITATOR_BASE_FLOAT_MINIMUM_MICRO: env.FACILITATOR_BASE_FLOAT_MINIMUM_MICRO,
+      FACILITATOR_BASE_MAX_PAYMENT_MICRO: env.FACILITATOR_BASE_MAX_PAYMENT_MICRO,
+    };
+    const missing = Object.entries(money).filter(([, value]) => value === undefined).map(([name]) => name);
+    if (missing.length > 0) {
+      throw new FacilitatorConfigError(
+        'base_lane_settings_required',
+        `FACILITATOR_BASE_KEY is set, so the Base lane runs and needs ${missing.join(', ')}. Each is money and gets no default: the fee in basis points (100 is one percent), the smallest fee in USDC atomic units, the USDC reserve the lane never dips into, and the most one payment may be.`,
+        { missing },
+      );
+    }
+    const feeBps = env.FACILITATOR_BASE_FEE_BPS as number;
+    if (feeBps >= 10_000) {
+      throw new FacilitatorConfigError('base_fee_takes_the_whole_payment', 'FACILITATOR_BASE_FEE_BPS is 10000, which is the entire payment.', { feeBps });
+    }
+    base = {
+      key,
+      float,
+      rpcUrl: env.FACILITATOR_BASE_RPC_URL,
+      feeBps,
+      feeFloorMicro: env.FACILITATOR_BASE_FEE_FLOOR_MICRO as Micro,
+      floatMinimumMicro: env.FACILITATOR_BASE_FLOAT_MINIMUM_MICRO as Micro,
+      maxPaymentMicro: env.FACILITATOR_BASE_MAX_PAYMENT_MICRO as Micro,
+    };
+  }
+
   if (env.TRUST_SINK_TOKEN && !env.TRUST_SINK_URL) {
     throw new FacilitatorConfigError(
       'trust_sink_token_without_url',
@@ -340,6 +415,7 @@ export function loadConfig(source: EnvSource = process.env): FacilitatorConfig {
     requireBinding: env.FACILITATOR_REQUIRE_BINDING,
     reservationTtlMs: env.FACILITATOR_RESERVATION_TTL_SECONDS * 1_000,
     underwriter: underwriterWiring(env, source),
+    base,
     trust: {
       topic: env.TRUST_TOPIC,
       sinkUrl: env.TRUST_SINK_URL ?? null,
@@ -399,13 +475,13 @@ function underwriterWiring(
  * The key itself never leaves this function, and nothing in this service logs it, echoes it in an
  * error, or writes it to the database.
  */
-function accountAddress(key: `0x${string}`): `0x${string}` {
+function accountAddress(key: `0x${string}`, name = 'FACILITATOR_RELAYER_KEY'): `0x${string}` {
   try {
     return privateKeyToAccount(key).address;
   } catch {
     throw new FacilitatorConfigError(
-      'relayer_key_invalid',
-      'FACILITATOR_RELAYER_KEY is not a valid secp256k1 private key',
+      name === 'FACILITATOR_RELAYER_KEY' ? 'relayer_key_invalid' : 'base_key_invalid',
+      `${name} is not a valid secp256k1 private key`,
     );
   }
 }
@@ -429,6 +505,9 @@ export function describeConfig(config: FacilitatorConfig): Readonly<Record<strin
     gasFloat: config.funding.gasFloat,
     requireBinding: config.requireBinding,
     underwriter: config.underwriter.mode,
+    baseLane: config.base
+      ? { network: BASE_MAINNET.network, asset: BASE_MAINNET.usdc, float: config.base.float, feeBps: config.base.feeBps, feeFloorMicro: config.base.feeFloorMicro.toString(), maxPaymentMicro: config.base.maxPaymentMicro.toString() }
+      : null,
     trustTopic: config.trust.topic,
     trustSinkConfigured: config.trust.sinkUrl !== null,
   };
