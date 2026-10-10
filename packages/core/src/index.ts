@@ -321,3 +321,18 @@ export {
 export type { SpendClass, SpendClassInfo } from './spend-classes.js';
 
 export { TOTAL_BUDGET_MIN_SECONDS, YEAR_SECONDS, isTotalBudgetWindow, totalBudgetWindowSeconds } from './total-budget.js';
+
+export {
+  BURSAR_SUBJECT_KEY,
+  ERC8004_REGISTRATION_TYPE,
+  ERC8004_REGISTRIES,
+  RULING_FEEDBACK_TAG,
+  agentRegistryId,
+  cardRegistrations,
+  erc8004Registries,
+  identityRegistryAbi,
+  openseaAgentUrl,
+  reputationRegistryAbi,
+  scanAgentUrl,
+} from './erc8004.js';
+export type { AgentCard, AgentCardRegistration, AgentCardService, Erc8004Registries } from './erc8004.js';
