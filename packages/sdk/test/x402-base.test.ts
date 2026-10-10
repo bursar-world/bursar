@@ -243,6 +243,21 @@ describe('the base lane', () => {
     );
   });
 
+  it('reads the reason out of a v2 server’s second 402', async () => {
+    const { connection } = fakeConnection();
+    const paid = { calls: [] as unknown[] };
+    const refusedByService = new Response('{}', {
+      status: 402,
+      headers: { 'payment-required': encodeBase64Json({ x402Version: 2, error: 'insufficient_funds', accepts: [baseOffer()] }) },
+    });
+    const { fetchFn } = world({ served: refusedByService });
+
+    const rejected = await payRequest(RESOURCE, { connection, fetchFn, lane: 'base', facilitator: FACILITATOR, through: { mandate: spender(paid), capability: 'service:demo.x402:1' } }).catch((error: unknown) => error);
+
+    expect(rejected).toBeInstanceOf(PaymentRejectedError);
+    expect((rejected as PaymentRejectedError).reason).toBe('insufficient_funds');
+  });
+
   it('needs a mandate that can pay', async () => {
     const { connection } = fakeConnection();
     const { fetchFn } = world({});

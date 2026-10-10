@@ -24,6 +24,7 @@ import {
   type TransferAuthorization,
 } from './authorization.js';
 import {
+  CHALLENGE_HEADER,
   MAX_TIMEOUT_SECONDS,
   PAYMENT_HEADER,
   SETTLEMENT_HEADER,
@@ -643,7 +644,22 @@ async function payThroughMandate(input: {
   };
 }
 
+/**
+ * Why a server refused a payment it was handed, where it says so.
+ *
+ * A v2 server answers a refused payment with a fresh 402 and puts the reason in the
+ * `PAYMENT-REQUIRED` header beside its offers; a v1 server writes it in the body. Both are read.
+ */
 async function refusalReason(response: Response): Promise<string | undefined> {
+  const header = response.headers.get(CHALLENGE_HEADER);
+  if (header) {
+    try {
+      const challenge = JSON.parse(atob(header)) as Record<string, unknown>;
+      if (typeof challenge['error'] === 'string' && challenge['error'] !== 'payment required') return challenge['error'];
+    } catch {
+      /* the body may still say */
+    }
+  }
   try {
     const body = (await response.clone().json()) as Record<string, unknown>;
     const error = body['error'] ?? body['invalidReason'];

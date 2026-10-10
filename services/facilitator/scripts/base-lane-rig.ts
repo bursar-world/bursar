@@ -127,7 +127,7 @@ async function freshDatabase(url: string): Promise<string> {
   admin.pathname = '/postgres';
   const db = createPostgres({ url: admin.toString() });
   try {
-    await db.query(`DROP DATABASE IF EXISTS ${name}`);
+    await db.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
     await db.query(`CREATE DATABASE ${name}`);
   } finally {
     await db.close();
@@ -315,4 +315,6 @@ main()
   .finally(() => {
     save();
     for (const child of children) child.kill('SIGTERM');
+    // The facilitator's pool and listener would otherwise keep a failed run alive, holding the database.
+    setTimeout(() => process.exit(process.exitCode ?? 0), 500).unref();
   });
