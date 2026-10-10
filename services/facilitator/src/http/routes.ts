@@ -13,6 +13,7 @@ import type { UnderwriteRequest, UnderwriterLookup } from '../underwriting/under
 import type { Facilitator } from '../x402/facilitator.js';
 import { readRequest } from '../x402/facilitator.js';
 import { FACILITATOR_REASON } from '../x402/contract.js';
+import type { PublicSurface } from '../x402/public.js';
 import type { ApiRequest, ApiResponse } from './io.js';
 import { created, failure, ok } from './io.js';
 
@@ -51,6 +52,8 @@ export type RouterOptions = {
   readonly health?: () => Promise<Readonly<Record<string, unknown>>>;
   /** Absent only where a test builds a router by hand; the service always supplies it. */
   readonly ready?: () => Promise<Readiness>;
+  /** The keyless `/x402` routes. Absent, they answer 404 and say what opens them. */
+  readonly open?: PublicSurface;
 };
 
 export type Router = (request: ApiRequest) => Promise<ApiResponse>;
@@ -63,9 +66,17 @@ export type Router = (request: ApiRequest) => Promise<ApiResponse>;
  */
 export const PROVIDER_ROUTES: ReadonlySet<string> = new Set(['/healthz', '/readyz', '/supported', '/config', '/verify', '/settle']);
 
-export type RouteClass = 'provider' | 'admin';
+/**
+ * The standard x402 facilitator surface, open to anyone: the routes a client or resource server
+ * built on the reference packages expects under one base URL, here `/x402`. Nothing else under that
+ * prefix is public, so a new route there has to be added here on purpose.
+ */
+export const PUBLIC_ROUTES: ReadonlySet<string> = new Set(['/x402/supported', '/x402/verify', '/x402/settle']);
+
+export type RouteClass = 'public' | 'provider' | 'admin';
 
 export function routeClass(path: string): RouteClass {
+  if (PUBLIC_ROUTES.has(path)) return 'public';
   return PROVIDER_ROUTES.has(path) ? 'provider' : 'admin';
 }
 
@@ -76,9 +87,34 @@ type Route = {
 };
 
 export function createRouter(options: RouterOptions): Router {
-  const { facilitator, ledger, trust, db } = options;
+  const { facilitator, ledger, trust, db, open } = options;
+
+  const closed = (): ApiResponse =>
+    failure(
+      404,
+      'not_found',
+      'The keyless x402 routes are not open on this deployment. FACILITATOR_PUBLIC_EXACT=true opens them.',
+    );
 
   const routes: Route[] = [
+    {
+      method: 'GET',
+      pattern: /^\/x402\/supported$/,
+      handle: async (request) => (open ? open.supported(request) : closed()),
+    },
+
+    {
+      method: 'POST',
+      pattern: /^\/x402\/verify$/,
+      handle: async (request) => (open ? open.verify(request) : closed()),
+    },
+
+    {
+      method: 'POST',
+      pattern: /^\/x402\/settle$/,
+      handle: async (request) => (open ? open.settle(request) : closed()),
+    },
+
     {
       method: 'GET',
       pattern: /^\/healthz$/,

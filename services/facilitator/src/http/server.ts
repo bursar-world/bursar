@@ -29,7 +29,11 @@ export type HttpServerOptions = {
 };
 
 function refusal(options: HttpServerOptions, path: string, presented: string | null): ApiResponse | null {
-  if (routeClass(path) === 'provider') {
+  const route = routeClass(path);
+  // The keyless surface is keyless by design; what bounds it is the meter and the budget behind
+  // the route, not a token. Whether it is open at all is the router's answer.
+  if (route === 'public') return null;
+  if (route === 'provider') {
     if (options.authToken === null || tokenMatches(presented, options.authToken)) return null;
     return failure(
       401,
@@ -95,6 +99,7 @@ export function createHttpServer(options: HttpServerOptions): Server {
           headers: incoming.headers,
           body,
           bytes,
+          ...(incoming.socket.remoteAddress === undefined ? {} : { remoteAddress: incoming.socket.remoteAddress }),
         };
 
         send(outgoing, await options.router(request));
