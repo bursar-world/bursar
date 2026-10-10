@@ -24,12 +24,13 @@ Live on the branch, run end to end against mainnet on 2026-10-10:
 - `/demo/assistants`: the three connector setups with exact steps, and the real run below with its transactions.
 - The stdio server is unchanged: `packages/mcp` keeps its 524 tests green; one export was added (`checkMandate`).
 
-Prepared, not yet exercised:
-
-- The public endpoint `mcp.bursar.world`. The run below used a host on this Mac against mainnet. ChatGPT's and
-  Claude's connector forms need a public HTTPS address, so those two were not driven end to end; Claude Code was,
-  through the same transport and the same token. The settings shown for ChatGPT and Claude follow their current
-  connector forms (a URL, no header), with the token in the URL path and the panel saying so.
+Live since 2026-10-10 22:40 UTC: the public endpoint `https://mcp.bursar.world` (Render service `bursar-mcp-host`,
+health and readiness answering, `/mcp` refusing a call without a token) and the console pointed at it. Exercised
+end to end at 23:20 UTC: the owner opened a connection on the public host for the demo mandate below from the
+terminal script (agent `0x906C…c6Ee` seated in `0xa819a393…9b0b3`, fee float `0x06d24726…8f35`), Claude Code was
+connected with `claude mcp add --transport http bursar https://mcp.bursar.world/mcp --header "Authorization: Bearer …"`
+and asked to quote and pay 0.25 USDG: settlement 45, [`0xfa939abc…17fe1`](https://robinhoodchain.blockscout.com/tx/0xfa939abca8565a01208d6fae525b10eda389074465499d04952da08fbc117fe1), `08-live-endpoint.png`.
+ChatGPT's and Claude's connector forms take the same URL; those two were not driven by hand yet.
 
 ## The demo
 
@@ -95,7 +96,10 @@ Tests: `pnpm --filter @bursar/mcp-host test` (21, the store against a real Postg
 
 ## What the operator must do
 
-Provisioning on Render, in this order:
+Provisioned on 2026-10-10 by `ops/render-mcp-host.mts` in the ops repository (steps 1 to 5 below are done: the
+host's tables live in the facilitator's Postgres, the key-encryption key is in `~/.config/bursar/mcp-host.env` on the
+ops Mac and nowhere else, `mcp.bursar.world` is the custom domain, the console carries `BURSAR_MCP_HOST_URL`). For
+the record, the steps:
 
 1. **Database.** Either a new database on the existing Postgres instance (the host writes `bursar_mcp_connections`
    and its own journal `bursar_mcp_migrations`, nothing the facilitator touches) or a new Render Postgres. Put its
@@ -160,7 +164,7 @@ Files on the branch:
 - https://github.com/bursar-world/bursar/blob/bullish/mcp-hosted/apps/web/src/app/(app)/demo/assistants/page.tsx
 - Branch diff: https://github.com/bursar-world/bursar/compare/main...bullish/mcp-hosted
 
-The live thing, once merged and provisioned: `https://app.bursar.world/demo/assistants` and `https://mcp.bursar.world`.
+The live thing: `https://app.bursar.world/demo/assistants` and `https://mcp.bursar.world` (`/healthz`, `/readyz`; `/mcp` with a connection's token).
 The published stdio server stays at https://www.npmjs.com/package/@bursar/mcp.
 
 On chain:
@@ -172,7 +176,8 @@ On chain:
 - Funded: https://robinhoodchain.blockscout.com/tx/0xa522aed0de5647138dd30be7f13d5131d4952c40ef4b1fc4acf317a93431342f
 - Agent seated: https://robinhoodchain.blockscout.com/tx/0x418a957c134ba373da90e3b64eb74721dabef9df86778b9bd77c767bc6f7c3e4
 - Fee float: https://robinhoodchain.blockscout.com/tx/0x96c370cd0a46d7f87460c4ae8434b3a57ed523aaba731d0620422d9a7f84ad07
-- The assistant's payment: https://robinhoodchain.blockscout.com/tx/0x09d2d3717c3f169de1ab6016d9e94cce515b7b00a80b83da7fd59238963e56c5
+- The assistant's payment through the host on this Mac: https://robinhoodchain.blockscout.com/tx/0x09d2d3717c3f169de1ab6016d9e94cce515b7b00a80b83da7fd59238963e56c5
+- The assistant's payment through `mcp.bursar.world`: https://robinhoodchain.blockscout.com/tx/0xfa939abca8565a01208d6fae525b10eda389074465499d04952da08fbc117fe1 (settlement 45; the seat `0xa819a393b3ac75a11528fbe8b91997ac3faa9e0f84d65dd10ca375464ea9b0b3`)
 
 ## Screenshots and recording
 
@@ -186,6 +191,8 @@ In `docs/bullish/mcp-hosted/`, 1440×900, from the console on this Mac as the fi
 - `06-assistant-pays.png`: the Claude Code session that quoted and paid through the hosted endpoint, rendered from
   its transcript: the prompt, the two tool calls with their real values, and its reply word for word.
 - `07-receipt.png`: the payment on the explorer.
+- `08-live-endpoint.png`: the Claude Code session that quoted and paid through `mcp.bursar.world`, rendered from its
+  transcript.
 - `demo.webm`: 56 seconds of the mandate page while the assistant pays; "Payment 39: $0.25 to 0x5210…a374 for
   gpu.render:1" lands in Recent activity.
 
