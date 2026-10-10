@@ -1,0 +1,31 @@
+{
+  "name": "@bursar/example-x402-rhc",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A stock x402 client paying a Robinhood Chain endpoint in USDG, settled by Bursar.",
+  "type": "module",
+  "scripts": {
+    "server": "tsx server.ts",
+    "pay": "tsx pay.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@bursar/x402": "workspace:*",
+    "@x402/core": "2.28.0",
+    "@x402/evm": "2.28.0",
+    "@x402/express": "2.28.0",
+    "@x402/fetch": "2.28.0",
+    "@x402/paywall": "2.28.0",
+    "express": "4.22.1",
+    "viem": "2.56.3"
+  },
+  "devDependencies": {
+    "@types/express": "4.17.25",
+    "@types/node": "22.20.2",
+    "tsx": "4.23.13",
+    "typescript": "5.9.3"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
