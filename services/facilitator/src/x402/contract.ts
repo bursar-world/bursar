@@ -121,6 +121,12 @@ export type SchemeOptions = {
 };
 
 export type PaymentScheme = {
+  /**
+   * The same deployment under the protocol's own rules: no request binding, and an authorisation
+   * that outlives the check by the protocol's margin rather than the quoted budget. What the
+   * keyless `/x402` routes run. Absent on a scheme that has no such profile.
+   */
+  readonly standard?: () => PaymentScheme;
   supported(): SupportedResponse | Promise<SupportedResponse>;
   verify(
     payload: PaymentPayload,

@@ -14,10 +14,12 @@ import { REASON } from './reasons.js';
  * broadcasts on their behalf. Replay protection belongs to the token: it records the nonce as
  * spent, which is why a file on this server going missing cannot cause a double spend.
  *
- * Two facts about USDG on Robinhood Chain, both read off the chain on 2026-09-22. It takes the
- * bytes-signature overload of `transferWithAuthorization`, not v/r/s. And gas is ETH there at
- * around 0.05 gwei, so a settlement in the high tens of thousands of gas costs a small fraction
- * of a cent, which is what makes per-call settlement worth doing at all.
+ * Two facts about USDG on Robinhood Chain. It routes both overloads of `transferWithAuthorization`,
+ * `v, r, s` and `bytes`, read off the chain on 2026-10-10: each reverts `InvalidSignature` on a
+ * dummy call where a selector the diamond does not route reverts `FacetNotFound`. This path sends
+ * the `bytes` form, which carries a contract wallet's EIP-1271 blob unchanged. And gas is ETH there
+ * at around 0.02 to 0.05 gwei, so a settlement of 86,000 gas costs a few millionths of an ETH,
+ * which is what makes per-call settlement worth doing at all.
  */
 export const TRANSFER_WITH_AUTHORIZATION_TYPES = {
   TransferWithAuthorization: [

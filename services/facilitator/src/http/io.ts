@@ -22,6 +22,8 @@ export type ApiRequest = {
   readonly headers: Readonly<Record<string, string | string[] | undefined>>;
   readonly body: unknown;
   readonly bytes: Uint8Array;
+  /** The peer's address on the socket. Absent where a test builds a request by hand. */
+  readonly remoteAddress?: string;
 };
 
 export type ApiResponse = {

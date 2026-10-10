@@ -1,8 +1,8 @@
 {
   "name": "@bursar/x402",
   "version": "0.1.0",
-  "private": true,
   "license": "MIT",
+  "description": "The x402 payment scheme Bursar settles with: USDG on Robinhood Chain, verified, bound and settled.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/bursar-world/bursar.git",
@@ -39,6 +39,9 @@
     "@types/node": "22.20.2",
     "typescript": "5.9.3",
     "vitest": "4.1.11"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "engines": {
     "node": ">=22"

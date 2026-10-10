@@ -115,6 +115,29 @@ A loopback listener with neither token set runs open, because the operating syst
 there. Once a provider token is set the listener is taken to be reachable, and the ledger routes
 stay shut until an admin token is set as well. Send either token as `Authorization: Bearer <token>`.
 
+### The keyless routes
+
+`FACILITATOR_PUBLIC_EXACT=true` opens a third class of route that takes no token at all:
+`GET /x402/supported`, `POST /x402/verify` and `POST /x402/settle`. Together they are a standard
+x402 facilitator at the base URL `/x402`, in the request and response shapes the reference
+packages (`@x402/core`, `@x402/evm`, `@x402/express` and the rest) send and parse, so a client or
+resource server built on them pays and charges in USDG on Robinhood Chain by naming this service as
+its facilitator: `https://facilitator.bursar.world/x402`.
+
+They run the `exact` scheme under the protocol's own rules rather than this service's: no request
+binding, and an authorisation that has to outlive the check by the protocol's six seconds rather
+than by the quoted work budget. That is the payment a stock client signs. The escrow lane is not
+served there, since a stock client has no mandate. Everything else is shared with the provider
+routes: the relayer, the fee and its floor, the replay guard in the ledger, the daily settlement
+budget and the per-payer hourly allowance. A payment settled through either door cannot be settled
+again through the other, and one relayer has one limit.
+
+With no token in front of them, a meter is: `FACILITATOR_PUBLIC_RATE_PER_MINUTE` requests a minute
+per caller (120 unless set), the caller being the first address in `x-forwarded-for` where a proxy
+sets one and the socket's peer otherwise. Past it the routes answer 429 with `rate_limited`, and the
+reference client backs off and retries `/supported` on its own. A budget refusal on `/x402/settle`
+answers 429 as well. Left unset, the switch is off and the three paths answer 404 naming it.
+
 ## Configuration
 
 | Variable | Required | Notes |
@@ -124,6 +147,8 @@ stay shut until an admin token is set as well. Send either token as `Authorizati
 | `RHC_RPC_PRIMARY` | yes | |
 | `RHC_RPC_FALLBACK` | no | Defaults to a keyless endpoint for the network. Name your own in production: a fallback sharing a host with the primary goes down at the same moment it does, and the service refuses that pairing at startup. `RHC_RPC_TERTIARY` is optional. |
 | `RHC_NETWORK` | no | `mainnet` (default), chain 4663. `testnet` is refused at startup: chain 46630 has no USDG contract, so nothing can settle there. Chain values are overridden per field through `RHC_MAINNET_*`. |
+| `FACILITATOR_PUBLIC_EXACT` | no | `true` opens the keyless `/x402` routes. Off by default. |
+| `FACILITATOR_PUBLIC_RATE_PER_MINUTE` | no | Requests a minute one caller may make to the keyless routes. 120 by default. |
 | `BLOCKSCOUT_API_KEY` | no | Server-side key for the chain index at `api.blockscout.com`, which answers 402 without one. Nothing this service settles or decides reads history, so it runs without a key; `GET /config` reports `index` as `keyed` or `unkeyed`. |
 | `FACILITATOR_GAS_FLOAT` | yes | The relayer's address. Must differ from settlement, collateral and treasury. |
 | `FACILITATOR_SETTLEMENT` | yes | |
@@ -259,7 +284,16 @@ Thirty of them, in the order a newcomer meets them. Every route answers JSON. Am
 strings of atomic micro-USD in both directions, and `amountMicro` is the name for that quantity
 here and on the underwriter. `GET /config`, `GET /supported`, `POST /verify`, `POST /settle`,
 `GET /healthz` and `GET /readyz` open to the provider token; every other route needs the admin
-token ([Two tokens](#two-tokens)).
+token ([Two tokens](#two-tokens)), except the three keyless routes, which take none
+([The keyless routes](#the-keyless-routes)).
+
+### Open to anyone
+
+| Route | What it does |
+|---|---|
+| `GET /x402/supported` | The kinds this facilitator settles for a stock client, with `extensions` and `signers` as the reference shape has them. |
+| `POST /x402/verify` | Check a stock payment without broadcasting anything. `invalidMessage` carries the detail. |
+| `POST /x402/settle` | Broadcast a stock payment on the `exact` scheme. 429 when the caller is over the meter or the budget is spent. |
 
 ### Before anything else
 

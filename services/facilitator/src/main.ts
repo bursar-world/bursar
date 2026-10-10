@@ -19,6 +19,7 @@ import { createPostgres, describeDatabase } from './db/postgres.js';
 import type { Database } from './db/sql.js';
 import { FacilitatorConfigError } from './errors.js';
 import { loadScheme } from './scheme-module.js';
+import type { PaymentScheme } from './x402/contract.js';
 import { createEscrowChain, createEscrowLockScheme, routeSchemes } from './x402/escrow-lock.js';
 import type { Check } from './http/routes.js';
 import { createFacilitatorService } from './service.js';
@@ -88,6 +89,10 @@ export async function compose(source: EnvSource = process.env): Promise<Composed
         requireBinding: config.requireBinding,
       },
     });
+    // The keyless routes run the same exact scheme, same relayer and assets, under the protocol's
+    // own rules. Taken before the escrow lane is routed in: a stock client has no mandate.
+    const open = config.publicExact ? standardProfile(exact) : null;
+
     // The mandate lane: a payment made by the mandate account's own `spend`, read off the escrow.
     const scheme = routeSchemes(
       exact,
@@ -102,6 +107,7 @@ export async function compose(source: EnvSource = process.env): Promise<Composed
     const service = createFacilitatorService({
       config,
       scheme,
+      ...(open ? { openScheme: open } : {}),
       db,
       ...(lookup ? { underwriterFor: lookup } : {}),
       underwriterReady: ready,
@@ -256,6 +262,22 @@ async function wireUnderwriter(
     case 'unconfigured':
       throw new FacilitatorConfigError('underwriter_unconfigured', UNDERWRITER_UNCONFIGURED);
   }
+}
+
+/**
+ * The scheme under the protocol's own rules, for the keyless routes.
+ *
+ * Refused at startup rather than at the first request: a deployment that opened the door and
+ * loaded a scheme that cannot serve it would otherwise answer every stock client with a 500.
+ */
+function standardProfile(scheme: PaymentScheme): PaymentScheme {
+  if (typeof scheme.standard !== 'function') {
+    throw new FacilitatorConfigError(
+      'scheme_has_no_standard_profile',
+      'FACILITATOR_PUBLIC_EXACT is set, and the payment scheme this deployment loaded has no standard profile. @bursar/x402 0.1.0 and later carry one.',
+    );
+  }
+  return scheme.standard();
 }
 
 /**

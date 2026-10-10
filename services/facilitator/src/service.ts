@@ -16,6 +16,7 @@ import { canonicalNetwork } from '@bursar/x402';
 import { SettlementBudget } from './x402/budget.js';
 import type { PaymentScheme } from './x402/contract.js';
 import { Facilitator, SETTLE_WORST_CASE_MS } from './x402/facilitator.js';
+import { createPublicSurface } from './x402/public.js';
 import { stakingRebates } from './x402/rebate.js';
 import type { RebateReader } from './x402/rebate.js';
 import { chainAuthorizations, reconcile } from './x402/reconcile.js';
@@ -38,6 +39,13 @@ import type { RunningServer } from './http/server.js';
 export type ServiceOptions = {
   readonly config: FacilitatorConfig;
   readonly scheme: PaymentScheme;
+  /**
+   * The scheme the keyless `/x402` routes run: the `exact` scheme's standard profile, which takes
+   * what a stock client signs. Absent, those routes answer 404. The service that runs it shares
+   * the provider routes' budget, ledger and fee, so one relayer has one daily limit and one
+   * replay guard whichever door a payment came through.
+   */
+  readonly openScheme?: PaymentScheme;
   readonly db?: Database;
   readonly sink?: TrustEventSink;
   readonly rhc?: RhcClient;
@@ -162,21 +170,22 @@ export function createFacilitatorService(options: ServiceOptions): FacilitatorSe
         : createOnchainCollateralReader(rhc.client, config.chain.chainId),
   });
 
-  const facilitator = new Facilitator({
-    scheme: options.scheme,
-    budget: new SettlementBudget({
-      dailySettlements: config.dailySettlements,
-      perPayerPerHour: config.perPayerHourly,
-    }),
-    ledger,
-    treasury: config.funding.treasury,
-    feeBps: config.feeBps,
-    feeFloorMicro: config.feeFloorMicro,
-    rebateOf:
-      options.rebateOf !== undefined ? options.rebateOf : stakingRebates(rhc.client, config.stakingPool),
-    requireBinding: config.requireBinding,
-    log,
+  const budget = new SettlementBudget({
+    dailySettlements: config.dailySettlements,
+    perPayerPerHour: config.perPayerHourly,
   });
+  const rebateOf = options.rebateOf !== undefined ? options.rebateOf : stakingRebates(rhc.client, config.stakingPool);
+  const terms = { budget, ledger, treasury: config.funding.treasury, feeBps: config.feeBps, feeFloorMicro: config.feeFloorMicro, rebateOf, log };
+
+  const facilitator = new Facilitator({ ...terms, scheme: options.scheme, requireBinding: config.requireBinding });
+
+  const open = options.openScheme
+    ? createPublicSurface({
+        facilitator: new Facilitator({ ...terms, scheme: options.openScheme, requireBinding: false }),
+        signers: [config.funding.gasFloat],
+        ratePerMinute: config.publicRatePerMinute,
+      })
+    : undefined;
 
   const sink =
     options.sink ??
@@ -269,6 +278,7 @@ export function createFacilitatorService(options: ServiceOptions): FacilitatorSe
     treasury: config.funding.treasury,
     describe: () => describeConfig(config),
     ...(options.underwriterFor ? { underwriterFor: options.underwriterFor } : {}),
+    ...(open ? { open } : {}),
     health,
     ready,
   });
@@ -355,6 +365,7 @@ export function createFacilitatorService(options: ServiceOptions): FacilitatorSe
       // Housekeeping is not a reason for the process to stay alive.
       maintenance.unref();
       log(`facilitator listening on ${config.host}:${running.port} for ${config.network}`);
+      if (open) log(`keyless x402 routes open under /x402 at ${config.publicRatePerMinute} requests a minute per caller`);
       return running;
     },
 

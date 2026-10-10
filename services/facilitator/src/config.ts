@@ -154,6 +154,15 @@ const schema = {
    */
   FACILITATOR_DAILY_SETTLEMENTS: withDefault(envVar.int({ min: 1 }), 2_000),
   FACILITATOR_PER_PAYER_HOURLY: withDefault(envVar.int({ min: 1 }), 60),
+  /**
+   * Opens /x402/supported, /x402/verify and /x402/settle to callers with no token: the standard
+   * `exact` scheme in the reference implementation's shapes, for clients and resource servers built
+   * on the reference x402 packages. A settlement through it draws on the same relayer, the same
+   * budget and the same replay guard as the provider routes. Off, those three paths answer 404.
+   */
+  FACILITATOR_PUBLIC_EXACT: withDefault(envVar.boolean(), false),
+  /** Requests per minute one caller may make to the keyless routes before they answer 429. */
+  FACILITATOR_PUBLIC_RATE_PER_MINUTE: withDefault(envVar.int({ min: 1, max: 100_000 }), 120),
   FACILITATOR_REQUIRE_BINDING: withDefault(envVar.boolean(), true),
   FACILITATOR_RESERVATION_TTL_SECONDS: withDefault(envVar.seconds(RESERVATION_TTL_SECONDS), 120),
 
@@ -203,6 +212,9 @@ export type FacilitatorConfig = {
   readonly stakingPool: `0x${string}` | null;
   readonly dailySettlements: number;
   readonly perPayerHourly: number;
+  /** Whether the keyless `/x402` routes are open, and how fast one caller may use them. */
+  readonly publicExact: boolean;
+  readonly publicRatePerMinute: number;
   readonly requireBinding: boolean;
   readonly reservationTtlMs: number;
   readonly underwriter: UnderwriterWiring;
@@ -337,6 +349,8 @@ export function loadConfig(source: EnvSource = process.env): FacilitatorConfig {
     stakingPool: collateralDeployment(chain.chainId)?.Staking ?? null,
     dailySettlements: env.FACILITATOR_DAILY_SETTLEMENTS,
     perPayerHourly: env.FACILITATOR_PER_PAYER_HOURLY,
+    publicExact: env.FACILITATOR_PUBLIC_EXACT,
+    publicRatePerMinute: env.FACILITATOR_PUBLIC_RATE_PER_MINUTE,
     requireBinding: env.FACILITATOR_REQUIRE_BINDING,
     reservationTtlMs: env.FACILITATOR_RESERVATION_TTL_SECONDS * 1_000,
     underwriter: underwriterWiring(env, source),
@@ -428,6 +442,7 @@ export function describeConfig(config: FacilitatorConfig): Readonly<Record<strin
     stakingPool: config.stakingPool,
     gasFloat: config.funding.gasFloat,
     requireBinding: config.requireBinding,
+    publicExact: config.publicExact,
     underwriter: config.underwriter.mode,
     trustTopic: config.trust.topic,
     trustSinkConfigured: config.trust.sinkUrl !== null,
