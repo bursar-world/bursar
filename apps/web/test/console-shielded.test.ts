@@ -50,9 +50,9 @@ describe('deposit limits', () => {
     expect(depositProblem({ amount: 9_999n, limits, poolBalance: 0n, walletBalance: 1n })).toBe('The smallest deposit is 0.01 USDG.');
     expect(depositProblem({ amount: 100_000_001n, limits, poolBalance: 0n, walletBalance: undefined })).toBe('One deposit can be at most 100 USDG.');
     expect(depositProblem({ amount: 60_000_000n, limits, poolBalance: 950_000_000n, walletBalance: undefined })).toBe(
-      'The pool holds at most 1000 USDG, so it can take 50 more.',
+      'The pool holds at most 1,000 USDG, so it can take 50 more.',
     );
-    expect(depositProblem({ amount: 10_000n, limits, poolBalance: 1_000_000_000n, walletBalance: undefined })).toBe('The pool is full at 1000 USDG.');
+    expect(depositProblem({ amount: 10_000n, limits, poolBalance: 1_000_000_000n, walletBalance: undefined })).toBe('The pool is full at 1,000 USDG.');
     expect(depositProblem({ amount: 200_000n, limits, poolBalance: 0n, walletBalance: 170_000n })).toBe('This wallet holds 0.17 USDG.');
   });
 });
@@ -75,7 +75,7 @@ describe('what one wallet may still deposit', () => {
       'One deposit can be at most 100 USDG.',
     );
     expect(depositProblem({ amount: 40_000_000n, limits, poolBalance: 990_000_000n, walletBalance: undefined, room, now: NOW })).toBe(
-      'The pool holds at most 1000 USDG, so it can take 10 more.',
+      'The pool holds at most 1,000 USDG, so it can take 10 more.',
     );
     expect(depositProblem({ amount: 40_000_000n, limits, poolBalance: 0n, walletBalance: 50_000_000n, room, now: NOW })).toBeUndefined();
   });

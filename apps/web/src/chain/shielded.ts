@@ -136,9 +136,9 @@ export function withdrawProblem(args: { amount: bigint | undefined; note: Pick<O
 }
 
 export function usdgText(atomic: bigint): string {
-  const whole = atomic / 1_000_000n;
+  const whole = (atomic / 1_000_000n).toLocaleString('en-US');
   const fraction = (atomic % 1_000_000n).toString().padStart(6, '0').replace(/0+$/, '');
-  return fraction === '' ? whole.toString() : `${whole.toString()}.${fraction}`;
+  return fraction === '' ? whole : `${whole}.${fraction}`;
 }
 
 /** What a withdrawal is for. The purpose sets the copy and whether the relayer sends gas along. */
