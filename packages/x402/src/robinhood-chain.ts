@@ -1,4 +1,5 @@
 import { RHC_MAINNET, RHC_MAINNET_USDG_DOMAIN, caip2, parseMicro } from '@bursar/core';
+import type { Caip2 } from '@bursar/core';
 import { sameNetwork } from './network.js';
 
 /**
@@ -57,7 +58,29 @@ export function usdgPrice(dollars: string | number): UsdgPrice {
  */
 export async function robinhoodChainMoneyParser(
   amount: string | number,
-  network: string,
+  network: `${string}:${string}`,
 ): Promise<UsdgPrice | null> {
   return sameNetwork(network, ROBINHOOD_CHAIN.network) ? usdgPrice(amount) : null;
+}
+
+/** What a stock client lists under `spendControls.allowedAssets`. */
+export type UsdgSpendControl = {
+  readonly network: Caip2;
+  readonly asset: `0x${string}`;
+  /** Atomic USDG, the unit the reference client caps a listed asset in. Absent means no cap. */
+  readonly maxAmountPerPayment?: string;
+};
+
+/**
+ * USDG on Robinhood Chain as an allowed asset for the reference client.
+ *
+ * `x402Client` in `@x402/core` refuses any asset outside the upstream default table unless the
+ * client lists it. Until that table carries USDG, a client sets
+ * `spendControls({ allowedAssets: [usdgSpendControl('$1')] })`; afterwards the line is harmless.
+ * The cap is a dollar figure here and atomic units on the wire, because that is the unit the
+ * client caps a listed asset in.
+ */
+export function usdgSpendControl(maxPerPayment?: string | number): UsdgSpendControl {
+  const { network, asset } = { network: ROBINHOOD_CHAIN.network, asset: ROBINHOOD_CHAIN.asset.asset };
+  return maxPerPayment === undefined ? { network, asset } : { network, asset, maxAmountPerPayment: usdgPrice(maxPerPayment).amount };
 }

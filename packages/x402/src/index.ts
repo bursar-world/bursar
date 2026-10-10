@@ -111,8 +111,8 @@ export {
 export { MAX_SETTLEMENT_CALLS, RECEIPT_WAIT_MS, createExactEvm } from './exact-evm.js';
 export type { ExactEvm, ExactEvmOptions, ExactPolicy, NetworkSettlement, VerifyOptions } from './exact-evm.js';
 
-export { ROBINHOOD_CHAIN, robinhoodChainMoneyParser, usdgPrice } from './robinhood-chain.js';
-export type { UsdgPrice } from './robinhood-chain.js';
+export { ROBINHOOD_CHAIN, robinhoodChainMoneyParser, usdgPrice, usdgSpendControl } from './robinhood-chain.js';
+export type { UsdgPrice, UsdgSpendControl } from './robinhood-chain.js';
 
 export { createExactScheme } from './scheme.js';
 export type { ExactSchemeConfig } from './scheme.js';

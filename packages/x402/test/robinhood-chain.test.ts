@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { getAddress } from 'viem';
 import { RHC_MAINNET, RHC_MAINNET_USDG_DOMAIN_SEPARATOR } from '@bursar/core';
 import { computeDomainSeparator } from '../src/domain.js';
-import { ROBINHOOD_CHAIN, robinhoodChainMoneyParser, usdgPrice } from '../src/robinhood-chain.js';
+import { ROBINHOOD_CHAIN, robinhoodChainMoneyParser, usdgPrice, usdgSpendControl } from '../src/robinhood-chain.js';
 
 describe('Robinhood Chain for the reference SDKs', () => {
   test('names the chain and the asset the way the reference tables do', () => {
@@ -32,5 +32,10 @@ describe('Robinhood Chain for the reference SDKs', () => {
   test('answers for Robinhood Chain and defers elsewhere', async () => {
     expect(await robinhoodChainMoneyParser(0.01, 'eip155:4663')).toMatchObject({ amount: '10000' });
     expect(await robinhoodChainMoneyParser(0.01, 'eip155:8453')).toBeNull();
+  });
+
+  test('lists USDG for the reference client, capped in atomic units', () => {
+    expect(usdgSpendControl()).toEqual({ network: 'eip155:4663', asset: RHC_MAINNET.usdg });
+    expect(usdgSpendControl('$1')).toEqual({ network: 'eip155:4663', asset: RHC_MAINNET.usdg, maxAmountPerPayment: '1000000' });
   });
 });
