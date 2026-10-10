@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { ADDRESSES, RHC, CHAIN_ID, deployment } from '@/chain/rhc';
 import { Address, CopyControl } from '@/components/address';
 import { Card, Field, FieldGrid, Section } from '@/components/layout';
+import { WorkerQuickstart } from '@/components/worker-quickstart';
 import { formatEthApprox } from '@/money';
 // Straight from the module. The state barrel re-exports hooks, and a static page that touches it
 // ships wagmi and the query client to every reader.
@@ -242,6 +243,8 @@ export default function DocsPage() {
             <code className="font-mono text-note">eip155:{CHAIN_ID}</code>.
           </p>
         </Card>
+
+        <WorkerQuickstart />
 
         <Card title="The sidecar" description="The worker that delivers and collects.">
           <p className="max-w-3xl text-sm">

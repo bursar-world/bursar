@@ -14,6 +14,7 @@ import { ClaimOwedButton, owedExplanation } from '@/components/claim-owed';
 import { ErrorSurface } from '@/components/error-surface';
 import { Instant } from '@/components/instant';
 import { Card, EmptyState, Field, FieldGrid, Section, Skeleton } from '@/components/layout';
+import { WorkerQuickstart } from '@/components/worker-quickstart';
 import { Stat, StatGrid } from '@/components/stat';
 import { Unread } from '@/components/status';
 import { Table } from '@/components/table';
@@ -98,6 +99,12 @@ export function DeskView({ payee, owned }: { readonly payee: Address; readonly o
           <DeskHeadline desk={desk} owned={owned} />
 
           {owned && <Onboarding desk={desk} blockedBy={writeBlockers} onDone={refresh} />}
+
+          {owned && (
+            <Section title="Charge agents" description="Put a price on a route and agents pay it from their mandates.">
+              <WorkerQuickstart compact />
+            </Section>
+          )}
 
           <Section
             title={owned ? 'Your record' : 'The record'}
