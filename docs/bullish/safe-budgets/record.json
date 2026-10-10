@@ -80,6 +80,33 @@
       "hash": "0xba03af06bffd9c7d75616653d73686a350ef8921f89933e516dbad490dd7d1d8",
       "explorer": "https://robinhoodchain.blockscout.com/tx/0xba03af06bffd9c7d75616653d73686a350ef8921f89933e516dbad490dd7d1d8",
       "note": "escrow lock 33, sent by the agent with the Safe's signature"
+    },
+    "pause": {
+      "hash": "0x4cbcf4a2e4f20c860f62c99d01fdd2a82ca3e04dd0df4410db034f0adcbb5c8e",
+      "explorer": "https://robinhoodchain.blockscout.com/tx/0x4cbcf4a2e4f20c860f62c99d01fdd2a82ca3e04dd0df4410db034f0adcbb5c8e",
+      "signers": [
+        "0x877c349efb5926082c413833e8055f0991185c61",
+        "0x5210d8df060a9d5ce4c1305045ed5c9548fca374"
+      ],
+      "note": "refunded 0.00000182146698 ETH to the sender"
+    },
+    "withdraw": {
+      "hash": "0x0aa2683c696a53c8f90e636db72dfced06cc771be9486b61acb106cae4af9688",
+      "explorer": "https://robinhoodchain.blockscout.com/tx/0x0aa2683c696a53c8f90e636db72dfced06cc771be9486b61acb106cae4af9688",
+      "signers": [
+        "0x877c349efb5926082c413833e8055f0991185c61",
+        "0x5210d8df060a9d5ce4c1305045ed5c9548fca374"
+      ],
+      "note": "refunded 0.000002842652304 ETH to the sender"
+    },
+    "resume": {
+      "hash": "0x677d95f9e4c0e1310a3dbbceaea2086df89810ac051f8393b0e89a3a7f4a7df6",
+      "explorer": "https://robinhoodchain.blockscout.com/tx/0x677d95f9e4c0e1310a3dbbceaea2086df89810ac051f8393b0e89a3a7f4a7df6",
+      "signers": [
+        "0x877c349efb5926082c413833e8055f0991185c61",
+        "0x5210d8df060a9d5ce4c1305045ed5c9548fca374"
+      ],
+      "note": "refunded 0.000001823587032 ETH to the sender"
     }
   },
   "safe": {

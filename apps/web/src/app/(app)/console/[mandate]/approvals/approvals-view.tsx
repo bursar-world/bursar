@@ -112,7 +112,7 @@ export function ApprovalsView() {
       try {
         const state = await readSafeMessage(messageHash);
         if (stopped || state === undefined) return;
-        if (state.signature !== undefined) {
+        if (state.signature !== undefined && owners !== undefined && state.confirmations >= owners) {
           setSigned({ signature: state.signature, bundle: bundleOf(address, approval, state.signature) });
           setCollecting(undefined);
           return;
@@ -132,7 +132,7 @@ export function ApprovalsView() {
     };
     // The message hash names the approval being collected; the count and the problem change under it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [collecting?.messageHash, address]);
+  }, [collecting?.messageHash, address, owners]);
 
   // The id of the approval the transaction in flight carries. The form clears itself when the
   // receipt lands, so the id has to be held somewhere the clearing does not reach.

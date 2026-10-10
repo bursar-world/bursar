@@ -31,7 +31,10 @@ export function safeMessageHash(safe: Address, chainId: number, digest: Hex): He
 
 export type SafeMessageState = {
   readonly confirmations: number;
-  /** The bundle the Safe accepts, once enough owners have signed. */
+  /**
+   * The signatures so far, joined the way the Safe reads them. The service prepares it from the
+   * first confirmation on, so it is the finished bundle only once the Safe's threshold is met.
+   */
   readonly signature: Hex | undefined;
 };
 
