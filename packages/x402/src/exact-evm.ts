@@ -123,6 +123,22 @@ export type ExactEvmOptions = {
   readonly requireBinding?: boolean;
 };
 
+/**
+ * The two rules a deployment may apply on top of the scheme's own checks.
+ *
+ * The bound profile is this package's default and what the facilitator's provider routes run:
+ * every payment names its request, and an authorisation has to outlive the work budget the server
+ * quoted, so a job cannot finish and find it can no longer charge. The standard profile is the
+ * protocol as the reference implementation checks it: no request binding, and an authorisation
+ * that has to stay valid for six seconds past the check and no longer. A stock client signs
+ * `validBefore` as the moment it signed plus the quoted budget, which the bound rule can never
+ * accept, so a surface open to such clients runs the standard profile.
+ */
+export type ExactPolicy = {
+  readonly requireBinding: boolean;
+  readonly outlive: 'budget' | 'margin';
+};
+
 export type VerifyOptions = {
   /** Unix seconds. Injected so every time-dependent verdict is testable without waiting. */
   readonly now?: number;
@@ -142,6 +158,9 @@ export type ExactEvm = {
     options?: VerifyOptions,
   ): Promise<SettleResult>;
   supported(): SupportedResponse;
+  /** The same networks, assets and relayer under the standard profile. See `ExactPolicy`. */
+  standard(): ExactEvm;
+  readonly policy: ExactPolicy;
 };
 
 type Entry = {
@@ -168,7 +187,6 @@ function normalise(address: string, role: string, network: Caip2): `0x${string}`
 }
 
 export function createExactEvm(options: ExactEvmOptions): ExactEvm {
-  const requireBinding = options.requireBinding ?? true;
   const entries = new Map<string, Entry>();
 
   for (const settlement of options.networks) {
@@ -213,6 +231,15 @@ export function createExactEvm(options: ExactEvmOptions): ExactEvm {
   if (entries.size === 0) {
     throw new X402ConfigError('x402_no_networks', 'exact-evm was configured with no network');
   }
+
+  return profile(entries, { requireBinding: options.requireBinding ?? true, outlive: 'budget' });
+}
+
+const STANDARD: ExactPolicy = Object.freeze({ requireBinding: false, outlive: 'margin' });
+
+/** One scheme over a fixed set of networks, under one policy. */
+function profile(entries: ReadonlyMap<string, Entry>, policy: ExactPolicy): ExactEvm {
+  let standard: ExactEvm | null = null;
 
   function resolve(
     requirements: PaymentRequirements,
@@ -303,7 +330,7 @@ export function createExactEvm(options: ExactEvmOptions): ExactEvm {
     if (method === null) return { ok: false, reason: REASON.method };
 
     const binding = options.binding ?? null;
-    if (requireBinding && binding === null) {
+    if (policy.requireBinding && binding === null) {
       return { ok: false, reason: REASON.unbound, detail: 'this facilitator settles bound payments only' };
     }
 
@@ -324,7 +351,7 @@ export function createExactEvm(options: ExactEvmOptions): ExactEvm {
       now: options.now ?? Math.floor(Date.now() / 1000),
       // A settlement that lands after the authorisation expires reverts and burns gas, so anything
       // inside this margin fails verification up front instead.
-      mustOutlive: Math.max(EXPIRY_MARGIN_SECONDS, maxTimeout),
+      mustOutlive: policy.outlive === 'margin' ? EXPIRY_MARGIN_SECONDS : Math.max(EXPIRY_MARGIN_SECONDS, maxTimeout),
       relayer: entry.relayer,
       permit2: entry.permit2,
       payload: scheme,
@@ -591,5 +618,15 @@ export function createExactEvm(options: ExactEvmOptions): ExactEvm {
     return { kinds };
   }
 
-  return { verify, settle, supported };
+  return {
+    verify,
+    settle,
+    supported,
+    policy,
+    standard() {
+      if (policy === STANDARD) return this;
+      standard ??= profile(entries, STANDARD);
+      return standard;
+    },
+  };
 }
