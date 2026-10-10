@@ -1,6 +1,6 @@
 {
   "name": "@bursar/mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Model Context Protocol server for Bursar spending mandates on Robinhood Chain.",
   "keywords": [
     "bursar",

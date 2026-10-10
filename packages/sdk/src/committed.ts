@@ -35,6 +35,7 @@ import {
 } from 'viem';
 
 import { InvalidArgumentError } from './errors.js';
+import { logsSince } from './logs.js';
 
 export { committedMandateAccountAbi, committedMandateFactoryAbi };
 
@@ -332,16 +333,16 @@ export type SealedTermsRecord = { version: bigint; termsCommitment: bigint; ciph
 
 /** The latest `TermsSealed` the account emitted. The console opens it with the viewing key. */
 export async function latestSealedTerms(
-  client: Pick<PublicClient, 'getLogs'>,
+  client: Pick<PublicClient, 'getLogs'> & Partial<Pick<PublicClient, 'getBlockNumber'>>,
   account: Address,
   fromBlock: bigint = 0n,
 ): Promise<SealedTermsRecord | null> {
-  const logs = await client.getLogs({
-    address: account,
-    event: committedMandateAccountAbi.find((e) => e.type === 'event' && e.name === 'TermsSealed') as never,
+  const logs = await logsSince(
+    client,
+    account,
     fromBlock,
-    toBlock: 'latest',
-  });
+    committedMandateAccountAbi.find((e) => e.type === 'event' && e.name === 'TermsSealed'),
+  );
   const parsed = parseEventLogs({ abi: committedMandateAccountAbi, logs, eventName: 'TermsSealed' });
   const last = parsed.at(-1);
   if (!last) return null;
@@ -361,7 +362,7 @@ export async function latestSealedTerms(
  * same as one sent directly. The result has to match the account's stored commitment.
  */
 export async function recoverState(
-  client: Pick<PublicClient, 'getLogs' | 'readContract'>,
+  client: Pick<PublicClient, 'getLogs' | 'readContract'> & Partial<Pick<PublicClient, 'getBlockNumber'>>,
   account: Address,
   terms: TermsDocument,
   fromBlock: bigint = 0n,
@@ -374,7 +375,7 @@ export async function recoverState(
     client.readContract({ address: account, abi, functionName: 'version' }),
   ]);
 
-  const logs = await client.getLogs({ address: account, fromBlock, toBlock: 'latest' });
+  const logs = await logsSince(client, account, fromBlock);
   const spends = parseEventLogs({ abi, logs, eventName: 'ProvenSpend' }).filter((log) => log.args.version === version);
 
   const periodLen = BigInt(terms.periodLen);

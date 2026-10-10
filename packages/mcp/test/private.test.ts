@@ -257,3 +257,44 @@ describe('the private mandate tools', () => {
     expect(parse(await callTool(bare, 'private_mandate_inspect', {}))['error']).toBe('private_mandate_unconfigured');
   });
 });
+
+describe('the history behind a private mandate', () => {
+  it('serves the mandate’s logs from the index when the endpoint refuses the range', async () => {
+    const { withIndexedHistory } = await import('../src/private.js');
+    const refused = new Error('ranges over 10000 blocks are not supported on free plan');
+    const seen: unknown[] = [];
+    const client = {
+      readContract: async () => 1n,
+      getLogs: async (args: unknown) => {
+        seen.push(args);
+        throw refused;
+      },
+    };
+    const row = (block: bigint, index: number) => ({
+      address: MANDATE,
+      topics: [`0x${'11'.repeat(32)}`] as `0x${string}`[],
+      data: '0x' as const,
+      blockNumber: block,
+      transactionHash: `0x${'22'.repeat(32)}` as const,
+      logIndex: index,
+    });
+    const index = {
+      logsOf: async () => ({ logs: [row(120n, 1), row(120n, 0), row(90n, 0), row(50n, 0)], oldestBlock: 50n, truncated: false }),
+    };
+    const reader = withIndexedHistory(client as never, index);
+
+    const logs = (await reader.getLogs({ address: MANDATE, fromBlock: 60n, toBlock: 'latest' })) as { blockNumber: bigint; logIndex: number }[];
+    expect(logs.map((log) => [log.blockNumber, log.logIndex])).toEqual([[90n, 0], [120n, 0], [120n, 1]]);
+    expect(seen).toHaveLength(1);
+    // Every other read goes straight through.
+    expect(await reader.readContract({} as never)).toBe(1n);
+  });
+
+  it('keeps the endpoint’s own refusal when the index cannot serve either', async () => {
+    const { withIndexedHistory } = await import('../src/private.js');
+    const refused = new Error('ranges over 10000 blocks are not supported on free plan');
+    const client = { getLogs: async () => { throw refused; } };
+    const index = { logsOf: async () => { throw new Error('history_key_missing'); } };
+    await expect(withIndexedHistory(client as never, index).getLogs({ address: MANDATE, fromBlock: 0n, toBlock: 'latest' } as never)).rejects.toBe(refused);
+  });
+});

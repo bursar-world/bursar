@@ -19,6 +19,7 @@ import type { Address, Hex } from 'viem';
 import { ToolError } from './errors.js';
 import { duration, instant, money } from './format.js';
 import type { MoneyView } from './types.js';
+import type { IndexedLog, SettlementIndex } from './explorer.js';
 
 /** What the agent can do inside a private mandate, signing with the key from its file. */
 export type PrivateMandateGateway = {
@@ -88,10 +89,13 @@ const loadAgent: AgentFactory = async (handoff, client) => {
 export function createPrivateGateway(options: {
   readonly client: RhcPublicClient;
   readonly handoff: AgentHandoff;
+  /** Serves the mandate's history when the endpoint will not answer a log range that long. */
+  readonly index?: SettlementIndex;
   readonly agentOf?: AgentFactory;
   readonly now?: () => number;
 }): PrivateMandateGateway {
-  const { client, handoff } = options;
+  const { handoff } = options;
+  const client = options.index === undefined ? options.client : withIndexedHistory(options.client, options.index);
   const address = handoff.mandate;
   const abi = committedMandateAccountAbi;
   const now = options.now ?? (() => Math.floor(Date.now() / 1000));
@@ -243,4 +247,46 @@ function checkTerms(handoff: AgentHandoff, input: PrivatePayInput, label: string
     );
   }
   return null;
+}
+
+/**
+ * The agent rebuilds its counters from every log the mandate has emitted since it was created. A
+ * keyless endpoint serves logs a hundred blocks at a time and the chain's own answers some servers
+ * with a challenge page, so a range that long can fail where every other read succeeds. The index
+ * holds the same logs; a failed range is served from there, in the order the chain emitted them.
+ */
+export function withIndexedHistory(client: RhcPublicClient, index: SettlementIndex): RhcPublicClient {
+  const getLogs: RhcPublicClient['getLogs'] = async (args) => {
+    try {
+      return await client.getLogs(args);
+    } catch (error) {
+      const address = args?.address;
+      if (typeof address !== 'string') throw error;
+      const from = typeof args?.fromBlock === 'bigint' ? args.fromBlock : 0n;
+      const to = typeof args?.toBlock === 'bigint' ? args.toBlock : undefined;
+      let logs: Awaited<ReturnType<SettlementIndex['logsOf']>>['logs'] = [];
+      try {
+        logs = await everyLogOf(index, address);
+      } catch {
+        throw error;
+      }
+      return logs
+        .filter((log) => log.blockNumber >= from && (to === undefined || log.blockNumber <= to))
+        .sort((a, b) => (a.blockNumber === b.blockNumber ? a.logIndex - b.logIndex : a.blockNumber < b.blockNumber ? -1 : 1))
+        .map((log) => ({ ...log, blockHash: null, transactionIndex: null, removed: false })) as never;
+    }
+  };
+  return new Proxy(client, { get: (target, key) => (key === 'getLogs' ? getLogs : Reflect.get(target, key)) });
+}
+
+async function everyLogOf(index: SettlementIndex, address: Address): Promise<IndexedLog[]> {
+  const all: IndexedLog[] = [];
+  let before: bigint | null = null;
+  for (let page = 0; page < 50; page += 1) {
+    const { logs, oldestBlock, truncated } = await index.logsOf(address, { before, maxRows: 1_000 });
+    all.push(...logs);
+    if (!truncated || oldestBlock === null) break;
+    before = oldestBlock - 1n;
+  }
+  return all;
 }

@@ -13,22 +13,7 @@ import {
   type WireProof,
   type Withdrawal,
 } from '@bursar/sdk';
-import {
-  BaseError,
-  ContractFunctionRevertedError,
-  getAddress,
-  isAddress,
-  isAddressEqual,
-  isHex,
-  parseEventLogs,
-  type Account,
-  type Address,
-  type Chain,
-  type Hex,
-  type PublicClient,
-  type TransactionReceipt,
-  type WalletClient,
-} from 'viem';
+import { BaseError, ContractFunctionRevertedError, formatUnits, getAddress, isAddress, isAddressEqual, isHex, parseEventLogs, type Account, type Address, type Chain, type Hex, type PublicClient, type TransactionReceipt, type WalletClient } from 'viem';
 
 import type { GasDropLedger } from './drops.js';
 
@@ -208,7 +193,7 @@ export class Relayer {
     }
     const signals = withdrawSignals(proof);
     if (signals.withdrawnValue < c.minWithdrawal) {
-      throw new RelayRefusal(400, 'below_minimum', `The smallest withdrawal relayed is ${c.minWithdrawal} atomic USDG.`);
+      throw new RelayRefusal(400, 'below_minimum', `The smallest withdrawal relayed is ${formatUnits(c.minWithdrawal, 6)} USDG.`);
     }
     if (parsed.gasDrop && this.dropsOn) {
       // A withdrawal pays for the ETH it is handed, so a run of fresh addresses earns the float what

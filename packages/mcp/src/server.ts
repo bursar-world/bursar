@@ -88,8 +88,15 @@ export function createContext(config: McpConfig, options: ContextOptions = {}): 
 
   // A role this server was not configured for gets no gateway at all, so its tools are absent from
   // the list instead of present and unusable.
+  const index = createExplorerIndex({
+    chainId: config.chain.chainId,
+    ...(config.index.baseUrl === undefined ? {} : { baseUrl: config.index.baseUrl }),
+    ...(config.index.apiKey === undefined ? {} : { apiKey: config.index.apiKey }),
+    ...(options.fetchFn === undefined ? {} : { fetchFn: options.fetchFn }),
+  });
+
   return {
-    private: config.privateMandate === null ? null : createPrivateGateway({ client, handoff: config.privateMandate.handoff }),
+    private: config.privateMandate === null ? null : createPrivateGateway({ client, handoff: config.privateMandate.handoff, index }),
     shielded:
       config.shielded === null
         ? null
@@ -124,12 +131,7 @@ export function createContext(config: McpConfig, options: ContextOptions = {}): 
             settlementAsset: config.settlementAsset,
             rwa: config.rwa,
             relay: spender,
-            index: createExplorerIndex({
-              chainId: config.chain.chainId,
-              ...(config.index.baseUrl === undefined ? {} : { baseUrl: config.index.baseUrl }),
-              ...(config.index.apiKey === undefined ? {} : { apiKey: config.index.apiKey }),
-              ...(options.fetchFn === undefined ? {} : { fetchFn: options.fetchFn }),
-            }),
+            index,
           }),
     resolver:
       config.resolver === null

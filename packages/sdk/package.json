@@ -1,6 +1,6 @@
 {
   "name": "@bursar/sdk",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Agent-side client for Bursar spending mandates, escrowed settlement and x402 payments on Robinhood Chain.",
   "keywords": [
     "bursar",
