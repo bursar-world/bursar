@@ -124,6 +124,9 @@ importers:
       '@bursar/toolset':
         specifier: workspace:*
         version: link:../toolset
+      viem:
+        specifier: 2.56.3
+        version: 2.56.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@3.25.76)
       zod:
         specifier: 3.25.76
         version: 3.25.76
@@ -140,9 +143,6 @@ importers:
       typescript:
         specifier: 5.9.3
         version: 5.9.3
-      viem:
-        specifier: 2.56.3
-        version: 2.56.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@3.25.76)
       vitest:
         specifier: 4.1.11
         version: 4.1.11(@types/node@22.20.2)(vite@7.3.6(@types/node@22.20.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.13))
