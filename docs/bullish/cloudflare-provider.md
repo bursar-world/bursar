@@ -65,8 +65,7 @@ The provider received 0.0099 USDG per call after the escrow's fee. Spend for the
 about 0.00003 ETH in fees, inside the limits.
 
 Both locks show on the public desk at
-<https://app.bursar.world/providers/0x5210D8df060A9D5ce4c1305045ED5c9548fca374> as paid and still
-contestable.
+<https://app.bursar.world/providers/0x5210D8df060A9D5ce4c1305045ED5c9548fca374> as paid.
 
 ### Running it
 
