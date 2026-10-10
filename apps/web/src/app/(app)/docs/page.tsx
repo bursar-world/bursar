@@ -89,6 +89,7 @@ const TOOLS: readonly { readonly name: string; readonly what: string; readonly w
   { name: 'mandate_hire_agent', what: 'The same against a brief: the task, what it runs on, and what counts as delivered, published with the payment.', writes: true },
   { name: 'mandate_open_dispute', what: 'Contests a settlement and hands the split to the resolver.', writes: true },
   { name: 'mandate_buy_stock', what: 'Buys an eligible stock token with the mandate’s USDG, checked against the reference price.', writes: true },
+  { name: 'mandate_sell_stock', what: 'Sells a stock the owner has released for sale back to USDG in the mandate, checked the same way.', writes: true },
   { name: 'mandate_collateral_deposit', what: 'Posts a stock or treasury token from the signer as collateral for the mandate.', writes: true },
   { name: 'mandate_collateral_repay', what: 'Repays the mandate’s credit in USDG from the signer.', writes: true },
 ];

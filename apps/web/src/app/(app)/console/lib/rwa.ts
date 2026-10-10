@@ -56,6 +56,10 @@ export type RwaAsset = {
   readonly tradeRefusal: string | undefined;
   readonly held: bigint | undefined;
   readonly allowed: boolean | undefined;
+  /** Whether the owner lets the agent sell this asset out of the mandate's custody. */
+  readonly saleAllowed: boolean | undefined;
+  /** Raw units the owner has released for sale, held in the mandate's custody on the router. */
+  readonly sellable: bigint | undefined;
 };
 
 export type ParkPosition = {
@@ -73,7 +77,10 @@ export type ParkPosition = {
 
 export type RwaState = {
   readonly lane: RwaDeployment;
+  /** The router the mandate points at, which is the lane's only once the owner has adopted it. */
   readonly router: Address | undefined;
+  /** Where the owner releases stock the agent may sell: the mandate's custody on the lane's router. */
+  readonly custody: Address | undefined;
   readonly slippageBps: number | undefined;
   readonly assets: readonly RwaAsset[];
   readonly positions: readonly ParkPosition[];
@@ -99,6 +106,7 @@ export async function readRwa(mandate: Address): Promise<RwaState | undefined> {
   const park = (fn: string, args: readonly unknown[]) => call(lane.TreasuryPark, treasuryParkAbi as Abi, fn, args);
 
   const routerSlot = batch.add<Address>('mandate.router', call(mandate, mandateAccountAbi as Abi, 'router'));
+  const custodySlot = batch.add<Address>('router.custodyOf', router('custodyOf', [mandate]));
   const slippageSlot = batch.add<number>('router.maxSlippageBps', router('maxSlippageBps', [mandate]));
   const vaultSlot = batch.add<Address>('park.vaultOf', park('vaultOf', [mandate]));
   const bufferSlot = batch.add<bigint>('park.buffer', park('buffer', [mandate]));
@@ -113,6 +121,8 @@ export async function readRwa(mandate: Address): Promise<RwaState | undefined> {
     trade: batch.add<bigint>(`guard.tradePrice:${asset.symbol}`, guard('tradePrice', [asset.address, mandate])),
     held: batch.add<bigint>(`balanceOf:${asset.symbol}`, call(asset.address, erc20Abi as Abi, 'balanceOf', [mandate])),
     allowed: batch.add<boolean>(`router.assetAllowed:${asset.symbol}`, router('assetAllowed', [mandate, asset.address])),
+    saleAllowed: batch.add<boolean>(`router.saleAllowed:${asset.symbol}`, router('saleAllowed', [mandate, asset.address])),
+    sellable: batch.add<bigint>(`router.sellable:${asset.symbol}`, router('sellable', [mandate, asset.address])),
   }));
 
   const adapterSlots = Object.entries(lane.adapters).map(([symbol, adapter]) => ({
@@ -146,6 +156,8 @@ export async function readRwa(mandate: Address): Promise<RwaState | undefined> {
       tradeRefusal: tradeProblem === undefined ? undefined : refusalInText(tradeProblem) ?? 'The price check could not be read.',
       held: results.get(slots.held),
       allowed: results.get(slots.allowed),
+      saleAllowed: results.get(slots.saleAllowed),
+      sellable: results.get(slots.sellable),
     };
   });
 
@@ -172,6 +184,7 @@ export async function readRwa(mandate: Address): Promise<RwaState | undefined> {
   return {
     lane,
     router: results.get(routerSlot),
+    custody: results.get(custodySlot),
     slippageBps: slippage === undefined ? undefined : Number(slippage),
     assets,
     positions,
@@ -204,6 +217,25 @@ export function minOutAt(usdgIn: bigint, priceE8: bigint, decimals: number, slip
   const slip = slippageBps === 0 || slippageBps > bandBps ? bandBps : slippageBps;
   const atFeed = (usdgIn * 10n ** BigInt(decimals + 2)) / priceE8;
   return (atFeed * BigInt(10_000 - slip)) / 10_000n;
+}
+
+/** The least USDG the router accepts for `raw`, worked out the way the router does. */
+export function minUsdgAt(raw: bigint, priceE8: bigint, decimals: number, slippageBps: number, bandBps: number): bigint {
+  if (priceE8 <= 0n) return 0n;
+  const slip = slippageBps === 0 || slippageBps > bandBps ? bandBps : slippageBps;
+  const atFeed = (raw * priceE8) / 10n ** BigInt(decimals + 2);
+  return (atFeed * BigInt(10_000 - slip)) / 10_000n;
+}
+
+/** A USDG floor to the cent, never rounded up: what the reader is promised at least. */
+export function usdFloor(micros: bigint): string {
+  const cents = micros / 10_000n;
+  return `$${(cents / 100n).toLocaleString('en-US')}.${(cents % 100n).toString().padStart(2, '0')}`;
+}
+
+/** Whether the mandate points at the lane's router, the one the sale path and the policy forms address. */
+export function routerIsCurrent(router: Address | undefined, lane: RwaDeployment): boolean {
+  return router !== undefined && router.toLowerCase() === lane.StockSpendRouter.toLowerCase();
 }
 
 export function tokenAmount(raw: bigint, decimals = 18, places = 8): string {
@@ -246,9 +278,14 @@ export const RWA_REFUSALS: Readonly<Record<string, string>> = {
   TotalCapExceeded: 'The amount is more than is left in the total budget.',
   ApprovalRequired: 'The amount is above the approval threshold, and purchases cannot carry an approval.',
   AssetNotAllowed: 'The owner has not allowed this asset for this mandate.',
+  SaleNotAllowed: 'The owner has not allowed sales of this asset for this mandate.',
+  NotOperator: 'Only the agent or the owner of this mandate can sell from its custody or recall from it.',
+  CustodyShort: 'The custody holds less of this stock than the amount. The owner releases more for sale first.',
+  QuoteOutsideBand: 'The feed price moved since the quote. Reload and try again.',
+  LengthMismatch: 'Every stock in the sale policy needs its own setting.',
   NotAStock: 'This asset is not listed as a stock.',
   NotEligible: 'This asset is not eligible for purchase right now.',
-  TradeCapExceeded: 'The amount is above the largest single purchase this asset allows.',
+  TradeCapExceeded: 'The amount is above the largest single trade this asset allows.',
   StalePrice: 'The feed price is too old to trade against.',
   BadPrice: 'The feed returned no usable price.',
   OraclePaused: 'The price feed for this asset is paused.',

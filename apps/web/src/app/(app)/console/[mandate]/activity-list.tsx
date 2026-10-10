@@ -24,14 +24,18 @@ import { useMandateScope } from './mandate-scope';
 export function ActivityList({ events, limit }: { readonly events: readonly MandateEvent[]; readonly limit?: number }) {
   const { ledger, address, connected } = useMandateScope();
   const { labelFor } = useCapabilityLabels();
-  // Shares the parking panel's read, so naming the vault costs no extra call.
-  const vault = useRwa(address, true).data?.vault;
+  // Shares the stock panel's read, so naming the vault and the custody costs no extra call.
+  const rwa = useRwa(address, true).data;
+  const vault = rwa?.vault;
+  const custody = rwa?.custody;
   const nameOf = (who: Address): string =>
     connected !== undefined && who.toLowerCase() === connected.toLowerCase()
       ? 'your wallet'
       : vault !== undefined && who.toLowerCase() === vault.toLowerCase()
         ? PARKING_VAULT
-        : shortAddress(who);
+        : custody !== undefined && who.toLowerCase() === custody.toLowerCase()
+          ? SELL_CUSTODY
+          : shortAddress(who);
   const shown = limit === undefined ? events : events.slice(0, limit);
 
   if (ledger.timeline.state === 'loading') {
@@ -79,6 +83,7 @@ export function ActivityList({ events, limit }: { readonly events: readonly Mand
 }
 
 const PARKING_VAULT = 'the parking vault';
+const SELL_CUSTODY = 'the sell custody';
 
 function describe(event: MandateEvent, labelFor: (id: Hex) => string | undefined, nameOf: (who: Address) => string): string {
   switch (event.kind) {
@@ -96,12 +101,18 @@ function describe(event: MandateEvent, labelFor: (id: Hex) => string | undefined
       return `Approval ${shortAddress(event.approvalId, 8, 6)} used on payment ${event.escrowId.toString()}`;
     case 'deposited':
       return `${usd(event.amount)} added by ${nameOf(event.from)}`;
-    case 'withdrawn':
-      return nameOf(event.to) === PARKING_VAULT
-        ? `${tokenAmountText(event.amount, event.token)} moved into ${PARKING_VAULT}`
-        : `${tokenAmountText(event.amount, event.token)} taken out to ${nameOf(event.to)}`;
+    case 'withdrawn': {
+      const to = nameOf(event.to);
+      return to === PARKING_VAULT || to === SELL_CUSTODY
+        ? `${tokenAmountText(event.amount, event.token)} moved into ${to}`
+        : `${tokenAmountText(event.amount, event.token)} taken out to ${to}`;
+    }
     case 'bought':
       return `Bought ${tokenAmountText(event.amountOut, event.asset)} for ${usd(event.usdgIn)}`;
+    case 'sold':
+      return `Sold ${tokenAmountText(event.amountIn, event.asset, 5)} for ${usd(event.usdgOut)}`;
+    case 'recalled':
+      return `${tokenAmountText(event.amount, event.asset, 5)} returned from ${SELL_CUSTODY}`;
     case 'router-updated':
       return event.router === ZERO ? 'Stock purchases switched off' : `Stock purchases routed through ${shortAddress(event.router)}`;
     case 'park-updated':

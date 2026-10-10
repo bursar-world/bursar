@@ -1,4 +1,4 @@
-import { micro, treasuryParkAbi } from '@bursar/core';
+import { micro, stockSpendRouterAbi, treasuryParkAbi } from '@bursar/core';
 import type { Micro } from '@bursar/core';
 import { decodeEventLog, decodeFunctionData } from 'viem';
 import type { Abi, Address, Hex } from 'viem';
@@ -47,6 +47,8 @@ export type MandateEvent = EventBase &
     | { readonly kind: 'parked'; readonly adapter: Address; readonly usdgIn: Micro; readonly rawOut: bigint }
     | { readonly kind: 'unparked'; readonly adapter: Address; readonly rawIn: bigint; readonly usdgOut: Micro }
     | { readonly kind: 'idle-returned'; readonly amount: Micro }
+    | { readonly kind: 'sold'; readonly asset: Address; readonly amountIn: bigint; readonly usdgOut: Micro }
+    | { readonly kind: 'recalled'; readonly asset: Address; readonly amount: bigint }
   );
 
 /** What the escrow did with one lock, joined to the spend that opened it. */
@@ -313,6 +315,29 @@ export function decodeParkEvents(logs: readonly IndexedLog[], mandate: Address):
       events.push({ ...base, kind: 'unparked', adapter: address(args.adapter), rawIn: big(args.rawIn), usdgOut: amount(args.usdgOut) });
     } else if (entry.eventName === 'IdleReturned') {
       events.push({ ...base, kind: 'idle-returned', amount: amount(args.amount) });
+    }
+  }
+
+  return events.sort(newestFirst);
+}
+
+/**
+ * The stock router's side of a mandate's history. A sale leaves the custody the owner released to,
+ * not the account, so the USDG that comes back is the router's to emit; the same for a recall.
+ */
+export function decodeRouterEvents(logs: readonly IndexedLog[], mandate: Address): readonly MandateEvent[] {
+  const events: MandateEvent[] = [];
+
+  for (const log of logs) {
+    const entry = decode(stockSpendRouterAbi as Abi, log);
+    if (!entry || address(entry.args.mandate).toLowerCase() !== mandate.toLowerCase()) continue;
+    const base: EventBase = { at: log.at, transactionHash: log.transactionHash, blockNumber: log.blockNumber, logIndex: log.logIndex };
+    const args = entry.args;
+
+    if (entry.eventName === 'StockSold') {
+      events.push({ ...base, kind: 'sold', asset: address(args.asset), amountIn: big(args.amountIn), usdgOut: amount(args.usdgOut) });
+    } else if (entry.eventName === 'Recalled') {
+      events.push({ ...base, kind: 'recalled', asset: address(args.asset), amount: big(args.amount) });
     }
   }
 
