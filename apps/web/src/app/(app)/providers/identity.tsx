@@ -229,6 +229,9 @@ function Unregistered({
   const registry = REGISTRIES?.identity;
   if (registry === undefined) return null;
 
+  // Held until the registry has answered for the new token: this view is replaced from above the
+  // moment the reading carries the identity, so clearing it here would show the empty state in
+  // between, for an address that was registered a second ago.
   if (minted !== undefined) {
     return (
       <div className="space-y-3">
@@ -240,13 +243,7 @@ function Unregistered({
           <ExternalLink href={`https://www.8004scan.io/agents/${REGISTRIES?.scanChain}/${minted.toString()}`}>8004scan</ExternalLink>
           <ExternalLink href={`https://opensea.io/item/${REGISTRIES?.openseaChain}/${registry.toLowerCase()}/${minted.toString()}`}>OpenSea</ExternalLink>
         </p>
-        <Button
-          size="sm"
-          onClick={() => {
-            setMinted(undefined);
-            onChanged();
-          }}
-        >
+        <Button size="sm" onClick={onChanged}>
           Read it again
         </Button>
       </div>
@@ -295,10 +292,7 @@ function Unregistered({
             rememberHint(subject, id);
             setMinted(id);
           }}
-          onContinue={() => {
-            setMinted(undefined);
-            onChanged();
-          }}
+          onContinue={onChanged}
         />
       ) : (
         heldBack !== undefined && <p className="text-detail text-[color:var(--color-muted)]">{heldBack}</p>
