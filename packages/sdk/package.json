@@ -63,6 +63,7 @@
     "viem": "2.56.3"
   },
   "devDependencies": {
+    "@safe-global/protocol-kit": "8.0.7",
     "@types/node": "22.20.2",
     "tsx": "4.23.13",
     "typescript": "5.9.3",
