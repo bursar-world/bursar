@@ -14,10 +14,10 @@ had no facilitator anyone could call. This update supplies both.
 | Piece | State |
 |---|---|
 | The `exact` scheme's standard profile in `@bursar/x402` | Built and tested on the branch. |
-| Keyless routes `/x402/supported`, `/x402/verify`, `/x402/settle` on the facilitator | Built and tested on the branch. Verified against mainnet from a local run of the branch. Opens on `facilitator.bursar.world` when the operator sets one variable and deploys (below). Today the live service answers 401 to a keyless call. |
-| Robinhood Chain for the reference SDKs, exported from `@bursar/x402` | Built and tested. The package is marked publishable; the operator publishes it. |
+| Keyless routes `/x402/supported`, `/x402/verify`, `/x402/settle` on the facilitator | Live on `facilitator.bursar.world` since 2026-10-10 20:36 UTC. A stock client paid the example endpoint through it at 20:43 UTC: one cent, 3.6 s end to end, [0x9aa420a7…90e201](https://robinhoodchain.blockscout.com/tx/0x9aa420a76c6b008872c449f6960e01545115c0b88d78900323f6c32b1f90e201). |
+| Robinhood Chain for the reference SDKs, exported from `@bursar/x402` | Published as `@bursar/x402` 0.1.0. The registry holds it as a staged version until a maintainer approves it on npmjs.com. |
 | The upstream change to the x402 default-asset tables | Written as `docs/bullish/x402-rhc.patch`, applies cleanly to x402-foundation/x402 main `f8f8330`. The operator opens the pull request. |
-| The demo: a stock x402 client pays a Robinhood Chain endpoint in USDG | Ran on mainnet. One cent, settled in 1.08 s: [0xb29f…49ab](https://robinhoodchain.blockscout.com/tx/0xb29f4548ae08e4618aa85aeb71516b7ca9e34358d5b04ecd502e964bd3ed49ab). |
+| The demo: a stock x402 client pays a Robinhood Chain endpoint in USDG | Ran on mainnet twice. Through the branch run locally, one cent settled in 1.08 s: [0xb29f…49ab](https://robinhoodchain.blockscout.com/tx/0xb29f4548ae08e4618aa85aeb71516b7ca9e34358d5b04ecd502e964bd3ed49ab). Through the live service, one cent in 3.6 s: [0x9aa420a7…90e201](https://robinhoodchain.blockscout.com/tx/0x9aa420a76c6b008872c449f6960e01545115c0b88d78900323f6c32b1f90e201). |
 
 ## The facts, read on 2026-10-10
 
@@ -93,7 +93,7 @@ no faucet line: USDG has no contract on chain 46630.
 
 ## The demo
 
-What a stranger runs, once the facilitator is deployed with the switch on:
+What a stranger runs:
 
 ```
 git clone https://github.com/bursar-world/bursar && cd bursar && pnpm install
@@ -103,10 +103,9 @@ EVM_PRIVATE_KEY=0x... pnpm --filter @bursar/example-x402-rhc pay
 ```
 
 The payer needs USDG on Robinhood Chain and no ETH. The client prints the paid body, the settlement
-the facilitator reported in the `PAYMENT-RESPONSE` header, and the explorer link. Before the
-deploy, `FACILITATOR_URL` points the server at a facilitator built from this branch.
+the facilitator reported in the `PAYMENT-RESPONSE` header, and the explorer link.
 
-What ran on 2026-10-10, against mainnet. The branch's facilitator was composed in-process the way
+What ran first on 2026-10-10, against mainnet. The branch's facilitator was composed in-process the way
 the binary composes it, with the keyless routes open, a demo relayer (`film-owner`,
 `0x2176…5f99`) and the e2e database; the live service and its relayer were not touched. The
 example server charged one cent payable to the `payee` wallet; the example client paid from the
@@ -119,17 +118,20 @@ example server charged one cent payable to the `payee` wallet; the example clien
 | The client's retry | Signed an EIP-3009 authorisation under that domain with a random nonce; the server verified and settled through `/x402/verify` and `/x402/settle`; 200 with the quote and the settlement header. 1,077 ms end to end. |
 | On chain | [0xb29f4548…49ab](https://robinhoodchain.blockscout.com/tx/0xb29f4548ae08e4618aa85aeb71516b7ca9e34358d5b04ecd502e964bd3ed49ab), block 85,112,149 at 15:44:01 UTC, status success, `transferWithAuthorization` on USDG, one `Transfer` of 0.01 USDG from `0x877c…5c61` to `0x5210…a374`, 86,011 gas paid by the relayer. |
 
-Screenshots, 1440×900, in `docs/bullish/x402-rhc/`: `01-offer.png` (the keyless `/supported`
-answer and the 402 offer), `02-pay.png` (the stock client's output with the transaction),
-`03-receipt.png` (the transaction on the explorer, with the one-cent transfer).
+What ran once the service was live, at 20:43 UTC: the same server, pointed at `facilitator.bursar.world` by
+default, and the same stock client. 200 with the quote, settled in 3,638 ms: [0x9aa420a7…90e201](https://robinhoodchain.blockscout.com/tx/0x9aa420a76c6b008872c449f6960e01545115c0b88d78900323f6c32b1f90e201). The
+screenshots and the recording are from this run.
 
-`demo.webm`, 25 seconds at 1440×900, is the flow run again in one take: the unpaid 402, the stock
-client paying, and the receipt read back from the chain. That take settled
-[0x3a7515ee…0307](https://robinhoodchain.blockscout.com/tx/0x3a7515ee4317b97df4a6b713cfcc07e4350ca6496c969e2ce93bfd0011cd0307)
-at block 85,281,158 in 0.97 s, 85,945 gas. A first take whose last act fell below the frame settled
-[0x7ac957e0…926a](https://robinhoodchain.blockscout.com/tx/0x7ac957e07e670205e078c145d91738e5a92afb8a81425c89ac256967fb7b926a).
-Three cents of USDG moved from the payer to the payee across the three runs; the demo relayer spent
-under 0.000006 ETH.
+Screenshots, 1440×900, in `docs/bullish/x402-rhc/`: `01-offer.png` (the live `/x402/supported` answer and the
+402 offer), `02-pay.png` (the stock client's output with the transaction), `03-receipt.png` (the transaction on
+the explorer, with the one-cent transfer).
+
+`demo.webm`, 37 seconds at 1440×900, is the live run: the unpaid 402, the stock client paying through
+`facilitator.bursar.world`, and the receipt on the explorer ([0x9aa420a7…90e201](https://robinhoodchain.blockscout.com/tx/0x9aa420a76c6b008872c449f6960e01545115c0b88d78900323f6c32b1f90e201)). Two earlier takes against the
+branch run locally settled
+[0x7ac957e0…926a](https://robinhoodchain.blockscout.com/tx/0x7ac957e07e670205e078c145d91738e5a92afb8a81425c89ac256967fb7b926a)
+and [0x3a7515ee…0307](https://robinhoodchain.blockscout.com/tx/0x3a7515ee4317b97df4a6b713cfcc07e4350ca6496c969e2ce93bfd0011cd0307).
+Four cents of USDG moved from the payer to the payee across the runs; the relayers spent under 0.00001 ETH.
 
 A console page was considered and not built: a page that paid through the browser would need the
 keyless routes live first, and the runnable example is what a developer reaches for. If a page is
@@ -137,14 +139,17 @@ wanted after the deploy, the stock client runs in a browser against a wallet's `
 
 ## Operator actions
 
-1. **Render, the facilitator service** (`facilitator.bursar.world`). Add the environment variable
+1. **Done 2026-10-10 20:36 UTC.** `FACILITATOR_PUBLIC_EXACT=true` is set on the Render service and `main` with this
+   branch is deployed; `curl -s https://facilitator.bursar.world/x402/supported` answers without a token. For the
+   record, the variable:
    `FACILITATOR_PUBLIC_EXACT=true`. Optionally `FACILITATOR_PUBLIC_RATE_PER_MINUTE` (120 unless
    set). Deploy the build from this branch. The start-up log prints `keyless x402 routes open
    under /x402`. Then `curl -s https://facilitator.bursar.world/x402/supported` answers without a
    token, and the example above runs with no `FACILITATOR_URL`. Settlements through `/x402` draw
    on the live relayer's ETH and the shared daily budget (`FACILITATOR_DAILY_SETTLEMENTS`, 2,000
    unless set).
-2. **Publish `@bursar/x402`** so the example and the announcement resolve from npm:
+2. **Published, pending approval.** `@bursar/x402` 0.1.0 is on the registry as a staged version; a maintainer
+   approves it on npmjs.com (Staged packages, 2FA). The command that published it:
    `pnpm --filter @bursar/x402 build && pnpm --filter @bursar/x402 publish --access public` (the
    package depends on `@bursar/core` 0.1.0, already published).
 3. **Open the upstream pull request** at https://github.com/x402-foundation/x402. Fork it, then:
@@ -170,16 +175,13 @@ wanted after the deploy, the stock client runs in a browser against a wallet's `
    > contract on chain 46630. Decimals are 6, so no paywall regeneration.
 
    Paste the live URL claim only after step 1 is done. Record the PR URL in the Links section.
-4. **Push the branch** so the links below resolve, and merge or open the Bursar pull request as
-   usual.
+4. **Done.** The branch is pushed and merged to `main` (9850aa0).
 
 Nothing on chain changes: no governance action, no new contract, no funds to move beyond the
 relayer's ordinary gas.
 
 ## Limits
 
-- Until step 1 deploys, a keyless call to `facilitator.bursar.world` answers 401. The verification
-  above ran the branch locally against mainnet.
 - The keyless routes run the standard profile: a payment is not bound to its request. Whoever holds
   a payment header can submit it, and the funds still go only to the payee the payer signed for.
   That is the protocol's own property; Bursar's provider routes keep binding.
@@ -213,8 +215,9 @@ relayer's ordinary gas.
   - https://github.com/bursar-world/bursar/blob/bullish/x402-rhc/examples/x402-rhc/pay.ts
   - https://github.com/bursar-world/bursar/blob/bullish/x402-rhc/docs/bullish/x402-rhc.patch
 - Branch diff: https://github.com/bursar-world/bursar/compare/main...bullish/x402-rhc
-- The live thing: https://facilitator.bursar.world/x402/supported (after the deploy)
-- The settlement: https://robinhoodchain.blockscout.com/tx/0xb29f4548ae08e4618aa85aeb71516b7ca9e34358d5b04ecd502e964bd3ed49ab
+- The live thing: https://facilitator.bursar.world/x402/supported
+- The settlement through the live service: https://robinhoodchain.blockscout.com/tx/0x9aa420a76c6b008872c449f6960e01545115c0b88d78900323f6c32b1f90e201
+- The first settlement, through the branch run locally: https://robinhoodchain.blockscout.com/tx/0xb29f4548ae08e4618aa85aeb71516b7ca9e34358d5b04ecd502e964bd3ed49ab
 - Upstream: the pull request URL once opened; until then `docs/bullish/x402-rhc.patch`, against
   https://github.com/x402-foundation/x402 at `f8f83309`.
 - Screenshots and recording: `docs/bullish/x402-rhc/01-offer.png`, `02-pay.png`, `03-receipt.png`,
@@ -224,7 +227,7 @@ relayer's ordinary gas.
 
 ## Announcement
 
-Publish after the deploy and the npm publish.
+Publish once `@bursar/x402` is approved on npm.
 
 **One line.** Any x402 agent can now pay for Robinhood Chain services in USDG, settled by Bursar.
 
@@ -275,3 +278,5 @@ Run it yourself: github.com/bursar-world/bursar, `examples/x402-rhc`.
 - 20:33 UTC. The overload comment in `eip3009.ts` corrected to what the chain says. Recording made
   in two takes, each a real settlement (`0x7ac9…926a`, `0x3a75…0307`); the second is `demo.webm`.
   Suites rerun, everything committed.
+- 20:36 UTC. Merged to `main`, the facilitator deployed with the switch on; `/x402/supported` live without a
+  token. 20:43 UTC: the stock client paid through the live service. Frames and the recording re-made from that run.
