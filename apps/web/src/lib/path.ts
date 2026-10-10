@@ -54,6 +54,7 @@ export function readsAsAddress(segment: string): boolean {
  */
 export const TOP_ROUTES: ReadonlySet<string> = new Set([
   'console',
+  'demo',
   'docs',
   'governance',
   'ops',

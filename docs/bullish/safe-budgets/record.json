@@ -1,0 +1,147 @@
+{
+  "chainId": 4663,
+  "steps": {
+    "fund-safe-eth": {
+      "hash": "0x2baf272ee573c6155be6f97f329a2242bb590f06bb986e128260e11268d77c1b",
+      "explorer": "https://robinhoodchain.blockscout.com/tx/0x2baf272ee573c6155be6f97f329a2242bb590f06bb986e128260e11268d77c1b"
+    },
+    "fund-safe-usdg": {
+      "hash": "0x1d83d8ac181c82d326b1a892dfa56d6290820911525b8dd74fd21c9a095ac7a6",
+      "explorer": "https://robinhoodchain.blockscout.com/tx/0x1d83d8ac181c82d326b1a892dfa56d6290820911525b8dd74fd21c9a095ac7a6"
+    },
+    "create": {
+      "hash": "0xc89eba3f5c98b7df44c6a7eb67344293f5fd0a4d8aaa868fba28d96be16bc0f5",
+      "explorer": "https://robinhoodchain.blockscout.com/tx/0xc89eba3f5c98b7df44c6a7eb67344293f5fd0a4d8aaa868fba28d96be16bc0f5",
+      "signers": [
+        "0x877c349EFb5926082C413833E8055F0991185c61",
+        "0x5210D8df060A9D5ce4c1305045ED5c9548fca374"
+      ],
+      "note": "refunded to the sender by the Safe"
+    },
+    "fund": {
+      "hash": "0x55ecb7b81a6d20d7b054616ba360e622b0dadc027bcb71415dc2c909f29e5fb1",
+      "explorer": "https://robinhoodchain.blockscout.com/tx/0x55ecb7b81a6d20d7b054616ba360e622b0dadc027bcb71415dc2c909f29e5fb1",
+      "signers": [
+        "0x877c349efb5926082c413833e8055f0991185c61",
+        "0x5210d8df060a9d5ce4c1305045ed5c9548fca374"
+      ],
+      "note": "refunded 0.00000353814 ETH to the sender"
+    },
+    "limits": {
+      "hash": "0xd435c4b19aadca4f541a67bc8da038f678566bed27f37af6c812586f2dfd98b6",
+      "explorer": "https://robinhoodchain.blockscout.com/tx/0xd435c4b19aadca4f541a67bc8da038f678566bed27f37af6c812586f2dfd98b6",
+      "signers": [
+        "0x877c349efb5926082c413833e8055f0991185c61",
+        "0x5210d8df060a9d5ce4c1305045ed5c9548fca374"
+      ],
+      "note": "refunded 0.00000304109592 ETH to the sender"
+    },
+    "seat": {
+      "hash": "0x749fa6e9486bb9cbabc061a867237488ecb9f02e929b112af1a7063c1627cff1",
+      "explorer": "https://robinhoodchain.blockscout.com/tx/0x749fa6e9486bb9cbabc061a867237488ecb9f02e929b112af1a7063c1627cff1",
+      "signers": [
+        "0x877c349efb5926082c413833e8055f0991185c61",
+        "0x5210d8df060a9d5ce4c1305045ed5c9548fca374"
+      ],
+      "note": "refunded 0.00000307574 ETH to the sender"
+    },
+    "fund-agent-eth": {
+      "hash": "0x83f97326355577cfa983130fb2314783bc060228875bbf9bd0d786eec5366ff0",
+      "explorer": "https://robinhoodchain.blockscout.com/tx/0x83f97326355577cfa983130fb2314783bc060228875bbf9bd0d786eec5366ff0"
+    },
+    "approve-bare": {
+      "hash": "0x0312c725b7ce2ca0c1741878a41b0f92b02c3654b0f5ad1184f11588f5cd853c",
+      "explorer": "https://robinhoodchain.blockscout.com/tx/0x0312c725b7ce2ca0c1741878a41b0f92b02c3654b0f5ad1184f11588f5cd853c",
+      "signers": [
+        "0x877c349efb5926082c413833e8055f0991185c61",
+        "0x5210d8df060a9d5ce4c1305045ed5c9548fca374"
+      ],
+      "note": "registered under the bare label id, before the class prefix was applied; superseded by approve"
+    },
+    "capability": {
+      "hash": "0x739ccb27f53cac06a85bfa38ba50e8a80c24f9945ac8fe4a4d4a239316ed3967",
+      "explorer": "https://robinhoodchain.blockscout.com/tx/0x739ccb27f53cac06a85bfa38ba50e8a80c24f9945ac8fe4a4d4a239316ed3967",
+      "signers": [
+        "0x877c349efb5926082c413833e8055f0991185c61",
+        "0x5210d8df060a9d5ce4c1305045ed5c9548fca374"
+      ],
+      "note": "refunded 0.00000222456717 ETH to the sender"
+    },
+    "approve": {
+      "hash": "0xaab3a9eedea09d8a811aa6bdc553a3a42ea50f53e83ae1608dbf587a8f3c6ef7",
+      "explorer": "https://robinhoodchain.blockscout.com/tx/0xaab3a9eedea09d8a811aa6bdc553a3a42ea50f53e83ae1608dbf587a8f3c6ef7",
+      "signers": [
+        "0x877c349efb5926082c413833e8055f0991185c61",
+        "0x5210d8df060a9d5ce4c1305045ed5c9548fca374"
+      ],
+      "note": "refunded 0.000002071516356 ETH to the sender"
+    },
+    "pay": {
+      "hash": "0xba03af06bffd9c7d75616653d73686a350ef8921f89933e516dbad490dd7d1d8",
+      "explorer": "https://robinhoodchain.blockscout.com/tx/0xba03af06bffd9c7d75616653d73686a350ef8921f89933e516dbad490dd7d1d8",
+      "note": "escrow lock 33, sent by the agent with the Safe's signature"
+    },
+    "pause": {
+      "hash": "0x4cbcf4a2e4f20c860f62c99d01fdd2a82ca3e04dd0df4410db034f0adcbb5c8e",
+      "explorer": "https://robinhoodchain.blockscout.com/tx/0x4cbcf4a2e4f20c860f62c99d01fdd2a82ca3e04dd0df4410db034f0adcbb5c8e",
+      "signers": [
+        "0x877c349efb5926082c413833e8055f0991185c61",
+        "0x5210d8df060a9d5ce4c1305045ed5c9548fca374"
+      ],
+      "note": "refunded 0.00000182146698 ETH to the sender"
+    },
+    "withdraw": {
+      "hash": "0x0aa2683c696a53c8f90e636db72dfced06cc771be9486b61acb106cae4af9688",
+      "explorer": "https://robinhoodchain.blockscout.com/tx/0x0aa2683c696a53c8f90e636db72dfced06cc771be9486b61acb106cae4af9688",
+      "signers": [
+        "0x877c349efb5926082c413833e8055f0991185c61",
+        "0x5210d8df060a9d5ce4c1305045ed5c9548fca374"
+      ],
+      "note": "refunded 0.000002842652304 ETH to the sender"
+    },
+    "resume": {
+      "hash": "0x677d95f9e4c0e1310a3dbbceaea2086df89810ac051f8393b0e89a3a7f4a7df6",
+      "explorer": "https://robinhoodchain.blockscout.com/tx/0x677d95f9e4c0e1310a3dbbceaea2086df89810ac051f8393b0e89a3a7f4a7df6",
+      "signers": [
+        "0x877c349efb5926082c413833e8055f0991185c61",
+        "0x5210d8df060a9d5ce4c1305045ed5c9548fca374"
+      ],
+      "note": "refunded 0.000001823587032 ETH to the sender"
+    }
+  },
+  "safe": {
+    "address": "0x053C8E803fBB862d6465399f69001A9b58Cdf4fe",
+    "owners": [
+      "0x877c349EFb5926082C413833E8055F0991185c61",
+      "0x5210D8df060A9D5ce4c1305045ED5c9548fca374",
+      "0x2176977dD7010927C9492CfF765bC766a16d5f99"
+    ],
+    "threshold": 2,
+    "version": "1.4.1",
+    "deployTx": {
+      "hash": "0xe6ebf1c2a0b9e29d283ea07228aa86d06a18768bf14307e2e833ac04ee9c9da0",
+      "explorer": "https://robinhoodchain.blockscout.com/tx/0xe6ebf1c2a0b9e29d283ea07228aa86d06a18768bf14307e2e833ac04ee9c9da0"
+    }
+  },
+  "mandate": {
+    "address": "0x98B59693751d14f9067A7C321276b0F27Fb03bAc",
+    "salt": "0xef6c20281a3984f27371f97058e193837c9e144a664d2b7081231d59baacf502"
+  },
+  "agent": "0xd140FA73F66b3F51250906b259E6FaaF8f7469b3",
+  "signedApproval": {
+    "approval": {
+      "approvalId": "0x65717831eb9ffb8e203ca2ab5004bcacd5c200cd7829202a7e7b620fa81df39e",
+      "merchant": "0x5210D8df060A9D5ce4c1305045ED5c9548fca374",
+      "capabilityId": "0xeeef5eeced2ea1c1500644a59e66f367d188ab968b14b5a41eb6f4a38164c1b1",
+      "amount": "100000",
+      "expiry": "1792251683"
+    },
+    "digest": "0x94f767272ce1010d9bf6d96d4c5148e828467be755b9fd1c406c73e36472d22b",
+    "signature": "0xa22c2a0f8f758bdb79164c582875611a20038fdfb73e6354988242022b45955c5a8eb5883c0bb37511e7f814e0ad31f7f7ef9380a13570152001e9e949decbd71cea7c57395111ae88c98c054572127b0f4efcd84aa446de7f37ff4ce65d9eb1e53ea4c25f4fc3ff25b9d6bbe197171cbc1680e1c110e05a7cff3df957f9c3a3831b",
+    "signers": [
+      "0x877c349efb5926082c413833e8055f0991185c61",
+      "0x5210d8df060a9d5ce4c1305045ed5c9548fca374"
+    ],
+    "validOnChain": true
+  }
+}
