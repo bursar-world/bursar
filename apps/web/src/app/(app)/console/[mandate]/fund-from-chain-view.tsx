@@ -1,3 +1,4 @@
+import { formatMicro } from '@bursar/core';
 import type { Micro } from '@bursar/core';
 import type { Address, Hex } from 'viem';
 import { formatUnits } from 'viem';
@@ -8,7 +9,7 @@ import { SelectField, TextField } from '@/components/fields';
 import { Field, FieldGrid } from '@/components/layout';
 import { Stat, StatGrid } from '@/components/stat';
 import { spellDuration } from '@/lib/time';
-import { usd, usdHeld } from '@/money';
+import { usdHeld } from '@/money';
 import type { FundingQuote, RelayStatus, SourceChain, SourceKey } from '@/relay';
 import { depositSeen } from '@/relay';
 
@@ -183,7 +184,7 @@ function QuoteFace({ quote, source }: { readonly quote: FundingQuote; readonly s
         hint={quote.arrives.minimum < quote.arrives.expected ? `USDG. At least ${usdHeld(quote.arrives.minimum)} if the price moves.` : 'USDG, on Robinhood Chain.'}
         level="ok"
       />
-      <Stat label="It costs" value={usd(quote.fees.total)} hint={costLine(quote, source)} />
+      <Stat label="It costs" value={usdFee(tenthOfACent(quote.fees.relay) + tenthOfACent(quote.fees.gas))} hint={costLine(quote, source)} />
       <Stat label="It takes" value={arrivalTime(quote.seconds)} hint="Relay pays the mandate from its own USDG once your deposit is confirmed." numeric={false} />
     </StatGrid>
   );
@@ -191,7 +192,16 @@ function QuoteFace({ quote, source }: { readonly quote: FundingQuote; readonly s
 
 function costLine(quote: FundingQuote, source: SourceChain): string {
   if (quote.fees.gas === 0n) return "Relay's fee, taken from what you send.";
-  return `Relay's fee of ${usd(quote.fees.relay)} plus about ${usd(quote.fees.gas)} in network fees on ${source.name}.`;
+  return `Relay's fee of ${usdFee(quote.fees.relay)} plus about ${usdFee(quote.fees.gas)} in network fees on ${source.name}.`;
+}
+
+/** A fee to the tenth of a cent. The total is the sum of the two rounded parts, so the line adds up. */
+function usdFee(value: bigint): string {
+  return formatMicro(tenthOfACent(value) as Micro, { minDecimals: 2, maxDecimals: 3, grouped: true, symbol: true });
+}
+
+function tenthOfACent(value: bigint): bigint {
+  return ((value + 500n) / 1_000n) * 1_000n;
 }
 
 function arrivalTime(seconds: number): string {

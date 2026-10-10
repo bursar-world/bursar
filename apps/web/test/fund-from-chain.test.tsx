@@ -89,8 +89,8 @@ describe('a quote from Base', () => {
     expect(markup).toContain('$0.48');
     expect(markup).toContain('At least $0.45 if the price moves.');
     expect(markup).toContain('It costs');
-    expect(markup).toContain('$0.03');
-    expect(markup).toContain('Relay&#x27;s fee of $0.02 plus about $0.00 in network fees on Base.');
+    expect(markup).toContain('$0.026');
+    expect(markup).toContain('Relay&#x27;s fee of $0.025 plus about $0.001 in network fees on Base.');
     expect(markup).toContain('Seconds');
   });
 
