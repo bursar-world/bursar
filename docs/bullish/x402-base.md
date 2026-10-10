@@ -113,6 +113,9 @@ it is and what to do: `base_lane_off`, `base_float_insufficient`, `base_amount_t
   checked (none hold USDC on Base); example mandate state read (agent is the payer key, `payee` is an
   allowed merchant, registered and active); candidate services on the Bazaar read (402rates, Useless
   Facts, Otto, all 0.001 USDC on `eip155:8453` with the USD Coin v2 domain). Design written.
+- 20:57 UTC: the two-fork run settled lock 43 end to end; the live run opened lock 44 on mainnet, had
+  the service's facilitator refuse the empty float, and the worker returned the lock on its own.
+  Screenshots, the recording and both run logs are in `docs/bullish/x402-base/`.
 - 17:50 UTC: core carries the Base constants; the facilitator has the lane (`services/facilitator/src/base/`),
   its migration, five public routes, health and the worker on the maintenance pass; the SDK has
   `lane: 'base'` with the refusal sentences. Unit tests with Base mocked at the chain port and the
@@ -237,6 +240,37 @@ What `local` does: the same, with Robinhood Chain forked too and a service on th
 settles the authorization on the Base fork, so the worker finds the nonce used and releases the lock
 to the lane's address.
 
+## What the runs showed
+
+**Both chains forked, the full settle** (`runs/local-forks.json`). The example mandate locked 0.01 USDG
+(lock 43 on the live escrow's address, on a fork of 4663, released at fork block 85,287,244) for the lane's address;
+the facilitator signed the USDC authorization; a service on this machine verified it against USDC's
+own domain and settled `transferWithAuthorization` on a fork of Base carrying the live USDC contract
+and state, so the signature was judged by the genuine contract; USDC reported the nonce used; the
+worker released the lock with `https://basescan.org/tx/0x286da91e…` as its output. The mandate's
+daily window moved by 10,000 atomic units, the lane's address received 9,900 (the escrow's 1%), the
+float paid 1,000 USDC atomic units.
+
+**Live, up to the Base transfer** (`runs/mainnet.json`). Against 402rates' `/v1/ping` on the Bazaar,
+with Robinhood Chain live and only the Base side on a fork (where the lane's address was handed USDC
+for the quote): the mandate opened lock 44 on the live escrow (one cent, payable to the lane); the
+facilitator signed the authorization for 402rates' address; 402rates' facilitator simulated the
+transfer against live Base, where the address holds nothing, and refused with `invalid_payload:
+contract call failed: unable to call contract: execution reverted`; the SDK raised
+`PaymentRejectedError` naming lock 44 and the minute it returns; the worker watched USDC until the
+authorization had expired and cancelled the lock on the live escrow
+(`0x39683913d51aa1a07746140e6833d37449a1da58d1a406b9da7a1ea5f63919b3`, block 85,294,929). The
+mandate's balance and both windows read exactly as before the call. The console showed the lock
+held and then "Cancelled. Called off before it settled" and "Came back $0.01".
+
+One thing the live run also found: the rig had reused its ledger between the fork run and the live
+run, and since a fork carries the chain id and the next lock id of the chain it was forked from, the
+live lock 43 was refused as already paid and left open. It was returned with the operator script
+that now ships beside the rig (`scripts/base-lane-return.ts`,
+`0xd2f490ab85a86bc3d8cdf921d7e7def95b2eaab63d1e2eff09f7b902f064e9d7`), the rig now starts from a
+fresh ledger every run, and a pay the float cannot cover now returns its lock at once instead of
+leaving it to the deadline.
+
 ## The honest limits
 
 - **No USDC has been paid to a Base service yet.** No Bursar key holds USDC on Base, and this build
@@ -261,3 +295,20 @@ to the lane's address.
 - **Services were not paid for real in this build.** The service the demo calls, 402rates
   (`/v1/ping`, 0.001 USDC), is a payment integration check on the Bazaar; it refused the empty float
   exactly as the design says it should.
+
+## Post assets
+
+All under `docs/bullish/x402-base/`, 1440×900, real figures, no keys in frame.
+
+| File | What it shows |
+|---|---|
+| `local-01-sdk-call.png` | `mandate.fetch(url, { lane: 'base' })` on the two-fork run: the 402, the quote, lock 43, the signed authorization, the 200 with the fact, the payment record. |
+| `local-02-facilitator-sign-settle.png` | The facilitator's log: the lane on, the authorization signed, the lock settled once USDC reported the nonce used; `GET /base/float` and `GET /config` after. |
+| `local-03-lock-released.png` | Lock 43 on the escrow: released to the lane's address with the Base transaction as its output; the USDC settle on the Base fork; every balance before and after. |
+| `mainnet-04-settlements-held.png` | The live console, Settlements of the example mandate: the lane's lock held, one cent, `demo.x402:1`. |
+| `mainnet-05-settlements-returned.png` | The same page after the lock came back: "Cancelled. Called off before it settled", and "Came back $0.01". |
+| `mainnet-06-live-call.png` | The live run: the real lock 44, the authorization signed for 402rates' address, the service's facilitator refusing the empty float, the SDK's sentence naming the lock and when it returns. |
+| `mainnet-07-settlements-worker-returned.png` | The live console after the worker cancelled lock 44 on its own. |
+| `mainnet-08-worker-return.png` | The worker's log line and the lock's state on Robinhood Chain after the return, with the mandate's windows credited back. |
+| `demo.webm` | The live Settlements page, the lock held and then returned, from Playwright's recorder. |
+| `runs/local-forks.json`, `runs/mainnet.json` | Everything the two runs saw, as the rig wrote it. |
