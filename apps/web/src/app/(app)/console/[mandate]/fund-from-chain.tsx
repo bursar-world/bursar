@@ -49,6 +49,9 @@ export function FundFromChain() {
   const [sourceKey, setSourceKey] = useState<SourceKey>('base');
   const [amountText, setAmountText] = useState('');
   const [phase, setPhase] = useState<FundingPhase>(IDLE);
+  // Set when the reader presses Fund and cleared when they touch the form again. While it holds,
+  // the amount is not re-quoted: a fresh quote would replace the failure or the wallet's refusal
+  // with a clean screen, and the reader would never learn what happened.
   const [flowActive, setFlowActive] = useState(false);
   const quotedAt = useRef(0);
   const baseline = useRef<Micro | undefined>(undefined);
@@ -145,6 +148,8 @@ export function FundFromChain() {
       return;
     }
 
+    // Held outside the try: a deposit that went out is followed whatever happens after it.
+    let depositHash: Hex | undefined;
     try {
       if (Date.now() - quotedAt.current > QUOTE_FRESH_MS) {
         setPhase({ kind: 'quoting' });
@@ -155,7 +160,6 @@ export function FundFromChain() {
         await switchChainAsync({ chainId: source.chainId });
       }
 
-      let depositHash: Hex | undefined;
       for (const step of quote.steps) {
         for (const call of step.calls) {
           setPhase({ kind: 'signing', quote, step: step.id });
@@ -178,12 +182,19 @@ export function FundFromChain() {
       // Back onto Robinhood Chain for the rest of the console. A wallet that declines stays where it is.
       switchChainAsync({ chainId: CHAIN_ID }).catch(() => undefined);
     } catch (error) {
-      setFlowActive(false);
+      if (depositHash !== undefined) {
+        // The deposit is with Relay; a receipt the endpoint would not give changes nothing about that.
+        const carried: Carried = { requestId: quote.requestId, sourceKey: source.key, sends: quote.source.amount, expected: quote.arrives.expected, depositHash };
+        baseline.current = account?.balance;
+        remember(recipient, carried);
+        setPhase({ kind: 'awaiting', carried, status: undefined });
+        return;
+      }
       if (isUserRejection(error)) {
         setPhase({ kind: 'quoted', quote, note: 'Your wallet did not sign, so nothing was sent.' });
         return;
       }
-      setPhase({ kind: 'failed', carried: undefined, reason: errorLine(error, 'Sending the deposit'), refundHash: undefined });
+      setPhase({ kind: 'failed', carried: undefined, reason: sendFailure(error, source), refundHash: undefined });
     }
   }, [phase, source, account?.balance, recipient, wallet.chainId, switchChainAsync, sendTransactionAsync, config, quoteFor]);
 
@@ -263,9 +274,13 @@ export function FundFromChain() {
       noGas={gas.data !== undefined && gas.data.value === 0n}
       relayLink={relayBridgeLink({ source, recipient, destinationCurrency: ADDRESSES.usdg, amount: amountText.trim() })}
       onSource={(key) => {
+        setFlowActive(false);
         setSourceKey(key);
       }}
-      onAmount={setAmountText}
+      onAmount={(text) => {
+        setFlowActive(false);
+        setAmountText(text);
+      }}
       onFund={() => void fund()}
       onReset={reset}
     />
@@ -273,6 +288,16 @@ export function FundFromChain() {
 }
 
 const IDLE: FundingPhase = { kind: 'idle' };
+
+/**
+ * Why the deposit did not go out, in one line. viem's `shortMessage` is the sentence; its
+ * `message` carries the request arguments underneath, which belong in a support ticket.
+ */
+function sendFailure(error: unknown, source: SourceChain): string {
+  const shaped = error as { readonly shortMessage?: unknown };
+  const line = typeof shaped?.shortMessage === 'string' && shaped.shortMessage !== '' ? shaped.shortMessage : errorLine(error, 'Sending the deposit');
+  return `The deposit was not sent on ${source.name}: ${line.replace(/\.?$/, '.')} Nothing left your wallet.`;
+}
 
 function readAmount(text: string, source: SourceChain, held: bigint | undefined): { readonly value: bigint | undefined; readonly problem: string | undefined } {
   if (text.trim() === '') return { value: undefined, problem: undefined };
