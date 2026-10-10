@@ -26,6 +26,7 @@ import type { AnyState } from '@/state';
 import { RulingNote } from '../resolvers/ruling-note';
 import { EvidenceForm } from './[payee]/evidence-form';
 import type { ProviderDesk, ProviderLock } from './desk';
+import { IdentitySection } from './identity';
 import { AddStakeCard, AvailabilityCard, RegisterCard, WithdrawalCard } from './onboarding';
 import { ReadBrief, RecordCard, TakePayment } from './record-card';
 import { ReputationPanel } from './reputation';
@@ -98,6 +99,15 @@ export function DeskView({ payee, owned }: { readonly payee: Address; readonly o
           <DeskHeadline desk={desk} owned={owned} />
 
           {owned && <Onboarding desk={desk} blockedBy={writeBlockers} onDone={refresh} />}
+
+          <IdentitySection
+            subject={payee}
+            owner={payee}
+            kind="provider"
+            canRegister={owned && desk.standing.registered === true}
+            {...(owned && desk.standing.registered === false ? { heldBack: 'List this address first. The card describes the listing.' } : {})}
+            blockedBy={writeBlockers}
+          />
 
           <Section
             title={owned ? 'Your record' : 'The record'}

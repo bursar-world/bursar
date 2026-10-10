@@ -101,6 +101,8 @@ export type DisputeRecord = {
   readonly published: boolean;
   /** How far the disclosure-grant scan for this lock has read, and what it found. */
   readonly disclosureScan?: GrantCheckpoint;
+  /** The ruling posted as ERC-8004 feedback. A null hash is one found on the registry from an earlier run. */
+  readonly reputation?: { readonly agentId: string; readonly hash: Hex | null };
 };
 
 export type Journal = {

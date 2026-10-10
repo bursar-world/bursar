@@ -59,6 +59,8 @@ export type ResolverConfig = {
   /** Wei of ETH per key. Gas and settlement are different assets, so this is not an amount of USDG. */
   readonly minGasWei: bigint;
   readonly heartbeatMs: number;
+  /** Rulings posted as ERC-8004 feedback, off until an operator turns it on. */
+  readonly reputation: { readonly enabled: boolean; readonly cardBase: string };
 };
 
 /**
@@ -120,6 +122,15 @@ const SCHEMA = {
    */
   RESOLVER_MIN_GAS_WEI: withDefault(envVar.bigint({ min: 0n }), 100_000_000_000_000n),
   RESOLVER_HEARTBEAT_MS: withDefault(envVar.int({ min: 60_000, max: 7 * 86_400_000 }), 86_400_000),
+
+  /**
+   * Post each finalised ruling as feedback in the ERC-8004 reputation registry, from the first
+   * resolver key. Off by default: the registry entry is public and permanent, so an operator
+   * turns it on knowingly.
+   */
+  RESOLVER_REPUTATION: withDefault(envVar.oneOf(['on', 'off']), 'off'),
+  /** The console that serves agent cards and published rulings. */
+  RESOLVER_CARD_BASE: withDefault(envVar.url({ protocols: ['https:', 'http:'] }), 'https://app.bursar.world'),
 } as const;
 
 /** Every problem in one pass, the service's own variables and the shared chain ones together. */
@@ -169,6 +180,7 @@ export function loadConfig(source: EnvSource = process.env): LoadedConfig {
       fetchTimeoutMs: env.RESOLVER_FETCH_TIMEOUT_MS,
       minGasWei: env.RESOLVER_MIN_GAS_WEI,
       heartbeatMs: env.RESOLVER_HEARTBEAT_MS,
+      reputation: { enabled: env.RESOLVER_REPUTATION === 'on', cardBase: env.RESOLVER_CARD_BASE.replace(/\/+$/, '') },
     },
   };
 }

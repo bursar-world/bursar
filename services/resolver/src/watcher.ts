@@ -8,6 +8,7 @@ import type { Journal } from './journal.js';
 import type { ResolverKey } from './keys.js';
 import { describeError } from './log.js';
 import type { Logger } from './log.js';
+import type { Reputation } from './reputation.js';
 import type { Voter } from './voter.js';
 
 /**
@@ -34,6 +35,7 @@ export type WatcherOptions = {
   readonly minGasWei: bigint;
   readonly heartbeatMs: number;
   readonly now?: () => number;
+  readonly reputation?: Reputation | undefined;
 };
 
 /** One registry this process votes on, as far as the log scan has read it. */
@@ -110,6 +112,16 @@ export function createWatcher(options: WatcherOptions): Watcher {
     }
   }
 
+  /** A ruling that fails to post is tried again on the next pass; it never holds a vote back. */
+  async function postRuling(entry: Served, disputeId: bigint): Promise<void> {
+    if (options.reputation === undefined) return;
+    try {
+      await options.reputation.after(entry, disputeId);
+    } catch (error) {
+      logger.warn('reputation_failed', { registry: entry.registry, disputeId, reason: describeError(error) });
+    }
+  }
+
   async function poll(): Promise<void> {
     const head = await chain.head();
 
@@ -123,6 +135,7 @@ export function createWatcher(options: WatcherOptions): Watcher {
         if ((await voter.step(entry, disputeId, head)) === 'done') {
           tracked.delete(id);
           done.add(id);
+          await postRuling(entry, disputeId);
         }
       } catch (error) {
         // One dispute failing is retried on the next pass and must not hold up the others.

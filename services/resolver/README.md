@@ -83,6 +83,8 @@ The service has no public address. The console forwards `https://app.bursar.worl
 | `RESOLVER_FETCH_TIMEOUT_MS` | `10000` | Per input or output fetch. Bodies are capped at 1 MB, redirects are refused and private addresses are never fetched. |
 | `RESOLVER_MIN_GAS_WEI` | `100000000000000` | 0.0001 ETH per key. Below it the daily check warns. |
 | `RESOLVER_HEARTBEAT_MS` | `86400000` | Daily key checks and heartbeat. |
+| `RESOLVER_REPUTATION` | `off` | `on` posts each finalised ruling as ERC-8004 feedback on the provider's agent, from the first key: the median score under the tag `ruling`, the dispute named in the second tag. Only for a provider whose identity the registry ties to the payee, and never twice for one dispute. |
+| `RESOLVER_CARD_BASE` | `https://app.bursar.world` | The console that serves `/agents/<address>/card.json` and the published rulings the feedback links to. |
 
 Keys are never logged. A malformed key is reported by name only.
 
