@@ -1,0 +1,63 @@
+{
+  "name": "@bursar/ai-sdk",
+  "version": "0.1.0",
+  "description": "Spend from a Bursar mandate inside Vercel's AI SDK: inspect, quote, pay and settlements as tools.",
+  "keywords": [
+    "bursar",
+    "ai-sdk",
+    "vercel",
+    "ai-agents",
+    "payments",
+    "robinhood-chain"
+  ],
+  "homepage": "https://github.com/bursar-world/bursar/tree/main/packages/integrations/ai-sdk#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bursar-world/bursar.git",
+    "directory": "packages/integrations/ai-sdk"
+  },
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/bursar-world/bursar/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "example": "tsx examples/pay.ts"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@bursar/toolset": "workspace:*"
+  },
+  "peerDependencies": {
+    "ai": ">=5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.2",
+    "tsx": "4.23.13",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11",
+    "ai": "7.0.129"
+  }
+}

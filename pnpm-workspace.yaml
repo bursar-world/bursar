@@ -1,6 +1,7 @@
 packages:
   - 'apps/*'
   - 'packages/*'
+  - 'packages/integrations/*'
   - 'services/*'
   - 'circuits'
   - 'examples/*'
@@ -16,6 +17,14 @@ allowBuilds:
   bufferutil: false
   keccak: false
   utf-8-validate: false
+  # Pulled in by @coinbase/agentkit, which @bursar/agentkit is built against. bigint-buffer and
+  # secp256k1 are native speed-ups with a JavaScript fallback; the other three run husky or a
+  # notice script that only matters inside their own repositories.
+  '@coinbase/x402': false
+  '@opensea/seaport-js': false
+  bigint-buffer: false
+  opensea-js: false
+  secp256k1: false
 onlyBuiltDependencies:
   - esbuild
 

@@ -14,6 +14,7 @@ contracts/lib/
 .mandate/
 node_modules/
 packages/*/dist/
+packages/integrations/*/dist/
 services/*/dist/
 
 # forge script preprocesses into this directory; it is build output like out/ and cache/.
