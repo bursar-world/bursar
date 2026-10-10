@@ -58,6 +58,8 @@ import type {
   BuyStockView,
   HireOrder,
   HireView,
+  SellStockOrder,
+  SellStockView,
   MandateGateway,
   MandateView,
   PayOrder,
@@ -617,6 +619,94 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
     };
   }
 
+  /**
+   * Sells a stock out of the mandate's custody through the router's `sell`. The principal releases
+   * what the agent may sell by moving it from the mandate to the custody; the router checks the
+   * sale list, the reference price, the per-trade cap and the fill, and delivers the USDG to the
+   * mandate.
+   */
+  async function sellStock(order: SellStockOrder): Promise<SellStockView> {
+    const submitter = requireRelay();
+    const { contractSet } = await assertWired();
+    if (contractSet === 'v1') {
+      throw new ToolError('mandate_refused', 'This mandate is on the first contract set, which cannot hold stocks.');
+    }
+
+    const lane = options.rwa ?? null;
+    if (lane === null) {
+      throw new ToolError(
+        'rwa_unavailable',
+        'The deployment record this server reads has no stock purchase contracts, so it cannot sell stocks.',
+      );
+    }
+
+    const wanted = order.asset.toLowerCase();
+    const listed = lane.assets.find((a) => a.symbol.toLowerCase() === wanted || a.address.toLowerCase() === wanted);
+    if (listed === undefined || listed.kind !== 'stock') {
+      const eligible = lane.assets.filter((a) => a.kind === 'stock').map((a) => a.symbol);
+      throw new ToolError('invalid_arguments', `${order.asset} is not an eligible stock. Eligible: ${eligible.join(', ')}.`);
+    }
+
+    const released = await client.readContract({
+      address: lane.StockSpendRouter,
+      abi: stockSpendRouterAbi,
+      functionName: 'sellable',
+      args: [account, listed.address],
+    });
+    const raw = order.raw ?? released;
+    if (raw <= 0n || raw > released) {
+      throw new ToolError(
+        'mandate_refused',
+        released === 0n
+          ? `Nothing of ${listed.symbol} is released for sale. The principal moves a holding from the mandate to its ` +
+            'custody on the router first; the agent sells only what is there.'
+          : `The mandate's custody holds ${released.toString()} raw units of ${listed.symbol}, and the sale asks for ` +
+            `${raw.toString()}. Sell at most what is released, or ask the principal to release more.`,
+        { released: released.toString(), requested: raw.toString() },
+      );
+    }
+
+    const [priceE8, minUsdg] = await refusing(() =>
+      Promise.all([
+        client.readContract({
+          address: lane.PriceGuard,
+          abi: priceGuardAbi,
+          functionName: 'exitPrice',
+          args: [listed.address, account],
+        }),
+        client.readContract({
+          address: lane.StockSpendRouter,
+          abi: stockSpendRouterAbi,
+          functionName: 'minUsdgFor',
+          args: [account, listed.address, raw],
+        }),
+      ]),
+    );
+
+    const receipt = await submitter.sell({
+      mandateAccount: account,
+      router: lane.StockSpendRouter,
+      asset: listed.address,
+      raw: raw.toString(),
+      minUsdg: minUsdg.toString(),
+      quotedPriceE8: priceE8.toString(),
+    });
+    const proceeds = moneyFromUint(receipt.usdgOut);
+
+    return {
+      txHash: receipt.txHash,
+      asset: listed.address,
+      symbol: listed.symbol,
+      sold: raw.toString(),
+      proceeds,
+      floor: moneyFromUint(minUsdg),
+      referencePrice: (Number(priceE8) / 1e8).toFixed(2),
+      next:
+        `The mandate holds ${proceeds.usdg} USDG more, which it can spend or put into another stock with ` +
+        'mandate_buy_stock. The sale credits nothing back to the budgets the purchase counted against.',
+    };
+  }
+
   async function settlements(query: SettlementsQuery): Promise<SettlementsView> {
     const { escrowContract } = await assertWired();
 
@@ -935,7 +1025,7 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
     return client.readContract({ address: registry, abi: oracleRegistryAbi, functionName: 'getDispute', args: [disputeId] });
   }
 
-  return { inspect, quote, pay, hire, buyStock, settlements, settlement, openDispute, dispute };
+  return { inspect, quote, pay, hire, buyStock, sellStock, settlements, settlement, openDispute, dispute };
 }
 
 /**

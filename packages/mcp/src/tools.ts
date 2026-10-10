@@ -360,6 +360,40 @@ export const TOOLS: readonly ToolDefinition[] = [
     },
   },
   {
+    name: 'mandate_sell_stock',
+    role: 'mandate',
+    writes: true,
+    description:
+      'Sell a tokenized stock this mandate holds (SPY, NVDA or AAPL on Robinhood Chain) back to USDG, delivered ' +
+      "to the mandate account. Sells only what the principal has released for sale into the mandate's custody " +
+      'on the router, and only an asset the principal has listed for sale. The sale is checked against the ' +
+      'Chainlink reference price like a purchase: it is refused when that price is older than 26 hours, when ' +
+      'the trading pool and the reference disagree by more than the asset allows, or when the fill would be ' +
+      "worse than the mandate's slippage limit. A sale is not a spend: it restores USDG the mandate can spend " +
+      'again and credits nothing back to its budgets. To rebalance, sell one stock and buy another with ' +
+      'mandate_buy_stock.',
+    inputSchema: {
+      type: 'object',
+      required: ['asset'],
+      properties: {
+        asset: {
+          type: 'string',
+          description: 'The stock to sell, by symbol ("SPY", "NVDA", "AAPL") or token address.',
+          pattern: '^(?:[A-Za-z]{1,10}|0x[0-9a-fA-F]{40})$',
+          patternMessage: 'asset must be a ticker symbol or a 0x address',
+        },
+        raw: {
+          type: 'string',
+          description:
+            'How much to sell, in raw token units (18 decimals for these stocks) as a decimal string. Leave ' +
+            'it out to sell everything released for sale.',
+          pattern: '^[0-9]{1,40}$',
+          patternMessage: 'raw must be a count of token units with no decimal point',
+        },
+      },
+    },
+  },
+  {
     name: 'mandate_list_settlements',
     role: 'mandate',
     writes: false,
@@ -1084,6 +1118,12 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
   mandate_buy_stock: (context, args) =>
     mandateOf(context).buyStock({ asset: readString(args, 'asset'), amount: readAmount(args, 'amount') }),
 
+  mandate_sell_stock: (context, args) =>
+    mandateOf(context).sellStock({
+      asset: readString(args, 'asset'),
+      raw: args['raw'] === undefined ? null : readRawUnits(args, 'raw'),
+    }),
+
   mandate_list_settlements: (context, args) =>
     mandateOf(context).settlements({
       limit: args['limit'] === undefined ? 10 : readInteger(args, 'limit'),
@@ -1429,6 +1469,16 @@ function readAmount(args: Record<string, unknown>, name: string, label = name): 
   if (amount > UINT128_MAX) throw invalidArguments(`${label} is larger than the escrow can hold`);
 
   return amount;
+}
+
+/** A count of a stock token's raw units: a decimal string of digits, above zero. */
+function readRawUnits(args: Record<string, unknown>, name: string): bigint {
+  const text = readString(args, name);
+  if (!/^[0-9]{1,40}$/u.test(text)) throw invalidArguments(`${name} must be a count of token units with no decimal point`);
+  const units = BigInt(text);
+  if (units === 0n) throw invalidArguments(`${name} must be greater than zero`);
+  if (units > UINT128_MAX) throw invalidArguments(`${name} is larger than the router accepts`);
+  return units;
 }
 
 /** A BRSR figure. Branded nowhere, but kept out of the money path and checked on its own scale. */

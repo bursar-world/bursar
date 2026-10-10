@@ -159,6 +159,28 @@ export type BuyStockView = {
   readonly next: string;
 };
 
+export type SellStockOrder = {
+  /** A registry symbol ("SPY") or the token address. */
+  readonly asset: string;
+  /** Raw token units to sell; everything the principal has released for sale when absent. */
+  readonly raw: bigint | null;
+};
+
+export type SellStockView = {
+  readonly txHash: Hex;
+  readonly asset: Address;
+  readonly symbol: string;
+  /** Raw token units sold out of the mandate's custody. */
+  readonly sold: string;
+  /** USDG delivered to the mandate. */
+  readonly proceeds: MoneyView;
+  /** The least the sale would have been allowed to bring in. */
+  readonly floor: MoneyView;
+  /** Reference price, USD per whole token. */
+  readonly referencePrice: string;
+  readonly next: string;
+};
+
 export type PayView = {
   readonly settlementId: string;
   readonly txHash: Hex;
@@ -439,6 +461,7 @@ export type MandateGateway = {
   pay(order: PayOrder): Promise<PayView>;
   hire(order: HireOrder): Promise<HireView>;
   buyStock(order: BuyStockOrder): Promise<BuyStockView>;
+  sellStock(order: SellStockOrder): Promise<SellStockView>;
   settlements(query: SettlementsQuery): Promise<SettlementsView>;
   settlement(settlementId: bigint): Promise<SettlementDetailView>;
   openDispute(settlementId: bigint): Promise<DisputeReceiptView>;

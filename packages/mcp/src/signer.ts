@@ -15,7 +15,7 @@
  * its limits refuse whatever this process was told to send.
  */
 
-import { mandateAccountAbi, mandateAccountAbiV1, viemChain } from '@bursar/core';
+import { mandateAccountAbi, mandateAccountAbiV1, stockSpendRouterAbi, viemChain } from '@bursar/core';
 import type { RhcChain, RhcPublicClient } from '@bursar/core';
 import { createWalletClient, custom, encodeFunctionData, parseEventLogs } from 'viem';
 import type { Account, Address, Hex, TransactionReceipt, WalletClient } from 'viem';
@@ -29,6 +29,8 @@ import type {
   RelayBuyReceipt,
   RelayBuyRequest,
   RelayDisputeRequest,
+  RelaySellReceipt,
+  RelaySellRequest,
   RelaySpendReceipt,
   RelaySpendRequest,
   RelayTransactionReceipt,
@@ -82,16 +84,17 @@ export function createLocalSigner(options: LocalSignerOptions): SpendRelay {
    * name and the same sentence a quote would have given. Sending first would buy that answer as a
    * failed receipt with the reason stripped off it.
    */
-  async function preflight(data: Hex): Promise<void> {
+  async function preflight(to: Address, data: Hex): Promise<void> {
     try {
-      await client.call({ account: signer, to: account, data });
+      await client.call({ account: signer, to, data });
     } catch (error) {
       throw refused(error);
     }
   }
 
-  async function submit(data: Hex, action: string): Promise<{ hash: Hex; receipt: TransactionReceipt }> {
-    await preflight(data);
+  /** Sends to the mandate, or to `to` for the one call that goes to the router: a sale out of custody. */
+  async function submit(data: Hex, action: string, to: Address = account): Promise<{ hash: Hex; receipt: TransactionReceipt }> {
+    await preflight(to, data);
 
     let hash: Hex;
 
@@ -99,7 +102,7 @@ export function createLocalSigner(options: LocalSignerOptions): SpendRelay {
       hash = await wallet.sendTransaction({
         account: signer,
         chain: viemChain(options.chain),
-        to: account,
+        to,
         data,
         ...(await fees()),
       });
@@ -252,6 +255,27 @@ export function createLocalSigner(options: LocalSignerOptions): SpendRelay {
       const [bought] = parseEventLogs({ abi: mandateAccountAbi, eventName: 'Bought', logs: receipt.logs });
 
       return { txHash: hash, amountOut: bought?.args.amountOut ?? 0n };
+    },
+
+    async sell(request: RelaySellRequest): Promise<RelaySellReceipt> {
+      assertScope(request.mandateAccount);
+
+      const { hash, receipt } = await submit(
+        encodeFunctionData({
+          abi: stockSpendRouterAbi,
+          functionName: 'sell',
+          args: [request.mandateAccount, request.asset, BigInt(request.raw), BigInt(request.minUsdg), BigInt(request.quotedPriceE8)],
+        }),
+        'sell',
+        request.router,
+      );
+      const [sold] = parseEventLogs({
+        abi: stockSpendRouterAbi,
+        eventName: 'StockSold',
+        logs: receipt.logs.filter((log) => log.address.toLowerCase() === request.router.toLowerCase()),
+      });
+
+      return { txHash: hash, usdgOut: sold?.args.usdgOut ?? 0n };
     },
   };
 }

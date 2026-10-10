@@ -742,7 +742,29 @@ const RWA_REFUSALS: Readonly<Record<string, Omit<Refusal, 'code'>>> = {
     subject: 'price',
     message:
       "The fill would have been worse than the mandate's slippage limit against the reference price, so " +
-      'nothing was bought.',
+      'nothing was traded.',
+  },
+  NotOperator: {
+    subject: 'mandate',
+    message: "Only the mandate's agent or principal can sell out of its custody or recall from it. Nothing moved.",
+  },
+  SaleNotAllowed: {
+    subject: 'asset',
+    message: "This asset is not on the mandate's list of stocks it may sell. Only the principal can add it. Nothing was sold.",
+  },
+  LengthMismatch: {
+    subject: 'asset',
+    message: 'Every asset named in a sale policy needs a flag of its own. The policy in force is unchanged.',
+  },
+  CustodyShort: {
+    subject: 'amount',
+    message:
+      "The mandate's custody holds less of this stock than the sale asks for. The principal releases more for " +
+      "sale by sending it from the mandate to the custody. Nothing moved.",
+  },
+  QuoteOutsideBand: {
+    subject: 'price',
+    message: 'The price the sale was decided on is too far from the reference price now. Quote again and retry.',
   },
 };
 

@@ -104,6 +104,7 @@ describe('the advertised tools', () => {
       'mandate_quote_spend',
       'mandate_pay_provider',
       'mandate_buy_stock',
+      'mandate_sell_stock',
       'mandate_list_settlements',
       'mandate_get_settlement',
       'mandate_open_dispute',
@@ -799,5 +800,41 @@ describe('mandate_buy_stock', () => {
   it('names the reference-price refusals', () => {
     expect(refusalForName('StalePrice')?.message).toContain('26 hours');
     expect(refusalForName('AssetNotAllowed')?.subject).toBe('asset');
+  });
+});
+
+describe('mandate_sell_stock', () => {
+  const context = (): ToolContext => ({
+    gateway: createFakeGateway().gateway,
+    resolver: null,
+    provider: null,
+    secrets: [],
+    canSign: { mandate: true, resolver: false, provider: false },
+  });
+
+  it('sells everything released when no amount is given, and the amount named otherwise', async () => {
+    const fake = createFakeGateway();
+    const ctx = { ...context(), gateway: fake.gateway };
+    const whole = await callTool(ctx, 'mandate_sell_stock', { asset: 'SPY' });
+    const part = await callTool(ctx, 'mandate_sell_stock', { asset: 'SPY', raw: '1000' });
+    expect(whole.isError).toBe(false);
+    expect(part.isError).toBe(false);
+    expect(fake.sells).toEqual([
+      { asset: 'SPY', raw: null },
+      { asset: 'SPY', raw: 1_000n },
+    ]);
+    expect(whole.text).toContain('proceeds');
+  });
+
+  it('refuses an amount that is not a count of raw units', async () => {
+    const result = await callTool(context(), 'mandate_sell_stock', { asset: 'SPY', raw: '0.5' });
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.text).error).toBe('invalid_arguments');
+  });
+
+  it('names the sale refusals', () => {
+    expect(refusalForName('SaleNotAllowed')?.subject).toBe('asset');
+    expect(refusalForName('CustodyShort')?.message).toContain('releases');
+    expect(refusalForName('QuoteOutsideBand')?.subject).toBe('price');
   });
 });

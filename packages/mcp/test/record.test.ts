@@ -33,6 +33,8 @@ const MANDATE = getAddress(ACCOUNT);
 
 const PRICE_E8 = 77_121_000_000n;
 const MIN_OUT = 6_473_574_322_038_947n;
+const RELEASED = 640_554_959_594_479n;
+const FLOOR = 494_672n;
 
 const dir = mkdtempSync(join(tmpdir(), 'bursar-mcp-record-'));
 
@@ -61,8 +63,20 @@ function token(): ReadonlyMap<Hex, Answer> {
 
 /** The local record's lane where the record puts it, with its SPY and USDG. */
 const LANE: Contracts = new Map([
-  [LOCAL.PriceGuard.toLowerCase(), new Map([answer(priceGuardAbi, 'tradePrice', () => PRICE_E8)])],
-  [LOCAL.StockSpendRouter.toLowerCase(), new Map([answer(stockSpendRouterAbi, 'minOutFor', () => MIN_OUT)])],
+  [
+    LOCAL.PriceGuard.toLowerCase(),
+    new Map([answer(priceGuardAbi, 'tradePrice', () => PRICE_E8), answer(priceGuardAbi, 'exitPrice', () => PRICE_E8)]),
+  ],
+  [
+    LOCAL.StockSpendRouter.toLowerCase(),
+    new Map([
+      answer(stockSpendRouterAbi, 'minOutFor', () => MIN_OUT),
+      answer(stockSpendRouterAbi, 'sellable', () => RELEASED),
+      answer(stockSpendRouterAbi, 'minUsdgFor', () => FLOOR),
+      // The signer runs the sale as a call before it pays for it.
+      answer(stockSpendRouterAbi, 'sell', () => FLOOR),
+    ]),
+  ],
   [
     VAULT.toLowerCase(),
     new Map([
@@ -169,6 +183,40 @@ describe('a server configured with a deployment record', () => {
     expect(sentTo(node, MANDATE, mandateAccountAbi)).toEqual([
       { functionName: 'buy', args: [SPY, 5_000_000n, MIN_OUT, PRICE_E8] },
     ]);
+  });
+
+  it('sells what the principal released, quoted on the record’s guard and router, through the record’s router', async () => {
+    const { node, context } = serve();
+
+    const result = await callTool(context, 'mandate_sell_stock', { asset: 'spy' });
+
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.text)).toMatchObject({
+      asset: SPY,
+      symbol: 'SPY',
+      sold: RELEASED.toString(),
+      proceeds: { micro: FLOOR.toString() },
+      floor: { micro: FLOOR.toString() },
+    });
+    expect(readsAt(node, LOCAL.PriceGuard, priceGuardAbi)).toEqual([{ functionName: 'exitPrice', args: [SPY, MANDATE] }]);
+    expect(readsAt(node, LOCAL.StockSpendRouter, stockSpendRouterAbi)).toEqual([
+      { functionName: 'sellable', args: [MANDATE, SPY] },
+      { functionName: 'minUsdgFor', args: [MANDATE, SPY, RELEASED] },
+      { functionName: 'sell', args: [MANDATE, SPY, RELEASED, FLOOR, PRICE_E8] },
+    ]);
+    expect(sentTo(node, LOCAL.StockSpendRouter, stockSpendRouterAbi)).toEqual([
+      { functionName: 'sell', args: [MANDATE, SPY, RELEASED, FLOOR, PRICE_E8] },
+    ]);
+  });
+
+  it('sells nothing beyond what is released', async () => {
+    const { node, context } = serve();
+
+    const body = JSON.parse((await callTool(context, 'mandate_sell_stock', { asset: 'SPY', raw: (RELEASED + 1n).toString() })).text);
+
+    expect(body.error).toBe('mandate_refused');
+    expect(body.message).toContain('Sell at most what is released');
+    expect(node.transactions).toHaveLength(0);
   });
 
   it('refuses a stock the record does not list, though mainnet lists it', async () => {
