@@ -9,6 +9,7 @@ import { ErrorSurface } from '@/components/error-surface';
 import { Instant } from '@/components/instant';
 import { StatusList } from '@/components/status';
 import { ActivityList } from './activity-list';
+import { AssistantPanel } from './assistant-panel';
 import { CollateralPanel } from './collateral-panel';
 import { ControlPanel } from './control-panel';
 import { FundingPanel } from './funding-panel';
@@ -48,6 +49,7 @@ export function OverviewView() {
       <ParkPanel />
       <CollateralPanel />
       <GatesPanel />
+      <AssistantPanel />
       <ControlPanel />
 
       <Section

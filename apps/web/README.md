@@ -55,6 +55,7 @@ Every variable is optional. `.env.example` explains each one.
 | `NEXT_PUBLIC_RHC_NETWORK` | mainnet | `testnet` is refused: USDG has no contract on chain 46630. |
 | `NEXT_PUBLIC_RHC_EXPLORER` | the recorded explorer | Where transaction and address links point. |
 | `NEXT_PUBLIC_SITE_URL` | unset | This app's origin, shown by wallets before they sign. Needed only in a deployment. |
+| `BURSAR_MCP_HOST_URL` | unset | The hosted MCP endpoint (`services/mcp-host`). Server-side only. Unset, the mandate page says hosted assistant connections are not available. |
 | `BLOCKSCOUT_API_KEY` | unset | Server-side key for the chain index. Without it `/api/index` answers `402` and the history views on the mandate pages say so; balances, limits and permissions still read from the contracts. |
 | `BLOCKSCOUT_API_BASE` | the index for the chain | A different index host. Server-side. |
 
