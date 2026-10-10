@@ -1,0 +1,92 @@
+diff --git a/docs/core-concepts/network-and-token-support.mdx b/docs/core-concepts/network-and-token-support.mdx
+index 0fb15af..79f6ca2 100644
+--- a/docs/core-concepts/network-and-token-support.mdx
++++ b/docs/core-concepts/network-and-token-support.mdx
+@@ -142,6 +142,7 @@ When you use `"$0.01"` syntax, x402 needs to know which stablecoin to use. The f
+ | Sei Testnet | `eip155:1328` | `0x4fCF1784B31630811181f670Aea7A7bEF803eaED` | USDC | 6 | EIP-3009 |
+ | Arc | `eip155:5042` | `0x3600000000000000000000000000000000000000` | USDC | 6 | EIP-3009 |
+ | Arc Testnet | `eip155:5042002` | `0x3600000000000000000000000000000000000000` | USDC | 6 | EIP-3009 |
++| Robinhood Chain | `eip155:4663` | `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168` | Global Dollar | 6 | EIP-3009 |
+ 
+ 
+ 
+diff --git a/go/.changes/unreleased/add-robinhood-chain-default-stablecoin.yaml b/go/.changes/unreleased/add-robinhood-chain-default-stablecoin.yaml
+new file mode 100644
+index 0000000..591d586
+--- /dev/null
++++ b/go/.changes/unreleased/add-robinhood-chain-default-stablecoin.yaml
+@@ -0,0 +1,2 @@
++kind: added
++body: Add Robinhood Chain mainnet (chain ID 4663) with Global Dollar (USDG) as the default stablecoin. USDG implements EIP-3009 transferWithAuthorization; its EIP-712 domain is name Global Dollar, version 1.
+diff --git a/go/mechanisms/evm/default_assets.go b/go/mechanisms/evm/default_assets.go
+index 234fcba..761455b 100644
+--- a/go/mechanisms/evm/default_assets.go
++++ b/go/mechanisms/evm/default_assets.go
+@@ -109,6 +109,9 @@ var DefaultAssets = map[string][]DefaultAssetInfo{
+ 	"eip155:5042002": {
+ 		{Asset: "0x3600000000000000000000000000000000000000", Name: "USDC", Version: "2", Decimals: 6, Symbol: "USDC"},
+ 	},
++	"eip155:4663": {
++		{Asset: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", Name: "Global Dollar", Version: "1", Decimals: 6, Symbol: "USDG"},
++	},
+ }
+ 
+ // legacyNetworkChainIDs maps v1 network names to chain IDs (mirrors v1.NetworkChainIDs).
+diff --git a/python/x402/changelog.d/add-robinhood-chain-default-stablecoin.feature.md b/python/x402/changelog.d/add-robinhood-chain-default-stablecoin.feature.md
+new file mode 100644
+index 0000000..d7aca29
+--- /dev/null
++++ b/python/x402/changelog.d/add-robinhood-chain-default-stablecoin.feature.md
+@@ -0,0 +1 @@
++Add Robinhood Chain mainnet (chain ID 4663) with Global Dollar (USDG) as the default stablecoin. USDG implements EIP-3009 `transferWithAuthorization`; its EIP-712 domain is name `Global Dollar`, version `1`.
+diff --git a/python/x402/mechanisms/evm/default_assets.py b/python/x402/mechanisms/evm/default_assets.py
+index 51c50f7..09aeabf 100644
+--- a/python/x402/mechanisms/evm/default_assets.py
++++ b/python/x402/mechanisms/evm/default_assets.py
+@@ -313,6 +313,15 @@ DEFAULT_ASSETS: dict[str, list[ExactDefaultAssetInfo]] = {
+             "symbol": "USDC",
+         },
+     ],  # Arc Testnet USDC (EIP-3009 supported)
++    "eip155:4663": [
++        {
++            "asset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
++            "name": "Global Dollar",
++            "version": "1",
++            "decimals": 6,
++            "symbol": "USDG",
++        },
++    ],  # Robinhood Chain mainnet USDG (EIP-3009 supported)
+ }
+ 
+ 
+diff --git a/typescript/.changeset/add-robinhood-chain-default-stablecoin.md b/typescript/.changeset/add-robinhood-chain-default-stablecoin.md
+new file mode 100644
+index 0000000..162ab86
+--- /dev/null
++++ b/typescript/.changeset/add-robinhood-chain-default-stablecoin.md
+@@ -0,0 +1,5 @@
++---
++'@x402/evm': minor
++---
++
++Add Robinhood Chain mainnet (chain ID 4663) with Global Dollar (USDG) as the default stablecoin. USDG implements EIP-3009 `transferWithAuthorization`; its EIP-712 domain is name `Global Dollar`, version `1`.
+diff --git a/typescript/packages/mechanisms/evm/src/defaultAssets.ts b/typescript/packages/mechanisms/evm/src/defaultAssets.ts
+index 7248fa8..0a11f26 100644
+--- a/typescript/packages/mechanisms/evm/src/defaultAssets.ts
++++ b/typescript/packages/mechanisms/evm/src/defaultAssets.ts
+@@ -324,6 +324,15 @@ export const DEFAULT_ASSETS: DefaultAssetTable<ExactDefaultAssetInfo> = {
+       symbol: "USDC",
+     },
+   ], // Arc Testnet USDC (EIP-3009 supported)
++  "eip155:4663": [
++    {
++      asset: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
++      name: "Global Dollar",
++      version: "1",
++      decimals: 6,
++      symbol: "USDG",
++    },
++  ], // Robinhood Chain mainnet USDG (EIP-3009 supported)
+ };
+ 
+ /**
