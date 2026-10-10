@@ -1,9 +1,10 @@
 import { createConfig, createStorage, cookieStorage } from 'wagmi';
 import { injected, safe, walletConnect } from 'wagmi/connectors';
-import { custom } from 'viem';
+import { custom, http } from 'viem';
 
 import { CHAIN } from '../chain/rhc';
 import { rhcPool } from '../chain/client';
+import { SOURCE_WALLET_CHAINS } from '../relay/chains';
 
 /**
  * Wallet configuration.
@@ -14,6 +15,11 @@ import { rhcPool } from '../chain/client';
  * The Safe connector matters more here than it usually does: the principal on a mandate is often
  * a Safe, the contracts verify its signatures over ERC-1271, and a Safe signs without ever
  * producing a key. Nothing in this app holds or asks for one.
+ *
+ * The source chains a mandate can be funded from are listed after Robinhood Chain, so a wallet
+ * can be asked to switch to one and sign the deposit Relay carries. Every write to the contracts
+ * stays pinned to Robinhood Chain; the other chains are reached for that one deposit and nothing
+ * else, over their public endpoints.
  */
 const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID?.trim();
 
@@ -42,7 +48,7 @@ function walletMetadata() {
 
 export function createWagmiConfig() {
   return createConfig({
-    chains: [CHAIN],
+    chains: [CHAIN, ...SOURCE_WALLET_CHAINS],
     connectors: [
       injected({ shimDisconnect: true }),
       ...(projectId
@@ -61,6 +67,7 @@ export function createWagmiConfig() {
         { request: ({ method, params }) => rhcPool().request(method, (params ?? []) as readonly unknown[]) },
         { retryCount: 0 },
       ),
+      ...Object.fromEntries(SOURCE_WALLET_CHAINS.map((chain) => [chain.id, http()])),
     },
     // The connection survives a reload, and the server render knows about it, so the header does
     // not flash "Connect" at someone who is already connected.

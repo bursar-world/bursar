@@ -14,6 +14,7 @@ import { formatEthApprox, formatEthBalance, usd, usdHeld } from '@/money';
 import { ROUND_TRIP_FEE } from '@/state';
 import { fundingAmounts } from '../lib/amount';
 import { transferGates } from '../lib/write-gates';
+import { FundFromChain } from './fund-from-chain';
 import { useMandateScope } from './mandate-scope';
 import { useWriteContract } from '@/wallet/write';
 
@@ -213,6 +214,7 @@ export function FundingPanel() {
             </p>
           )}
 
+          <FundFromChain />
         </div>
       </Card>
     </Section>
