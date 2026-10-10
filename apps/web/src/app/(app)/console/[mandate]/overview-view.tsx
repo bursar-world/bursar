@@ -13,6 +13,7 @@ import { CollateralPanel } from './collateral-panel';
 import { ControlPanel } from './control-panel';
 import { FundingPanel } from './funding-panel';
 import { GatesPanel } from './gates-panel';
+import { IdentityPanel } from './identity-panel';
 import { OwedPanel } from './owed-panel';
 import { ParkPanel } from './park-panel';
 import { ProposedPayment } from './proposed-payment';
@@ -49,6 +50,7 @@ export function OverviewView() {
       <CollateralPanel />
       <GatesPanel />
       <ControlPanel />
+      <IdentityPanel />
 
       <Section
         title="Recent activity"
