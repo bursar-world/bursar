@@ -118,3 +118,87 @@ it is and what to do: `base_lane_off`, `base_float_insufficient`, `base_amount_t
   `lane: 'base'` with the refusal sentences. Unit tests with Base mocked at the chain port and the
   ledger against Postgres are green in both packages. Next: the demo against a live service, the fork
   rig for the happy path, screenshots, the recording.
+
+## What is live and what is prepared
+
+Prepared on this branch, tested, not yet deployed: the facilitator's Base lane, the SDK's `lane:
+'base'`, the Postgres migration, the rig that runs the lane end to end. Nothing on the live
+facilitator changes until the operator deploys the branch and sets the lane's variables. The live
+facilitator keeps answering every route it answers today; the five Base routes answer
+`base_lane_off` until the key is set.
+
+## Operator actions
+
+1. **Create the lane's key.** One keystore, under the facilitator's password, named `facilitator-base`:
+   `cast wallet new ~/.config/bursar/keystore --unsafe-password "$(cat "$ETH_PASSWORD")"` and rename
+   the file. Its address is the lane's address on both chains. Never the relayer key, never a funding
+   role.
+2. **Fund it on Base.** USDC only, no ETH: the settling facilitator pays the gas. 25 USDC covers a day
+   of cent-sized calls with the one-USDC reserve the lane keeps. Send from the treasury's exchange
+   account or bridge from Robinhood Chain through Relay.
+3. **Fund it on Robinhood Chain.** 0.002 ETH for release and cancel transactions (each is well under a
+   cent), and 5 USDG for the registry stake.
+4. **Register it as a payee.** From the lane's address: `USDG.approve(AgentRegistry, 5 USDG)` then
+   `AgentRegistry.register("bursar_base_lane", 5000000)`. The escrow admits a lock only for an active
+   payee, and the reputation cap of an unscored payee is 25 USDG per lock, which is above the lane's
+   5 USDC ceiling.
+5. **Allow it on the example mandate**, and tell owners to allow it on theirs: the Base lane address
+   goes on the mandate's merchant list like any provider. The console's Merchants screen does this.
+6. **Render.** On the facilitator service, add `FACILITATOR_BASE_KEY` (secret), `FACILITATOR_BASE_FEE_BPS=100`,
+   `FACILITATOR_BASE_FEE_FLOOR_MICRO=2000`, `FACILITATOR_BASE_FLOAT_MINIMUM_MICRO=1000000`,
+   `FACILITATOR_BASE_MAX_PAYMENT_MICRO=5000000`. Leave `FACILITATOR_BASE_RPC_URL` at its default
+   (`https://base.drpc.org`) or point it at a keyed Base endpoint; the public dRPC host rate-limits a
+   fork but answers the lane's four reads per payment. Deploy the branch. `FACILITATOR_MIGRATE=on-start`
+   applies `0013_base_lane.sql` before the port binds; on a `verify` deployment run
+   `bursar-facilitator-migrate` first.
+7. **Check.** `GET /healthz` reports `baseLane` with the float, what is promised and what is available;
+   `GET /base/float` says the same without a token. `GET /config` reports `baseLane` with the address
+   and the fee.
+8. **Sweep.** Released locks land as USDG at the lane's address on Robinhood Chain. Once a week, move
+   it to the settlement address and refill USDC on Base; the ledger's `settled` rows against the
+   float's USDC balance are the reconciliation.
+9. **Publish the SDK.** `@bursar/sdk` with `lane: 'base'` and `@bursar/core` with `BASE_MAINNET`, as
+   0.2.0, once the lane is live. No pull request upstream: the lane uses the `exact` scheme as every
+   Base service already accepts it, so nothing in `coinbase/x402` has to change.
+
+## Links
+
+- Branch diff: https://github.com/bursar-world/bursar/compare/main...bullish/x402-base
+- The lane: https://github.com/bursar-world/bursar/blob/bullish/x402-base/services/facilitator/src/base/lane.ts
+- The float and the lock writer: https://github.com/bursar-world/bursar/blob/bullish/x402-base/services/facilitator/src/base/viem.ts
+- The ledger and its migration: https://github.com/bursar-world/bursar/blob/bullish/x402-base/services/facilitator/src/base/ledger.ts, https://github.com/bursar-world/bursar/blob/bullish/x402-base/services/facilitator/migrations/0013_base_lane.sql
+- The SDK lane: https://github.com/bursar-world/bursar/blob/bullish/x402-base/packages/sdk/src/x402/fetch.ts and its sentences: https://github.com/bursar-world/bursar/blob/bullish/x402-base/packages/sdk/src/x402/base-refusals.ts
+- The rig: https://github.com/bursar-world/bursar/blob/bullish/x402-base/services/facilitator/scripts/base-lane-rig.ts
+- The facilitator's routes, documented: https://github.com/bursar-world/bursar/blob/bullish/x402-base/services/facilitator/README.md#the-base-lane
+- The example mandate on the console: https://app.bursar.world/console/0x8605853aC6A64dA11F4ED0Ff0Ad128961Cc3cd5c/settlements
+- The service paid in the demo: https://api.402rates.com/v1/ping, listed on the Bazaar (https://x402.org) and x402scan (https://www.x402scan.com)
+
+## The announcement
+
+**One line.** A Bursar mandate now pays any x402 service on Base in USDC, under the budget its owner set.
+
+**One paragraph.** The x402 ecosystem settles in USDC on Base, and Bursar mandates hold USDG on
+Robinhood Chain. The Base lane joins them. An agent calls `mandate.fetch(url, { lane: 'base' })`; the
+mandate locks USDG under its own limits and Bursar's facilitator pays the service in USDC from a float
+it holds on Base. The lock settles once the USDC has moved and returns to the mandate if it never does.
+One USDG buys one USDC plus a stated fee, and the owner sees every call in Settlements, with the same
+per-call cap, daily and monthly windows, payee list and capability rules as any other payment.
+
+**One post.** Every x402 service worth paying takes USDC on Base. Every Bursar mandate holds USDG on
+Robinhood Chain. From today a mandate pays both.
+
+`mandate.fetch(url, { lane: 'base' })` does the whole thing. The service answers 402 with its USDC
+price. Bursar's facilitator quotes what the mandate has to lock: the price, plus a fee it states. The
+mandate's own `spend` locks that USDG, so the per-call cap, the daily and monthly windows, the payee
+list and the capability rules all apply before anything moves. The facilitator signs the USDC
+authorization from a float it holds on Base, the service's facilitator settles it, and the lock
+settles to Bursar once USDC confirms the transfer. A service that never takes the payment leaves
+nothing behind: the authorization expires, the lock returns, the windows are credited back.
+
+The owner sees the call in Settlements like any other, in USDG. The agent never holds USDC, never
+holds a key for Base, and never sees the float. The facilitator's exposure is one authorization per
+lock, bounded by the lock.
+
+Works with any service on Coinbase's Bazaar or x402scan that accepts the `exact` scheme in USDC on
+Base, which is nearly all of them. Starts with a float measured in tens of dollars and a per-payment
+ceiling of five; both are stated on the facilitator's `/base/float`.

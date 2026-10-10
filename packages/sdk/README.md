@@ -213,7 +213,7 @@ const paid = await mandate.fetch('https://api.provider.dev/render', {
 If the resource answers 402, this reads the offer, checks it against the mandate, pays, and
 retries. Both x402 versions are handled. What the mandate refuses is never paid.
 
-There are two lanes, and they differ in whose money moves and what the chain counts.
+There are three lanes, and they differ in whose money moves and what the chain counts.
 
 **`lane: 'mandate'`** pays from the mandate account. The account's `spend` locks the quoted price in
 escrow for the provider, under the same checks as `pay`, and the retry names that lock. The daily
@@ -231,6 +231,27 @@ client-enforced. Each payment is checked against the mandate's per-call cap, its
 capability allowlists, and whether it is active, but the windows are read and never debited: a
 payment larger than what a window has left is refused, and payments that each fit keep clearing,
 however many there are. Use it only where the provider offers nothing else.
+
+**`lane: 'base'`** pays a service on Base in USDC, from the mandate. The x402 ecosystem settles the
+`exact` scheme in USDC on Base, and a mandate holds USDG on Robinhood Chain; this lane is how the one
+reaches the other. The client asks Bursar's facilitator what the lock has to hold, the account's
+`spend` locks that USDG for the facilitator's Base lane address under the same checks as `pay`, and
+the facilitator signs the USDC authorization from a float it holds on Base. The retry carries that
+signature; the service's own facilitator settles it. Once USDC reports the transfer, the lock
+settles to the facilitator. A transfer the service never takes leaves the authorization to expire,
+and the facilitator returns the lock to the mandate, windows and all. One USDG buys one USDC, plus a
+fee the quote states. The owner sees the lock in Settlements like any other. A refusal from the
+facilitator is a `BaseLaneRefusedError` with the reason and a sentence that says whose it is;
+nothing is locked when it comes at the quote. `facilitator` names the facilitator, and defaults to
+`facilitator.bursar.world`.
+
+```ts
+const paid = await mandate.fetch('https://api.402rates.com/v1/ping', {
+  capability: 'service:demo.x402:1',
+  lane: 'base',
+});
+paid.payment?.base; // the facilitator's record, the lock in USDG, the fee, and when the authorization expires
+```
 
 Every payment needs a bound. Pass `through` and the mandate decides, or `maxAmount` and this
 client refuses anything above it. Passing neither does not compile.

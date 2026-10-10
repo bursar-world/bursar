@@ -35,6 +35,8 @@ export type X402Challenge = {
   readonly accepts: readonly PaymentRequirements[];
   /** Whatever the server said about why the request was unpaid. */
   readonly error: string | undefined;
+  /** The resource block a v2 server describes itself with, echoed back in a v2 payment. */
+  readonly resource?: Readonly<Record<string, unknown>> | undefined;
 };
 
 /** What a server's work budget defaults to when it quotes none. */
@@ -201,12 +203,14 @@ function challengeFrom(version: X402Version, record: Record<string, unknown>): X
   const offered = record['accepts'];
   const entries = Array.isArray(offered) ? offered : [];
 
+  const resource = record['resource'];
   return {
     version,
     accepts: entries
       .map(requirementFrom)
       .filter((entry): entry is PaymentRequirements => entry !== undefined),
     error: optionalString(record['error']),
+    resource: resource && typeof resource === 'object' && !Array.isArray(resource) ? (resource as Record<string, unknown>) : undefined,
   };
 }
 

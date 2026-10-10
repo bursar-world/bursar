@@ -521,9 +521,10 @@ async function payThroughBase(input: {
   );
 
   const payload = { signature: signed.signature, authorization: signed.authorization };
+  // A v2 payment carries the server's own description of the resource back to it.
   const envelope =
     challenge.version === 2
-      ? { x402Version: 2, accepted: requirements.raw, payload }
+      ? { x402Version: 2, ...(challenge.resource ? { resource: challenge.resource } : {}), accepted: requirements.raw, payload }
       : { x402Version: 1, scheme: requirements.scheme, network: requirements.network, asset: requirements.asset, payTo: requirements.payTo, payload };
 
   const headers = new Headers(input.retryable.headers);
