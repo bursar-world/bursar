@@ -229,4 +229,6 @@ Post:
 - 20:46 UTC. Fourth attempt ran end to end: one signature on Base, Relay's fill on Robinhood Chain, the panel
   reporting the arrival. Transactions above. Screenshots and the recording saved.
 - 20:50 UTC. A refused deposit now reads as one sentence with viem's short message, and a deposit that went out
-  is followed even when its receipt does not come back. Console rebuilt and checked with a dry run.
+  is followed even when its receipt does not come back. Fees read to the tenth of a cent, so Relay's fee and the
+  network fee add up to the total on screen. Console rebuilt and checked with a dry run (quote with no wallet
+  connected, which is `02-quote.png`); 931 console tests green, typecheck clean.
