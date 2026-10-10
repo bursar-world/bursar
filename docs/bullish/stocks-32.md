@@ -264,7 +264,8 @@ without holding your keys.
 
 Bursar lists sixteen of Robinhood's tokenized stocks and funds today, up from three. Chainlink publishes a reference
 price for thirty-five of them on the chain; we measured every Uniswap pool each one trades in and listed the sixteen
-with depth to spare. The other nineteen are in the inventory with the reason, and join the list when a pool does.
+with depth to spare; SGOV, the treasury fund, was already there. The other eighteen are in the inventory with the
+reason, and join the list when a pool does.
 
 How a purchase works: the mandate's owner names the stocks the agent may buy and the slippage it may accept. The
 agent spends USDG from the mandate, inside its per-payment, daily and lifetime limits. The purchase is checked against
