@@ -120,6 +120,15 @@ describe('connect', () => {
     ]);
   });
 
+  it('stands a keyless second provider behind the mainnet endpoint when none is named', () => {
+    // The public endpoint answers some servers with a challenge page. With one provider that was
+    // the whole call; now the pool moves to the second.
+    const connection = open({});
+
+    expect(connection.pool?.providers.map((provider) => provider.name)).toEqual(['deployment', 'fallback']);
+    expect(new Set(connection.pool?.providers.map((provider) => new URL(provider.url).hostname)).size).toBe(2);
+  });
+
   it('refuses an empty endpoint list rather than falling back to a default nobody chose', () => {
     expect(() => open({ rpc: [] })).toThrow(/empty list of RPC endpoints/);
   });

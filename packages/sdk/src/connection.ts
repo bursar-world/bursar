@@ -10,6 +10,7 @@ import {
   RpcPool,
   RpcResponseError,
   createRhcClient,
+  defaultFallbackRpc,
   deployment,
   deploymentForChain,
   liveDeployments,
@@ -72,8 +73,9 @@ export type ConnectOptions = {
    */
   readonly deployment?: Deployment | DeploymentRecordJson;
   /**
-   * One endpoint, or several. A second endpoint turns on the failover pool: each provider keeps
-   * its own circuit breaker, and a call that fails on one moves down the list.
+   * One endpoint, or several. Each provider keeps its own circuit breaker, and a call that fails
+   * on one moves down the list. Left out, a mainnet connection uses the chain's endpoint with a
+   * keyless second provider behind it, so one endpoint refusing a request does not fail the call.
    */
   readonly rpc?: string | readonly string[];
   /** A private key or an account built elsewhere, such as a remote or hardware signer. */
@@ -290,7 +292,7 @@ function recordForChain(chainId: number): Deployment {
 
 function providersFor(options: ConnectOptions, record: Deployment): readonly RpcProvider[] {
   const rpc = options.rpc;
-  if (rpc === undefined) return [{ name: 'deployment', url: record.rpc }];
+  if (rpc === undefined) return defaultProviders(record);
   if (typeof rpc === 'string') return [{ name: 'primary', url: rpc }];
 
   if (rpc.length === 0) {
@@ -298,6 +300,28 @@ function providersFor(options: ConnectOptions, record: Deployment): readonly Rpc
   }
 
   return rpc.map((url, index) => ({ name: index === 0 ? 'primary' : `fallback-${index}`, url }));
+}
+
+/**
+ * The record's endpoint, and on mainnet a keyless second provider behind it. The public endpoint
+ * answers some servers with a challenge page instead of JSON, and a caller who copied the first
+ * example from the documentation should not read that as a broken mandate. A local record is a
+ * node of its own, and a second provider on another network would answer for the wrong chain.
+ */
+function defaultProviders(record: Deployment): readonly RpcProvider[] {
+  const primary: RpcProvider = { name: 'deployment', url: record.rpc };
+  if (record.chainId !== RHC_MAINNET.chainId || record.network === 'local') return [primary];
+  const fallback = defaultFallbackRpc();
+  if (hostOf(fallback) === hostOf(record.rpc)) return [primary];
+  return [primary, { name: 'fallback', url: fallback }];
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return url.toLowerCase();
+  }
 }
 
 function accountFor(options: ConnectOptions): Account | undefined {
