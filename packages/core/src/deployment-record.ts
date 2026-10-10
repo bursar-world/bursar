@@ -32,6 +32,8 @@ export type DeploymentRoles = {
   readonly guardian: Address;
   readonly treasury: Address;
   readonly slashSink: Address;
+  /** The resolver keys governance vetted, where the record names them. */
+  readonly resolvers: readonly Address[];
 };
 
 /**
@@ -270,6 +272,14 @@ export function parseDeployment(json: unknown, label = 'record'): Deployment {
     }
   }
 
+  const resolvers = rolesRecord['resolvers'] === undefined ? [] : rolesRecord['resolvers'];
+  if (!Array.isArray(resolvers)) throw new DeploymentError(name, 'roles.resolvers is not a list.');
+  for (const resolver of resolvers) {
+    if (typeof resolver !== 'string' || !ADDRESS.test(resolver)) {
+      throw new DeploymentError(name, `roles.resolvers holds a non-address: ${String(resolver)}`);
+    }
+  }
+
   // Records from the v3 deploy scripts keep what they read back under `parameters` instead.
   const verified =
     record['verifiedOnChain'] === undefined ? {} : object(record['verifiedOnChain'], name, 'verifiedOnChain');
@@ -327,6 +337,7 @@ export function parseDeployment(json: unknown, label = 'record'): Deployment {
       guardian: address(rolesRecord, name, 'guardian'),
       treasury: address(rolesRecord, name, 'treasury'),
       slashSink: address(rolesRecord, name, 'slashSink'),
+      resolvers: Object.freeze(resolvers.map((resolver) => resolver as Address)),
     }),
     verifiedOnChain: Object.freeze(verifiedOnChain),
     examples: Object.freeze(examples),

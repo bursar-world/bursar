@@ -85,8 +85,7 @@ export function siteOrigin(): string {
 
 /** The resolver addresses on record, the clients whose feedback is a ruling. */
 export function resolverAddresses(): readonly Address[] {
-  const roles = deployment().roles as { readonly resolvers?: readonly Address[] };
-  return roles.resolvers ?? [];
+  return deployment().roles.resolvers;
 }
 
 function sameHex(a: string | undefined, b: string): boolean {

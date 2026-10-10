@@ -305,7 +305,7 @@ function Unregistered({
       )}
       <p className="text-detail text-[color:var(--color-muted)]">
         Rulings on contested jobs can be posted against {noun} as feedback in the ERC-8004 reputation registry, so a stranger reads
-        the record where every other agent's is read.
+        the record in the same place as every other agent's.
       </p>
     </div>
   );
