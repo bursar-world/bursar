@@ -57,15 +57,15 @@
     "@bursar/core": "workspace:*",
     "@noble/curves": "1.9.1",
     "@noble/hashes": "1.8.0",
-    "@zk-kit/lean-imt": "2.2.4",
+    "@zk-kit/lean-imt": "2.2.5",
     "poseidon-lite": "0.3.0",
     "snarkjs": "0.7.6",
-    "viem": "2.56.3"
+    "viem": "2.57.3"
   },
   "devDependencies": {
     "@safe-global/protocol-kit": "8.0.7",
-    "@types/node": "22.20.2",
-    "tsx": "4.23.13",
+    "@types/node": "22.20.5",
+    "tsx": "4.23.15",
     "typescript": "5.9.3",
     "vitest": "4.1.11"
   },

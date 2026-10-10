@@ -54,8 +54,8 @@
     "@openai/agents": ">=0.19.0"
   },
   "devDependencies": {
-    "@types/node": "22.20.2",
-    "tsx": "4.23.13",
+    "@types/node": "22.20.5",
+    "tsx": "4.23.15",
     "typescript": "5.9.3",
     "vitest": "4.1.11",
     "@openai/agents": "0.19.0"
