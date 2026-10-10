@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import { ConnectionList, CreatedSteps } from '@/app/(app)/console/[mandate]/assistant-panel';
 import { ConnectorSettingsView } from '@/app/(app)/console/[mandate]/connector-settings';
-import { CUSTODY_LINE, TOKEN_ONCE_LINE, connectFields } from '@/app/(app)/console/lib/assistants';
+import { CUSTODY_LINE, REVOKED_SHOWN_MS, TOKEN_ONCE_LINE, connectFields, visibleConnections } from '@/app/(app)/console/lib/assistants';
 import type { ConnectorSettings, CreatedConnection } from '@/app/(app)/console/lib/assistants';
 
 const TOKEN = 'bmcp_' + 'A'.repeat(43);
@@ -79,6 +79,13 @@ describe('the steps after a connection is made', () => {
     const unseated = renderToStaticMarkup(<ConnectionList connections={[created.connection]} seatedAgent={'0x0000000000000000000000000000000000000000'} />);
     expect(unseated).toContain('Not seated. It cannot spend until you seat it.');
     expect(renderToStaticMarkup(<ConnectionList connections={[]} seatedAgent={undefined} />)).toContain('No assistant is connected');
+  });
+
+  it('keeps a disconnected connection in the list only for a few minutes', () => {
+    const now = Date.parse('2026-10-10T12:30:00.000Z');
+    const cut = { ...created.connection, id: 'cut', status: 'revoked' as const, revokedAt: new Date(now - REVOKED_SHOWN_MS + 1_000).toISOString() };
+    const old = { ...cut, id: 'old', revokedAt: new Date(now - REVOKED_SHOWN_MS - 1_000).toISOString() };
+    expect(visibleConnections([created.connection, cut, old], now).map((c) => c.id)).toEqual([created.connection.id, 'cut']);
   });
 
   it('says plainly who holds the key and what bounds it', () => {

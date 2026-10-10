@@ -19,7 +19,7 @@ import { Instant } from '@/components/instant';
 import { Card, Section } from '@/components/layout';
 import { TxButton } from '@/components/tx-button';
 import { useWriteContract } from '@/wallet/write';
-import { CUSTODY_LINE, TOKEN_ONCE_LINE, connectFields, createConnection, hostUnavailable, listConnections, revokeConnection } from '../lib/assistants';
+import { CUSTODY_LINE, TOKEN_ONCE_LINE, connectFields, createConnection, hostUnavailable, listConnections, revokeConnection, visibleConnections } from '../lib/assistants';
 import type { CreatedConnection, PublicConnection } from '../lib/assistants';
 import { callGates } from '../lib/write-gates';
 import { ConnectorSettingsView } from './connector-settings';
@@ -109,7 +109,7 @@ export function AssistantPanel() {
             <p className="text-detail text-[color:var(--color-muted)]">Hosted connections are not available on this deployment.</p>
           ) : (
             <ConnectionList
-              connections={connections.data ?? []}
+              connections={visibleConnections(connections.data ?? [])}
               seatedAgent={seatedAgent}
               error={connections.isError && !unavailable ? connections.error : undefined}
               onRetry={() => void connections.refetch()}

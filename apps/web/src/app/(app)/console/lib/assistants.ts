@@ -60,6 +60,16 @@ export const CUSTODY_LINE =
 
 export const TOKEN_ONCE_LINE = 'Shown once. Copy it into your assistant now; the host keeps only a fingerprint of it.';
 
+/** How long a disconnected connection stays in the list, so the owner sees it go. */
+export const REVOKED_SHOWN_MS = 5 * 60_000;
+
+/** The connections the panel lists: every active one, and the ones cut in the last few minutes. */
+export function visibleConnections(connections: readonly PublicConnection[], now: number = Date.now()): readonly PublicConnection[] {
+  return connections.filter(
+    (connection) => connection.status === 'active' || (connection.revokedAt !== null && now - Date.parse(connection.revokedAt) < REVOKED_SHOWN_MS),
+  );
+}
+
 export function connectFields(input: { readonly mandate: Address; readonly owner: Address; readonly chainId: number; readonly label?: string }): AssistantConnectFields {
   const nonce = new Uint8Array(16);
   globalThis.crypto.getRandomValues(nonce);
