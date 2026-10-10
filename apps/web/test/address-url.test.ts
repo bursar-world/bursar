@@ -102,7 +102,7 @@ describe('the address middleware', () => {
   it('answers 404 for a first segment no page claims, and leaves every page alone', () => {
     expect(unknownPage('/does-not-exist')).toBe(true);
     expect(unknownPage('/console/nope/deeper')).toBe(false);
-    for (const page of ['/', '/status', '/workspace/drafts/x', '/docs/haircuts', '/governance', '/demo/relay-funding']) expect(unknownPage(page)).toBe(false);
+    for (const page of ['/', '/status', '/workspace/drafts/x', '/docs/haircuts', '/governance', '/demo/relay-funding', '/demo/assistants']) expect(unknownPage(page)).toBe(false);
   });
 });
 

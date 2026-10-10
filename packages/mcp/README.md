@@ -391,6 +391,14 @@ A spend is signed as the mandate's agent. Opening a dispute is a decision for th
 the escrow charges a bond for it, so a signer that does not act for the principal will refuse that
 route. The resolver and provider routes are signed as the addresses the two variables above name.
 
+## Hosted
+
+An assistant with no machine of its own, such as ChatGPT, Claude or Gemini CLI, reaches the same
+tools through `services/mcp-host`: the mandate tools over Streamable HTTP, one bearer token per
+connection, each bound to one mandate and to an agent key the host generated and sealed for it. The
+owner opens a connection from the mandate's page in the console and seats the agent there. This
+package stays a stdio server; the host builds a context with `createContext` for each connection.
+
 ## Running it
 
 An MCP client starts the server with npx, so there is nothing to build:
