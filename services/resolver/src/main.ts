@@ -20,6 +20,7 @@ import type { KeySource, ResolverKey } from './keys.js';
 import { createLogger, describeError } from './log.js';
 import type { Logger } from './log.js';
 import { reportStartupFailure } from './refusal.js';
+import { createReputation } from './reputation.js';
 import { createVoter } from './voter.js';
 import { createWatcher } from './watcher.js';
 
@@ -40,7 +41,7 @@ async function start(config: ResolverConfig, source: KeySource, viewingKey: Hex 
     logger.warn('alerts_log_only', { action: 'BURSAR_ALERT_WEBHOOK is unset, so a CRITICAL page reaches nobody but this log' });
   }
 
-  const { port: chain, client } = createChain({
+  const { port: chain, reputation: registries, client } = createChain({
     chain: config.chain,
     providers: config.providers,
     writeUrls: config.writeUrls,
@@ -70,10 +71,21 @@ async function start(config: ResolverConfig, source: KeySource, viewingKey: Hex 
       lookback: DISCLOSURE_LOOKBACK_BLOCKS,
     },
   });
+  const reputation = createReputation({
+    enabled: config.reputation.enabled,
+    chainId: config.chain.chainId,
+    cardBase: config.reputation.cardBase,
+    chain: registries,
+    locks: chain,
+    journal,
+    keys,
+    logger,
+  });
   const watcher = createWatcher({
     chain,
     journal,
     voter,
+    reputation,
     served: config.served,
     keys,
     logger,
@@ -121,6 +133,7 @@ async function start(config: ResolverConfig, source: KeySource, viewingKey: Hex 
     http: `${config.http.host}:${server.port}`,
     overrides: config.operatorToken !== null && config.operatorAddresses !== null,
     pollMs: config.pollMs,
+    reputation: config.reputation.enabled ? config.reputation.cardBase : 'off',
   });
 
   try {

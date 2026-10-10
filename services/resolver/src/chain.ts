@@ -1,17 +1,21 @@
 import {
+  BURSAR_SUBJECT_KEY,
+  RULING_FEEDBACK_TAG,
   V2_ABIS,
   agentRegistryAbi,
   contractSetAtLeast,
   contractSetOfEscrow,
   createRhcClient,
   escrowAbi,
+  identityRegistryAbi,
   mandateAccountAbi,
   mandateAccountAbiV1,
   oracleRegistryAbi,
   reputationAbi,
+  reputationRegistryAbi,
 } from '@bursar/core';
 import type { ContractSet, RhcChain, RhcPublicClient, RpcPool, RpcPoolEvent, RpcProvider } from '@bursar/core';
-import { encodeFunctionData, getAbiItem, keccak256 } from 'viem';
+import { encodeFunctionData, getAbiItem, getAddress, keccak256 } from 'viem';
 import type { Address, Hex } from 'viem';
 
 import type { ResolverKey } from './keys.js';
@@ -164,6 +168,27 @@ export type ChainPort = {
   finalize(key: ResolverKey, registry: Address, disputeId: bigint, pricing: Pricing): Promise<TxOutcome>;
 };
 
+/** An ERC-8004 identity as the registry answers for it. `subject` is its `bursar.subject` entry. */
+export type IdentityFacts = { readonly owner: Address; readonly subject: Address | null };
+
+/** The ERC-8004 registries, read and written apart from the dispute surface so the voter's fake stays whole. */
+export type ReputationPort = {
+  /** Null for a token the identity registry does not hold. */
+  identity(registry: Address, agentId: bigint): Promise<IdentityFacts | null>;
+  /** Whether `client` already left feedback on `agentId` under the ruling tag and this `tag2`. */
+  posted(registry: Address, agentId: bigint, client: Address, tag2: string): Promise<boolean>;
+  giveFeedback(
+    key: ResolverKey,
+    registry: Address,
+    agentId: bigint,
+    score: number,
+    tag2: string,
+    endpoint: string,
+    feedbackURI: string,
+    pricing: Pricing,
+  ): Promise<TxOutcome>;
+};
+
 export type ChainOptions = {
   readonly chain: RhcChain;
   readonly providers: readonly RpcProvider[];
@@ -224,7 +249,7 @@ const STAKING_ABI = [
 
 type Pending = { readonly nonce: number; readonly hash: Hex; readonly label: string; readonly host: string; readonly at: number };
 
-export function createChain(options: ChainOptions): { port: ChainPort; client: RhcPublicClient; pool: RpcPool } {
+export function createChain(options: ChainOptions): { port: ChainPort; reputation: ReputationPort; client: RhcPublicClient; pool: RpcPool } {
   const doFetch = options.fetch ?? globalThis.fetch;
   const { client, pool } = createRhcClient({
     chain: options.chain,
@@ -602,5 +627,43 @@ export function createChain(options: ChainOptions): { port: ChainPort; client: R
       ),
   };
 
-  return { port, client, pool };
+  const reputation: ReputationPort = {
+    identity: async (registry, agentId) => {
+      try {
+        const [owner, subject] = await Promise.all([
+          client.readContract({ address: registry, abi: identityRegistryAbi, functionName: 'ownerOf', args: [agentId] }),
+          client.readContract({ address: registry, abi: identityRegistryAbi, functionName: 'getMetadata', args: [agentId, BURSAR_SUBJECT_KEY] }),
+        ]);
+        return { owner: getAddress(owner), subject: /^0x[0-9a-fA-F]{40}$/.test(subject) ? getAddress(subject) : null };
+      } catch {
+        return null;
+      }
+    },
+
+    posted: async (registry, agentId, who, tag2) => {
+      const [clients] = await client.readContract({
+        address: registry,
+        abi: reputationRegistryAbi,
+        functionName: 'readAllFeedback',
+        args: [agentId, [who], RULING_FEEDBACK_TAG, tag2, true],
+      });
+      return clients.length > 0;
+    },
+
+    giveFeedback: (key, registry, agentId, score, tag2, endpoint, feedbackURI, pricing) =>
+      send(
+        key,
+        `feedback:${registry}:${agentId.toString()}:${tag2}`,
+        registry,
+        encodeFunctionData({
+          abi: reputationRegistryAbi,
+          functionName: 'giveFeedback',
+          args: [agentId, BigInt(score), 0, RULING_FEEDBACK_TAG, tag2, endpoint, feedbackURI, `0x${'0'.repeat(64)}`],
+        }),
+        pricing,
+        headroom,
+      ),
+  };
+
+  return { port, reputation, client, pool };
 }
