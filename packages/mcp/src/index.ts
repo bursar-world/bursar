@@ -1,4 +1,4 @@
-export { createContext, createServer, start } from './server.js';
+export { checkMandate, createContext, createServer, start } from './server.js';
 export type { ContextOptions } from './server.js';
 
 export { loadConfig, secretsOf } from './config.js';

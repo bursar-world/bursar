@@ -346,6 +346,14 @@ export type {
 
 export { AGENT_HANDOFF_KIND, agentHandoff, agentHandoffFileName, readAgentHandoff } from './handoff.js';
 export type { AgentHandoff } from './handoff.js';
+export {
+  ASSISTANT_CONNECT_VERSION,
+  ASSISTANT_LABEL_MAX_CHARS,
+  assistantConnectMessage,
+  assistantDisconnectMessage,
+  checkLabel as checkAssistantLabel,
+} from './assistant.js';
+export type { AssistantConnectFields, AssistantDisconnectFields } from './assistant.js';
 
 export {
   ACCESS_REGISTRY,

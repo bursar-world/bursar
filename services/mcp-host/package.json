@@ -1,0 +1,62 @@
+{
+  "name": "@bursar/mcp-host",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Hosted Bursar MCP endpoint: one bearer token per assistant, bound to one mandate, over Streamable HTTP.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bursar-world/bursar.git",
+    "directory": "services/mcp-host"
+  },
+  "homepage": "https://github.com/bursar-world/bursar/tree/main/services/mcp-host#readme",
+  "bugs": {
+    "url": "https://github.com/bursar-world/bursar/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "migrations"
+  ],
+  "bin": {
+    "bursar-mcp-host": "./dist/main.js",
+    "bursar-mcp-host-migrate": "./dist/db/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "start": "node dist/main.js",
+    "dev": "tsx src/main.ts",
+    "migrate": "node dist/db/cli.js",
+    "migrate:dry-run": "node dist/db/cli.js --dry-run"
+  },
+  "dependencies": {
+    "@bursar/core": "workspace:*",
+    "@bursar/mcp": "workspace:*",
+    "@bursar/sdk": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "pg": "8.23.0",
+    "viem": "2.56.3"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.2",
+    "@types/pg": "8.23.1",
+    "tsx": "4.23.13",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
