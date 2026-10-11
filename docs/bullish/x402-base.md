@@ -132,6 +132,19 @@ facilitator keeps answering every route it answers today; the five Base routes a
 
 ## Operator actions
 
+**State on 2026-10-11.** Steps 1, 3 (the gas), 5 and 6 are done: the lane's key is `facilitator-base`,
+address **`0x239830833BE550B8CFD2C0D3c476743F94620246`** on both chains; it holds 0.0005 ETH on Robinhood
+Chain ([`0x0f650a08…0445c6`](https://robinhoodchain.blockscout.com/tx/0x0f650a0868a22a568bc2689bd53338d83a38f13357ce84f473afe975e20445c6)
+from the facilitator's gas key); the example mandate allows it
+([`0xea9a511d…c1af04`](https://robinhoodchain.blockscout.com/tx/0xea9a511d0fcee7c2bd9e112d0f41d53ab91ef3be265cf3cb3b44641228c1af04));
+the branch is merged into `main` (5de615d, alongside the keyless `/x402` routes) and the facilitator at
+facilitator.bursar.world runs with the lane's key and the four money settings (`ops/render-base-lane.mts`),
+live since 17:56 UTC: `GET /base/float` reports the lane address, a zero balance, the 1 USDC reserve and
+the 5 USDC ceiling. The Base endpoint is `https://base-rpc.publicnode.com`; dRPC's keyless Base host
+answered Render's requests with "RPC Request failed" while serving the same call from elsewhere.
+Waiting on the operator: **25 USDC on Base** and **5 USDG on Robinhood Chain** to that address; the
+registry stake (step 4) and the first real payment follow the moment they land.
+
 1. **Create the lane's key.** One keystore, under the facilitator's password, named `facilitator-base`:
    `cast wallet new ~/.config/bursar/keystore --unsafe-password "$(cat "$ETH_PASSWORD")"` and rename
    the file. Its address is the lane's address on both chains. Never the relayer key, never a funding
