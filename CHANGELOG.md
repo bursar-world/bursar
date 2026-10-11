@@ -12,6 +12,20 @@ development deployment: its timelock delay and its dispute vote windows are one 
 change can be exercised within a day. The 48-hour delay returns before the public launch. Full
 records are in `contracts/deployments/`.
 
+### The Base lane
+
+- A mandate pays an x402 service on Base in USDC. `mandate.fetch(url, { lane: 'base' })` in
+  `@bursar/sdk` asks the facilitator what to lock, locks that USDG for the facilitator's Base lane
+  address through the account's own `spend`, and carries the facilitator's EIP-3009 authorization,
+  signed from a USDC float it holds on Base, to the service. The service's own facilitator settles
+  it. Once USDC reports the authorization used the lock releases to the lane's address; one that
+  expires unused is cancelled and the mandate's windows are credited. One USDG buys one USDC plus a
+  fee the quote states. Refusals arrive as `BaseLaneRefusedError`, in sentences.
+- The facilitator gains five routes without a token (`/base/quote`, `/base/pay`,
+  `/base/payments/:id`, `/base/payments/:id/outcome`, `/base/float`), a worker on the maintenance
+  pass, the `bursar_base_payments` ledger (migration 0013) and the `FACILITATOR_BASE_*` settings.
+  The lane is off until `FACILITATOR_BASE_KEY` is set. `@bursar/core` carries `BASE_MAINNET`.
+
 ### Contracts
 
 - Fourth contract set, deployed 2026-10-01 and now the live record (`rhc-mainnet-v4.json`). The

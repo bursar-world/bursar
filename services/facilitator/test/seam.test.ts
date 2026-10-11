@@ -67,6 +67,7 @@ const DEPLOYMENT: Deployment = {
     guardian: '0x8888888888888888888888888888888888888888',
     treasury: '0x9999999999999999999999999999999999999999',
     slashSink: '0xaAaAaAaaAaAaAaaAaAAAAAAAAaaaAaAaAaaAaaAa',
+    resolvers: [],
   },
   verifiedOnChain: {},
   examples: {},

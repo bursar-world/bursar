@@ -1,0 +1,160 @@
+{
+  "mode": "mainnet",
+  "mandate": {
+    "address": "0x8605853aC6A64dA11F4ED0Ff0Ad128961Cc3cd5c",
+    "agent": "0x877c349EFb5926082C413833E8055F0991185c61",
+    "escrow": "0x11e73B5632837355e250fC236cFC2Be03aD0845A",
+    "float": "0x5210D8df060A9D5ce4c1305045ED5c9548fca374",
+    "capability": "service:demo.x402:1"
+  },
+  "base fork": {
+    "url": "http://127.0.0.1:8546",
+    "forkedFrom": "https://base-rpc.publicnode.com",
+    "funded": {
+      "from": "0x498581fF718922c3f8e6A244956aF099B2652b2b",
+      "balance": "5000000"
+    }
+  },
+  "facilitator": {
+    "url": "http://127.0.0.1:8412",
+    "config": {
+      "chain": "Robinhood Chain",
+      "network": "eip155:4663",
+      "chainId": 4663,
+      "settlementAsset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+      "index": "unkeyed",
+      "lanes": [
+        "prefund",
+        "collateral",
+        "direct"
+      ],
+      "feeBps": 100,
+      "feeFloorMicro": "1900",
+      "stakingPool": "0x31CbD06003089B00897F0d7e3c283C66a1768d9A",
+      "gasFloat": "0xBA67622Fe71AD74Fa8d0eA57741FA1Ce4F4E7F9f",
+      "requireBinding": true,
+      "underwriter": "none",
+      "baseLane": {
+        "network": "eip155:8453",
+        "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "float": "0x5210D8df060A9D5ce4c1305045ED5c9548fca374",
+        "feeBps": 100,
+        "feeFloorMicro": "2000",
+        "maxPaymentMicro": "5000000"
+      },
+      "trustTopic": "mandate.trust.v1",
+      "trustSinkConfigured": false
+    },
+    "float": {
+      "lane": "base",
+      "network": "eip155:8453",
+      "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "float": "0x5210D8df060A9D5ce4c1305045ED5c9548fca374",
+      "balanceMicro": "5000000",
+      "promisedMicro": "0",
+      "availableMicro": "5000000",
+      "minimumMicro": "1000000",
+      "maxPaymentMicro": "5000000",
+      "feeBps": 100,
+      "feeFloorMicro": "2000",
+      "open": 0,
+      "stuck": 0,
+      "healthy": true
+    }
+  },
+  "before": {
+    "windows": {
+      "dailySpent": "120000",
+      "monthlySpent": "4060000",
+      "remaining": {
+        "perCall": "2000000",
+        "daily": "9880000",
+        "monthly": "45940000"
+      }
+    },
+    "mandateUsdg": "2379749",
+    "floatUsdg": "560851"
+  },
+  "service": {
+    "url": "https://api.402rates.com/v1/ping"
+  },
+  "service refused": {
+    "status": 402,
+    "message": "https://api.402rates.com/v1/ping refused the payment and answered 402. Lock 44 (0.01 USDG) returns to the mandate once the authorization expires at 2026-10-10T20:54:27.000Z, unless the service settles it first."
+  },
+  "float after refusal": {
+    "lane": "base",
+    "network": "eip155:8453",
+    "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    "float": "0x5210D8df060A9D5ce4c1305045ED5c9548fca374",
+    "balanceMicro": "5000000",
+    "promisedMicro": "1000",
+    "availableMicro": "4999000",
+    "minimumMicro": "1000000",
+    "maxPaymentMicro": "5000000",
+    "feeBps": 100,
+    "feeFloorMicro": "2000",
+    "open": 1,
+    "stuck": 0,
+    "healthy": true
+  },
+  "payment row": {
+    "id": "7bb4f168-76a9-4a01-a79d-9d3420b8a668",
+    "status": "signed",
+    "lock_id": "44",
+    "base_tx_hash": null,
+    "rhc_tx_hash": null,
+    "valid_before": "1791665667"
+  },
+  "payment outcome": {
+    "id": "7bb4f168-76a9-4a01-a79d-9d3420b8a668",
+    "status": "returned",
+    "lock_id": "44",
+    "base_tx_hash": null,
+    "rhc_tx_hash": "0x39683913d51aa1a07746140e6833d37449a1da58d1a406b9da7a1ea5f63919b3",
+    "valid_before": "1791665667"
+  },
+  "lock on robinhood chain": {
+    "id": "44",
+    "status": 5,
+    "payee": "0x5210D8df060A9D5ce4c1305045ED5c9548fca374",
+    "amount": "10000",
+    "outputURI": "",
+    "settled": {
+      "hash": "0x39683913d51aa1a07746140e6833d37449a1da58d1a406b9da7a1ea5f63919b3",
+      "block": "85294929",
+      "status": "success"
+    },
+    "explorer": "https://robinhoodchain.blockscout.com/tx/0x39683913d51aa1a07746140e6833d37449a1da58d1a406b9da7a1ea5f63919b3"
+  },
+  "after": {
+    "windows": {
+      "dailySpent": "120000",
+      "monthlySpent": "4060000",
+      "remaining": {
+        "perCall": "2000000",
+        "daily": "9880000",
+        "monthly": "45940000"
+      }
+    },
+    "mandateUsdg": "2379749",
+    "floatUsdg": "560851",
+    "float": {
+      "lane": "base",
+      "network": "eip155:8453",
+      "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "float": "0x5210D8df060A9D5ce4c1305045ED5c9548fca374",
+      "balanceMicro": "5000000",
+      "promisedMicro": "0",
+      "availableMicro": "5000000",
+      "minimumMicro": "1000000",
+      "maxPaymentMicro": "5000000",
+      "feeBps": 100,
+      "feeFloorMicro": "2000",
+      "open": 0,
+      "stuck": 0,
+      "healthy": true
+    }
+  },
+  "capability id": "0x3880d3c9aa4f584ed9ee9847f2c44ee4aa76dfca738bc8290ba509c49b2bfcfc"
+}

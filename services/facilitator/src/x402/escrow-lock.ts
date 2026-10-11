@@ -163,7 +163,7 @@ const same = (left: string, right: string) => left.toLowerCase() === right.toLow
  * that carries it and commits the lock to that document. An earlier client committed the lock to
  * the nonce itself.
  */
-function opensFor(lock: EscrowLock, binding: RequestBinding): boolean {
+export function opensFor(lock: EscrowLock, binding: RequestBinding): boolean {
   if (nonceBindsRequest(lock.inputCommit, binding)) return true;
 
   const document = readRequestURI(lock.inputURI);

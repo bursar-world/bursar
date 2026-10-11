@@ -237,8 +237,12 @@ export type MandateFetchOptions = RequestInit & {
   /**
    * `mandate` pays from this account through `spend`, with every window enforced on chain.
    * `wallet`, the default, pays from the agent's wallet: per-call only; windows client-enforced.
+   * `base` pays a Base service in USDC: this account locks USDG for Bursar's facilitator, whose
+   * float on Base pays the service.
    */
   readonly lane?: PaymentLane;
+  /** Bursar's facilitator, for the Base lane. Defaults to facilitator.bursar.world. */
+  readonly facilitator?: string;
 };
 
 export type WithdrawArgs = {
@@ -698,13 +702,14 @@ export class MandateAccountClient {
    * hundred payments that each fit all clear.
    */
   async fetch(input: FetchTarget, options: MandateFetchOptions): Promise<PaidResponse> {
-    const { capability, maxAmount, validForSeconds, fetchFn, lane, ...init } = options;
+    const { capability, maxAmount, validForSeconds, fetchFn, lane, facilitator, ...init } = options;
 
     return payRequest(input, {
       connection: this.connection,
       through: { mandate: this, capability },
       init,
       ...(lane === undefined ? {} : { lane }),
+      ...(facilitator === undefined ? {} : { facilitator }),
       ...(maxAmount === undefined ? {} : { maxAmount }),
       ...(validForSeconds === undefined ? {} : { validForSeconds }),
       ...(fetchFn === undefined ? {} : { fetchFn }),

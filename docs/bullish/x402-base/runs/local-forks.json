@@ -1,0 +1,183 @@
+{
+  "mode": "local",
+  "mandate": {
+    "address": "0x8605853aC6A64dA11F4ED0Ff0Ad128961Cc3cd5c",
+    "agent": "0x877c349EFb5926082C413833E8055F0991185c61",
+    "escrow": "0x11e73B5632837355e250fC236cFC2Be03aD0845A",
+    "float": "0x5210D8df060A9D5ce4c1305045ED5c9548fca374",
+    "capability": "service:demo.x402:1"
+  },
+  "base fork": {
+    "url": "http://127.0.0.1:8546",
+    "forkedFrom": "https://base-rpc.publicnode.com",
+    "funded": {
+      "from": "0x498581fF718922c3f8e6A244956aF099B2652b2b",
+      "balance": "5000000"
+    }
+  },
+  "robinhood chain fork": {
+    "url": "http://127.0.0.1:8557",
+    "forkedFrom": "robinhood-mainnet.core.chainstack.com"
+  },
+  "facilitator": {
+    "url": "http://127.0.0.1:8412",
+    "config": {
+      "chain": "Robinhood Chain",
+      "network": "eip155:4663",
+      "chainId": 4663,
+      "settlementAsset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+      "index": "unkeyed",
+      "lanes": [
+        "prefund",
+        "collateral",
+        "direct"
+      ],
+      "feeBps": 100,
+      "feeFloorMicro": "1900",
+      "stakingPool": "0x31CbD06003089B00897F0d7e3c283C66a1768d9A",
+      "gasFloat": "0xD8A21dEd6883b9CA0384C1Ae89c034264E3D4ba4",
+      "requireBinding": true,
+      "underwriter": "none",
+      "baseLane": {
+        "network": "eip155:8453",
+        "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "float": "0x5210D8df060A9D5ce4c1305045ED5c9548fca374",
+        "feeBps": 100,
+        "feeFloorMicro": "2000",
+        "maxPaymentMicro": "5000000"
+      },
+      "trustTopic": "mandate.trust.v1",
+      "trustSinkConfigured": false
+    },
+    "float": {
+      "lane": "base",
+      "network": "eip155:8453",
+      "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "float": "0x5210D8df060A9D5ce4c1305045ED5c9548fca374",
+      "balanceMicro": "5000000",
+      "promisedMicro": "0",
+      "availableMicro": "5000000",
+      "minimumMicro": "1000000",
+      "maxPaymentMicro": "5000000",
+      "feeBps": 100,
+      "feeFloorMicro": "2000",
+      "open": 0,
+      "stuck": 0,
+      "healthy": true
+    }
+  },
+  "before": {
+    "windows": {
+      "dailySpent": "120000",
+      "monthlySpent": "4060000",
+      "remaining": {
+        "perCall": "2000000",
+        "daily": "9880000",
+        "monthly": "45940000"
+      }
+    },
+    "mandateUsdg": "1904620",
+    "floatUsdg": "550851"
+  },
+  "service": {
+    "url": "http://127.0.0.1:18403/fact"
+  },
+  "paid": {
+    "status": 200,
+    "body": "{\"fact\":\"a group of flamingos is a flamboyance\"}",
+    "payment": {
+      "lane": "base",
+      "amount": "1000",
+      "payTo": "0xE05F16F07D2d6B7FbEf9E3c59ec671d9DA4625A9",
+      "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "network": "eip155:8453",
+      "nonce": "0x2911843f6236720b1c72e5d5fb14ea751f13f5080b0a9f43518403e0fcaf7476",
+      "lock": {
+        "escrow": "0x11e73B5632837355e250fC236cFC2Be03aD0845A",
+        "id": "43",
+        "transaction": "0xe0d23e55b06cdf5ee689c02ba321f5c597314686a20e175e7620926bb169a72b",
+        "inputCommit": "0xeb444834491df4f3117b13bb63051c100d273e92d809ba1551e0ceaef5a29e96"
+      },
+      "settlement": {
+        "success": true,
+        "transaction": "0x286da91ec6f27e8ed1f778778f2e1555e002fc197fd18ed97f3230fe8a1a33dd",
+        "network": "eip155:8453",
+        "payer": "0x5210D8df060A9D5ce4c1305045ED5c9548fca374"
+      },
+      "base": {
+        "paymentId": "19adff19-eb86-4796-a4a3-3ea1cb3baed1",
+        "float": "0x5210D8df060A9D5ce4c1305045ED5c9548fca374",
+        "lockMicro": "10000",
+        "feeMicro": "9000",
+        "validBefore": "1791665298",
+        "facilitator": "http://127.0.0.1:8412"
+      }
+    }
+  },
+  "payment row": {
+    "id": "19adff19-eb86-4796-a4a3-3ea1cb3baed1",
+    "status": "signed",
+    "lock_id": "43",
+    "base_tx_hash": null,
+    "rhc_tx_hash": null,
+    "valid_before": "1791665298"
+  },
+  "payment outcome": {
+    "id": "19adff19-eb86-4796-a4a3-3ea1cb3baed1",
+    "status": "settled",
+    "lock_id": "43",
+    "base_tx_hash": "0x286da91ec6f27e8ed1f778778f2e1555e002fc197fd18ed97f3230fe8a1a33dd",
+    "rhc_tx_hash": "0xb449941905fa759dd3627c73afc1bd3c8edb4687d2ec6ea013cb92bb216447e3",
+    "valid_before": "1791665298"
+  },
+  "lock on robinhood chain": {
+    "id": "43",
+    "status": 2,
+    "payee": "0x5210D8df060A9D5ce4c1305045ED5c9548fca374",
+    "amount": "10000",
+    "outputURI": "https://basescan.org/tx/0x286da91ec6f27e8ed1f778778f2e1555e002fc197fd18ed97f3230fe8a1a33dd",
+    "settled": {
+      "hash": "0xb449941905fa759dd3627c73afc1bd3c8edb4687d2ec6ea013cb92bb216447e3",
+      "block": "85287244",
+      "status": "success"
+    },
+    "explorer": "https://robinhoodchain.blockscout.com/tx/0xb449941905fa759dd3627c73afc1bd3c8edb4687d2ec6ea013cb92bb216447e3"
+  },
+  "service settled": [
+    {
+      "hash": "0x286da91ec6f27e8ed1f778778f2e1555e002fc197fd18ed97f3230fe8a1a33dd",
+      "status": "success",
+      "block": "52437816"
+    }
+  ],
+  "after": {
+    "windows": {
+      "dailySpent": "130000",
+      "monthlySpent": "4070000",
+      "remaining": {
+        "perCall": "2000000",
+        "daily": "9870000",
+        "monthly": "45930000"
+      }
+    },
+    "mandateUsdg": "1894620",
+    "floatUsdg": "560751",
+    "float": {
+      "lane": "base",
+      "network": "eip155:8453",
+      "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "float": "0x5210D8df060A9D5ce4c1305045ED5c9548fca374",
+      "balanceMicro": "4999000",
+      "promisedMicro": "0",
+      "availableMicro": "4999000",
+      "minimumMicro": "1000000",
+      "maxPaymentMicro": "5000000",
+      "feeBps": 100,
+      "feeFloorMicro": "2000",
+      "open": 0,
+      "stuck": 0,
+      "healthy": true
+    }
+  },
+  "capability id": "0x3880d3c9aa4f584ed9ee9847f2c44ee4aa76dfca738bc8290ba509c49b2bfcfc"
+}

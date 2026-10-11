@@ -159,6 +159,7 @@ export {
   InvalidArgumentError,
   MandateDeniedError,
   MissingEventError,
+  BaseLaneRefusedError,
   NoAcceptablePaymentError,
   NotAMandateAccountError,
   NotAnvilError,
@@ -215,9 +216,11 @@ export type {
   X402Version,
 } from './x402/requirements.js';
 
-export { LANE_SCHEME, paidFetch, payRequest } from './x402/fetch.js';
+export { DEFAULT_FACILITATOR_URL, LANE_SCHEME, paidFetch, payRequest } from './x402/fetch.js';
+export { BASE_REFUSALS, baseRefusal } from './x402/base-refusals.js';
 export type {
   FetchTarget,
+  BasePaymentTerms,
   PaidResponse,
   PayRequestOptions,
   PaymentAuthority,

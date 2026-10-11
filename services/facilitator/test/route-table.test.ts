@@ -77,6 +77,20 @@ describe('the route table in the README', () => {
     // nobody answers.
     for (const path of ['/accounts/agent-1', '/lanes/agent-1/prefund', '/settlements/pending/0xabc', '/nope', '/']) expect(routeClass(path)).toBe('admin');
 
+    // The keyless x402 surface and the Base lane take no token at all: stock clients and agents call them. Nothing else is.
+    const open = answered.filter((route) => routeClass(route.split(' ')[1] ?? '') === 'public');
+    expect(open.sort()).toEqual([
+      'GET /base/float',
+      'GET /base/payments/:',
+      'GET /x402/supported',
+      'POST /base/pay',
+      'POST /base/payments/:/outcome',
+      'POST /base/quote',
+      'POST /x402/settle',
+      'POST /x402/verify',
+    ]);
+    for (const path of ['/base', '/base/', '/base/other', '/base/payments', '/base/payments/x/y']) expect(routeClass(path)).toBe('admin');
+
     // The README names the same six under the provider token.
     const tokens = document.slice(document.indexOf('### Two tokens'), document.indexOf('## Configuration'));
     for (const path of PROVIDER_ROUTES) expect(tokens, `${path} is not under the provider token in the README`).toMatch(new RegExp(`\\\`(GET|POST) ${path}\\\``));
