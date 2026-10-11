@@ -144,9 +144,11 @@ describe('which set a lane comes from', () => {
   // not deployed its own must read as having none, or a v4 reader would call a v3 vault for them.
   const v3 = RAW_DEPLOYMENTS['rhc-mainnet-v3'] as Record<string, unknown>;
   const v4Core = (): Record<string, unknown> => {
-    const { rwa: _rwa, privacy: _privacy, ...core } = v3;
+    const { rwa: _rwa, privacy: _privacy, retired: _retired, supersededBy: _supersededBy, ...core } = v3;
     return {
       ...core,
+      // The third record is retired now; the synthetic fourth stands in as the live set.
+      status: 'live',
       network: 'rhc-mainnet-v4',
       supersedes: 'rhc-mainnet-v3',
       contracts: {

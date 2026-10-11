@@ -173,7 +173,20 @@ gwei where the chain asks a hundredth of that (`FILM_MAX_FEE_WEI`).
 
 ## What the operator must do
 
-From `~/Projects/bursar-ops`, after merging the branch into the clone the ops scripts read:
+**Steps 1 and 2 are done.** On 2026-10-11 the batch was read against mainnet (26 "to propose" lines, every
+feed, token and pool check passing), proposed from signer-1 between 16:05 and 16:08 UTC and approved from
+signer-2 by 16:10 UTC: proposals **#18 to #43** on the 48-hour AdminTimelock
+[`0xffe874aA257C99414205ddf684903e30761E1832`](https://robinhoodchain.blockscout.com/address/0xffe874aA257C99414205ddf684903e30761E1832),
+each at 2 of 2 approvals, **executable from 2026-10-13 16:08:23 UTC**. First proposal
+[`0x5c3f950d…e6ed06`](https://robinhoodchain.blockscout.com/tx/0x5c3f950d71a394ddb10b634f7b742b721c2cad2b5fe3b7ad0d4ff80140e6ed06)
+(block 85960486), last approval
+[`0xd4fa7b53…55533f`](https://robinhoodchain.blockscout.com/tx/0xd4fa7b53f3edcffdb08ec52c41d84c26223397ba04ae833da409f7eddf55533f)
+(block 85962612); 52 transactions, 0.00021 ETH in fees. Steps 3 and 4 run on their own: the launchd tail
+`ops/stocks-due.sh` (`world.bursar.stocks-due`, every 15 minutes) executes from signer-1 once the delay has
+passed, records the listings, regenerates the SDK's copy, verifies, commits and pushes. The branch is merged
+into `main`.
+
+The commands, for the record:
 
 ```
 cd ~/Projects/bursar-harden/contracts     # or wherever bullish/stocks-32 is checked out
@@ -215,8 +228,9 @@ Nothing to provision on Render. No new contract.
 
 ## Honest limits
 
-- Thirteen listings wait on the 48-hour delay; until it executes, mainnet lists SPY, NVDA and AAPL. The console,
-  SDK and MCP already read the registry, so the day it executes they show sixteen with no release.
+- Thirteen listings wait on the 48-hour delay until 2026-10-13 16:08 UTC; until then mainnet lists SPY, NVDA and
+  AAPL. The console, SDK and MCP already read the registry, so the moment the batch executes they show sixteen
+  with no release.
 - "Any of the 32" is not true and the post does not say it: sixteen have pools, two are thin, sixteen have none.
 - Purchases are capped at 25 USDG each and refused outside the 100 bps band, after a 26-hour feed silence (every
   weekend from Saturday evening to the Monday round), while an issuer pause is up, or when the pool has drifted. The
