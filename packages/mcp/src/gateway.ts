@@ -7,6 +7,7 @@ import {
   classOfLabel,
   contractSetAtLeast,
   contractSetOfEscrow,
+  assetRegistryAbi,
   escrowAbi,
   mandateAccountAbi,
   mandateAccountAbiV1,
@@ -17,7 +18,7 @@ import {
   stockSpendRouterAbi,
 } from '@bursar/core';
 import type { ContractSet, RhcPublicClient, RwaDeployment, SpendClass } from '@bursar/core';
-import { BaseError, ContractFunctionRevertedError, decodeEventLog, encodeEventTopics } from 'viem';
+import { BaseError, ContractFunctionRevertedError, decodeEventLog, encodeEventTopics, erc20Abi } from 'viem';
 import type { Address, Hex } from 'viem';
 
 import {
@@ -552,6 +553,31 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
   }
 
   /**
+   * The stocks the registry lists, by address and symbol. The record names the ones the lane
+   * launched with; a stock governance listed since is read from the registry and named by its
+   * own token, so a ticker the record never heard of still buys.
+   */
+  async function listedStocks(lane: RwaDeployment): Promise<readonly { address: Address; symbol: string }[]> {
+    const addresses = await client.readContract({
+      address: lane.AssetRegistry,
+      abi: assetRegistryAbi,
+      functionName: 'assets',
+    });
+    const stocks = await Promise.all(
+      addresses.map(async (address) => {
+        const recorded = lane.assets.find((a) => a.address.toLowerCase() === address.toLowerCase());
+        if (recorded !== undefined) return recorded.kind === 'stock' ? { address, symbol: recorded.symbol } : undefined;
+        const [config, symbol] = await Promise.all([
+          client.readContract({ address: lane.AssetRegistry, abi: assetRegistryAbi, functionName: 'get', args: [address] }),
+          client.readContract({ address, abi: erc20Abi, functionName: 'symbol' }),
+        ]);
+        return config.isStock ? { address, symbol } : undefined;
+      }),
+    );
+    return stocks.filter((stock) => stock !== undefined);
+  }
+
+  /**
    * Buys an eligible stock through the mandate's `buy`. The mandate checks the class and the caps;
    * the router checks the asset list, the per-trade cap, the reference price and the fill.
    */
@@ -570,11 +596,14 @@ export function createChainGateway(options: ChainGatewayOptions): MandateGateway
       );
     }
 
+    const stocks = await listedStocks(lane);
     const wanted = order.asset.toLowerCase();
-    const listed = lane.assets.find((a) => a.symbol.toLowerCase() === wanted || a.address.toLowerCase() === wanted);
-    if (listed === undefined || listed.kind !== 'stock') {
-      const eligible = lane.assets.filter((a) => a.kind === 'stock').map((a) => a.symbol);
-      throw new ToolError('invalid_arguments', `${order.asset} is not an eligible stock. Eligible: ${eligible.join(', ')}.`);
+    const listed = stocks.find((a) => a.symbol.toLowerCase() === wanted || a.address.toLowerCase() === wanted);
+    if (listed === undefined) {
+      throw new ToolError(
+        'invalid_arguments',
+        `${order.asset} is not an eligible stock. Eligible: ${stocks.map((a) => a.symbol).join(', ')}.`,
+      );
     }
 
     const [priceE8, minOut] = await refusing(() =>

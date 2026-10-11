@@ -338,7 +338,8 @@ export const TOOLS: readonly ToolDefinition[] = [
     role: 'mandate',
     writes: true,
     description:
-      'Buy an eligible tokenized stock (SPY, NVDA or AAPL on Robinhood Chain) with USDG from this mandate. ' +
+      'Buy an eligible tokenized Robinhood stock or fund on Robinhood Chain (SPY, NVDA, AAPL, TSLA, META and ' +
+      'the rest of the registry; the refusal for an unknown ticker names every eligible one) with USDG from this mandate. ' +
       'The stock is delivered to the mandate account. The mandate has to allow stock purchases, and the ' +
       'principal has to have listed the asset for it. The purchase is checked against the Chainlink ' +
       'reference price: it is refused when that price is older than 26 hours, when the trading pool and the ' +
@@ -351,7 +352,7 @@ export const TOOLS: readonly ToolDefinition[] = [
       properties: {
         asset: {
           type: 'string',
-          description: 'The stock to buy, by symbol ("SPY", "NVDA", "AAPL") or token address.',
+          description: 'The stock to buy, by ticker ("SPY", "TSLA") or token address.',
           pattern: '^(?:[A-Za-z]{1,10}|0x[0-9a-fA-F]{40})$',
           patternMessage: 'asset must be a ticker symbol or a 0x address',
         },

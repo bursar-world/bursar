@@ -10,7 +10,7 @@ import { onCurrentSet } from '@/chain/deployments';
 import { sameAddress } from '@/chain/rhc';
 import { AmountInput } from '@/components/amount-input';
 import { Badge, LevelBadge } from '@/components/badge';
-import { TextField } from '@/components/fields';
+import { SelectField, TextField } from '@/components/fields';
 import { Card, Field, FieldGrid, Section } from '@/components/layout';
 import { Stat, StatGrid } from '@/components/stat';
 import { Table } from '@/components/table';
@@ -36,6 +36,9 @@ import { callGates, transferGates } from '../lib/write-gates';
 import { useMandateScope } from './mandate-scope';
 import { useWriteContract } from '@/wallet/write';
 
+/** A list long enough to want a search box. */
+const SEARCHABLE_FROM = 8;
+
 export function StockPanel() {
   const { address, account } = useMandateScope();
   const served = account !== undefined && onCurrentSet(account.contractSet);
@@ -48,6 +51,7 @@ export function StockPanel() {
 
 function StockBody({ rwa, onChange }: { readonly rwa: RwaState; readonly onChange: () => void }) {
   const { account, connected, isOwner } = useMandateScope();
+  const [search, setSearch] = useState('');
   if (!account) return null;
 
   const stocks = rwa.assets.filter((asset) => asset.kind === 'stock');
@@ -61,11 +65,13 @@ function StockBody({ rwa, onChange }: { readonly rwa: RwaState; readonly onChang
   );
   const tradeStaleness = stocks.find((asset) => asset.config)?.config?.tradeStaleness;
   const band = stockBand(stocks);
+  const shown = search.trim() === '' ? stocks : stocks.filter((asset) => matches(asset, search));
+  const groups = groupStocks(shown);
 
   return (
     <Section
       title="Stock purchases"
-      description={`The agent can buy listed stocks with this mandate’s USDG, at the feed price within your slippage limit.${
+      description={`The agent can buy any of the ${stocks.length} listed ${stocks.length === 1 ? 'stock' : 'stocks and funds'} with this mandate’s USDG, at the Chainlink feed price within your slippage limit.${
         tradeStaleness === undefined ? '' : ` Prices older than ${hours(tradeStaleness)} are refused.`
       }`}
     >
@@ -90,67 +96,40 @@ function StockBody({ rwa, onChange }: { readonly rwa: RwaState; readonly onChang
             <Stat
               label="Stocks held, at feed price"
               value={usd(heldValue as Micro)}
-              hint="Valued at the feed price."
+              hint={holdings.length === 0 ? 'Nothing held yet.' : `${holdings.map((asset) => asset.symbol).join(', ')}.`}
             />
           </StatGrid>
 
-          <Table<RwaAsset>
-            caption="Listed stocks"
-            rows={stocks}
-            rowKey={(row) => row.address}
-            columns={[
-              { key: 'symbol', header: 'Stock', cell: (row) => <span className="font-medium">{row.symbol}</span> },
-              {
-                key: 'price',
-                header: 'Feed price',
-                align: 'right',
-                cell: (row) => <span className="tabular">{row.priceE8 === undefined ? 'Unread' : feedPrice(row.priceE8)}</span>,
-              },
-              {
-                key: 'age',
-                header: 'Updated',
-                cell: (row) => (row.updatedAt === undefined ? 'Unread' : formatRelative(row.updatedAt, now)),
-                secondary: true,
-              },
-              {
-                key: 'eligible',
-                header: 'Eligible',
-                cell: (row) =>
-                  row.config === undefined ? (
-                    'Unread'
-                  ) : !row.config.eligible ? (
-                    <LevelBadge level="blocked">No</LevelBadge>
-                  ) : row.tradeRefusal ? (
-                    <LevelBadge level="attention">{row.tradeRefusal}</LevelBadge>
-                  ) : (
-                    <LevelBadge level="ok">Yes</LevelBadge>
-                  ),
-              },
-              {
-                key: 'allowed',
-                header: 'This mandate',
-                cell: (row) => (row.allowed === undefined ? 'Unread' : row.allowed ? <Badge>Allowed</Badge> : <Badge tone="quiet">Not allowed</Badge>),
-              },
-              {
-                key: 'held',
-                header: 'Held',
-                align: 'right',
-                cell: (row) =>
-                  (row.held ?? 0n) === 0n ? (
-                    <span className="text-[color:var(--color-muted)]">None</span>
-                  ) : (
-                    <span className="tabular">
-                      {tokenAmount(row.held ?? 0n, row.config?.decimals)} {row.symbol}
-                      {row.priceE8 !== undefined && (
-                        <span className="block text-note text-[color:var(--color-muted)]">
-                          {usd(holdingValue(row.held ?? 0n, row.priceE8, row.config?.decimals) as Micro)}
-                        </span>
-                      )}
-                    </span>
-                  ),
-              },
-            ]}
-          />
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold">Listed stocks</h3>
+                <p className="mt-0.5 text-detail text-[color:var(--color-muted)]">
+                  {stocks.length} listed, each priced by its own Chainlink feed and bought in its own pool.
+                </p>
+              </div>
+              {stocks.length >= SEARCHABLE_FROM && (
+                <div className="w-full sm:w-64">
+                  <TextField label="Find a stock" value={search} onChange={setSearch} placeholder="Ticker or name" />
+                </div>
+              )}
+            </div>
+
+            {groups.length === 0 ? (
+              <p className="text-detail text-[color:var(--color-muted)]">No listed stock matches “{search.trim()}”.</p>
+            ) : (
+              groups.map((group) => (
+                <div key={group.label} className="space-y-2">
+                  {groups.length > 1 && (
+                    <h4 className="text-label uppercase tracking-wide text-[color:var(--color-muted)]">
+                      {group.label} · {group.stocks.length}
+                    </h4>
+                  )}
+                  <StockTable stocks={group.stocks} now={now} />
+                </div>
+              ))
+            )}
+          </div>
 
           {isOwner && <PolicyForm rwa={rwa} stocks={stocks} onChange={onChange} />}
           {isOwner && <TakeOutForm stocks={holdings} onChange={onChange} />}
@@ -168,10 +147,125 @@ function StockBody({ rwa, onChange }: { readonly rwa: RwaState; readonly onChang
   );
 }
 
+function StockTable({ stocks, now }: { readonly stocks: readonly RwaAsset[]; readonly now: Date }) {
+  return (
+    <Table<RwaAsset>
+      caption="Listed stocks"
+      rows={stocks}
+      rowKey={(row) => row.address}
+      columns={[
+        {
+          key: 'symbol',
+          header: 'Stock',
+          cell: (row) => (
+            <span>
+              <span className="font-medium">{row.symbol}</span>
+              {row.name !== undefined && <span className="block text-note text-[color:var(--color-muted)]">{row.name}</span>}
+            </span>
+          ),
+        },
+        {
+          key: 'price',
+          header: 'Feed price',
+          align: 'right',
+          cell: (row) => <span className="tabular">{row.priceE8 === undefined ? 'Unread' : feedPrice(row.priceE8)}</span>,
+        },
+        {
+          key: 'age',
+          header: 'Updated',
+          cell: (row) => (row.updatedAt === undefined ? 'Unread' : formatRelative(row.updatedAt, now)),
+          secondary: true,
+        },
+        {
+          key: 'eligible',
+          header: 'Eligible',
+          cell: (row) =>
+            row.config === undefined ? (
+              'Unread'
+            ) : !row.config.eligible ? (
+              <LevelBadge level="blocked">No</LevelBadge>
+            ) : row.tradeRefusal ? (
+              <LevelBadge level="attention">{row.tradeRefusal}</LevelBadge>
+            ) : (
+              <LevelBadge level="ok">Yes</LevelBadge>
+            ),
+        },
+        {
+          key: 'allowed',
+          header: 'This mandate',
+          cell: (row) => (row.allowed === undefined ? 'Unread' : row.allowed ? <Badge>Allowed</Badge> : <Badge tone="quiet">Not allowed</Badge>),
+        },
+        {
+          key: 'held',
+          header: 'Held',
+          align: 'right',
+          cell: (row) =>
+            (row.held ?? 0n) === 0n ? (
+              <span className="text-[color:var(--color-muted)]">None</span>
+            ) : (
+              <span className="tabular">
+                {tokenAmount(row.held ?? 0n, row.config?.decimals)} {row.symbol}
+                {row.priceE8 !== undefined && (
+                  <span className="block text-note text-[color:var(--color-muted)]">
+                    {usd(holdingValue(row.held ?? 0n, row.priceE8, row.config?.decimals) as Micro)}
+                  </span>
+                )}
+              </span>
+            ),
+        },
+      ]}
+    />
+  );
+}
+
 /** The band every listed stock shares, when they share one: the slippage a purchase gets with no tighter limit set. */
 function stockBand(stocks: readonly RwaAsset[]): number | undefined {
   const bands = new Set(stocks.flatMap((asset) => (asset.config === undefined ? [] : [asset.config.bandBps])));
   return bands.size === 1 ? [...bands][0] : undefined;
+}
+
+function matches(asset: RwaAsset, search: string): boolean {
+  const needle = search.trim().toLowerCase();
+  return asset.symbol.toLowerCase().includes(needle) || (asset.name?.toLowerCase().includes(needle) ?? false);
+}
+
+const GROUP_LABELS: Readonly<Record<string, string>> = {
+  'Index fund': 'Index funds',
+  'Single stock': 'Single stocks',
+  'Treasury fund': 'Treasury funds',
+};
+
+/**
+ * Stocks in the groups the collateral vault files them under, index funds first, then single
+ * stocks, then anything the vault has no tier for. Tickers sort within a group.
+ */
+function groupStocks(stocks: readonly RwaAsset[]): readonly { readonly label: string; readonly stocks: readonly RwaAsset[] }[] {
+  const order = ['Index fund', 'Single stock', 'Treasury fund'];
+  const byGroup = new Map<string, RwaAsset[]>();
+  for (const asset of stocks) {
+    const key = asset.group ?? '';
+    byGroup.set(key, [...(byGroup.get(key) ?? []), asset]);
+  }
+  return [...byGroup.entries()]
+    .sort(([a], [b]) => (a === '' ? 1 : b === '' ? -1 : order.indexOf(a) - order.indexOf(b)))
+    .map(([key, group]) => ({
+      label: key === '' ? 'Other listed stocks' : (GROUP_LABELS[key] ?? key),
+      stocks: [...group].sort((a, b) => a.symbol.localeCompare(b.symbol)),
+    }));
+}
+
+function stockOptions(stocks: readonly RwaAsset[]): readonly { readonly value: string; readonly label: string; readonly group?: string }[] {
+  return groupStocks(stocks).flatMap((group) =>
+    group.stocks.map((asset) => ({
+      value: asset.symbol,
+      label: `${asset.symbol}${asset.name === undefined ? '' : `, ${asset.name}`}${asset.priceE8 === undefined ? '' : `, ${feedPrice(asset.priceE8)}`}`,
+      ...(groupStocks(stocks).length > 1 ? { group: group.label } : {}),
+    })),
+  );
+}
+
+function routerCurrent(rwa: RwaState): boolean {
+  return routerSet(rwa.router) && sameAddress(rwa.router, rwa.lane.StockSpendRouter);
 }
 
 function PolicyForm({ rwa, stocks, onChange }: { readonly rwa: RwaState; readonly stocks: readonly RwaAsset[]; readonly onChange: () => void }) {
@@ -191,6 +285,9 @@ function PolicyForm({ rwa, stocks, onChange }: { readonly rwa: RwaState; readonl
       : slippageBps >= 10_000
         ? 'The slippage limit has to be below 100%.'
         : undefined;
+  const allowedCount = stocks.filter((asset) => allowed[asset.address] === true).length;
+  const setAll = (value: boolean) => setAllowed(Object.fromEntries(stocks.map((asset) => [asset.address, value])));
+  const groups = groupStocks(stocks);
 
   return (
     <div className="space-y-4 border border-[color:var(--color-line)] p-4">
@@ -201,13 +298,15 @@ function PolicyForm({ rwa, stocks, onChange }: { readonly rwa: RwaState; readonl
         </p>
       </div>
 
-      {!routerSet(rwa.router) && (
+      {!routerCurrent(rwa) && (
         <div className="space-y-2">
           <p className="text-detail" style={{ color: 'var(--color-state-blocked)' }}>
-            Set the purchase router once to turn on stock purchases.
+            {routerSet(rwa.router)
+              ? 'This mandate points at an earlier purchase router. Set the current one so the agent can buy the stocks listed since.'
+              : 'Set the purchase router once to turn on stock purchases.'}
           </p>
           <TxButton
-            label="Set the purchase router"
+            label={routerSet(rwa.router) ? 'Set the current purchase router' : 'Set the purchase router'}
             blockedBy={callGates(system)}
             context={writeContext}
             send={() =>
@@ -232,18 +331,39 @@ function PolicyForm({ rwa, stocks, onChange }: { readonly rwa: RwaState; readonl
           {...(slippageProblem === undefined ? {} : { problem: slippageProblem })}
           help={`0 uses each stock’s own limit${band === undefined ? '' : `, ${bps(band)}`}. A wider limit is capped at it.`}
         />
-        <Field label="Allowed stocks">
-          <div className="flex flex-wrap gap-4 pt-1">
-            {stocks.map((asset) => (
-              <label key={asset.address} className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4"
-                  checked={allowed[asset.address] === true}
-                  onChange={(event) => setAllowed({ ...allowed, [asset.address]: event.target.checked })}
-                />
-                {asset.symbol}
-              </label>
+        <Field
+          label="Allowed stocks"
+          hint={
+            <span>
+              {allowedCount} of {stocks.length} allowed.{' '}
+              <button type="button" className="underline underline-offset-2 cursor-pointer" onClick={() => setAll(true)}>
+                Allow all
+              </button>
+              {' · '}
+              <button type="button" className="underline underline-offset-2 cursor-pointer" onClick={() => setAll(false)}>
+                Allow none
+              </button>
+            </span>
+          }
+        >
+          <div className="space-y-3 pt-1">
+            {groups.map((group) => (
+              <div key={group.label} className="space-y-1.5">
+                {groups.length > 1 && <div className="text-note text-[color:var(--color-muted)]">{group.label}</div>}
+                <div className="flex flex-wrap gap-x-4 gap-y-2">
+                  {group.stocks.map((asset) => (
+                    <label key={asset.address} className="flex items-center gap-2 text-sm" title={asset.name}>
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4"
+                        checked={allowed[asset.address] === true}
+                        onChange={(event) => setAllowed({ ...allowed, [asset.address]: event.target.checked })}
+                      />
+                      {asset.symbol}
+                    </label>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         </Field>
@@ -287,20 +407,12 @@ function TakeOutForm({ stocks, onChange }: { readonly stocks: readonly RwaAsset[
         </p>
       </div>
       <FieldGrid columns={2}>
-        <Field label="Holding">
-          <select
-            aria-label="Holding to take out"
-            value={asset.symbol}
-            onChange={(event) => setPick(event.target.value)}
-            className="h-11 w-full border border-[color:var(--color-line)] bg-surface px-3 text-sm"
-          >
-            {stocks.map((entry) => (
-              <option key={entry.address} value={entry.symbol}>
-                {entry.symbol}
-              </option>
-            ))}
-          </select>
-        </Field>
+        <SelectField
+          label="Holding"
+          value={asset.symbol}
+          onChange={setPick}
+          options={stocks.map((entry) => ({ value: entry.symbol, label: entry.name === undefined ? entry.symbol : `${entry.symbol}, ${entry.name}` }))}
+        />
         <Field label="Amount" hint="All of it.">
           <span className="tabular">
             {tokenAmount(held, asset.config?.decimals)} {asset.symbol}
@@ -389,21 +501,7 @@ function BuyForm({
         </p>
       </div>
       <FieldGrid columns={2}>
-        <Field label="Stock">
-          <select
-            aria-label="Stock"
-            value={symbol}
-            onChange={(event) => setSymbol(event.target.value)}
-            className="h-11 w-full border border-[color:var(--color-line)] bg-surface px-3 text-sm"
-          >
-            {stocks.map((entry) => (
-              <option key={entry.address} value={entry.symbol}>
-                {entry.symbol}
-                {entry.priceE8 === undefined ? '' : `, ${feedPrice(entry.priceE8)}`}
-              </option>
-            ))}
-          </select>
-        </Field>
+        <SelectField label="Stock" value={symbol} onChange={setSymbol} options={stockOptions(stocks)} />
         <AmountInput
           label="Spend"
           asset="USDG"

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   RWA_CLASS_BIT,
   assetRegistryAbi,
+  collateralVaultAbi,
   mandateAccountAbi,
   parkAdapterAbi,
   priceGuardAbi,
@@ -21,7 +22,7 @@ import type { Slot } from '@/chain/batch';
 import { rhcClient } from '@/chain/client';
 import { collateralLane, readCollateralAccount } from '@/chain/collateral';
 import { mandateBuild } from '@/chain/mandates';
-import { ADDRESSES, CHAIN_ID } from '@/chain/rhc';
+import { ADDRESSES, CHAIN_ID, sameAddress, shortAddress } from '@/chain/rhc';
 import { formatDuration } from '@/lib/time';
 
 export function rwaLane(): RwaDeployment | undefined {
@@ -45,8 +46,12 @@ type RawAsset = {
 
 export type RwaAsset = {
   readonly symbol: string;
+  /** What the token is, from its own name: "Tesla" for the TSLA token. */
+  readonly name: string | undefined;
   readonly address: Address;
   readonly kind: RwaAssetKind;
+  /** The collateral tier the vault files it under: "Index fund", "Single stock", "Treasury fund". */
+  readonly group: string | undefined;
   readonly config: RawAsset | undefined;
   readonly priceE8: bigint | undefined;
   readonly updatedAt: Date | undefined;
@@ -90,9 +95,18 @@ export async function readRwa(mandate: Address): Promise<RwaState | undefined> {
   const lane = rwaLane();
   if (lane === undefined) return undefined;
 
-  const batch = new ReadBatch();
   const call = (address: Address, abi: Abi, functionName: string, args?: readonly unknown[]) =>
     ({ address, abi, functionName, ...(args === undefined ? {} : { args }) }) as const;
+  // The registry says what is listed. The record names the launch assets; governance has listed
+  // more since, and those are named by their own tokens.
+  const listed = (await readContract(rhcClient(), {
+    address: lane.AssetRegistry,
+    abi: assetRegistryAbi as Abi,
+    functionName: 'assets',
+  })) as readonly Address[];
+  const collateralVault = collateralLane()?.CollateralVault;
+
+  const batch = new ReadBatch();
   const registry = (fn: string, args: readonly unknown[]) => call(lane.AssetRegistry, assetRegistryAbi as Abi, fn, args);
   const guard = (fn: string, args: readonly unknown[]) => call(lane.PriceGuard, priceGuardAbi as Abi, fn, args);
   const router = (fn: string, args: readonly unknown[]) => call(lane.StockSpendRouter, stockSpendRouterAbi as Abi, fn, args);
@@ -106,14 +120,23 @@ export async function readRwa(mandate: Address): Promise<RwaState | undefined> {
   const powerSlot = batch.add<bigint>('park.spendingPower', park('spendingPower', [mandate]));
   const timeSlot = addChainTime(batch);
 
-  const assetSlots = lane.assets.map((asset) => ({
-    asset,
-    config: batch.add<RawAsset>(`registry.get:${asset.symbol}`, registry('get', [asset.address])),
-    price: batch.add<readonly [bigint, bigint, boolean]>(`guard.valuationPrice:${asset.symbol}`, guard('valuationPrice', [asset.address])),
-    trade: batch.add<bigint>(`guard.tradePrice:${asset.symbol}`, guard('tradePrice', [asset.address, mandate])),
-    held: batch.add<bigint>(`balanceOf:${asset.symbol}`, call(asset.address, erc20Abi as Abi, 'balanceOf', [mandate])),
-    allowed: batch.add<boolean>(`router.assetAllowed:${asset.symbol}`, router('assetAllowed', [mandate, asset.address])),
-  }));
+  const tiersSlot = collateralVault === undefined ? undefined : batch.add<readonly { name: string }[]>('vault.tiers', call(collateralVault, collateralVaultAbi as Abi, 'tiers'));
+  const assetSlots = listed.map((address) => {
+    const recorded = lane.assets.find((asset) => sameAddress(asset.address, address));
+    const label = recorded?.symbol ?? address;
+    return {
+      address,
+      recorded,
+      symbol: recorded === undefined ? batch.add<string>(`symbol:${label}`, call(address, erc20Abi as Abi, 'symbol')) : undefined,
+      name: batch.add<string>(`name:${label}`, call(address, erc20Abi as Abi, 'name')),
+      tier: collateralVault === undefined ? undefined : batch.add<number>(`vault.tierOf:${label}`, call(collateralVault, collateralVaultAbi as Abi, 'tierOf', [address])),
+      config: batch.add<RawAsset>(`registry.get:${label}`, registry('get', [address])),
+      price: batch.add<readonly [bigint, bigint, boolean]>(`guard.valuationPrice:${label}`, guard('valuationPrice', [address])),
+      trade: batch.add<bigint>(`guard.tradePrice:${label}`, guard('tradePrice', [address, mandate])),
+      held: batch.add<bigint>(`balanceOf:${label}`, call(address, erc20Abi as Abi, 'balanceOf', [mandate])),
+      allowed: batch.add<boolean>(`router.assetAllowed:${label}`, router('assetAllowed', [mandate, address])),
+    };
+  });
 
   const adapterSlots = Object.entries(lane.adapters).map(([symbol, adapter]) => ({
     symbol,
@@ -132,14 +155,19 @@ export async function readRwa(mandate: Address): Promise<RwaState | undefined> {
     vaultHeld = (await runBatch(rhcClient(), second)).get(heldSlot);
   }
 
+  const tiers = tiersSlot === undefined ? undefined : results.get(tiersSlot);
   const assets: RwaAsset[] = assetSlots.map((slots) => {
     const price = results.get(slots.price);
     const tradeProblem = results.problem(slots.trade);
+    const config = results.get(slots.config);
+    const tier = slots.tier === undefined ? undefined : results.get(slots.tier);
     return {
-      symbol: slots.asset.symbol,
-      address: slots.asset.address,
-      kind: slots.asset.kind,
-      config: results.get(slots.config),
+      symbol: slots.recorded?.symbol ?? (slots.symbol === undefined ? undefined : results.get(slots.symbol)) ?? shortAddress(slots.address),
+      name: companyOf(results.get(slots.name)),
+      address: slots.address,
+      kind: config === undefined ? (slots.recorded?.kind ?? 'stock') : config.isTreasury ? 'treasury' : 'stock',
+      group: tier === undefined || tier === 0 ? undefined : tiers?.[tier - 1]?.name,
+      config,
       priceE8: price?.[0],
       updatedAt: price === undefined || price[1] === 0n ? undefined : new Date(Number(price[1]) * 1000),
       fresh: price?.[2],
@@ -183,6 +211,13 @@ export async function readRwa(mandate: Address): Promise<RwaState | undefined> {
     spendingPower: results.get(powerSlot),
     chainTime: time === undefined ? undefined : new Date(Number(time) * 1000),
   };
+}
+
+/** "Tesla" from "Tesla • Robinhood Token": the issuer's suffix says nothing the row does not. */
+export function companyOf(name: string | undefined): string | undefined {
+  if (name === undefined) return undefined;
+  const trimmed = name.replace(/\s*[•·-]\s*Robinhood Token\s*$/i, '').trim();
+  return trimmed === '' ? undefined : trimmed;
 }
 
 export function allowsRwa(classMask: number | undefined): boolean {

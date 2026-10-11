@@ -14,7 +14,7 @@ import {
   stockSpendRouterAbi,
   treasuryParkAbi,
 } from '@bursar/core';
-import type { Deployment, Micro, RwaDeployment } from '@bursar/core';
+import type { Deployment, Micro, RwaAssetKind, RwaDeployment } from '@bursar/core';
 
 import { requireSigner, type Connection } from './connection.js';
 import { CallRefusedError, InsufficientFundsError, MandateDeniedError, denialOf } from './errors.js';
@@ -26,6 +26,13 @@ import { revertFrom } from './revert.js';
 import { sendCall, type ExplainRevert, type Sent } from './send.js';
 import { WindowKind } from './types.js';
 import type { MandateAccountClient } from './mandate.js';
+
+/** A token the registry lists, named the way the lane names it. */
+export type ListedAsset = {
+  readonly address: Address;
+  readonly symbol: string;
+  readonly kind: RwaAssetKind;
+};
 
 export type RwaAsset = {
   readonly symbol: string;
@@ -103,11 +110,12 @@ export class RwaUnavailableError extends BursarError {
 }
 
 export class UnknownAssetError extends BursarError {
-  constructor(asset: string, known: readonly string[] = []) {
+  /** `source` is where the known names came from: the record, or the registry on chain. */
+  constructor(asset: string, known: readonly string[] = [], source: 'records' | 'lists' = 'records') {
     super(
       'rwa_unknown_asset',
-      `${asset} is not an asset this deployment records.` +
-        (known.length === 0 ? '' : ` It records ${known.join(', ')}.`) +
+      `${asset} is not an asset this deployment ${source}.` +
+        (known.length === 0 ? '' : ` It ${source} ${known.join(', ')}.`) +
         ' Name another by its token address.',
       { asset, known },
     );
@@ -200,6 +208,7 @@ export class RwaClient {
   readonly mandate: MandateAccountClient;
   readonly lane: RwaDeployment;
   readonly #context: LaneContext;
+  #listed: Promise<readonly ListedAsset[]> | undefined;
 
   constructor(mandate: MandateAccountClient, lane?: RwaLane) {
     const resolved = lane === undefined ? laneOf(mandate.connection) : parseRwaDeployment(lane);
@@ -223,8 +232,45 @@ export class RwaClient {
     return Promise.all(list.map((address) => this.asset(address)));
   }
 
+  /**
+   * Every token the registry lists, by address and symbol, read once per client. The record
+   * names the launch assets; a stock governance listed since is named by the token itself.
+   */
+  listed(): Promise<readonly ListedAsset[]> {
+    this.#listed ??= this.#readListed().catch((error: unknown) => {
+      this.#listed = undefined;
+      throw error;
+    });
+    return this.#listed;
+  }
+
+  async #readListed(): Promise<readonly ListedAsset[]> {
+    const list = await this.#client.readContract({
+      address: this.lane.AssetRegistry,
+      abi: assetRegistryAbi,
+      functionName: 'assets',
+    });
+    return Promise.all(
+      list.map(async (address) => {
+        const recorded = this.lane.assets.find((a) => isAddressEqual(a.address, address));
+        const [config, symbol] = await Promise.all([
+          this.#client.readContract({
+            address: this.lane.AssetRegistry,
+            abi: assetRegistryAbi,
+            functionName: 'get',
+            args: [address],
+          }),
+          recorded === undefined
+            ? this.#client.readContract({ address, abi: erc20Abi, functionName: 'symbol' })
+            : Promise.resolve(recorded.symbol),
+        ]);
+        return { address, symbol, kind: config.isTreasury ? 'treasury' : 'stock' } as const;
+      }),
+    );
+  }
+
   async asset(assetOrSymbol: string): Promise<RwaAsset> {
-    const address = this.resolve(assetOrSymbol);
+    const address = await this.#address(assetOrSymbol);
     const [a, symbol] = await readingLane(
       Promise.all([
         this.#client.readContract({
@@ -260,12 +306,13 @@ export class RwaClient {
   }
 
   async price(assetOrSymbol: string): Promise<FeedPrice> {
+    const asset = await this.#address(assetOrSymbol);
     const [priceE8, updatedAt, fresh] = await readingLane(
       this.#client.readContract({
         address: this.lane.PriceGuard,
         abi: priceGuardAbi,
         functionName: 'valuationPrice',
-        args: [this.resolve(assetOrSymbol)],
+        args: [asset],
       }),
       'buy',
       this.#context,
@@ -278,7 +325,7 @@ export class RwaClient {
    * will not trade on (stale, paused, out of its pool band) throws the reading for it.
    */
   async quote(assetOrSymbol: string, usd: Micro): Promise<{ priceE8: bigint; minOut: bigint }> {
-    const asset = this.resolve(assetOrSymbol);
+    const asset = await this.#address(assetOrSymbol);
     const [priceE8, minOut] = await readingLane(
       Promise.all([
         this.#client.readContract({
@@ -307,7 +354,7 @@ export class RwaClient {
    * approval, so one at or above the approval threshold is refused.
    */
   async buy(assetOrSymbol: string, usd: Micro): Promise<BuyReceipt> {
-    const asset = this.resolve(assetOrSymbol);
+    const asset = await this.#address(assetOrSymbol);
     const usdgIn = checkPositiveAmount('usd', usd);
     requireSigner(this.mandate.connection, 'buy');
     const { priceE8, minOut } = await this.quote(asset, usdgIn);
@@ -360,8 +407,8 @@ export class RwaClient {
    * in basis points (zero uses each asset's band).
    */
   async setPolicy(input: { slippageBps: number; allow?: string[]; deny?: string[] }): Promise<Sent> {
-    const allow = (input.allow ?? []).map((a) => this.resolve(a));
-    const deny = (input.deny ?? []).map((a) => this.resolve(a));
+    const allow = await Promise.all((input.allow ?? []).map((a) => this.#address(a)));
+    const deny = await Promise.all((input.deny ?? []).map((a) => this.#address(a)));
     return sendCall(this.mandate.connection, {
       to: this.lane.StockSpendRouter,
       data: encodeFunctionData({
@@ -380,7 +427,7 @@ export class RwaClient {
   }
 
   async policy(): Promise<{ slippageBps: number; allowed: Address[] }> {
-    const assets = this.lane.assets.filter((a) => a.kind === 'stock');
+    const assets = (await this.listed()).filter((a) => a.kind === 'stock');
     const [slippageBps, ...flags] = await Promise.all([
       this.#client.readContract({
         address: this.lane.StockSpendRouter,
@@ -566,10 +613,26 @@ export class RwaClient {
     });
   }
 
+  /** By the lane's record alone, without a read. The async calls also know what the registry lists. */
   resolve(assetOrSymbol: string): Address {
     if (assetOrSymbol.startsWith('0x')) return checkAddress('asset', assetOrSymbol as Address);
     const found = this.lane.assets.find((a) => a.symbol.toUpperCase() === assetOrSymbol.toUpperCase());
     if (found === undefined) throw new UnknownAssetError(assetOrSymbol, this.lane.assets.map((a) => a.symbol));
+    return found.address;
+  }
+
+  /**
+   * The token behind a symbol or address: the lane's record first, then the registry on chain,
+   * so a stock governance listed after the record was written still answers to its ticker.
+   */
+  async #address(assetOrSymbol: string): Promise<Address> {
+    if (assetOrSymbol.startsWith('0x')) return checkAddress('asset', assetOrSymbol as Address);
+    const wanted = assetOrSymbol.toUpperCase();
+    const recorded = this.lane.assets.find((a) => a.symbol.toUpperCase() === wanted);
+    if (recorded !== undefined) return recorded.address;
+    const listed = await this.listed();
+    const found = listed.find((a) => a.symbol.toUpperCase() === wanted);
+    if (found === undefined) throw new UnknownAssetError(assetOrSymbol, listed.map((a) => a.symbol), 'lists');
     return found.address;
   }
 
