@@ -16,7 +16,7 @@ had no facilitator anyone could call. This update supplies both.
 | The `exact` scheme's standard profile in `@bursar/x402` | Built and tested on the branch. |
 | Keyless routes `/x402/supported`, `/x402/verify`, `/x402/settle` on the facilitator | Live on `facilitator.bursar.world` since 2026-10-10 20:36 UTC. A stock client paid the example endpoint through it at 20:43 UTC: one cent, 3.6 s end to end, [0x9aa420a7…90e201](https://robinhoodchain.blockscout.com/tx/0x9aa420a76c6b008872c449f6960e01545115c0b88d78900323f6c32b1f90e201). |
 | Robinhood Chain for the reference SDKs, exported from `@bursar/x402` | Published: `@bursar/x402` 0.1.0 on npm. |
-| The upstream change to the x402 default-asset tables | Written as `docs/bullish/x402-rhc.patch`, applies cleanly to x402-foundation/x402 main `f8f8330`. The operator opens the pull request. |
+| The upstream change to the x402 default-asset tables | Open as [x402-foundation/x402#3770](https://github.com/x402-foundation/x402/pull/3770) since 2026-10-11, from `docs/bullish/x402-rhc.patch` on main `f8f8330`, with a GitHub-signed commit. |
 | The demo: a stock x402 client pays a Robinhood Chain endpoint in USDG | Ran on mainnet twice. Through the branch run locally, one cent settled in 1.08 s: [0xb29f…49ab](https://robinhoodchain.blockscout.com/tx/0xb29f4548ae08e4618aa85aeb71516b7ca9e34358d5b04ecd502e964bd3ed49ab). Through the live service, one cent in 3.6 s: [0x9aa420a7…90e201](https://robinhoodchain.blockscout.com/tx/0x9aa420a76c6b008872c449f6960e01545115c0b88d78900323f6c32b1f90e201). |
 
 ## The facts, read on 2026-10-10
@@ -151,7 +151,11 @@ wanted after the deploy, the stock client runs in a browser against a wallet's `
 2. **Done.** `@bursar/x402` 0.1.0 is on npm. The command that published it:
    `pnpm --filter @bursar/x402 build && pnpm --filter @bursar/x402 publish --access public` (the
    package depends on `@bursar/core` 0.1.0, already published).
-3. **Open the upstream pull request** at https://github.com/x402-foundation/x402. Fork it, then:
+3. **Done 2026-10-11: the upstream pull request is open**, [x402-foundation/x402#3770](https://github.com/x402-foundation/x402/pull/3770),
+   from the `bursarworld` account's fork. The repository requires signed commits and the account holds no
+   signing key, so the commit was created through GitHub's own commit API, which signs it. Before opening:
+   the TypeScript, Go and Python suites, format and lint passed on the patched tree. The recipe, for
+   the record:
 
    ```
    git checkout -b add-robinhood-chain-default-stablecoin
@@ -194,7 +198,7 @@ relayer's ordinary gas.
 - Until the upstream table carries USDG, a stock client lists it once:
   `client.setSpendControls({ allowedAssets: [usdgSpendControl('$1')] })` (or the equivalent object
   by hand), and a stock server prices Robinhood Chain through `robinhoodChainMoneyParser` or an
-  explicit `AssetAmount`. The patch is written; the pull request is not yet opened.
+  explicit `AssetAmount`. The pull request that adds it is open upstream (#3770).
 - Robinhood Chain has no x402 v1 network name and gets none here. Both protocol versions use
   `eip155:4663`.
 - Only the `exact` scheme with EIP-3009 is served keylessly. The escrow lane needs a mandate, and
@@ -217,8 +221,8 @@ relayer's ordinary gas.
 - The live thing: https://facilitator.bursar.world/x402/supported
 - The settlement through the live service: https://robinhoodchain.blockscout.com/tx/0x9aa420a76c6b008872c449f6960e01545115c0b88d78900323f6c32b1f90e201
 - The first settlement, through the branch run locally: https://robinhoodchain.blockscout.com/tx/0xb29f4548ae08e4618aa85aeb71516b7ca9e34358d5b04ecd502e964bd3ed49ab
-- Upstream: the pull request URL once opened; until then `docs/bullish/x402-rhc.patch`, against
-  https://github.com/x402-foundation/x402 at `f8f83309`.
+- Upstream: https://github.com/x402-foundation/x402/pull/3770 (from `docs/bullish/x402-rhc.patch`,
+  against https://github.com/x402-foundation/x402 at `f8f83309`).
 - Screenshots and recording: `docs/bullish/x402-rhc/01-offer.png`, `02-pay.png`, `03-receipt.png`,
   `demo.webm`
 - The two further settlements: https://robinhoodchain.blockscout.com/tx/0x7ac957e07e670205e078c145d91738e5a92afb8a81425c89ac256967fb7b926a

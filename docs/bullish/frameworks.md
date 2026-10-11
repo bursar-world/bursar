@@ -5,8 +5,8 @@ from a Bursar mandate with one import.
 
 Outside roots, named honestly: built and tested against the published packages `@coinbase/agentkit` 0.10.4,
 `@langchain/core` 1.2.17, `@openai/agents` 0.19.0 and `ai` 7.0.129. Each framework's public tool interface is the
-seam; none of the four companies endorses or lists Bursar, and the AgentKit contribution is a patch the operator
-opens as a pull request.
+seam; none of the four companies endorses or lists Bursar, and the AgentKit contribution is open as
+[coinbase/agentkit#1554](https://github.com/coinbase/agentkit/pull/1554).
 
 ## What is live and what is prepared
 
@@ -26,9 +26,10 @@ units as digit strings (`"250000"` is 0.25 USDG); a decimal point is refused wit
 quotes first, so a spend the mandate would refuse is never sent. The agent cap is checked before the chain is
 asked.
 
-Prepared, for the operator: the npm publish of the five packages, and the AgentKit upstream patch at
-`docs/bullish/frameworks-agentkit.patch` (provider, schemas, test, README, export, dependency, changeset in
-`coinbase/agentkit`'s layout).
+Done: the five packages are on npm (0.1.0), and the AgentKit contribution is open upstream as
+[coinbase/agentkit#1554](https://github.com/coinbase/agentkit/pull/1554) since 2026-10-11 (provider, schemas,
+test, READMEs, export, dependency, lockfile, changeset in `coinbase/agentkit`'s layout; `docs/bullish/frameworks-agentkit.patch`
+is the original patch).
 
 The pins are the newest releases older than the workspace's three-day install window on 2026-10-10;
 `@openai/agents` 0.20.0 and `ai` 7.0.137 were published inside it.
@@ -85,13 +86,14 @@ which reads without a wallet.
    pnpm rewrites `workspace:*` to the versions in the tree: `@bursar/sdk` 0.1.2, which is what npm holds, and
    `@bursar/toolset` 0.1.0. Smoke test after the first publish: in an empty directory, `npm i @bursar/toolset`
    and run the read-only `inspect` on the example mandate (no key needed).
-3. **Open the AgentKit pull request** once `@bursar/toolset` is on npm, since the patch adds it as a
-   dependency: fork `coinbase/agentkit`, `git am docs/bullish/frameworks-agentkit.patch` on `master`, run
-   `pnpm install && pnpm build && pnpm test` in `typescript/agentkit`, push, open the PR titled
-   `feat(agentkit): add Bursar action provider`. The patch's author is `Bursar <hello@bursar.world>`; amend to
-   the account that opens it. The PR body is below. AgentKit builds to CommonJS and the toolset is ESM, so the
-   package needs Node 22.12 or newer, where `require()` loads it; say so in the PR, and if their CI runs older
-   Node, switch the provider's import to a dynamic `import()`.
+3. **Done 2026-10-11: the AgentKit pull request is open**, [coinbase/agentkit#1554](https://github.com/coinbase/agentkit/pull/1554),
+   from the `bursarworld` fork, with GitHub-signed commits (the repository requires them; the commits were
+   created through GitHub's commit API, which signs them). Against upstream `main` (0.11.0) the patch needed
+   three changes, all in the branch: the toolset is loaded with a dynamic `import()` (their CI runs Node 18
+   and 20, where `require()` of an ES module fails), the wallet client crosses the viem 2.47/2.56 boundary
+   with one typed cast, and the test's wallet fake answers `getName` and `getNetwork` for the action
+   decorator's metrics. `pnpm build`, the full `pnpm test` (63 suites), `pnpm lint` and `pnpm format:check`
+   passed before opening; the package README lists the four actions. The PR body is below.
 4. **Announce** after the publish, with `docs/bullish/frameworks/01-agentkit.png` or `04-ai-sdk.png` under the
    paragraph and `demo.webm` where motion plays.
 5. Optional: return the four example locks from the mandate's exceptions page after their deadlines. No
@@ -123,7 +125,7 @@ PR body:
 - Branch diff: https://github.com/bursar-world/bursar/compare/main...bullish/frameworks
 - npm, after the publish: `@bursar/toolset`, `@bursar/agentkit`, `@bursar/langchain`, `@bursar/openai-agents`,
   `@bursar/ai-sdk`
-- AgentKit contribution: `docs/bullish/frameworks-agentkit.patch` until the pull request is open
+- AgentKit contribution: https://github.com/coinbase/agentkit/pull/1554 (original patch `docs/bullish/frameworks-agentkit.patch`)
 - Transactions: the four in the table above, on robinhoodchain.blockscout.com
 - Console: https://app.bursar.world/console/0x8605853aC6A64dA11F4ED0Ff0Ad128961Cc3cd5c/settlements
 
