@@ -5,8 +5,9 @@
 A Worker wraps its fetch handler in `withBursar`, names a price per route, and deploys with
 `wrangler`. An agent that calls a priced route without paying gets a 402 with the price in USDG on
 Robinhood Chain. One that pays from its Bursar mandate gets the result, the payment lands in escrow
-for the provider, and the mandate's limits hold on chain. The first paid calls ran on 2026-10-10 for
-0.01 USDG each, against the Worker running under `wrangler dev` on this Mac.
+for the provider, and the mandate's limits hold on chain. The demo Worker is deployed at
+<https://bursar-provider.bursar.workers.dev>; the first paid calls against it ran on 2026-10-11 for
+0.01 USDG each, after a day of the same calls under `wrangler dev`.
 
 Cloudflare is named as the hosting the Worker runs on. There is no partnership, listing or
 endorsement, and the copy says none.
@@ -34,18 +35,28 @@ Live on the branch, tests green:
   agents, on the provider desk for a connected provider, and on the providers page for a visitor.
   `apps/web` typechecks, its tests pass, and `next build` completes.
 
-Prepared, waiting on the operator:
+Deployed on 2026-10-11:
 
-- Deploying the demo Worker to the Cloudflare account. The token in `~/.config/bursar/cloudflare.env`
-  reads and writes DNS on the `bursar.world` zone only: uploading a script answered "No access to the
-  specified resource" and the Workers subdomain read answered "Authentication error", both tested
-  against the API on 2026-10-10. The demo therefore ran under `wrangler dev`, paid for real.
+- The demo Worker, `bursar-provider`, on the account's `bursar.workers.dev` subdomain (registered the
+  same day; the first TLS certificate for the subdomain took about ninety seconds to arrive). One
+  `wrangler deploy` from `templates/cloudflare-worker`, then the facilitator token as a Workers
+  secret. The Worker holds no provider key: the demo releases each lock from the ops script, which
+  is also what the sidecar does.
 
 ## The demo
 
-Two real payments from the live example mandate `0x8605853aC6A64dA11F4ED0Ff0Ad128961Cc3cd5c` to the
+Real payments from the live example mandate `0x8605853aC6A64dA11F4ED0Ff0Ad128961Cc3cd5c` to the
 demo provider `0x5210D8df060A9D5ce4c1305045ED5c9548fca374`, through the hosted facilitator, each
-0.01 USDG, each released by the provider:
+0.01 USDG, each released by the provider. Against the deployed Worker on 2026-10-11:
+
+| Step | Transaction |
+|---|---|
+| Lock 57 opened by the mandate's `spend` for the first call to the public URL | [`0x74b1d3ae…6c1499`](https://robinhoodchain.blockscout.com/tx/0x74b1d3ae19feb591fdfdd8ee2120a58bf6fd674edf69018814fac465c26c1499) |
+| Lock 57 released by the provider, block 85918921 | [`0x1558f06b…36d2ac`](https://robinhoodchain.blockscout.com/tx/0x1558f06b2ca64b00c6880293dcdeaef586a8d9f71e9dd6aff859c286d636d2ac) |
+| Lock 59 opened for the filmed call | [`0x372a1edf…f74a2e`](https://robinhoodchain.blockscout.com/tx/0x372a1edfa91a13fd8bda7ded93a0f9ef785ddb859a6d84932375cee501f74a2e) |
+| Lock 59 released, block 85921425 | [`0x69f14705…b5fb65`](https://robinhoodchain.blockscout.com/tx/0x69f14705589215df0554bab280826bd0b71812b9839b2f53345f83ba31b5fb65) |
+
+A day earlier, against the same Worker under `wrangler dev` on the build machine:
 
 | Step | Transaction |
 |---|---|
@@ -59,13 +70,21 @@ The facilitator's `/verify` read each lock and answered valid with the mandate a
 recorded each once and broadcast nothing, which is how the escrow scheme settles. The mandate's
 balance and its daily window each moved by exactly 0.01 per call (2.434620 to 2.424620 USDG on the
 first; 2.17 to 2.16 on the filmed one, other demos having spent from the same mandate in between).
-The provider received 0.0099 USDG per call after the escrow's fee. Spend for the build: 0.02 USDG and
-about 0.00003 ETH in fees, inside the limits.
+The provider received 0.0099 USDG per call after the escrow's fee. The public calls moved the
+mandate from 1.849749 to 1.839749 USDG on the first and 1.84 to 1.83 on the filmed one. Spend for the
+build and the deployment: 0.05 USDG and about 0.0001 ETH in fees, inside the limits.
 
-Both locks show on the public desk at
+Every lock shows on the public desk at
 <https://app.bursar.world/providers/0x5210D8df060A9D5ce4c1305045ED5c9548fca374> as paid.
 
 ### Running it
+
+Against the deployed Worker, an unpaid call and then the paid one:
+
+```
+curl -i -X POST https://bursar-provider.bursar.workers.dev/render -H 'content-type: application/json' -d '{"prompt":"a koi"}'
+cd ~/Projects/bursar-ops/ops/e2e && npx tsx src/cloudflare-pay.ts https://bursar-provider.bursar.workers.dev/render
+```
 
 The Worker, locally:
 
@@ -98,24 +117,21 @@ The film came from `npx tsx film/cloudflare-film.ts <url> <out dir>` in the same
    ```
    `create-provider`'s `prepack` copies the template in and pins `@bursar/provider-worker` to the
    version just published. Publish the worker package first.
-2. **Deploy the demo Worker.** Create a Cloudflare API token with Workers Scripts: Edit on the
-   account (`c84ce11d1231d37151f0c11619349a14`, the one that owns `bursar.world`), then:
+2. **Done 2026-10-11: the demo Worker is deployed.** The Cloudflare token now carries Workers
+   Scripts: Edit on the account (`c84ce11d1231d37151f0c11619349a14`, the one that owns
+   `bursar.world`). The account had no `workers.dev` subdomain, so `bursar` was registered through
+   the API (`PUT /accounts/{id}/workers/subdomain`), then from `templates/cloudflare-worker`:
    ```
-   export CLOUDFLARE_API_TOKEN=…
-   cd templates/cloudflare-worker
+   npx wrangler deploy                                  # https://bursar-provider.bursar.workers.dev
    npx wrangler secret put BURSAR_FACILITATOR_TOKEN     # the hosted facilitator's provider token
-   npx wrangler deploy
    ```
-   The URL is `https://bursar-provider.<account subdomain>.workers.dev`. The first deploy on an
-   account may ask to register the subdomain. Optionally `npx wrangler secret put
-   BURSAR_PROVIDER_KEY` with the payee key, so the Worker releases each lock itself, and keep a
-   little ETH at the payee address for fees. For a custom route such as `api.bursar.world`, add a
-   Workers Route on the zone; the DNS token already covers the record.
-3. **Pay it once**, so the announcement links a call against the public URL:
-   `npx tsx src/cloudflare-pay.ts https://bursar-provider.<subdomain>.workers.dev/render` from
-   `~/Projects/bursar-ops/ops/e2e`, and add the two transactions to this doc.
-4. **Push the branch and open the pull request** from
-   <https://github.com/bursar-world/bursar/compare/main...bullish/cloudflare-provider>.
+   The Worker holds no `BURSAR_PROVIDER_KEY`; put the payee key there to have it release each lock
+   itself, and keep a little ETH at the payee address for fees. For a custom route such as
+   `api.bursar.world`, add a Workers Route on the zone; the token covers the record.
+3. **Done 2026-10-11: paid once against the public URL** (lock 57, then lock 59 for the film), with
+   `npx tsx src/cloudflare-pay.ts https://bursar-provider.bursar.workers.dev/render` from
+   `~/Projects/bursar-ops/ops/e2e`. The transactions are in the table above.
+4. **Done:** the branch is merged into `main` and the console is deployed from it.
 5. **Facilitator tokens.** The hosted facilitator answers providers that hold the one provider
    token. A third party who deploys this needs one; decide whether to hand out the shared token, run
    a token per provider, or open `/verify` and `/settle` to the public.
@@ -125,8 +141,9 @@ the demo keys.
 
 ## Honest limits
 
-- No Worker is deployed yet. The demo ran on this Mac under `wrangler dev`, which is the same
-  runtime, paid for real on mainnet. The deployed URL arrives with the operator's step 2.
+- The deployed Worker is a demo: a stub render at 0.01 USDG, on the shared `workers.dev` subdomain,
+  with no provider key, so a payment to it is released from the ops script rather than by the
+  Worker itself.
 - The hosted facilitator requires a bearer token on `/verify` and `/settle`. Until that changes, a
   stranger who deploys the template cannot settle without asking for a token.
 - Releasing the lock is what pays the provider. In the Worker that needs the provider's key as a
@@ -150,9 +167,9 @@ the demo keys.
 - Template: <https://github.com/bursar-world/bursar/blob/bullish/cloudflare-provider/templates/cloudflare-worker/README.md>
 - Console copy: <https://github.com/bursar-world/bursar/blob/bullish/cloudflare-provider/apps/web/src/components/worker-quickstart.tsx>
 - Branch diff: <https://github.com/bursar-world/bursar/compare/main...bullish/cloudflare-provider>
-- Pull request: to be opened from the diff above by the operator.
+- Merged into `main`; the console on app.bursar.world is deployed from it.
 - npm: https://www.npmjs.com/package/@bursar/provider-worker · https://www.npmjs.com/package/@bursar/create-provider
-- Worker URL: `https://bursar-provider.<account subdomain>.workers.dev` (after the deploy step)
+- Worker URL: <https://bursar-provider.bursar.workers.dev> (`POST /render`, 0.01 USDG)
 - Provider desk: <https://app.bursar.world/providers/0x5210D8df060A9D5ce4c1305045ED5c9548fca374>
 - Transactions: the five in the table above, on robinhoodchain.blockscout.com
 
@@ -160,15 +177,17 @@ the demo keys.
 
 Under `docs/bullish/cloudflare-provider/`, 1440×900, no keys in frame:
 
-- `01-deploy.png`: `wrangler deploy` (dry run, no account), `wrangler dev` ready, and the Worker
+- `01-deploy.png`: the real `wrangler deploy`, the secret going in, and the deployed Worker
   answering 402 to an unpaid `curl`.
-- `02-402.png`: the agent's terminal reading the 402: 0.01 USDG, the provider, the capability, the
-  two schemes.
-- `03-paid.png`: the mandate pays, lock 35 opens, the Worker answers 200, the settlement reports
+- `02-402.png`: the agent's terminal reading the 402 from the public URL: 0.01 USDG, the provider,
+  the capability, the two schemes.
+- `03-paid.png`: the mandate pays, lock 59 opens, the Worker answers 200, the settlement reports
   the payer, the provider releases, the mandate's balance and window move by 0.01.
-- `04-desk.png`: the provider desk listing locks 35 and 32 as paid.
-- `05-receipt.png`: the release transaction on the explorer.
-- `demo.webm`: 34 seconds, the filmed call from 402 to release, then the desk and the receipt.
+- `04-desk.png`: the provider desk listing locks 59, 58 and 57 as paid.
+- `05-receipt.png`: the release transaction on the explorer, 0.0099 USDG from the escrow to the
+  provider.
+- `demo.webm`: 44 seconds, the filmed call against the deployed Worker from 402 to release, then
+  the desk and the receipt.
 
 ![The mandate pays the Worker and the provider releases](cloudflare-provider/03-paid.png)
 
@@ -176,8 +195,8 @@ A Cloudflare Worker can now charge agents for a route. Install `@bursar/provider
 fetch handler, put a price on the route in `wrangler.toml` and deploy. An agent that calls the route
 without paying gets a 402 with the price in USDG. One that pays from its Bursar mandate gets the
 result, the payment lands in escrow for the provider on Robinhood Chain, and the mandate's limits
-hold on chain. The first paid calls ran today at $0.01 each, lock, settlement and release on the
-chain. `npm create @bursar/provider my-api` writes the whole project.
+hold on chain. The first paid calls to a deployed Worker ran today at $0.01 each, lock, settlement
+and release on the chain. `npm create @bursar/provider my-api` writes the whole project.
 
 ## Announcement
 
@@ -188,9 +207,9 @@ package, set a price, deploy with wrangler.
 `@bursar/provider-worker`, wrap the fetch handler, put a price on the route in `wrangler.toml` and
 deploy. An agent that calls the route without paying gets a 402 with the price in USDG. One that
 pays from its Bursar mandate gets the result, the payment lands in escrow for the provider on
-Robinhood Chain, and the mandate's limits hold on chain. The first paid calls ran today at $0.01
-each, lock, settlement and release on the chain. `npm create @bursar/provider my-api` writes the
-whole project.
+Robinhood Chain, and the mandate's limits hold on chain. The first paid calls to a deployed Worker
+ran today at $0.01 each, lock, settlement and release on the chain. `npm create @bursar/provider
+my-api` writes the whole project.
 
 **One post.**
 
@@ -215,9 +234,9 @@ What an agent sees: a 402 with the price, payable from its mandate. The mandate 
 the amount in escrow for you, inside the limits its principal set, and the call goes through. You
 are paid when the lock is released, which the Worker does itself once it holds your key.
 
-Today's first calls: an agent paid 0.01 USDG for a render, the Worker answered, the payment
-settled and the provider released. Lock, settlement and release are on the chain:
-robinhoodchain.blockscout.com/tx/0x0d2ed14efd468ba606b67f63f3d4b06b4d58ac37cd20c1aea9e077a012d47074.
+Today's first calls, against a Worker on workers.dev: an agent paid 0.01 USDG for a render, the
+Worker answered, the payment settled and the provider released. Lock, settlement and release are on
+the chain: robinhoodchain.blockscout.com/tx/0x69f14705589215df0554bab280826bd0b71812b9839b2f53345f83ba31b5fb65.
 
 Docs and the template: app.bursar.world/docs.
 
@@ -234,3 +253,4 @@ Docs and the template: app.bursar.world/docs.
   its tests green. First commit.
 - 17:45 UTC. Console copy on the Developers page, the provider desk and the providers page, with a
   test. Filmed the second call (lock 35) with the desk and the receipt; screenshots taken.
+- 2026-10-11 15:00 UTC. The Cloudflare token gained Workers Scripts: Edit; registered the `bursar` workers.dev subdomain, deployed the template Worker, set the facilitator token, paid it from the example mandate (lock 57) and refilmed the flow against the public URL (lock 59). Frames and film replaced; the receipt frame now waits for the explorer's transfer row.
