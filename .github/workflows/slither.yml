@@ -177,7 +177,7 @@ jobs:
 
       # Uploaded whether or not the run passed, so a failing run shows its findings in code
       # scanning as well as in the log. A run that could not build writes no file and skips this.
-      - uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+      - uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         if: ${{ !cancelled() && hashFiles('contracts/results.sarif') != '' }}
         with:
           sarif_file: contracts/results.sarif
