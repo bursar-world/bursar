@@ -516,7 +516,7 @@ async function readHistory(address: Address): Promise<{ readonly activity: reado
         activity.push({ key, kind: 'Accepted', detail: 'The agent’s owner accepted the endowment', block, hash });
         break;
       case 'Snapshot':
-        activity.push({ key, kind: 'Valued', detail: `Monthly valuation ${amount('nav')}`, block, hash });
+        activity.push({ key, kind: 'Valued', detail: `Quarterly valuation ${amount('nav')}`, block, hash });
         break;
       case 'Lapsed':
         activity.push({ key, kind: 'Passed on', detail: 'The agent stopped drawing', block, hash });
@@ -537,7 +537,8 @@ function shares(raw: bigint, decimals: number): string {
 }
 
 function signed(value: bigint): string {
-  if (value === 0n) return usd(0n as Micro);
+  // Under half a cent either way reads as nothing, not as a signed zero.
+  if (value > -5_000n && value < 5_000n) return usd(0n as Micro);
   return value < 0n ? `−${usd(-value as Micro)}` : `+${usd(value as Micro)}`;
 }
 

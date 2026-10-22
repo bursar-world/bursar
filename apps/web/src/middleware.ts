@@ -33,4 +33,6 @@ export function middleware(request: NextRequest): NextResponse {
  * last entry is every other page path: not the framework's files, the API or a file with an
  * extension.
  */
-export const config = { matcher: ['/console/:path*', '/providers/:path*', '/((?!_next/|api/|console|providers)[^.]+)'] };
+export const config = {
+  matcher: ['/console/:path*', '/providers/:path*', '/endowments/:path*', '/((?!_next/|api/|console|providers|endowments)[^.]+)'],
+};

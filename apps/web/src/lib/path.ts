@@ -24,6 +24,7 @@ export type AddressRoute = { readonly prefix: string; readonly reserved: Readonl
 export const ADDRESS_ROUTES: readonly AddressRoute[] = [
   { prefix: 'console', reserved: new Set(['new', 'private', 'shielded']) },
   { prefix: 'providers', reserved: new Set() },
+  { prefix: 'endowments', reserved: new Set(['new']) },
 ];
 
 /** The text this route puts where an address belongs, or nothing when the URL names none. */
@@ -56,6 +57,7 @@ export const TOP_ROUTES: ReadonlySet<string> = new Set([
   'console',
   'demo',
   'docs',
+  'endowments',
   'governance',
   'ops',
   'providers',
