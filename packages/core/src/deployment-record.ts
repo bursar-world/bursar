@@ -101,6 +101,19 @@ export type Deployment = {
   readonly rwa?: RwaDeployment;
   /** Committed mandates, disclosure grants and the solvency log (M4), where deployed. */
   readonly privacy?: PrivacyDeployment;
+  /** Endowments for ERC-8004 agents and the patron marks they mint, where deployed. */
+  readonly endowments?: EndowmentsDeployment;
+};
+
+export type EndowmentsDeployment = {
+  readonly EndowmentFactory: Address;
+  readonly PatronMark: Address;
+  /** The ERC-8004 identity registry whose agents are endowed. */
+  readonly IdentityRegistry: Address;
+  /** The protocol's share of each draw, in basis points. */
+  readonly feeBps: number;
+  /** First block to scan for endowment events. */
+  readonly fromBlock: number;
 };
 
 export type PrivacyDeployment = {
@@ -306,6 +319,7 @@ export function parseDeployment(json: unknown, label = 'record'): Deployment {
 
   const rwa = record['rwa'] === undefined ? undefined : parseRwa(record['rwa'], `${name}.rwa`);
   const privacy = record['privacy'] === undefined ? undefined : parsePrivacy(record['privacy'], name);
+  const endowments = record['endowments'] === undefined ? undefined : parseEndowments(record['endowments'], name);
 
   const optionalString = (key: string): string | undefined => {
     const value = record[key];
@@ -355,7 +369,27 @@ export function parseDeployment(json: unknown, label = 'record'): Deployment {
     ...(optionalString('note') === undefined ? {} : { note: optionalString('note') }),
     ...(rwa === undefined ? {} : { rwa }),
     ...(privacy === undefined ? {} : { privacy }),
+    ...(endowments === undefined ? {} : { endowments }),
   }) as Deployment;
+}
+
+function parseEndowments(json: unknown, name: string): EndowmentsDeployment {
+  const r = object(json, name, 'endowments');
+  const label = `${name}.endowments`;
+  const whole = (key: string): number => {
+    const value = r[key];
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+      throw new DeploymentError(label, `${key} is not a whole number.`);
+    }
+    return value;
+  };
+  return Object.freeze({
+    EndowmentFactory: address(r, label, 'EndowmentFactory'),
+    PatronMark: address(r, label, 'PatronMark'),
+    IdentityRegistry: address(r, label, 'IdentityRegistry'),
+    feeBps: whole('feeBps'),
+    fromBlock: whole('fromBlock'),
+  });
 }
 
 function parsePrivacy(json: unknown, name: string): PrivacyDeployment {

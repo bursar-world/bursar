@@ -45,6 +45,9 @@ const CONTRACTS = {
   DisclosureRegistry: 'disclosureRegistryAbi',
   SolvencyLog: 'solvencyLogAbi',
   WithinMandateVerifier: 'withinMandateVerifierAbi',
+  Endowment: 'endowmentAbi',
+  EndowmentFactory: 'endowmentFactoryAbi',
+  PatronMark: 'patronMarkAbi',
 } as const;
 
 /**

@@ -99,6 +99,7 @@ export type {
   RwaAssetRecord,
   CollateralDeployment,
   PrivacyDeployment,
+  EndowmentsDeployment,
   ShieldedDeployment,
   RwaDeployment,
 } from './deployments.js';
@@ -113,11 +114,14 @@ export {
   committedMandateFactoryAbi,
   creditPoolAbi,
   disclosureRegistryAbi,
+  endowmentAbi,
+  endowmentFactoryAbi,
   escrowAbi,
   mandateAccountAbi,
   mandateAccountFactoryAbi,
   oracleRegistryAbi,
   parkAdapterAbi,
+  patronMarkAbi,
   priceGuardAbi,
   reputationAbi,
   settlementAssetAbi,
@@ -141,6 +145,7 @@ export {
 } from './rwa.js';
 export type { DrawHalt } from './rwa.js';
 export { privacyDeployment } from './privacy.js';
+export { endowmentsDeployment } from './endowments.js';
 
 export {
   adminTimelockAbiV1,

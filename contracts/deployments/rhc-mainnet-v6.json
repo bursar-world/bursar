@@ -647,5 +647,12 @@
     "agent": "0x877c349EFb5926082C413833E8055F0991185c61",
     "factory": "0xC42dBCbd34E64e2D81B48866F673ddB7B42ba562",
     "salt": "0x30690439d27020f85df2cbe5d6ecede72aaebf2add8172bc06fafd7dd4cf43d7"
+  },
+  "endowments": {
+    "EndowmentFactory": "0xb22Ff7d1f434C65feC0a0dcDA13Db65Db347C565",
+    "PatronMark": "0xF269c1E8b1961D55FCBbc8ACC269c3BD21D9d1b9",
+    "IdentityRegistry": "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
+    "fromBlock": 95402825,
+    "feeBps": 500
   }
 }

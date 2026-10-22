@@ -25,6 +25,7 @@ export type {
   RwaAssetRecord,
   CollateralDeployment,
   PrivacyDeployment,
+  EndowmentsDeployment,
   ShieldedDeployment,
   RwaDeployment,
 } from './deployment-record.js';
