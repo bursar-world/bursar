@@ -842,6 +842,35 @@ next      The resolvers scored the delivery 15 out of 100 and the escrow has mov
 Run again on the same chain, it opens dispute 2, and the two seats the first run bonded vote
 without bonding again.
 
+## Endowing an agent
+
+`endowments()` starts an endowment for any agent on the ERC-8004 identity registry on 4663, and
+`endowment(address)` reads and runs one. The principal is held in listed stocks, bought under the
+same price guard as a mandate's purchases. The agent is paid a yearly draw, set once a quarter: a
+share of the average of the last twelve quarterly valuations, moved at most 5% a quarter, kept
+between 3% and 6% of the principal, and stopped while the principal is worth under 80% of what was
+put in. Nothing accrues until the identity's owner accepts and names the mandate the draw is paid
+into, and that mandate's limits govern what the agent spends.
+
+```ts
+import { endowment, endowments, usdg } from '@bursar/sdk';
+
+const factory = await endowments({ account: PATRON_KEY });
+const { endowment: address } = await factory.create({ agentId: 8756n }, usdg('25'));
+
+// The agent's owner accepts, naming the mandate the draw is paid into.
+const owned = await endowment(address, { account: OWNER_KEY });
+await owned.accept(MANDATE);
+
+// Later, the owner or the mandate's agent pulls what has accrued.
+const { amount, fee } = await owned.draw();
+```
+
+Anyone can add with `give()`. A gift of a dollar or more mints a patron mark, which cannot be
+transferred. Gifts are irrevocable once the owner accepts; an endowment never accepted within 180
+days lets each patron take back their share. `invest()`, `refill()` and `snapshot()` keep the
+principal and can be sent by anyone.
+
 ## Notes
 
 - Every write is simulated before it is sent. A call that would revert throws an error that says

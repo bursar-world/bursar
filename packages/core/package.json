@@ -1,6 +1,6 @@
 {
   "name": "@bursar/core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Shared types, deployment records, RPC pooling and money arithmetic for Bursar spending mandates on Robinhood Chain.",
   "keywords": [
     "bursar",

@@ -47,6 +47,15 @@ reaches the chain. And the money is what the principal has already funded the ma
 there is no credit here. The escrow also locks nothing under its floor, which `mandate_inspect`
 reports, so a smaller payment is refused before it is sent.
 
+## What an endowed agent gets
+
+When the record carries endowments, two more tools are offered.
+
+| Tool | What it does |
+| --- | --- |
+| `endowment_status` | The endowments that fund this mandate's agent: what the principal holds and is worth, the yearly draw and what has accrued, and whether the owner has accepted. It finds the endowments paying this mandate, plus the agent's own when `BURSAR_AGENT_ID` names its ERC-8004 id. |
+| `endowment_draw` | Moves what has accrued into this mandate, less the protocol's share. Offered only when this server signs as the mandate's agent. |
+
 ## What an agent spending a private mandate gets
 
 A private mandate keeps its terms off chain, and its owner and agent sit at fresh addresses that
@@ -265,6 +274,7 @@ the mandate's writes and leaves the resolver's and the provider's off, because i
 | `BURSAR_SIGNER` | for spending in this process | `local` signs here with `BURSAR_SIGNER_KEY`. Anything else, or unset, signs through `BURSAR_RELAY_URL` or not at all. |
 | `BURSAR_SIGNER_KEY` | with `BURSAR_SIGNER=local` | The 32-byte key this server signs the mandate's transactions with. It never leaves the process and is scrubbed from everything it prints. Refused unless `BURSAR_SIGNER=local` says to hold it. |
 | `BURSAR_AGENT_KEY_FILE` | for a private mandate | The agent key file the owner exported. It sets the mandate, the key and the terms. Needs `BURSAR_SIGNER=local`. |
+| `BURSAR_AGENT_ID` | no | The mandate's agent on the ERC-8004 identity registry. With it, `endowment_status` also lists endowments the owner has not accepted yet. |
 | `BURSAR_RELAY_URL` | for spending through your own signer | The signer that submits transactions for this mandate, and the only way to sign for a resolver or a provider. |
 | `BURSAR_RELAY_TOKEN` | no | Bearer token for the signer. Scrubbed from everything this server emits. |
 | `BURSAR_RELAY_TIMEOUT_MS` | no | Defaults to 30000. |
