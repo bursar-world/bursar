@@ -2419,14 +2419,15 @@ export const RAW_DEPLOYMENTS: Readonly<Record<RawDeploymentName, unknown>> = {
     "fromBlock": 77687902,
     "guardKeeper": "0x4c55AE3Fd264d9932A673B7CfBF80fCB112679BD",
     "PriceGuard": "0x41a719D866ADA35BcE10570314312C186570310A",
-    "StockSpendRouter": "0xBF6bC24d44f5A432a5682De650981A1885D31660",
+    "StockSpendRouter": "0x656962e2D2D9F2BD1fAbB2b239Bf0f59dCaFbBBe",
     "collateral": {
       "CreditPool": "0x06b3b031faeDE8007daDC9581bDC1F35E0811E4B",
       "CollateralVault": "0xe8e2B5D7Ea9102471fA96E0e789704fff46880f7",
       "Staking": "0x31CbD06003089B00897F0d7e3c283C66a1768d9A",
       "lender": "0x6B6fC40Ed9652728A9B620C4e1B05fBF4F9712a4",
       "fromBlock": 80661666
-    }
+    },
+    "previousStockRouter": "0xBF6bC24d44f5A432a5682De650981A1885D31660"
   },
   "privacy": {
     "WithinMandateVerifier": "0xFF4b6B355c2A923fdf585BC4DaBec152D615B459",
