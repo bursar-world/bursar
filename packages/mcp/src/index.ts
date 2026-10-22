@@ -4,6 +4,8 @@ export type { ContextOptions } from './server.js';
 export { loadConfig, secretsOf } from './config.js';
 export type { LocalSignerConfig, McpConfig, ProviderConfig, RelayConfig, ResolverConfig } from './config.js';
 
+export { ENDOWMENT_TOOLS, createEndowmentGateway } from './endowment.js';
+export type { EndowmentDrawView, EndowmentGateway, EndowmentGatewayOptions, EndowmentStatusView, EndowmentView } from './endowment.js';
 export { createChainGateway } from './gateway.js';
 export type { ChainGatewayOptions } from './gateway.js';
 

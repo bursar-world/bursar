@@ -8,6 +8,7 @@ import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {BursarScript} from "./lib/BursarScript.sol";
 import {RecordKeys as K} from "./lib/RecordKeys.sol";
 
+import {EndowmentDeployer} from "../src/endowment/EndowmentDeployer.sol";
 import {EndowmentFactory} from "../src/endowment/EndowmentFactory.sol";
 import {PatronMark} from "../src/endowment/PatronMark.sol";
 import {AssetRegistry} from "../src/rwa/AssetRegistry.sol";
@@ -24,11 +25,12 @@ import {StockSpendRouter} from "../src/rwa/StockSpendRouter.sol";
 ///   forge script script/DeployEndowments.s.sol --rpc-url "$RHC_RPC_URL" --keystore "$KEYS/rh-deployer" [--broadcast]
 contract DeployEndowments is BursarScript {
     address private constant IDENTITY = 0x8004A169FB4a3325136EB29fA0ceB6D2e539a432;
-    uint16 private constant FEE_BPS = 500;
+    uint16 private constant FEE_BPS = 100;
     string private constant MARK_BASE_URI = "https://app.bursar.world/api/marks/";
 
     string private constant FACTORY = ".endowments.EndowmentFactory";
     string private constant MARKS = ".endowments.PatronMark";
+    string private constant MAKER = ".endowments.EndowmentDeployer";
     string private constant IDENTITY_KEY = ".endowments.IdentityRegistry";
     string private constant FROM_BLOCK = ".endowments.fromBlock";
     string private constant FEE = ".endowments.feeBps";
@@ -49,12 +51,18 @@ contract DeployEndowments is BursarScript {
         _expect("router.guard", address(guard), address(router.guard()));
         _expect("router.usdg", usdg, address(router.usdg()));
 
+        // SPY holds the S&P 500; every other listed stock is one company, or one commodity fund.
+        address[] memory diversified = new address[](1);
+        diversified[0] = _recordAddress(".rwa.assets.SPY.address");
+
         uint256 fromBlock = _chainBlock();
-        address predicted = vm.computeCreateAddress(deployer, vm.getNonce(deployer) + 1);
+        // The deployer, then the marks naming the factory's address, then the factory.
+        address predicted = vm.computeCreateAddress(deployer, vm.getNonce(deployer) + 2);
         vm.startBroadcast(deployer);
+        EndowmentDeployer maker = new EndowmentDeployer();
         PatronMark marks = new PatronMark(predicted, MARK_BASE_URI);
         factory = new EndowmentFactory(
-            router, guard, registry, IERC20(usdg), IERC721(IDENTITY), treasury, FEE_BPS, guardian, marks
+            router, guard, registry, IERC20(usdg), IERC721(IDENTITY), treasury, FEE_BPS, guardian, marks, diversified, maker
         );
         vm.stopBroadcast();
 
@@ -63,6 +71,7 @@ contract DeployEndowments is BursarScript {
 
         _write(FACTORY, address(factory));
         _write(MARKS, address(factory.marks()));
+        _write(MAKER, address(maker));
         _write(IDENTITY_KEY, IDENTITY);
         _write(FROM_BLOCK, fromBlock);
         _write(FEE, uint256(FEE_BPS));

@@ -1,5 +1,6 @@
 import {
   BursarError,
+  endowmentsDeployment,
   formatMicro,
   micro,
   privacyDeployment,
@@ -17,6 +18,7 @@ import {
 } from '@bursar/core';
 import type {
   Deployment,
+  EndowmentsDeployment,
   EnvSource,
   PrivacyDeployment,
   RhcChain,
@@ -133,6 +135,13 @@ export type McpConfig = {
    * one. Null when that record carries none, and the tools that need it are then refused or absent.
    */
   readonly rwa: RwaDeployment | null;
+  /** The endowment factory of the record this server reads. Null when it carries none. */
+  readonly endowments: EndowmentsDeployment | null;
+  /**
+   * The agent's id on the ERC-8004 identity registry, from BURSAR_AGENT_ID. It finds endowments the
+   * owner has not accepted yet; accepted ones are found by the mandate they pay.
+   */
+  readonly agentId: bigint | null;
   /** Null unless this server acts for a resolver. */
   readonly resolver: ResolverConfig | null;
   /** Null unless this server acts for a provider. */
@@ -173,6 +182,8 @@ const SCHEMA = {
   // A private mandate's key file, exported by the owner's console. It carries the agent key, so it
   // is read only under BURSAR_SIGNER=local, like the key above.
   BURSAR_AGENT_KEY_FILE: optional(envVar.string({ minLength: 1 })),
+  // The bound mandate's agent on the ERC-8004 identity registry, which endowments are made out to.
+  BURSAR_AGENT_ID: optional(envVar.string({ minLength: 1, pattern: /^[0-9]{1,78}$/u })),
   BURSAR_RELAY_URL: optional(envVar.url({ protocols: ['http:', 'https:'] })),
   // A shielded balance the principal handed this agent, and the services it spends through. The
   // relayer (services/relayer) is a different thing from the signer relay above: it submits pool
@@ -263,6 +274,8 @@ export function loadConfig(source: EnvSource = process.env): McpConfig {
     escrows: env.MANDATE_ESCROW === undefined && deployed !== null ? deployed.escrows : [escrow],
     settlementAsset: env.BURSAR_SETTLEMENT_ASSET ?? deployed?.settlementAsset ?? chain.usdg,
     rwa: deployed?.rwa ?? null,
+    endowments: deployed?.endowments ?? null,
+    agentId: env.BURSAR_AGENT_ID === undefined ? null : BigInt(env.BURSAR_AGENT_ID),
     resolver,
     provider,
     relay:
@@ -593,6 +606,7 @@ function deployedContracts(chainId: number, path: string | undefined): {
   reputation: Address;
   rwa: RwaDeployment | undefined;
   privacy: PrivacyDeployment | undefined;
+  endowments: EndowmentsDeployment | undefined;
 } | null {
   const supplied = path !== undefined;
   const record = supplied ? readRecord(path, chainId) : answeringRecord(chainId);
@@ -607,6 +621,7 @@ function deployedContracts(chainId: number, path: string | undefined): {
     reputation: record.contracts.Reputation,
     rwa: supplied ? record.rwa : rwaDeployment(chainId),
     privacy: supplied ? record.privacy : privacyDeployment(chainId),
+    endowments: supplied ? record.endowments : endowmentsDeployment(chainId),
   };
 }
 

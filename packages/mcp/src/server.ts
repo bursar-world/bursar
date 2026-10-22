@@ -16,6 +16,7 @@ import { createProviderGateway } from './provider.js';
 import { createResolverGateway } from './resolver.js';
 import { createShieldedGateway } from './shielded.js';
 import { createCollateralGateway } from './collateral.js';
+import { createEndowmentGateway } from './endowment.js';
 import { createHttpRelay } from './relay.js';
 import { createLocalSigner } from './signer.js';
 import { callTool, redactSecrets, toolsFor } from './tools.js';
@@ -120,6 +121,18 @@ export function createContext(config: McpConfig, options: ContextOptions = {}): 
             key: signer === null || config.signer === null ? null : config.signer.key,
             rwa: config.rwa,
             settlementAsset: config.settlementAsset,
+          }),
+    endowment:
+      config.account === null || config.privateMandate !== null
+        ? null
+        : createEndowmentGateway({
+            client,
+            chain: config.chain,
+            account: config.account,
+            key: signer === null || config.signer === null ? null : config.signer.key,
+            endowments: config.endowments,
+            agentId: config.agentId,
+            rwa: config.rwa,
           }),
     gateway:
       config.account === null || config.privateMandate !== null

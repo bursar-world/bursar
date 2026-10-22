@@ -6,6 +6,7 @@ import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {Endowment} from "../../src/endowment/Endowment.sol";
+import {EndowmentDeployer} from "../../src/endowment/EndowmentDeployer.sol";
 import {EndowmentFactory} from "../../src/endowment/EndowmentFactory.sol";
 import {PatronMark} from "../../src/endowment/PatronMark.sol";
 import {RwaFixture} from "../rwa/RwaFixture.sol";
@@ -46,6 +47,7 @@ contract EndowmentTest is RwaFixture {
         identity = new MockIdentity();
         identity.set(AGENT, principal);
         identity.set(SUCCESSOR, successorOwner);
+        EndowmentDeployer maker = new EndowmentDeployer();
         factory = new EndowmentFactory(
             router,
             guard,
@@ -53,9 +55,11 @@ contract EndowmentTest is RwaFixture {
             IERC20(address(usdg)),
             IERC721(address(identity)),
             treasury,
-            500,
+            100,
             guardianKey,
-            new PatronMark(vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1), "https://app.bursar.world/api/marks/")
+            new PatronMark(vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1), "https://app.bursar.world/api/marks/"),
+            _diversified(),
+            maker
         );
         marks = factory.marks();
         for (uint256 i; i < 3; ++i) {
@@ -151,9 +155,9 @@ contract EndowmentTest is RwaFixture {
         uint256 paid = e.draw();
 
         assertEq(paid, owed);
-        assertEq(usdg.balanceOf(treasury), paid / 20);
-        assertEq(usdg.balanceOf(address(acct)), before + paid - paid / 20);
-        assertEq(e.drawn(), paid - paid / 20);
+        assertEq(usdg.balanceOf(treasury), paid / 100);
+        assertEq(usdg.balanceOf(address(acct)), before + paid - paid / 100);
+        assertEq(e.drawn(), paid - paid / 100);
         assertEq(e.accrued(), 0);
         assertEq(e.lastActive(), block.timestamp);
     }
@@ -284,14 +288,22 @@ contract EndowmentTest is RwaFixture {
         e.reclaim();
     }
 
-    function test_reclaim_opensAtOnceWhenAQuietAgentHasNoSuccessor() public {
+    function test_lapse_withNoSuccessorRestsUntilTheSettlorNamesOne() public {
         Endowment e = _accepted(100e6);
         vm.warp(block.timestamp + 180 days);
         e.lapse();
+        assertFalse(e.accepted());
 
         vm.prank(settlor);
+        vm.expectRevert(abi.encodeWithSelector(Endowment.RefundsClosed.selector, e.createdAt() + 180 days));
         e.reclaim();
-        assertEq(usdg.balanceOf(address(e)), 0);
+
+        vm.prank(settlor);
+        e.setSuccessor(SUCCESSOR);
+        assertEq(e.agentId(), SUCCESSOR);
+        vm.prank(successorOwner);
+        e.accept(address(acct));
+        assertTrue(e.accepted());
     }
 
     function test_freeze_stopsTheDrawAndIsTheGuardiansAlone() public {
@@ -312,24 +324,87 @@ contract EndowmentTest is RwaFixture {
         assertEq(e.accrued(), 0);
     }
 
-    function test_snapshot_isMonthlyAndTheDrawFollowsTheAverage() public {
-        Endowment e = _accepted(100e6);
-        e.invest();
-        e.invest();
-        e.invest();
+    function test_snapshot_isQuarterlyAndAJumpIsHeldToTheCollar() public {
+        Endowment e = _invested(100e6);
+        uint256 first = e.annualDraw();
+        assertEq(first, 4e6);
 
-        vm.expectRevert(abi.encodeWithSelector(Endowment.TooSoon.selector, block.timestamp + 30 days));
+        vm.expectRevert(abi.encodeWithSelector(Endowment.TooSoon.selector, block.timestamp + 90 days));
         e.snapshot();
 
-        vm.warp(block.timestamp + 30 days);
-        uint256 higher = SPY_E8 * 2;
-        spyFeed.set(int256(higher), block.timestamp);
-        _setPool(spy, higher);
-        e.snapshot();
-
-        uint256 now_ = e.state().nav;
+        _quarterAt(SPY_E8 * 2);
+        uint256 counted = e.state().nav;
         assertEq(e.snapshotsTaken(), 2);
-        assertEq(e.averageNav(), (100e6 + now_) / 2);
+        assertEq(e.averageNav(), (100e6 + counted) / 2);
+        // Four percent of the average is above the 5% step from last quarter, and 3% of a principal
+        // that doubled is above both: the floor of the collar sets the draw.
+        assertEq(e.annualDraw(), counted * 300 / 10_000);
+    }
+
+    function test_collar_movesAQuietQuarterByAtMostFivePercent() public {
+        Endowment e = _invested(100e6);
+        _quarterAt(SPY_E8 * 85 / 100);
+        // Four percent of an average of 100 and about 85 is under last quarter's 4.0 less 5%.
+        assertEq(e.annualDraw(), 3.8e6);
+    }
+
+    function test_collar_stopsTheDrawWhileThePrincipalIsUnderwater() public {
+        Endowment e = _invested(100e6);
+        _quarterAt(SPY_E8 / 2);
+
+        assertEq(e.annualDraw(), 0);
+        assertTrue(e.state().underwater);
+        vm.warp(block.timestamp + 30 days);
+        // What accrued before the valuation is still owed; nothing accrues after it.
+        uint256 owed = e.accrued();
+        assertEq(owed, Math.mulDiv(4e6, 90 days, 365 days));
+    }
+
+    function test_aging_aGiftCountsFromTheValuationAfterNext() public {
+        Endowment e = _invested(100e6);
+        vm.warp(block.timestamp + 90 days);
+        spyFeed.set(int256(SPY_E8), block.timestamp);
+        vm.startPrank(patron);
+        usdg.approve(address(e), type(uint256).max);
+        e.give(100e6);
+        vm.stopPrank();
+
+        e.snapshot();
+        assertApproxEqRel(e.averageNav(), 100e6, 0.01e18);
+        assertEq(e.pending(), 0);
+
+        vm.warp(block.timestamp + 90 days);
+        spyFeed.set(int256(SPY_E8), block.timestamp);
+        e.snapshot();
+        assertGt(e.averageNav(), 130e6);
+    }
+
+    function test_factory_holdsAConcentratedPrincipalTo3_5Percent() public {
+        EndowmentDeployer narrowMaker = new EndowmentDeployer();
+        EndowmentFactory narrow = new EndowmentFactory(
+            router,
+            guard,
+            reg,
+            IERC20(address(usdg)),
+            IERC721(address(identity)),
+            treasury,
+            100,
+            guardianKey,
+            new PatronMark(vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1), ""),
+            new address[](0),
+            narrowMaker
+        );
+        Endowment.Terms memory t = _terms();
+        vm.expectRevert(abi.encodeWithSelector(EndowmentFactory.BadDraw.selector, 400));
+        narrow.create(t, 0);
+
+        t.drawBps = 350;
+        narrow.create(t, 0);
+    }
+
+    function _diversified() internal view returns (address[] memory d) {
+        d = new address[](1);
+        d[0] = address(spy);
     }
 
     function _terms() internal view returns (Endowment.Terms memory t) {
@@ -351,5 +426,21 @@ contract EndowmentTest is RwaFixture {
         e = _create(gift);
         vm.prank(principal);
         e.accept(address(acct));
+    }
+
+    /// Accepted, with everything above the sleeve bought into SPY.
+    function _invested(uint256 gift) internal returns (Endowment e) {
+        e = _accepted(gift);
+        while (usdg.balanceOf(address(e)) > e.sleeveTarget() + 1e6) {
+            e.invest();
+        }
+    }
+
+    /// A quarter later, with SPY's feed and pool at `priceE8`, and the quarter's valuation taken.
+    function _quarterAt(uint256 priceE8) internal {
+        vm.warp(block.timestamp + 90 days);
+        spyFeed.set(int256(priceE8), block.timestamp);
+        _setPool(spy, priceE8);
+        Endowment(factory.all(factory.count() - 1)).snapshot();
     }
 }

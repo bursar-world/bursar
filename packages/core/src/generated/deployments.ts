@@ -2482,11 +2482,12 @@ export const RAW_DEPLOYMENTS: Readonly<Record<RawDeploymentName, unknown>> = {
     "salt": "0x30690439d27020f85df2cbe5d6ecede72aaebf2add8172bc06fafd7dd4cf43d7"
   },
   "endowments": {
-    "EndowmentFactory": "0xb22Ff7d1f434C65feC0a0dcDA13Db65Db347C565",
-    "PatronMark": "0xF269c1E8b1961D55FCBbc8ACC269c3BD21D9d1b9",
+    "EndowmentFactory": "0x18a4961C3e5c201e76cdD580c22BB2a3cd3d3E6c",
+    "PatronMark": "0x22bD65261dFAbdD7c584ca42E6fFA352573e66a5",
     "IdentityRegistry": "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
-    "fromBlock": 95402825,
-    "feeBps": 500
+    "fromBlock": 95410861,
+    "feeBps": 100,
+    "EndowmentDeployer": "0xeBD96536f3fb8E4c5eF9a06b91abe218C9273741"
   }
 },
   "rhc-mainnet": {

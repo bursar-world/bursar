@@ -15596,6 +15596,71 @@ export const endowmentAbi = [
   },
   {
     "type": "function",
+    "name": "CAP_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "CHANGE_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "FIRST_YEAR_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "FIRST_YEAR_SNAPSHOTS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "FLOOR_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "FOUNDING",
     "inputs": [],
     "outputs": [
@@ -15713,6 +15778,19 @@ export const endowmentAbi = [
   },
   {
     "type": "function",
+    "name": "UNDERWATER_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "accept",
     "inputs": [
       {
@@ -15778,6 +15856,19 @@ export const endowmentAbi = [
   },
   {
     "type": "function",
+    "name": "annualDraw",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "assets",
     "inputs": [],
     "outputs": [
@@ -15797,6 +15888,32 @@ export const endowmentAbi = [
   {
     "type": "function",
     "name": "averageNav",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "banked",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "contributed",
     "inputs": [],
     "outputs": [
       {
@@ -15920,6 +16037,19 @@ export const endowmentAbi = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "everAccepted",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "stateMutability": "view"
@@ -16209,6 +16339,19 @@ export const endowmentAbi = [
   },
   {
     "type": "function",
+    "name": "pending",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "principal",
     "inputs": [],
     "outputs": [
@@ -16478,6 +16621,31 @@ export const endowmentAbi = [
           },
           {
             "name": "unacceptedSince",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "contributed",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "pending",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "everAccepted",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "underwater",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "lastSnapshotAt",
             "type": "uint64",
             "internalType": "uint64"
           }
@@ -17017,6 +17185,16 @@ export const endowmentFactoryAbi = [
         "name": "marks_",
         "type": "address",
         "internalType": "contract PatronMark"
+      },
+      {
+        "name": "diversified_",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "deployer_",
+        "type": "address",
+        "internalType": "contract EndowmentDeployer"
       }
     ],
     "stateMutability": "nonpayable"
@@ -17030,6 +17208,19 @@ export const endowmentFactoryAbi = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MAX_CONCENTRATED_DRAW_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
       }
     ],
     "stateMutability": "view"
@@ -17147,6 +17338,38 @@ export const endowmentFactoryAbi = [
       }
     ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "deployer",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract EndowmentDeployer"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "diversified",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",

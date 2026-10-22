@@ -5,11 +5,14 @@ import {
   assetRegistryAbi,
   collateralVaultAbi,
   creditPoolAbi,
+  endowmentAbi,
+  endowmentFactoryAbi,
   escrowAbi,
   mandateAccountAbi,
   mandateAccountFactoryAbi,
   oracleRegistryAbi,
   parkAdapterAbi,
+  patronMarkAbi,
   priceGuardAbi,
   reputationAbi,
   settlementAssetAbi,
@@ -78,6 +81,9 @@ const DEPLOYMENT_ABIS = [
   ...parkAdapterAbi,
   ...collateralVaultAbi,
   ...creditPoolAbi,
+  ...endowmentAbi,
+  ...endowmentFactoryAbi,
+  ...patronMarkAbi,
 ] as unknown as Abi;
 
 const REVERT_ABI: Abi = DEPLOYMENT_ABIS.filter((item) => item.type === 'error');

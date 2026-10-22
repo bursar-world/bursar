@@ -16,15 +16,18 @@ import {PatronMark} from "./PatronMark.sol";
 /// An endowment for one agent on the ERC-8004 identity registry.
 ///
 /// The principal is held in listed stocks bought through the stock router, under the same price
-/// guard a mandate's purchases meet, plus a USDG sleeve of about ninety days of draw. The agent
-/// is paid a draw: `drawBps` a year of the average of the last twelve monthly valuations, so one
-/// month's move shifts the budget by a twelfth of itself. The draw is paid into a mandate the
-/// agent's owner names, where the mandate's own limits govern what the agent spends.
+/// guard a mandate's purchases meet, plus a USDG sleeve of about ninety days of draw.
+///
+/// The draw is set once a quarter, on a collar: `drawBps` of the average of the last twelve
+/// quarterly valuations, moved at most 5% from the previous quarter's draw, kept between 3% and
+/// 6% of what the principal is worth now, held at 4% in the first year, and stopped while the
+/// principal is worth less than 80% of what was put in. A gift counts toward the draw only after a
+/// full quarter, so a gift timed to a valuation moves nothing. The draw accrues every second and
+/// is paid into a mandate the agent's owner names, where the mandate's limits govern the spending.
 ///
 /// Anyone can start an endowment for any registered agent and anyone can give to one. Nothing
-/// accrues until the identity's owner accepts. Gifts are irrevocable while the endowment is
-/// accepted; an endowment left unaccepted for 180 days, or whose agent stops drawing for 180
-/// days with no successor named, lets each patron take back their share of what it holds.
+/// accrues until the identity's owner accepts. Gifts are irrevocable once accepted. Only an
+/// endowment never accepted within 180 days lets each patron take back their share.
 ///
 /// To the router this contract is its own principal, which is what lets it set its trading
 /// policy and sell out of its custody without any administered contract naming it.
@@ -78,12 +81,27 @@ contract Endowment is ReentrancyGuard {
         uint64 lastDrawAt;
         uint64 lastActive;
         uint64 unacceptedSince;
+        uint256 contributed;
+        uint256 pending;
+        bool everAccepted;
+        bool underwater;
+        uint64 lastSnapshotAt;
     }
 
     uint256 private constant BPS = 10_000;
     uint256 private constant YEAR = 365 days;
     uint256 public constant SNAPSHOTS = 12;
-    uint256 public constant SNAPSHOT_INTERVAL = 30 days;
+    uint256 public constant SNAPSHOT_INTERVAL = 90 days;
+    /// The most a quarter's draw moves from the one before, either way.
+    uint256 public constant CHANGE_BPS = 500;
+    /// The draw is held between these shares of the principal's value.
+    uint256 public constant FLOOR_BPS = 300;
+    uint256 public constant CAP_BPS = 600;
+    /// The first year draws at most this rate, so a young endowment never draws off one peak.
+    uint256 public constant FIRST_YEAR_BPS = 400;
+    uint256 public constant FIRST_YEAR_SNAPSHOTS = 4;
+    /// Below this share of what was put in, the draw stops until the principal recovers.
+    uint256 public constant UNDERWATER_BPS = 8_000;
     /// Cash kept for draws, and the most a draw can owe, measured in days of draw.
     uint256 public constant SLEEVE = 90 days;
     uint256 public constant QUIET = 180 days;
@@ -125,6 +143,13 @@ contract Endowment is ReentrancyGuard {
     uint64 public lastSnapshotAt;
     uint256 public snapshotsTaken;
     uint256[SNAPSHOTS] private _snapshots;
+    /// What the agent is paid a year, set at each valuation.
+    uint256 public annualDraw;
+    /// Put in since the last valuation; it counts from the next one.
+    uint256 public pending;
+    /// Draw owed from before the rate last changed, paid ahead of what accrues at the new rate.
+    uint256 public banked;
+    bool public everAccepted;
 
     /// The USDG this contract has accounted for. Anything above it arrived without a call here:
     /// a relayed gift from the shielded pool, or a plain transfer.
@@ -242,6 +267,7 @@ contract Endowment is ReentrancyGuard {
         uint256 toPrincipal = amount - toAgent;
         earned += amount;
         earnedToPrincipal += toPrincipal;
+        pending += toPrincipal;
         if (toAgent != 0) _deposit(toAgent);
         emit Earned(msg.sender, amount, toPrincipal, toAgent);
         _settle();
@@ -255,6 +281,8 @@ contract Endowment is ReentrancyGuard {
         _sync();
         _setMandate(mandate_);
         accepted = true;
+        everAccepted = true;
+        banked = 0;
         lastDrawAt = uint64(block.timestamp);
         lastActive = uint64(block.timestamp);
         emit Accepted(agentId, msg.sender, mandate_);
@@ -282,10 +310,20 @@ contract Endowment is ReentrancyGuard {
         paid = owed < cash ? owed : cash;
         if (paid == 0) revert NothingToDraw();
 
-        uint256 elapsed = block.timestamp - lastDrawAt;
-        if (elapsed > SLEEVE) elapsed = SLEEVE;
-        // A short sleeve pays part of what is owed; the rest stays owed, measured in time.
-        lastDrawAt = paid == owed ? uint64(block.timestamp) : uint64(block.timestamp - elapsed + elapsed * paid / owed);
+        if (paid == owed) {
+            banked = 0;
+            lastDrawAt = uint64(block.timestamp);
+        } else if (paid <= banked) {
+            banked -= paid;
+        } else {
+            // A short sleeve pays part of what accrued; the rest stays owed, measured in time.
+            uint256 fromTime = paid - banked;
+            uint256 timeOwed = owed - banked;
+            banked = 0;
+            uint256 elapsed = block.timestamp - lastDrawAt;
+            if (elapsed > SLEEVE) elapsed = SLEEVE;
+            lastDrawAt = uint64(block.timestamp - elapsed + Math.mulDiv(elapsed, fromTime, timeOwed));
+        }
         lastActive = uint64(block.timestamp);
 
         uint256 fee = Math.mulDiv(paid, feeBps, BPS);
@@ -303,10 +341,12 @@ contract Endowment is ReentrancyGuard {
         if (snapshotsTaken != 0 && block.timestamp < lastSnapshotAt + SNAPSHOT_INTERVAL) {
             revert TooSoon(lastSnapshotAt + SNAPSHOT_INTERVAL);
         }
+        _sync();
         (uint256 v, bool fresh, address stale) = _nav();
         if (!fresh) revert StaleValuation(stale);
-        if (v == 0) revert ZeroAmount();
-        _record(v);
+        if (snapshotsTaken == 0 && v == 0) revert ZeroAmount();
+        _value(v);
+        _settle();
     }
 
     /// Buys the stock furthest under its weight with the cash above the sleeve, one trade's
@@ -364,28 +404,27 @@ contract Endowment is ReentrancyGuard {
     // When the agent goes quiet.
 
     /// After 180 days without a draw from the agent's side, the endowment passes to the named
-    /// successor, whose owner then has 180 days to accept, or opens refunds at once.
+    /// successor, whose owner then accepts it. With no successor it rests: the same owner can
+    /// accept it again, and naming a successor passes it on.
     function lapse() external nonReentrant {
         if (!accepted) revert NotAccepted();
         if (block.timestamp < lastActive + QUIET) revert StillActive(lastActive + QUIET);
         uint256 previous = agentId;
         accepted = false;
+        banked = 0;
         mandate = address(0);
+        unacceptedSince = uint64(block.timestamp);
         if (successorId != 0 && successorId != previous) {
             agentId = successorId;
             successorId = 0;
-            unacceptedSince = uint64(block.timestamp);
-        } else {
-            unacceptedSince = uint64(block.timestamp - REFUND_AFTER);
         }
         emit Lapsed(previous, agentId);
     }
 
-    /// A patron's share of everything held, in kind, once refunds are open.
+    /// A patron's share of everything held, in kind, from an endowment its agent's owner never
+    /// accepted within 180 days: a gift that was never taken up goes back.
     function reclaim() external nonReentrant {
-        if (accepted || block.timestamp < unacceptedSince + REFUND_AFTER) {
-            revert RefundsClosed(unacceptedSince + REFUND_AFTER);
-        }
+        if (everAccepted || block.timestamp < createdAt + REFUND_AFTER) revert RefundsClosed(createdAt + REFUND_AFTER);
         _sync();
         uint256 share = givenBy[msg.sender];
         if (share == 0) revert NothingGiven();
@@ -406,13 +445,21 @@ contract Endowment is ReentrancyGuard {
 
     function setSuccessor(uint256 successorId_) external {
         if (msg.sender != settlor) revert NotSettlor();
-        successorId = successorId_;
         emit SuccessorSet(successorId_);
+        if (!accepted && everAccepted && successorId_ != 0 && successorId_ != agentId) {
+            emit Lapsed(agentId, successorId_);
+            agentId = successorId_;
+            successorId = 0;
+            unacceptedSince = uint64(block.timestamp);
+            return;
+        }
+        successorId = successorId_;
     }
 
     /// Stops and restarts the draw. Moves nothing: principal, cash and refunds are untouched.
     function setFrozen(bool frozen_) external {
         if (msg.sender != guardian) revert NotGuardian();
+        if (!frozen && frozen_ && accepted) _bank();
         if (frozen && !frozen_) lastDrawAt = uint64(block.timestamp);
         frozen = frozen_;
         emit FrozenSet(frozen_);
@@ -435,14 +482,20 @@ contract Endowment is ReentrancyGuard {
     }
 
     function drawPerYear() public view returns (uint256) {
-        return Math.mulDiv(averageNav(), drawBps, BPS);
+        return annualDraw;
+    }
+
+    /// Everything put in: gifts, private gifts and the earnings kept.
+    function contributed() public view returns (uint256) {
+        return given + unattributed + earnedToPrincipal;
     }
 
     function accrued() public view returns (uint256) {
-        if (!accepted || frozen) return 0;
+        if (!accepted) return 0;
+        if (frozen) return banked;
         uint256 elapsed = block.timestamp - lastDrawAt;
         if (elapsed > SLEEVE) elapsed = SLEEVE;
-        return Math.mulDiv(drawPerYear(), elapsed, YEAR);
+        return banked + Math.mulDiv(annualDraw, elapsed, YEAR);
     }
 
     function sleeveTarget() public view returns (uint256) {
@@ -473,6 +526,11 @@ contract Endowment is ReentrancyGuard {
         s.lastDrawAt = lastDrawAt;
         s.lastActive = lastActive;
         s.unacceptedSince = unacceptedSince;
+        s.contributed = contributed();
+        s.pending = pending;
+        s.everAccepted = everAccepted;
+        s.underwater = s.nav * BPS < s.contributed * UNDERWATER_BPS;
+        s.lastSnapshotAt = lastSnapshotAt;
     }
 
     // Internals.
@@ -487,6 +545,7 @@ contract Endowment is ReentrancyGuard {
     }
 
     function _credit(address patron, uint256 value) private {
+        pending += value;
         uint256 before = givenBy[patron];
         givenBy[patron] = before + value;
         given += value;
@@ -507,6 +566,7 @@ contract Endowment is ReentrancyGuard {
         }
         uint256 arrived = balance - _accounted;
         _accounted = balance;
+        pending += arrived;
         if (accepted) {
             unattributed += arrived;
         } else {
@@ -534,16 +594,41 @@ contract Endowment is ReentrancyGuard {
         IMandateAccount(mandate).deposit(amount);
     }
 
-    function _record(uint256 v) private {
-        _snapshots[snapshotsTaken % SNAPSHOTS] = v;
-        emit Snapshot(snapshotsTaken, v);
+    /// Records a valuation and sets the next quarter's draw on the collar. What was put in since the
+    /// last valuation is left out of this one; the first valuation has nothing to leave out.
+    function _value(uint256 v) private {
+        uint256 counted = snapshotsTaken == 0 ? v : (v > pending ? v - pending : 0);
+        pending = 0;
+        _snapshots[snapshotsTaken % SNAPSHOTS] = counted;
+        emit Snapshot(snapshotsTaken, counted);
         snapshotsTaken += 1;
         lastSnapshotAt = uint64(block.timestamp);
+
+        uint256 average = averageNav();
+        uint256 next = Math.mulDiv(average, drawBps, BPS);
+        if (snapshotsTaken <= FIRST_YEAR_SNAPSHOTS) next = Math.min(next, Math.mulDiv(average, FIRST_YEAR_BPS, BPS));
+        uint256 previous = annualDraw;
+        if (previous != 0) {
+            next = Math.min(Math.max(next, Math.mulDiv(previous, BPS - CHANGE_BPS, BPS)), Math.mulDiv(previous, BPS + CHANGE_BPS, BPS));
+        }
+        next = Math.min(Math.max(next, Math.mulDiv(counted, FLOOR_BPS, BPS)), Math.mulDiv(counted, CAP_BPS, BPS));
+        if (counted * BPS < contributed() * UNDERWATER_BPS) next = 0;
+
+        // What accrued at the old rate stays owed at the old rate.
+        if (accepted && !frozen && previous != next) _bank();
+        annualDraw = next;
     }
 
     function _trySnapshot() private {
         (uint256 v, bool fresh,) = _nav();
-        if (fresh && v != 0) _record(v);
+        if (fresh && v != 0) _value(v);
+    }
+
+    /// Moves what has accrued into `banked`, at most a sleeve of the current rate, and restarts the
+    /// clock, so a change of rate neither forgives nor inflates what is already owed.
+    function _bank() private {
+        banked = Math.min(accrued(), Math.max(banked, Math.mulDiv(annualDraw, SLEEVE, YEAR)));
+        lastDrawAt = uint64(block.timestamp);
     }
 
     function _nav() private view returns (uint256 value, bool fresh, address stale) {

@@ -504,7 +504,7 @@ function headroom(w: { cap: bigint; spent: bigint }): bigint {
 }
 
 /** A refusal from a contract, carrying the selector the node returns with it. */
-class Reverted extends Error {
+export class Reverted extends Error {
   constructor(readonly data: Hex) {
     super('execution reverted');
   }

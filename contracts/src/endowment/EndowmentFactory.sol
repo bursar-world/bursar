@@ -9,6 +9,7 @@ import {AssetRegistry} from "../rwa/AssetRegistry.sol";
 import {PriceGuard} from "../rwa/PriceGuard.sol";
 import {StockSpendRouter} from "../rwa/StockSpendRouter.sol";
 import {Endowment} from "./Endowment.sol";
+import {EndowmentDeployer} from "./EndowmentDeployer.sol";
 import {PatronMark} from "./PatronMark.sol";
 
 /// Starts endowments and keeps the list of every one it started. It has no owner: the wiring is
@@ -18,7 +19,10 @@ contract EndowmentFactory {
 
     uint256 private constant BPS = 10_000;
     uint16 public constant MIN_DRAW_BPS = 100;
-    uint16 public constant MAX_DRAW_BPS = 700;
+    uint16 public constant MAX_DRAW_BPS = 600;
+    /// The most a principal held mostly in one company's stock may draw: a single name falls
+    /// further and recovers less often than an index.
+    uint16 public constant MAX_CONCENTRATED_DRAW_BPS = 350;
     uint256 public constant MAX_ASSETS = 4;
 
     StockSpendRouter public immutable router;
@@ -30,10 +34,13 @@ contract EndowmentFactory {
     address public immutable feeTo;
     uint16 public immutable feeBps;
     address public immutable guardian;
+    EndowmentDeployer public immutable deployer;
 
     /// Every endowment, oldest first.
     address[] public all;
     mapping(address => bool) public isEndowment;
+    /// Funds that hold a market rather than one company, which may make up a principal at the full rate.
+    mapping(address => bool) public diversified;
     mapping(uint256 => address[]) private _byAgent;
 
     event Created(
@@ -58,7 +65,9 @@ contract EndowmentFactory {
         address feeTo_,
         uint16 feeBps_,
         address guardian_,
-        PatronMark marks_
+        PatronMark marks_,
+        address[] memory diversified_,
+        EndowmentDeployer deployer_
     ) {
         if (feeTo_ == address(0) || guardian_ == address(0)) revert ZeroAddress();
         if (feeBps_ > 1_000) revert BadShare(feeBps_);
@@ -73,13 +82,17 @@ contract EndowmentFactory {
         // The marks are deployed first, naming the address this factory was going to have.
         if (address(marks_.factory()) != address(this)) revert MarksNotBound(address(marks_));
         marks = marks_;
+        deployer = deployer_;
+        for (uint256 i; i < diversified_.length; ++i) {
+            diversified[diversified_[i]] = true;
+        }
     }
 
     /// Starts an endowment for `t.agentId` and, when `gift` is above zero, makes the caller its
     /// first patron with that much USDG.
     function create(Endowment.Terms calldata t, uint256 gift) external returns (Endowment e) {
         _check(t);
-        e = new Endowment(
+        e = deployer.deploy(
             msg.sender,
             t,
             Endowment.Wiring({
@@ -134,5 +147,10 @@ contract EndowmentFactory {
             sum += t.weightsBps[i];
         }
         if (sum != BPS) revert BadWeights();
+        for (uint256 i; i < n; ++i) {
+            if (!diversified[t.assets[i]] && t.weightsBps[i] > BPS / 2 && t.drawBps > MAX_CONCENTRATED_DRAW_BPS) {
+                revert BadDraw(t.drawBps);
+            }
+        }
     }
 }

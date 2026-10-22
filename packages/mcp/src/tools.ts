@@ -9,6 +9,8 @@ import type { PrivateMandateGateway } from './private.js';
 import type { ShieldedGateway } from './shielded.js';
 import { COLLATERAL_HANDLERS, COLLATERAL_TOOLS } from './collateral.js';
 import type { CollateralGateway } from './collateral.js';
+import { ENDOWMENT_HANDLERS, ENDOWMENT_TOOLS } from './endowment.js';
+import type { EndowmentGateway } from './endowment.js';
 import type { JobSpec } from '@bursar/sdk';
 import { refusalForName } from './reasons.js';
 import { isJsonObject, toToolSchema, validate } from './schema.js';
@@ -23,13 +25,14 @@ export type ToolRole =
   | 'private'
   | 'shielded'
   | 'shielded_float'
-  | 'collateral';
+  | 'collateral'
+  | 'endowment';
 
 /**
  * The roles whose signer is configured apart from their gateway. A private mandate's key comes with
  * it, and a shielded payment is sent by the relayer, never by this server.
  */
-export type SignedRole = Exclude<ToolRole, 'private' | 'shielded' | 'shielded_float' | 'collateral'>;
+export type SignedRole = Exclude<ToolRole, 'private' | 'shielded' | 'shielded_float' | 'collateral' | 'endowment'>;
 
 export type ToolContext = {
   /** Null when this server is bound to no mandate, which a resolver-only deployment is. */
@@ -45,6 +48,8 @@ export type ToolContext = {
   readonly shielded?: ShieldedGateway | null;
   /** The collateral lane for the bound mandate, on a chain that records one. */
   readonly collateral?: CollateralGateway | null;
+  /** The endowments that pay the bound mandate's agent, on a chain that records the factory. */
+  readonly endowment?: EndowmentGateway | null;
   /** Removed from every payload on the way out, so a leaked message cannot carry one. */
   readonly secrets: readonly string[];
   /**
@@ -961,6 +966,7 @@ export const TOOLS: readonly ToolDefinition[] = [
     inputSchema: NO_ARGUMENTS,
   },
   ...COLLATERAL_TOOLS.map((tool) => ({ ...tool, role: 'collateral' as const })),
+  ...ENDOWMENT_TOOLS.map((tool) => ({ ...tool, role: 'endowment' as const })),
 ];
 
 export type AdvertisedTool = {
@@ -974,6 +980,7 @@ function servesRole(context: ToolContext, role: ToolRole): boolean {
   if (role === 'shielded') return (context.shielded ?? null) !== null;
   if (role === 'shielded_float') return (context.shielded?.float ?? null) !== null;
   if (role === 'collateral') return (context.collateral ?? null) !== null;
+  if (role === 'endowment') return (context.endowment ?? null) !== null;
   if (role === 'resolver') return context.resolver !== null;
   if (role === 'provider') return context.provider !== null;
 
@@ -999,6 +1006,7 @@ function canSign(context: ToolContext, role: ToolRole): boolean {
   if (role === 'private' || role === 'shielded') return servesRole(context, role);
   if (role === 'shielded_float') return servesRole(context, role) && (context.shielded?.relayerUrl ?? null) !== null;
   if (role === 'collateral') return context.collateral?.canWrite === true;
+  if (role === 'endowment') return context.endowment?.canWrite === true;
   return context.canSign[role];
 }
 
@@ -1217,7 +1225,25 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
       (context: ToolContext, args: Record<string, unknown>) => run(collateralOf(context), args),
     ]),
   ),
+
+  ...Object.fromEntries(
+    Object.entries(ENDOWMENT_HANDLERS).map(([name, run]) => [
+      name,
+      (context: ToolContext, args: Record<string, unknown>) => run(endowmentOf(context), args),
+    ]),
+  ),
 };
+
+function endowmentOf(context: ToolContext): EndowmentGateway {
+  const gateway = context.endowment ?? null;
+  if (gateway === null) {
+    throw new ToolError(
+      'endowment_unavailable',
+      'This server is not bound to a mandate on a chain that records an endowment factory.',
+    );
+  }
+  return gateway;
+}
 
 function collateralOf(context: ToolContext): CollateralGateway {
   const gateway = context.collateral ?? null;
@@ -1261,6 +1287,7 @@ export async function callTool(context: ToolContext, name: string, args: unknown
       definition.role !== 'shielded' &&
       definition.role !== 'shielded_float' &&
       definition.role !== 'collateral' &&
+      definition.role !== 'endowment' &&
       !context.canSign[definition.role]
     ) {
       throw new ToolError(

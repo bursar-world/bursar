@@ -26,6 +26,17 @@ export type {
 } from './mandate.js';
 
 export { RwaClient, RwaUnavailableError, UnknownAssetError, rwa } from './rwa.js';
+export {
+  DEFAULT_DRAW_BPS,
+  DEFAULT_EARN_SHARE_BPS,
+  EndowmentClient,
+  EndowmentFactoryClient,
+  EndowmentsUnavailableError,
+  drawsInto,
+  endowment,
+  endowments,
+} from './endowment.js';
+export type { DrawReceipt, EndowmentHolding, EndowmentState, EndowmentTerms } from './endowment.js';
 export type { BuyReceipt, FeedPrice, Holding, ParkedPosition, RwaAsset, RwaLane, SellReceipt } from './rwa.js';
 export {
   CollateralClient,

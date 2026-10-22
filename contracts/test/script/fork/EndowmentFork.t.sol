@@ -6,6 +6,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
 import {Endowment} from "../../../src/endowment/Endowment.sol";
+import {EndowmentDeployer} from "../../../src/endowment/EndowmentDeployer.sol";
 import {EndowmentFactory} from "../../../src/endowment/EndowmentFactory.sol";
 import {PatronMark} from "../../../src/endowment/PatronMark.sol";
 import {AssetRegistry} from "../../../src/rwa/AssetRegistry.sol";
@@ -53,6 +54,7 @@ contract EndowmentForkTest is Test {
         mandate = vm.parseJsonAddress(json, ".exampleMandate.address");
         owner = IDENTITY.ownerOf(AGENT);
 
+        EndowmentDeployer maker = new EndowmentDeployer();
         factory = new EndowmentFactory(
             StockSpendRouter(vm.parseJsonAddress(json, ".rwa.StockSpendRouter")),
             PriceGuard(vm.parseJsonAddress(json, ".rwa.PriceGuard")),
@@ -60,9 +62,11 @@ contract EndowmentForkTest is Test {
             usdg,
             IDENTITY,
             vm.parseJsonAddress(json, ".roles.treasury"),
-            500,
+            100,
             vm.parseJsonAddress(json, ".roles.guardian"),
-            new PatronMark(vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1), "https://app.bursar.world/api/marks/")
+            new PatronMark(vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1), "https://app.bursar.world/api/marks/"),
+            _diversified(),
+            maker
         );
 
         vm.prank(POOL_MANAGER);
@@ -96,7 +100,7 @@ contract EndowmentForkTest is Test {
         vm.prank(owner);
         uint256 paid = e.draw();
         assertGt(paid, 0);
-        assertEq(usdg.balanceOf(mandate), before + paid - paid / 20);
+        assertEq(usdg.balanceOf(mandate), before + paid - paid / 100);
 
         uint256 out = e.refill();
         assertGt(out, 0);
@@ -108,6 +112,11 @@ contract EndowmentForkTest is Test {
         vm.prank(settlor);
         vm.expectRevert(Endowment.NotOwner.selector);
         e.accept(mandate);
+    }
+
+    function _diversified() internal view returns (address[] memory d) {
+        d = new address[](1);
+        d[0] = spy;
     }
 
     function _endow() internal returns (Endowment e) {
