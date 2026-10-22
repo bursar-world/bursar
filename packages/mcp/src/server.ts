@@ -23,7 +23,7 @@ import { callTool, redactSecrets, toolsFor } from './tools.js';
 import type { ToolContext } from './tools.js';
 
 const SERVER_NAME = 'bursar';
-const SERVER_VERSION = '0.1.0';
+const SERVER_VERSION = '0.2.0';
 
 export function createServer(context: ToolContext): Server {
   const server = new Server({ name: SERVER_NAME, version: SERVER_VERSION }, { capabilities: { tools: {} } });

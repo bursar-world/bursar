@@ -10,7 +10,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'Bursar',
-  description: 'Give an AI agent a budget with limits enforced on chain.',
+  description: 'Endow an AI agent, and set the limits it spends within, on Robinhood Chain.',
   icons: { icon: { url: '/brand/mark.png', type: 'image/png' } },
 };
 
