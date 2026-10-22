@@ -34,6 +34,9 @@ function relayDouble(): SpendRelay & { spends: unknown[]; disputes: unknown[] } 
     async buy() {
       return { txHash: `0x${'aa'.repeat(32)}`, amountOut: 1n };
     },
+    async sell() {
+      return { txHash: `0x${'bb'.repeat(32)}`, usdgOut: 1n };
+    },
   };
 }
 

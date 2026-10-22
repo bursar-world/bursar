@@ -228,11 +228,53 @@ const ROUTER: Readonly<Record<ErrorName<typeof stockSpendRouterAbi>, Reading>> =
       figured(
         [usdAt(figures, 0), usdAt(figures, 1)],
         ([amount, cap]) =>
-          `This purchase of ${amount} is over the ${cap} the registry allows in one trade of this stock.`,
-        'This purchase is over the most the registry allows in one trade of this stock.',
+          `This trade of ${amount} is over the ${cap} the registry allows in one trade of this stock.`,
+        'This trade is over the most the registry allows in one trade of this stock.',
       ) +
-      ' The cap is per trade: buy less in one call, and several purchases inside it can go through ' +
+      ' The cap is per trade: trade less in one call, and several trades inside it can go through ' +
       'within the mandate’s own limits.',
+  },
+  NotOperator: {
+    owner: 'caller',
+    message:
+      'Only the mandate’s agent or its principal can sell out of its custody or recall from it. Send the ' +
+      'call from one of those keys. Nothing moved.',
+  },
+  SaleNotAllowed: {
+    owner: 'caller',
+    message: (figures, context) =>
+      `${tokenAt(figures, 0, context)} is not on this mandate’s sale list, and a mandate sells only what ` +
+      'its principal has listed for sale. The principal adds it with setSalePolicy, under allow. Nothing was sold.',
+  },
+  LengthMismatch: {
+    owner: 'caller',
+    message: 'Every asset named in a sale policy needs a flag of its own. The policy in force is unchanged.',
+  },
+  ZeroAmount: {
+    owner: 'caller',
+    message: 'Selling or recalling zero is refused. Name a positive amount.',
+  },
+  CustodyShort: {
+    owner: 'caller',
+    message: (figures) =>
+      figured(
+        [rawAt(figures, 0), rawAt(figures, 1)],
+        ([held, needed]) =>
+          `The mandate’s custody holds ${held} raw units and this call needs ${needed}. Nothing moved.`,
+        'The mandate’s custody holds less than this call needs. Nothing moved.',
+      ) +
+      ' The principal releases more for sale by sending it from the mandate to the custody with release().',
+  },
+  QuoteOutsideBand: {
+    owner: 'caller',
+    message: (figures, context) =>
+      figured(
+        [priceAt(figures, 1), priceAt(figures, 2)],
+        ([quoted, feed]) =>
+          `The sale was decided on ${quoted} and the feed now says ${feed}, further apart than ` +
+          `${tokenAt(figures, 0, context)}’s band allows. Nothing was sold. Quote again and retry.`,
+        'The price the sale was decided on is too far from the feed’s price now. Nothing was sold. Quote again and retry.',
+      ),
   },
   ReentrancyGuardReentrantCall: REENTRY,
   ...SWAP,
@@ -912,6 +954,8 @@ const TOKEN: Readonly<Record<TokenErrorName, Reading>> = {
  */
 const CALLS = {
   buy: [PURCHASE, ROUTER, GUARD, ASSETS, POOL, VAULT, PARK, TOKEN],
+  sell: [ROUTER, GUARD, ASSETS, TOKEN],
+  recall: [ROUTER, TOKEN],
   policy: [ROUTER],
   park: [PARK, ADAPTER, GUARD, ASSETS, TOKEN],
   vault: [VAULT, POOL, GUARD, ASSETS, TOKEN],

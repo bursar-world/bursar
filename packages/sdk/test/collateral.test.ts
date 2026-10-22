@@ -44,7 +44,7 @@ describe('collateral client', () => {
     const client = new CollateralClient(withReads({}));
     expect(client.lane).toEqual(collateralDeployment(4663));
     expect(client.resolve('spy')).toBe(SPY);
-    expect(() => client.resolve('TSLA')).toThrow(UnknownAssetError);
+    expect(() => client.resolve('NFLX')).toThrow(UnknownAssetError);
   });
 
   it('reports collateral, debt, headroom and health', async () => {

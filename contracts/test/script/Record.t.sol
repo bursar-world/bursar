@@ -428,6 +428,15 @@ contract RecordTest is ScriptHarness {
         assertEq(probe.until(block.timestamp + 7 days + 1 hours), "7 days 1 hour");
     }
 
+    function _assertGrewFrom(string memory later, string memory earlier, string memory path) internal view {
+        string[] memory keys = vm.parseJsonKeys(earlier, path);
+        assertGt(vm.parseJsonKeys(later, path).length, keys.length, path);
+        for (uint256 i; i < keys.length; ++i) {
+            string memory key = string.concat(path, ".", keys[i]);
+            assertEq(vm.parseJson(later, key), vm.parseJson(earlier, key), key);
+        }
+    }
+
     /// The records in `deployments/`: every one on Robinhood Chain, none a rehearsal, each with a
     /// status, and the history between them written in both directions where it is complete.
     function test_record_committedRecordsSitOn4663AndNameWhatEachReplaced() public view {
@@ -618,7 +627,19 @@ contract RecordTest is ScriptHarness {
         assertEq(vm.parseJson(v6, ".parameters.AdminTimelock"), vm.parseJson(v5, ".parameters.AdminTimelock"));
         assertFalse(vm.parseJsonBool(v6, ".dev"));
         for (uint256 i; i < sections.length; ++i) {
+            bytes32 section = keccak256(bytes(sections[i]));
+            if (section == keccak256(".rwa.assets") || section == keccak256(".external")) continue;
             assertEq(vm.parseJson(v6, sections[i]), vm.parseJson(v5, sections[i]), sections[i]);
+        }
+        // Governance has listed stocks since the sixth record went live; it still names every asset
+        // the fifth did, at the same address and feed, and every outside contract the fifth named.
+        _assertGrewFrom(v6, v5, ".rwa.assets");
+        _assertGrewFrom(v6, v5, ".external.assets");
+        string[] memory outside = vm.parseJsonKeys(v5, ".external");
+        for (uint256 i; i < outside.length; ++i) {
+            if (keccak256(bytes(outside[i])) == keccak256("assets")) continue;
+            string memory key = string.concat(".external.", outside[i]);
+            assertEq(vm.parseJson(v6, key), vm.parseJson(v5, key), key);
         }
         assertEq(vm.parseJsonAddress(v6, K.ASSET_REGISTRY), vm.parseJsonAddress(v5, K.ASSET_REGISTRY));
         assertEq(vm.parseJsonAddress(v6, K.TREASURY_PARK), vm.parseJsonAddress(v5, K.TREASURY_PARK));

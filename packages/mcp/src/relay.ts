@@ -72,6 +72,25 @@ export type RelayBuyReceipt = {
 };
 
 /**
+ * A stock sale through the router's `sell`, out of the mandate's custody. Amounts are atomic units,
+ * as strings. The router is named so the signer sends to the one the quote was taken on.
+ */
+export type RelaySellRequest = {
+  readonly mandateAccount: Address;
+  readonly router: Address;
+  readonly asset: Address;
+  readonly raw: string;
+  readonly minUsdg: string;
+  readonly quotedPriceE8: string;
+};
+
+export type RelaySellReceipt = {
+  readonly txHash: Hex;
+  /** USDG the mandate received, in atomic units. */
+  readonly usdgOut: bigint;
+};
+
+/**
  * Signing lives behind this seam and nowhere else.
  *
  * The contracts hold the funds; what signs is the operator's choice. This server reaches a signer
@@ -82,6 +101,7 @@ export type SpendRelay = {
   spend(request: RelaySpendRequest): Promise<RelaySpendReceipt>;
   dispute(request: RelayDisputeRequest): Promise<RelayTransactionReceipt>;
   buy(request: RelayBuyRequest): Promise<RelayBuyReceipt>;
+  sell(request: RelaySellRequest): Promise<RelaySellReceipt>;
 };
 
 /**
@@ -148,6 +168,8 @@ export function toRelayApproval(approval: ApprovalInput, merchant: Address, capa
  *
  *   POST {url}/v1/spends                      -> { escrowId, txHash }
  *   POST {url}/v1/spends/{escrowId}/dispute   -> { txHash }
+ *   POST {url}/v1/buys                        -> { txHash, amountOut }
+ *   POST {url}/v1/sells                       -> { txHash, usdgOut }
  *
  * A refusal comes back as a non-2xx status with `{ error, message, revert }`, where `revert` names
  * the contract error. That name is translated here into the same sentence a quote would have given,
@@ -225,6 +247,15 @@ export function createHttpRelay(options: HttpRelayOptions): BursarRelay {
       }
 
       return { txHash: readHash(payload, 'transaction'), amountOut: BigInt(out) };
+    },
+    async sell(request: RelaySellRequest): Promise<RelaySellReceipt> {
+      const payload = await post('/v1/sells', request, 'mandate', 'transaction');
+      const out = payload['usdgOut'];
+      if (typeof out !== 'string' || !/^[0-9]+$/u.test(out)) {
+        throw unusable('no usdgOut', 'transaction', { usdgOut: out });
+      }
+
+      return { txHash: readHash(payload, 'transaction'), usdgOut: BigInt(out) };
     },
     async resolverCall(request: ResolverRequest): Promise<RelayTransactionReceipt> {
       const { action, ...body } = request;

@@ -102,6 +102,7 @@ export const RHC_DEPLOYMENT: Deployment = {
     guardian: '0xCB16Fb037C55a4b256C743a8DEf9f7F4d288F70f',
     treasury: '0x7F97980568AD3bFe77B2150b5cdD98eB5f271718',
     slashSink: '0xd2C622cFF4FE816453Ffe6F8B17Edc2a66923775',
+    resolvers: [],
   },
   verifiedOnChain: {},
   examples: {},

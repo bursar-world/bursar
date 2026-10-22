@@ -5,6 +5,7 @@ import type {
   DisputeDetailView,
   DisputeReceiptView,
   BuyStockOrder,
+  SellStockOrder,
   HireOrder,
   HireView,
   MandateGateway,
@@ -201,6 +202,7 @@ export type FakeGateway = {
   orders: PayOrder[];
   hires: HireOrder[];
   buys: BuyStockOrder[];
+  sells: SellStockOrder[];
   queries: SettlementsQuery[];
   reads: bigint[];
   disputes: bigint[];
@@ -217,6 +219,7 @@ export function createFakeGateway(options: FakeGatewayOptions = {}): FakeGateway
   const orders: PayOrder[] = [];
   const hires: HireOrder[] = [];
   const buys: BuyStockOrder[] = [];
+  const sells: SellStockOrder[] = [];
   const queries: SettlementsQuery[] = [];
   const reads: bigint[] = [];
   const disputes: bigint[] = [];
@@ -265,6 +268,21 @@ export function createFakeGateway(options: FakeGatewayOptions = {}): FakeGateway
         next: 'The mandate now holds SPY.',
       };
     },
+    async sellStock(order) {
+      sells.push(order);
+      check();
+
+      return {
+        txHash: `0x${'ab'.repeat(32)}`,
+        asset: '0x117cc2133c37B721F49dE2A7a74833232B3B4C0C',
+        symbol: 'SPY',
+        sold: order.raw === null ? '640554959594479' : order.raw.toString(),
+        proceeds: { micro: '499374', usdg: '0.499374' },
+        floor: { micro: '494672', usdg: '0.494672' },
+        referencePrice: '780.06',
+        next: 'The mandate holds the USDG again.',
+      };
+    },
     async settlements(query) {
       queries.push(query);
       check();
@@ -291,5 +309,5 @@ export function createFakeGateway(options: FakeGatewayOptions = {}): FakeGateway
     },
   };
 
-  return { gateway, quotes, orders, hires, buys, queries, reads, disputes, rulings };
+  return { gateway, quotes, orders, hires, buys, sells, queries, reads, disputes, rulings };
 }

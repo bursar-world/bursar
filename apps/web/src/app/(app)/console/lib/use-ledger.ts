@@ -6,7 +6,7 @@ import type { Micro } from '@bursar/core';
 import type { Address, Hex } from 'viem';
 
 import { ADDRESSES } from '@/chain/rhc';
-import { approvedCapabilities, decodeLockEvents, decodeMandateEvents, decodeParkEvents, mergeHistories } from './activity';
+import { approvedCapabilities, decodeLockEvents, decodeMandateEvents, decodeParkEvents, decodeRouterEvents, mergeHistories } from './activity';
 import type { LockEvents, MandateEvent } from './activity';
 import { historyLogs } from './chain-logs';
 import { indexedRevert, indexedTransactions, resetIndexBackoff } from './explorer';
@@ -101,17 +101,25 @@ export function useMandateLedger(mandate: Address | undefined, owner?: Address, 
     refetchInterval: INDEX_REFETCH_MS,
   });
 
+  // The stock router serves every mandate too: a sale out of the custody the owner released to, and
+  // a recall from it, are the router's events, not the account's.
+  const router = rwaLane()?.StockSpendRouter;
+  const routerLog = useQuery({
+    queryKey: ['console', 'router-log', router?.toLowerCase() ?? 'none'],
+    queryFn: async ({ signal }) => historyLogs(router as Address, signal),
+    enabled: router !== undefined && mandate !== undefined,
+    refetchInterval: INDEX_REFETCH_MS,
+  });
+
   const timelineData = timeline.data;
   const parkData = parkLog.data;
-  const events = useMemo(
-    () =>
-      timelineData === undefined
-        ? EMPTY_EVENTS
-        : parkData === undefined || mandate === undefined
-          ? timelineData
-          : mergeHistories(timelineData, decodeParkEvents(parkData, mandate)),
-    [timelineData, parkData, mandate],
-  );
+  const routerData = routerLog.data;
+  const events = useMemo(() => {
+    if (timelineData === undefined) return EMPTY_EVENTS;
+    if (mandate === undefined) return timelineData;
+    const parked = parkData === undefined ? timelineData : mergeHistories(timelineData, decodeParkEvents(parkData, mandate));
+    return routerData === undefined ? parked : mergeHistories(parked, decodeRouterEvents(routerData, mandate));
+  }, [timelineData, parkData, routerData, mandate]);
 
   // The candidates are drawn from the log and their current state is read from the chain. A
   // merchant removed yesterday is still in the log, and only the mapping says which it is today.

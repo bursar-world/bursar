@@ -63,6 +63,7 @@ export function fakeGateway(mandate: Address, agent: Address): MandateGateway {
     pay: unused,
     hire: unused,
     buyStock: unused,
+    sellStock: unused,
     settlements: unused,
     settlement: unused,
     openDispute: unused,

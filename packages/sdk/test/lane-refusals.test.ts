@@ -242,7 +242,7 @@ describe('the figures a refusal quotes', () => {
   it('says how far over the per-trade cap a purchase is', () => {
     const refusal = laneRefusal({ errorName: 'TradeCapExceeded', args: [30_000_000n, 25_000_000n] }, 'buy', CONTEXT);
 
-    expect(refusal?.message).toMatch(/^This purchase of 30\.00 USDG is over the 25\.00 USDG the registry allows/u);
+    expect(refusal?.message).toMatch(/^This trade of 30\.00 USDG is over the 25\.00 USDG the registry allows/u);
   });
 
   it('names the stale feed, its age and the bound', () => {

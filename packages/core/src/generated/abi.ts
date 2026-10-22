@@ -9843,6 +9843,25 @@ export const stockSpendRouterAbi = [
   },
   {
     "type": "function",
+    "name": "custodyOf",
+    "inputs": [
+      {
+        "name": "mandate",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "guard",
     "inputs": [],
     "outputs": [
@@ -9904,6 +9923,35 @@ export const stockSpendRouterAbi = [
   },
   {
     "type": "function",
+    "name": "minUsdgFor",
+    "inputs": [
+      {
+        "name": "mandate",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "asset",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "raw",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "poolManager",
     "inputs": [],
     "outputs": [
@@ -9917,6 +9965,29 @@ export const stockSpendRouterAbi = [
   },
   {
     "type": "function",
+    "name": "recall",
+    "inputs": [
+      {
+        "name": "mandate",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "asset",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "registry",
     "inputs": [],
     "outputs": [
@@ -9924,6 +9995,93 @@ export const stockSpendRouterAbi = [
         "name": "",
         "type": "address",
         "internalType": "contract AssetRegistry"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "saleAllowed",
+    "inputs": [
+      {
+        "name": "mandate",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "asset",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "sell",
+    "inputs": [
+      {
+        "name": "mandate",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "asset",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "raw",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "minUsdg",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "quotedPriceE8",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "usdgOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "sellable",
+    "inputs": [
+      {
+        "name": "mandate",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "asset",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -9941,6 +10099,29 @@ export const stockSpendRouterAbi = [
         "name": "slippageBps",
         "type": "uint16",
         "internalType": "uint16"
+      },
+      {
+        "name": "assets",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "allowed",
+        "type": "bool[]",
+        "internalType": "bool[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setSalePolicy",
+    "inputs": [
+      {
+        "name": "mandate",
+        "type": "address",
+        "internalType": "address"
       },
       {
         "name": "assets",
@@ -10034,6 +10215,56 @@ export const stockSpendRouterAbi = [
   },
   {
     "type": "event",
+    "name": "Recalled",
+    "inputs": [
+      {
+        "name": "mandate",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "asset",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SaleAllowed",
+    "inputs": [
+      {
+        "name": "mandate",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "asset",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "allowed",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "StockBought",
     "inputs": [
       {
@@ -10070,6 +10301,43 @@ export const stockSpendRouterAbi = [
     "anonymous": false
   },
   {
+    "type": "event",
+    "name": "StockSold",
+    "inputs": [
+      {
+        "name": "mandate",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "asset",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amountIn",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "usdgOut",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "feedPriceE8",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "error",
     "name": "AssetNotAllowed",
     "inputs": [
@@ -10087,6 +10355,27 @@ export const stockSpendRouterAbi = [
   },
   {
     "type": "error",
+    "name": "CustodyShort",
+    "inputs": [
+      {
+        "name": "held",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "needed",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "LengthMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NotAStock",
     "inputs": [
       {
@@ -10095,6 +10384,11 @@ export const stockSpendRouterAbi = [
         "internalType": "address"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "NotOperator",
+    "inputs": []
   },
   {
     "type": "error",
@@ -10113,6 +10407,27 @@ export const stockSpendRouterAbi = [
   },
   {
     "type": "error",
+    "name": "QuoteOutsideBand",
+    "inputs": [
+      {
+        "name": "asset",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "quotedPriceE8",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "feedPriceE8",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "ReentrancyGuardReentrantCall",
     "inputs": []
   },
@@ -10122,6 +10437,17 @@ export const stockSpendRouterAbi = [
     "inputs": [
       {
         "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SaleNotAllowed",
+    "inputs": [
+      {
+        "name": "asset",
         "type": "address",
         "internalType": "address"
       }
@@ -10174,6 +10500,11 @@ export const stockSpendRouterAbi = [
         "internalType": "uint256"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "ZeroAmount",
+    "inputs": []
   }
 ] as const;
 

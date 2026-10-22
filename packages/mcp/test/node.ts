@@ -10,6 +10,7 @@ import {
   oracleRegistryAbi,
   reputationAbi,
   settlementAssetAbi,
+  stockSpendRouterAbi,
 } from '@bursar/core';
 import {
   decodeFunctionData,
@@ -648,7 +649,7 @@ function receipt(state: NodeState, hash: Hex, transactions: SentTransaction[]): 
     logsBloom: `0x${'00'.repeat(256)}`,
     status: state.receiptStatus,
     type: '0x2',
-    logs: accountEvents(state, sent).map((event) => ({
+    logs: [...accountEvents(state, sent), ...routerEvents(sent)].map((event) => ({
       address: ACCOUNT,
       ...event,
       blockNumber: toHex(state.blockNumber),
@@ -700,6 +701,31 @@ function accountEvents(state: NodeState, sent: SentTransaction): { topics: reado
   }
 
   return [];
+}
+
+/**
+ * What the stock router emits for a sale sent to it: the proceeds are the floor the call carried,
+ * so a signer that encoded the wrong floor reads it back as the wrong proceeds.
+ */
+function routerEvents(sent: SentTransaction): { address: Address; topics: readonly unknown[]; data: Hex }[] {
+  if (sent.to.toLowerCase() === ACCOUNT.toLowerCase() || sent.data.length < 10) return [];
+
+  let decoded: { functionName: string; args?: readonly unknown[] };
+  try {
+    decoded = decodeFunctionData({ abi: stockSpendRouterAbi, data: sent.data });
+  } catch {
+    return [];
+  }
+  if (decoded.functionName !== 'sell') return [];
+  const [mandate, asset, raw, minUsdg, quotedPriceE8] = decoded.args as readonly [Address, Address, bigint, bigint, bigint];
+
+  return [
+    {
+      address: sent.to,
+      topics: encodeEventTopics({ abi: stockSpendRouterAbi, eventName: 'StockSold', args: { mandate, asset } }),
+      data: encodeAbiParameters([{ type: 'uint256' }, { type: 'uint256' }, { type: 'uint256' }], [raw, minUsdg, quotedPriceE8]),
+    },
+  ];
 }
 
 function block(state: NodeState): Record<string, unknown> {

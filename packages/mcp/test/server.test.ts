@@ -51,6 +51,7 @@ describe('the server over an in-memory transport', () => {
       'mandate_quote_spend',
       'mandate_pay_provider',
       'mandate_buy_stock',
+      'mandate_sell_stock',
       'mandate_list_settlements',
       'mandate_get_settlement',
       'mandate_open_dispute',
