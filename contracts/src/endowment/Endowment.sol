@@ -597,7 +597,8 @@ contract Endowment is ReentrancyGuard {
     /// Records a valuation and sets the next quarter's draw on the collar. What was put in since the
     /// last valuation is left out of this one; the first valuation has nothing to leave out.
     function _value(uint256 v) private {
-        uint256 counted = snapshotsTaken == 0 ? v : (v > pending ? v - pending : 0);
+        uint256 left = snapshotsTaken == 0 ? 0 : pending;
+        uint256 counted = v > left ? v - left : 0;
         pending = 0;
         _snapshots[snapshotsTaken % SNAPSHOTS] = counted;
         emit Snapshot(snapshotsTaken, counted);
@@ -612,7 +613,9 @@ contract Endowment is ReentrancyGuard {
             next = Math.min(Math.max(next, Math.mulDiv(previous, BPS - CHANGE_BPS, BPS)), Math.mulDiv(previous, BPS + CHANGE_BPS, BPS));
         }
         next = Math.min(Math.max(next, Math.mulDiv(counted, FLOOR_BPS, BPS)), Math.mulDiv(counted, CAP_BPS, BPS));
-        if (counted * BPS < contributed() * UNDERWATER_BPS) next = 0;
+        // Measured against what was put in before the gifts this valuation leaves out, which every
+        // contribution counted in `pending` is also part of.
+        if (counted * BPS < (contributed() - left) * UNDERWATER_BPS) next = 0;
 
         // What accrued at the old rate stays owed at the old rate.
         if (accepted && !frozen && previous != next) _bank();

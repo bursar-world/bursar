@@ -85,6 +85,10 @@ records are in `contracts/deployments/`.
   a `V4LiquiditySeeder` the current timelock owns.
 - `Vesting` and the community allocation of BRSR move from the first timelock to the current one
   through proposals on the first timelock, with its 48-hour delay.
+- `Endowment`: the quarterly valuation's underwater test now leaves out the contributions the
+  valuation itself leaves out. Before, a gift of more than about a quarter of what had been put in,
+  made at any time between two valuations, set the next quarter's draw to zero. Takes effect for
+  endowments created by a factory deployed after this change.
 
 ### Services
 
