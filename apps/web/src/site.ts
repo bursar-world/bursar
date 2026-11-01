@@ -2,6 +2,14 @@ import type { Address } from 'viem';
 
 import { ADDRESSES, RHC } from './chain/rhc';
 
+/** $BURSAR, the token, as launched on Pons on Robinhood Chain. Fixed supply: the contract has no mint. */
+export const BURSAR_TOKEN = {
+  symbol: 'BURSAR',
+  address: '0xe4d2422ed4d203a0f1ec2043a4db1eda426fca18' as Address,
+  supply: '1,000,000,000',
+  tradeHref: 'https://www.ponsfamily.com/launchpad/0xe4d2422ed4d203a0f1ec2043a4db1eda426fca18',
+} as const;
+
 export type NavItem = { readonly href: string; readonly label: string };
 
 export type SiteChrome = {
@@ -57,7 +65,7 @@ export const SITE: SiteChrome = {
   footer: {
     settlement: { network: RHC.name, chainId: RHC.chainId, asset: ADDRESSES.usdg },
     legal:
-      '$BRSR is a governance and staking token. It is not a claim on Robinhood, on Robinhood Chain, on Paxos or on USDG, and none of them endorses Bursar.',
+      '$BURSAR is not a claim on Robinhood, on Robinhood Chain, on Paxos or on USDG, and none of them endorses Bursar.',
     channels: [
       { href: 'https://x.com/UseBursar', label: 'Follow us', mark: 'x' },
       { href: 'https://github.com/bursar-world', label: 'GitHub', mark: 'github' },

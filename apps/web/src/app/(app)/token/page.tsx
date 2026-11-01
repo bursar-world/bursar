@@ -1,13 +1,12 @@
 import type { Metadata } from 'next';
 
-import { TokenView } from './token-view';
+import { BursarTokenView } from './bursar-token';
 
 export const metadata: Metadata = {
   title: 'Token · Bursar',
-  description:
-    'BRSR supply and holders, where settlement fees go, staking, and the bond resolvers post.',
+  description: '$BURSAR on Robinhood Chain: the contract address and where to trade it.',
 };
 
 export default function TokenPage() {
-  return <TokenView />;
+  return <BursarTokenView />;
 }
