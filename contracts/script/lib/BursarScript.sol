@@ -267,6 +267,22 @@ abstract contract BursarScript is Script {
         if (at.code.length == 0) revert NotContract(key, at);
     }
 
+    /// Where the record names the token that is staked, bonded and bought back: `.token.BURSAR`
+    /// when it names one, `.token.BRSR` for the records before it.
+    function _stakeTokenKey() internal view returns (string memory) {
+        return _recorded(K.BURSAR) ? K.BURSAR : K.BRSR;
+    }
+
+    /// The staked token, which has to hold code. `BURSAR_TOKEN`, when the shell sets it, has to
+    /// name the same one: a parameter file pointing at another token is a run against the wrong
+    /// market.
+    function _stakeToken() internal view returns (address token) {
+        string memory key = _stakeTokenKey();
+        token = _upstream(key);
+        address named = _envAddressOr("BURSAR_TOKEN", address(0));
+        if (named != address(0) && named != token) revert RecordMismatch(key, token, named);
+    }
+
     /// Refuses to deploy what the record already holds, because a second copy splits callers
     /// between two contracts. `BURSAR_FORCE=1` replaces it.
     ///

@@ -248,19 +248,30 @@ contract RetireRecords is Migration {
         }
     }
 
+    /// Each registry on its own: a move can carry the agent registry, whose stakes then belong to
+    /// the new set, while it replaces the resolver registry, as the seventh record does.
     function _checkRegistries() private {
-        checked.push("registries");
-        uint256 staked = AgentRegistry(_previous(K.AGENT_REGISTRY)).totalStaked();
-        if (staked != 0) {
-            ++open;
-            console2.log("the previous agent registry still holds stake, micro-USD", staked);
+        if (_carried(K.AGENT_REGISTRY)) {
+            carried.push("agent registry");
+        } else {
+            checked.push("agent registry");
+            uint256 staked = AgentRegistry(_previous(K.AGENT_REGISTRY)).totalStaked();
+            if (staked != 0) {
+                ++open;
+                console2.log("the previous agent registry still holds stake, micro-USD", staked);
+            }
         }
 
+        if (_carried(K.ORACLE_REGISTRY)) {
+            carried.push("resolver registry");
+            return;
+        }
+        checked.push("resolver registry");
         IOracleRegistry registry = IOracleRegistry(_previous(K.ORACLE_REGISTRY));
         uint256 bonded = registry.totalBonded();
         if (bonded != 0) {
             ++open;
-            console2.log("the previous resolver registry still holds bonds, BRSR wei", bonded);
+            console2.log("the previous resolver registry still holds bonds, token wei", bonded);
         }
         uint256 rewards = registry.rewardFloat();
         if (rewards != 0) {

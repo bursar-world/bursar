@@ -13,15 +13,14 @@ import {RecordKeys as K} from "./lib/RecordKeys.sol";
 import {IOracleRegistry} from "../src/interfaces/IOracleRegistry.sol";
 import {IStateView} from "../src/rwa/interfaces/IRwaExternal.sol";
 import {Buyback, PoolKey} from "../src/token/Buyback.sol";
-import {BRSR} from "../src/token/BRSR.sol";
 import {Staking} from "../src/token/Staking.sol";
 import {V4LiquiditySeeder} from "../src/token/V4LiquiditySeeder.sol";
 
-/// Builds the token's economics on the BRSR the record names: the staking pool that holds
-/// resolver bonds and first-loss stake, the buyback that turns treasury USDG into staked BRSR, and
-/// the seeder that holds the BRSR/USDG position the buyback trades against. Then it closes the
-/// last one-shot pairing in the core set, `OracleRegistry.setStaking`, from the key that deployed
-/// the registry.
+/// Builds the token's economics on the token the record names, $BURSAR from the seventh record and
+/// BRSR before it: the staking pool that holds resolver bonds and first-loss stake, the buyback that
+/// turns treasury USDG into staked tokens, and the seeder that holds the token/USDG position the
+/// buyback trades against. Then it closes the last one-shot pairing in the core set,
+/// `OracleRegistry.setStaking`, from the key that deployed the registry.
 ///
 /// All three answer to the timelock from their constructors, so the deploy key never administers
 /// any of them. That is also why this run leaves five decisions to governance: the buyback's
@@ -46,7 +45,9 @@ import {V4LiquiditySeeder} from "../src/token/V4LiquiditySeeder.sol";
 /// the chain, so the verify scripts check the same record either way.
 contract DeployStaking is BursarScript {
     uint8 internal constant BRSR_DECIMALS = 18;
-    uint256 internal constant BRSR_SUPPLY = 1_000_000_000e18;
+    /// A billion tokens, BRSR's whole supply and $BURSAR's at launch. $BURSAR burns and never mints,
+    /// so a supply above it is not the token the record means.
+    uint256 internal constant MAX_SUPPLY = 1_000_000_000e18;
 
     /// Mirrors the buyback's own bound. A number entered in the wrong unit is named here, before a
     /// constructor hits it halfway through the run.
@@ -67,7 +68,7 @@ contract DeployStaking is BursarScript {
         address seeder;
     }
 
-    error NotBrsr(address token);
+    error NotStakeToken(address token, uint256 supply);
     error AssetDecimalsMismatch(address asset, uint8 found, uint8 expected);
     error OracleRegistryNotReady(string what, address found, address expected);
     error PoolHookNotContract(address hooks);
@@ -96,6 +97,9 @@ contract DeployStaking is BursarScript {
 
     /// The record carries the token set over: nothing is deployed, the figures come off the chain.
     bool private joining;
+    /// Buybacks stay off until governance turns them on: no keeper is recorded or proposed, and the
+    /// wiring batch pauses the buyback.
+    bool private buybacksOff;
 
     uint64 private unbondingPeriod;
     uint256 private minBond;
@@ -136,7 +140,7 @@ contract DeployStaking is BursarScript {
     function _loadEnv() private {
         asset = _settlementAsset();
         timelock = _timelock();
-        brsr = _upstream(K.BRSR);
+        brsr = _stakeToken();
         treasury = _role(K.TREASURY, "BURSAR_TREASURY");
         slashSink = _role(K.SLASH_SINK, "BURSAR_SLASH_SINK");
 
@@ -157,7 +161,9 @@ contract DeployStaking is BursarScript {
 
         // Until a keeper service runs, the first resolver's key calls the buyback. It already
         // signs on a schedule, and the role can move by proposal the day a dedicated key exists.
-        keeper = _roleOr(K.KEEPER, "BURSAR_BUYBACK_KEEPER", resolvers[0]);
+        // With buybacks off there is no keeper to name: the buyback refuses every caller.
+        buybacksOff = _envFlag("BURSAR_BUYBACKS_OFF") || _recordBool(K.BUYBACKS_OFF);
+        if (!buybacksOff) keeper = _roleOr(K.KEEPER, "BURSAR_BUYBACK_KEEPER", resolvers[0]);
     }
 
     /// Whether the record already carries the whole token set, with code behind each entry. An
@@ -250,7 +256,8 @@ contract DeployStaking is BursarScript {
         } catch {
             revert NoAnswer("BRSR.decimals", brsr);
         }
-        if (BRSR(brsr).TOTAL_SUPPLY() != BRSR_SUPPLY) revert NotBrsr(brsr);
+        uint256 supply = IERC20(brsr).totalSupply();
+        if (supply == 0 || supply > MAX_SUPPLY) revert NotStakeToken(brsr, supply);
         uint8 assetDecimals = IERC20Metadata(asset).decimals();
         if (assetDecimals != SETTLEMENT_DECIMALS) {
             revert AssetDecimalsMismatch(asset, assetDecimals, SETTLEMENT_DECIMALS);
@@ -287,7 +294,7 @@ contract DeployStaking is BursarScript {
         if (treasury == deployer) revert RoleCollision("treasury", "deployer", treasury);
         if (slashSink == deployer) revert RoleCollision("slashSink", "deployer", slashSink);
         if (slashSink == treasury) revert RoleCollision("slashSink", "treasury", slashSink);
-        if (keeper == deployer) revert RoleCollision("keeper", "deployer", keeper);
+        if (keeper != address(0) && keeper == deployer) revert RoleCollision("keeper", "deployer", keeper);
 
         // The buyback pays USDG to the pool manager on every call. A frozen address cannot, and
         // the failure would read as a broken pool.
@@ -448,7 +455,8 @@ contract DeployStaking is BursarScript {
         _write(K.STAKING, address(staking));
         _write(K.BUYBACK, address(buyback));
         if (poolOpen) _write(K.SEEDER, address(seeder));
-        _write(K.KEEPER, keeper);
+        if (buybacksOff) _write(K.BUYBACKS_OFF, true);
+        else _write(K.KEEPER, keeper);
         _write(".token.poolId", _poolId());
         // A carried set keeps the block its own deployment recorded.
         if (!joining) _write(K.TOKEN_FROM_BLOCK, _chainBlock());
@@ -495,7 +503,8 @@ contract DeployStaking is BursarScript {
             return;
         }
         console2.log("Next: ProposeWiring.s.sol, once DeployCollateral.s.sol has recorded the credit pool");
-        console2.log("  keeper to set", keeper);
+        if (buybacksOff) console2.log("  buybacks off: no keeper, and the batch pauses the buyback");
+        else console2.log("  keeper to set", keeper);
         console2.log("  floor to set per resolver, BRSR wei", bondFloor);
     }
 }

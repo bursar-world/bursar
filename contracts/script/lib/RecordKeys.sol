@@ -48,6 +48,13 @@ library RecordKeys {
     string internal constant FACTORY = ".contracts.MandateAccountFactory";
 
     string internal constant BRSR = ".token.BRSR";
+    /// The staked token from the seventh record on: $BURSAR, launched outside this repository, so
+    /// the record names it rather than a deployment writing it. A record that names it stakes, bonds
+    /// and buys back in it; one that does not is a BRSR record.
+    string internal constant BURSAR = ".token.BURSAR";
+    /// True when governance has not turned buybacks on: the buyback has no keeper and stays paused,
+    /// and the wiring batch neither names one nor unpauses it.
+    string internal constant BUYBACKS_OFF = ".token.buybacksOff";
     string internal constant VESTING = ".token.Vesting";
     string internal constant STAKING = ".token.Staking";
     string internal constant BUYBACK = ".token.Buyback";

@@ -109,10 +109,14 @@
       "additionalProperties": { "$ref": "#/$defs/address" }
     },
     "token": {
-      "description": "BRSR, its vesting, the staking pool, the buyback and the seeder that holds the BRSR/USDG position.",
+      "description": "The staked token and what is built on it: BRSR and its vesting through the sixth record, $BURSAR from the seventh, the staking pool, the buyback and, while a token/USDG pool is open, the seeder that holds its position.",
       "type": "object",
       "properties": {
         "BRSR": { "$ref": "#/$defs/address" },
+        "BURSAR": {
+          "description": "$BURSAR, launched on Pons outside this repository. A record that names it stakes, bonds and prices its buyback in it.",
+          "$ref": "#/$defs/address"
+        },
         "Vesting": { "$ref": "#/$defs/address" },
         "Staking": { "$ref": "#/$defs/address" },
         "Buyback": { "$ref": "#/$defs/address" },
@@ -120,6 +124,10 @@
         "keeper": {
           "description": "The address governance names as the buyback's keeper.",
           "$ref": "#/$defs/address"
+        },
+        "buybacksOff": {
+          "description": "True while governance has not turned buybacks on: the buyback has no keeper and the wiring batch pauses it.",
+          "type": "boolean"
         },
         "poolId": { "$ref": "#/$defs/bytes32" },
         "fromBlock": { "$ref": "#/$defs/block" }

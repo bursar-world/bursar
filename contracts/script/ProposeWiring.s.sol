@@ -5,11 +5,13 @@ import {Governance} from "./lib/Governance.sol";
 import {IAdministered} from "./lib/Handover.sol";
 import {RecordKeys as K} from "./lib/RecordKeys.sol";
 import {TokenConfig} from "./lib/TokenConfig.sol";
+import {V4Math} from "./lib/V4Math.sol";
 
 import {TreasuryPark} from "../src/rwa/TreasuryPark.sol";
 import {Buyback} from "../src/token/Buyback.sol";
 import {Staking} from "../src/token/Staking.sol";
 import {V4LiquiditySeeder} from "../src/token/V4LiquiditySeeder.sol";
+import {Vesting} from "../src/token/Vesting.sol";
 
 /// The parts of the previous deployment's Entrypoint and shielded pool this batch reaches. The
 /// vendored Privacy Pools code pins a compiler this script cannot import alongside the rest, so
@@ -27,7 +29,8 @@ interface IPreviousShieldedPool {
 /// trigger a buyback, which resolvers may bond and at what floor, the rebate a staked balance
 /// earns, and the two roles the credit pool holds on the staking pool.
 ///
-/// - `Buyback.setKeeper`, to the keeper the record names.
+/// - `Buyback.setKeeper`, to the keeper the record names, or `Buyback.pause` when the record has
+///   buybacks off: no keeper, and nobody can trade until governance unpauses it and names one.
 /// - `Staking.setBondFloor` for each recorded resolver. The global floor was set above the whole
 ///   supply at construction, so these floors are the allowlist: nobody else can bond.
 /// - `Staking.setTiers`, the rebate table in `TokenConfig`.
@@ -43,6 +46,12 @@ interface IPreviousShieldedPool {
 ///   when `BURSAR_PREVIOUS_RECORD` names one the record does not carry over. The pool stops taking
 ///   deposits and every note in it stays withdrawable. The timelock holds that Entrypoint's owner
 ///   role, so the call is its.
+/// - When the record replaces the previous deployment's token set, as the seventh does in moving
+///   from BRSR to $BURSAR: `Buyback.pause` on the previous buyback, `V4LiquiditySeeder.removeLiquidity`
+///   of the previous seeder's whole position to the treasury, and `Vesting.revoke` for each
+///   beneficiary in `BURSAR_VESTING_REVOKE`, whose unvested balance returns to the treasury. The
+///   previous registry's resolver bonds are not evicted here: `MigrateResolvers.s.sol` unbonds them
+///   from each resolver's own key and returns them to the treasury.
 ///
 /// A deployment that carries its staking pool and buyback over finds the keeper, the floors and
 /// the rebate table already applied, and the batch proposes only what differs: the credit pool's
@@ -83,10 +92,16 @@ contract ProposeWiring is Governance {
         address buyback = _upstream(K.BUYBACK);
         address pool = _upstream(K.CREDIT_POOL);
         address keeper = _recordAddress(K.KEEPER);
-        if (keeper == address(0)) revert NotRecorded(K.KEEPER);
+        if (keeper == address(0) && !_recordBool(K.BUYBACKS_OFF)) revert NotRecorded(K.KEEPER);
         uint256 floor = _recordUint(".parameters.Staking.resolverBondFloor");
 
-        calls[n++] = Call(_governs(buyback), buyback, abi.encodeCall(Buyback.setKeeper, (keeper)), "Buyback.setKeeper");
+        if (_recordBool(K.BUYBACKS_OFF)) {
+            calls[n++] =
+                Call(_governs(buyback), buyback, abi.encodeCall(Buyback.pause, ()), "Buyback.pause, buybacks off");
+        } else {
+            calls[n++] =
+                Call(_governs(buyback), buyback, abi.encodeCall(Buyback.setKeeper, (keeper)), "Buyback.setKeeper");
+        }
         for (uint256 i; i < resolvers.length; ++i) {
             calls[n++] = Call(
                 governance,
@@ -96,7 +111,10 @@ contract ProposeWiring is Governance {
             );
         }
         calls[n++] = Call(
-            governance, staking, abi.encodeCall(Staking.setTiers, (TokenConfig.rebateTiers())), "Staking.setTiers"
+            governance,
+            staking,
+            abi.encodeCall(Staking.setTiers, (TokenConfig.rebateTiers(_recorded(K.BURSAR)))),
+            "Staking.setTiers"
         );
         calls[n++] =
             Call(governance, staking, abi.encodeCall(Staking.setCreditManager, (pool)), "Staking.setCreditManager");
@@ -104,9 +122,10 @@ contract ProposeWiring is Governance {
     }
 
     /// The calls a batch carries only when the chain asks for them: the seeder's acceptance, the
-    /// park's adapter switch and the previous shielded pool's wind-down.
+    /// park's adapter switch, the previous shielded pool's wind-down and the previous token set's.
     function _conditional(address governance) private view returns (Call[] memory extra) {
-        Call[] memory list = new Call[](4);
+        Call[] memory retired = _previousTokenSet();
+        Call[] memory list = new Call[](4 + retired.length);
         uint256 n;
 
         address seeder = _recordAddress(K.SEEDER);
@@ -145,10 +164,58 @@ contract ProposeWiring is Governance {
                 "Entrypoint.windDownPool, the previous shielded pool"
             );
         }
+        for (uint256 i; i < retired.length; ++i) {
+            list[n++] = retired[i];
+        }
 
         extra = new Call[](n);
         for (uint256 i; i < n; ++i) {
             extra[i] = list[i];
+        }
+    }
+
+    /// The previous deployment's buyback, seeder and vesting, closed when the record replaces its
+    /// token set. Empty when the shell names no previous record or the record carries the buyback.
+    function _previousTokenSet() private view returns (Call[] memory calls) {
+        address buyback = _previousAddress(K.BUYBACK);
+        if (buyback == address(0) || buyback == _recordAddress(K.BUYBACK)) return calls;
+        _requireCode("the previous buyback", buyback);
+
+        address seeder = _previousAddress(K.SEEDER);
+        uint128 liquidity;
+        int24 lower;
+        int24 upper;
+        if (seeder.code.length != 0) {
+            (lower, upper) = V4Math.fullRangeTicks(V4LiquiditySeeder(seeder).poolTickSpacing());
+            liquidity = V4LiquiditySeeder(seeder).liquidityOf(lower, upper);
+        }
+        address vesting = _previousAddress(K.VESTING);
+        bool revoking = vesting.code.length != 0 && bytes(_envRaw(_key("BURSAR_VESTING_REVOKE"))).length != 0;
+        address[] memory beneficiaries = revoking ? _envAddressList("BURSAR_VESTING_REVOKE") : new address[](0);
+
+        calls = new Call[](1 + (liquidity == 0 ? 0 : 1) + beneficiaries.length);
+        uint256 n;
+        calls[n++] =
+            Call(_governs(buyback), buyback, abi.encodeCall(Buyback.pause, ()), "Buyback.pause, the previous buyback");
+        if (liquidity != 0) {
+            // No floors: every holder of the previous token is one of this deployment's own keys, so
+            // nobody outside can move the pool's price between the proposal and its execution.
+            calls[n++] = Call(
+                V4LiquiditySeeder(seeder).owner(),
+                seeder,
+                abi.encodeCall(
+                    V4LiquiditySeeder.removeLiquidity, (lower, upper, liquidity, 0, 0, _recordAddress(K.TREASURY))
+                ),
+                "V4LiquiditySeeder.removeLiquidity, the previous position to the treasury"
+            );
+        }
+        for (uint256 i; i < beneficiaries.length; ++i) {
+            calls[n++] = Call(
+                _governs(vesting),
+                vesting,
+                abi.encodeCall(Vesting.revoke, (beneficiaries[i])),
+                string.concat("Vesting.revoke ", vm.toString(beneficiaries[i]))
+            );
         }
     }
 
@@ -192,6 +259,14 @@ contract ProposeWiring is Governance {
         if (selector == Buyback.setKeeper.selector) {
             return Buyback(call.target).keeper() == abi.decode(args, (address));
         }
+        if (selector == Buyback.pause.selector) return Buyback(call.target).paused();
+        if (selector == V4LiquiditySeeder.removeLiquidity.selector) {
+            (int24 lower, int24 upper) = V4Math.fullRangeTicks(V4LiquiditySeeder(call.target).poolTickSpacing());
+            return V4LiquiditySeeder(call.target).liquidityOf(lower, upper) == 0;
+        }
+        if (selector == Vesting.revoke.selector) {
+            return Vesting(call.target).grantOf(abi.decode(args, (address))).revokedAt != 0;
+        }
         if (selector == IPreviousEntrypoint.windDownPool.selector) {
             return IPreviousShieldedPool(abi.decode(args, (address))).dead();
         }
@@ -205,7 +280,8 @@ contract ProposeWiring is Governance {
             return staking.bondFloorOf(resolver) == floor;
         }
         if (selector == Staking.setTiers.selector) {
-            return keccak256(abi.encode(staking.tiers())) == keccak256(abi.encode(TokenConfig.rebateTiers()));
+            return keccak256(abi.encode(staking.tiers()))
+                == keccak256(abi.encode(TokenConfig.rebateTiers(_recorded(K.BURSAR))));
         }
         if (selector == Staking.setCreditManager.selector) {
             return staking.creditManager() == abi.decode(args, (address));

@@ -146,7 +146,7 @@ abstract contract CoreChecks is Verifier {
             return;
         }
         _is("OracleRegistry.staking", staking, wired);
-        _isAt("OracleRegistry.bondAsset", _recordAddress(K.BRSR), registry, _sig(o.bondAsset.selector));
+        _isAt("OracleRegistry.bondAsset", _recordAddress(_stakeTokenKey()), registry, _sig(o.bondAsset.selector));
     }
 
     function _checkAgents(address agents) private {

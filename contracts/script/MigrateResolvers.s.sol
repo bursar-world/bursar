@@ -15,6 +15,10 @@ import {Staking} from "../src/token/Staking.sol";
 /// each resolver bonds it on the new registry and asks the previous registry for its old bond back,
 /// and seven days later takes that back and returns it to the treasury, which paid for it.
 ///
+/// The new bond is in the record's staked token and the old one in whatever the previous registry
+/// bonds in, which differ when the record moves the protocol to another token: from the seventh
+/// record, $BURSAR goes in and BRSR comes back.
+///
 ///   forge script script/MigrateResolvers.s.sol --sig "fund()"    --keystore "$KEYS/treasury"   ...
 ///   forge script script/MigrateResolvers.s.sol --sig "bond()"    --keystore "$KEYS/resolver-1" ...
 ///   forge script script/MigrateResolvers.s.sol --sig "reclaim()" --keystore "$KEYS/resolver-1" ...
@@ -36,7 +40,7 @@ contract MigrateResolvers is Migration {
     function fund() external {
         _begin();
         _requireKey("treasury", _recordAddress(K.TREASURY));
-        IERC20 brsr = IERC20(_upstream(K.BRSR));
+        IERC20 token = IERC20(_stakeToken());
         IOracleRegistry registry = IOracleRegistry(_upstream(K.ORACLE_REGISTRY));
         uint256 floor = _recordUint(".parameters.Staking.resolverBondFloor");
         address[] memory resolvers = _recordAddresses(K.RESOLVERS);
@@ -45,14 +49,14 @@ contract MigrateResolvers is Migration {
         for (uint256 i; i < resolvers.length; ++i) {
             uint256 bonded = registry.getResolver(resolvers[i]).bond;
             uint256 needed = bonded >= floor ? 0 : floor - bonded;
-            uint256 held = brsr.balanceOf(resolvers[i]);
+            uint256 held = token.balanceOf(resolvers[i]);
             if (held >= needed) {
                 console2.log("already covered                ", resolvers[i]);
                 continue;
             }
-            brsr.safeTransfer(resolvers[i], needed - held);
+            token.safeTransfer(resolvers[i], needed - held);
             console2.log("sent to                        ", resolvers[i]);
-            console2.log("  BRSR wei                     ", needed - held);
+            console2.log("  token wei                    ", needed - held);
         }
         vm.stopBroadcast();
     }
@@ -68,7 +72,7 @@ contract MigrateResolvers is Migration {
         }
         require(listed, "this key is not one of the recorded resolvers");
 
-        IERC20 brsr = IERC20(_upstream(K.BRSR));
+        IERC20 token = IERC20(_stakeToken());
         IOracleRegistry registry = IOracleRegistry(_upstream(K.ORACLE_REGISTRY));
         Staking staking = Staking(_upstream(K.STAKING));
         uint256 floor = _recordUint(".parameters.Staking.resolverBondFloor");
@@ -76,16 +80,16 @@ contract MigrateResolvers is Migration {
 
         IOracleRegistry.Resolver memory current = registry.getResolver(msg.sender);
         uint256 needed = current.bond >= floor ? 0 : floor - current.bond;
-        require(brsr.balanceOf(msg.sender) >= needed, "the treasury has not sent this resolver its bond yet");
+        require(token.balanceOf(msg.sender) >= needed, "the treasury has not sent this resolver its bond yet");
 
         vm.startBroadcast(msg.sender);
         if (needed != 0) {
-            brsr.approve(address(registry), needed);
+            token.approve(address(registry), needed);
             // forge-lint: disable-next-line(unsafe-typecast)
             if (current.status == IOracleRegistry.ResolverStatus.Active) registry.increaseBond(uint128(needed));
             // forge-lint: disable-next-line(unsafe-typecast)
             else registry.register(uint128(needed));
-            console2.log("bonded on the new registry, BRSR wei", needed);
+            console2.log("bonded on the new registry, token wei", needed);
         }
         _requestUnbond(_previousOptional(K.ORACLE_REGISTRY));
         vm.stopBroadcast();
@@ -97,17 +101,18 @@ contract MigrateResolvers is Migration {
     /// treasury.
     function reclaim() external {
         _begin();
-        IERC20 brsr = IERC20(_upstream(K.BRSR));
+        address previous = _previous(K.ORACLE_REGISTRY);
+        IERC20 old = IOracleRegistry(previous).bondAsset();
         address treasury = _recordAddress(K.TREASURY);
-        uint256 before = brsr.balanceOf(msg.sender);
+        uint256 before = old.balanceOf(msg.sender);
 
         vm.startBroadcast(msg.sender);
-        _completeUnbond(_previous(K.ORACLE_REGISTRY));
-        uint256 returned = brsr.balanceOf(msg.sender) - before;
-        if (returned != 0) brsr.safeTransfer(treasury, returned);
+        _completeUnbond(previous);
+        uint256 returned = old.balanceOf(msg.sender) - before;
+        if (returned != 0) old.safeTransfer(treasury, returned);
         vm.stopBroadcast();
 
-        console2.log("returned to the treasury, BRSR wei", returned);
+        console2.log("returned to the treasury, previous bond token wei", returned);
     }
 
     function _requestUnbond(address previous) private {

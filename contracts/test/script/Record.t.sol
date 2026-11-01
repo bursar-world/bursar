@@ -440,14 +440,15 @@ contract RecordTest is ScriptHarness {
     /// The records in `deployments/`: every one on Robinhood Chain, none a rehearsal, each with a
     /// status, and the history between them written in both directions where it is complete.
     function test_record_committedRecordsSitOn4663AndNameWhatEachReplaced() public view {
-        string[7] memory names = [
+        string[8] memory names = [
             "rhc-mainnet",
             "rhc-mainnet-token",
             "rhc-mainnet-v2",
             "rhc-mainnet-v3",
             "rhc-mainnet-v4",
             "rhc-mainnet-v5",
-            "rhc-mainnet-v6"
+            "rhc-mainnet-v6",
+            "rhc-mainnet-v7"
         ];
         for (uint256 i; i < names.length; ++i) {
             string memory json = vm.readFile(string.concat("deployments/", names[i], ".json"));
@@ -663,7 +664,11 @@ contract RecordTest is ScriptHarness {
             }
             assertEq(vm.parseJsonKeys(v6, ".verifiedOnChain").length, 0);
         } else {
-            assertEq(sixth, keccak256("live"));
+            // Live, or replaced by the seventh record since; either way the fifth is behind it.
+            assertTrue(
+                sixth == keccak256("live") || sixth == keccak256("superseded") || sixth == keccak256("retired"),
+                "the sixth record"
+            );
             bytes32 fifth = keccak256(bytes(vm.parseJsonString(v5, K.STATUS)));
             assertTrue(fifth == keccak256("superseded") || fifth == keccak256("retired"), "the fifth record");
             assertEq(vm.parseJsonString(v5, K.SUPERSEDED_BY), "rhc-mainnet-v6");
@@ -673,6 +678,67 @@ contract RecordTest is ScriptHarness {
             assertNotEq(vm.parseJsonAddress(v6, K.PRICE_GUARD), vm.parseJsonAddress(v5, K.PRICE_GUARD));
             assertNotEq(vm.parseJsonAddress(v6, K.CREDIT_POOL), vm.parseJsonAddress(v5, K.CREDIT_POOL));
             assertNotEq(vm.parseJsonAddress(v6, K.COLLATERAL_VAULT), vm.parseJsonAddress(v5, K.COLLATERAL_VAULT));
+        }
+    }
+
+    /// The seventh record moves the protocol from BRSR to $BURSAR. Governance, the agent registry,
+    /// the asset registry, guard and router, the shielded pool and the endowments carry over at their
+    /// addresses; everything that holds the staked token, the dispute layer bound to it, and the park
+    /// that admits only the previous factory's mandates are new. Planned, it names none
+    /// of the new contracts or new ones only; live, it names all of them and the sixth is behind it.
+    function test_record_seventhRecordMovesTheProtocolToBursar() public view {
+        string memory v6 = vm.readFile("deployments/rhc-mainnet-v6.json");
+        string memory v7 = vm.readFile("deployments/rhc-mainnet-v7.json");
+
+        assertEq(vm.parseJsonString(v7, K.SUPERSEDES), "rhc-mainnet-v6");
+        assertEq(vm.parseJsonAddress(v7, K.DEPLOYER), vm.parseJsonAddress(v6, K.DEPLOYER));
+        assertFalse(vm.parseJsonBool(v7, ".dev"));
+        assertEq(vm.parseJsonAddress(v7, K.BURSAR), 0xE4d2422Ed4d203A0F1EC2043a4dB1eDa426fca18);
+        assertFalse(vm.keyExistsJson(v7, K.BRSR));
+        assertFalse(vm.keyExistsJson(v7, K.VESTING));
+        // Buybacks stay off until the operator turns them on, so the staking run records them off.
+        if (vm.keyExistsJson(v7, K.STAKING)) assertTrue(vm.parseJsonBool(v7, K.BUYBACKS_OFF));
+
+        string[5] memory same =
+            [".roles", ".governance48", ".privacy.shielded", ".endowments", ".parameters.AgentRegistry"];
+        for (uint256 i; i < same.length; ++i) {
+            assertEq(vm.parseJson(v7, same[i]), vm.parseJson(v6, same[i]), same[i]);
+        }
+        string[5] memory kept = [K.ADMIN_TIMELOCK, K.AGENT_REGISTRY, K.ASSET_REGISTRY, K.PRICE_GUARD, K.STOCK_ROUTER];
+        for (uint256 i; i < kept.length; ++i) {
+            assertEq(vm.parseJsonAddress(v7, kept[i]), vm.parseJsonAddress(v6, kept[i]), kept[i]);
+        }
+
+        string[12] memory replaced = [
+            K.REPUTATION,
+            K.ESCROW,
+            K.ORACLE_REGISTRY,
+            K.FACTORY,
+            K.STAKING,
+            K.BUYBACK,
+            K.CREDIT_POOL,
+            K.COLLATERAL_VAULT,
+            K.COMMITTED_FACTORY,
+            K.TREASURY_PARK,
+            K.USDG_ADAPTER,
+            K.SGOV_ADAPTER
+        ];
+        bytes32 seventh = keccak256(bytes(vm.parseJsonString(v7, K.STATUS)));
+        if (seventh == keccak256("planned")) {
+            assertEq(vm.parseJsonString(v6, K.STATUS), "live");
+            assertEq(vm.parseJsonKeys(v7, ".verifiedOnChain").length, 0);
+            for (uint256 i; i < replaced.length; ++i) {
+                if (!vm.keyExistsJson(v7, replaced[i])) continue;
+                assertNotEq(vm.parseJsonAddress(v7, replaced[i]), vm.parseJsonAddress(v6, replaced[i]), replaced[i]);
+            }
+            return;
+        }
+        assertEq(seventh, keccak256("live"));
+        bytes32 sixth = keccak256(bytes(vm.parseJsonString(v6, K.STATUS)));
+        assertTrue(sixth == keccak256("superseded") || sixth == keccak256("retired"), "the sixth record");
+        assertEq(vm.parseJsonString(v6, K.SUPERSEDED_BY), "rhc-mainnet-v7");
+        for (uint256 i; i < replaced.length; ++i) {
+            assertNotEq(vm.parseJsonAddress(v7, replaced[i]), vm.parseJsonAddress(v6, replaced[i]), replaced[i]);
         }
     }
 }

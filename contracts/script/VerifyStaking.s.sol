@@ -32,7 +32,8 @@ abstract contract StakingChecks is Verifier {
         // No seeder is recorded until the pool is open: the staking run builds one for an open
         // pool, and the seed script brings its own when it opens one.
         if (_recordAddress(K.SEEDER) == address(0)) {
-            _owe("no V4LiquiditySeeder is recorded: SeedPool.s.sol opens the market");
+            if (_recordBool(K.BUYBACKS_OFF)) _fact("V4LiquiditySeeder", "none: buybacks are off and no pool is open");
+            else _owe("no V4LiquiditySeeder is recorded: SeedPool.s.sol opens the market");
         } else {
             _checkSeeder(V4LiquiditySeeder(_contract(K.SEEDER)), buyback, timelock);
         }
@@ -44,7 +45,7 @@ abstract contract StakingChecks is Verifier {
     }
 
     function _checkPool(Staking staking) private {
-        _is("Staking.stakeToken", _recordAddress(K.BRSR), address(staking.stakeToken()));
+        _is("Staking.stakeToken", _recordAddress(_stakeTokenKey()), address(staking.stakeToken()));
         _is("Staking.rewardToken", _settlementAsset(), address(staking.rewardToken()));
         _admin("Staking", staking.admin(), staking.pendingAdmin());
         _is("Staking.slashSink", _recordAddress(K.SLASH_SINK), staking.slashSink());
@@ -77,7 +78,7 @@ abstract contract StakingChecks is Verifier {
     }
 
     function _checkTiers(IStaking.Tier[] memory live) private {
-        IStaking.Tier[] memory intended = TokenConfig.rebateTiers();
+        IStaking.Tier[] memory intended = TokenConfig.rebateTiers(_recorded(K.BURSAR));
         if (live.length == 0) {
             _owe("Staking.tiers is empty: the rebate table is part of the wiring batch");
             return;
@@ -92,12 +93,18 @@ abstract contract StakingChecks is Verifier {
 
     function _checkBuyback(Buyback buyback, address staking) private {
         _is("Buyback.settlementAsset", _settlementAsset(), address(buyback.settlementAsset()));
-        _is("Buyback.brsr", _recordAddress(K.BRSR), address(buyback.brsr()));
+        _is("Buyback.brsr", _recordAddress(_stakeTokenKey()), address(buyback.brsr()));
         _is("Buyback.poolManager", _recordAddress(K.POOL_MANAGER), address(buyback.poolManager()));
         _is("Buyback.staking", staking, address(buyback.staking()));
         _is("Buyback.treasury", _recordAddress(K.TREASURY), buyback.treasury());
         _admin("Buyback", buyback.admin(), buyback.pendingAdmin());
-        _governed("Buyback.keeper", _recordAddress(K.KEEPER), buyback.keeper());
+        if (_recordBool(K.BUYBACKS_OFF)) {
+            // Off means nobody may call it, and the pause holds even if a keeper were named.
+            _is("Buyback.keeper", address(0), buyback.keeper());
+            if (!buyback.paused()) _owe("Buyback is not paused: the wiring batch pauses it while buybacks are off");
+        } else {
+            _governed("Buyback.keeper", _recordAddress(K.KEEPER), buyback.keeper());
+        }
         _isUint("Buyback.poolFee", _param("Buyback.poolFee"), buyback.poolFee());
         _is("Buyback.poolHooks", _recordAddress(".parameters.Buyback.poolHooks"), buyback.poolHooks());
 

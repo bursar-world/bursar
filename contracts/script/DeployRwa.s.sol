@@ -39,6 +39,12 @@ import {IAccessRegistry, IStateView} from "../src/rwa/interfaces/IRwaExternal.so
 /// names waits for its acceptance, the carried registry and park still answer to the previous
 /// timelock with the record's pending; the run says so and goes on, and the three it builds answer
 /// to the record's timelock from their constructors.
+///
+/// A record that names the registry, the guard and the router but no park carries those three over
+/// and builds a park for its own factory, with both adapters. That is the seventh record's shape: a
+/// park admits mandates from the factories it was built with and no other, and the seventh set has a
+/// new factory, while the endowments hold the registry, guard and router immutably. Mandates on the
+/// previous factory keep the previous park.
 contract DeployRwa is BursarScript {
     struct Deployment {
         AssetRegistry registry;
@@ -81,6 +87,8 @@ contract DeployRwa is BursarScript {
     address private treasuryAsset;
 
     bool private joining;
+    /// The registry, guard and router carry over; only the park and its two adapters are built.
+    bool private parkOnly;
     Deployment private d;
 
     function run() external returns (Deployment memory) {
@@ -90,11 +98,14 @@ contract DeployRwa is BursarScript {
 
         _load();
         joining = _carried();
+        parkOnly = !joining && _carriedLane();
         if (joining) _loadCarried();
+        else if (parkOnly) _loadLane();
         _preflight();
 
         vm.startBroadcast(deployer);
         if (joining) _join();
+        else if (parkOnly) _deployPark();
         else _deploy();
         vm.stopBroadcast();
 
@@ -149,6 +160,25 @@ contract DeployRwa is BursarScript {
             && _recordAddress(K.USDG_ADAPTER).code.length != 0;
     }
 
+    /// Whether the record carries the registry, the guard and the router, with code behind each, and
+    /// no park with code: the shape in which only the park is built.
+    function _carriedLane() private view returns (bool) {
+        return _recordAddress(K.ASSET_REGISTRY).code.length != 0 && _recordAddress(K.PRICE_GUARD).code.length != 0
+            && _recordAddress(K.STOCK_ROUTER).code.length != 0 && _recordAddress(K.TREASURY_PARK).code.length == 0;
+    }
+
+    /// The carried registry, guard and router, held to the record before the park and the treasury
+    /// adapter are built against them.
+    function _loadLane() private {
+        d.registry = AssetRegistry(_recordAddress(K.ASSET_REGISTRY));
+        d.guard = PriceGuard(_recordAddress(K.PRICE_GUARD));
+        d.router = StockSpendRouter(_recordAddress(K.STOCK_ROUTER));
+        _requireCarriedRegistry();
+        _expect("guard.registry", address(d.registry), address(d.guard.registry()));
+        _expect("router.registry", address(d.registry), address(d.router.registry()));
+        _expect("router.guard", address(d.guard), address(d.router.guard()));
+    }
+
     function _loadCarried() private {
         d.registry = AssetRegistry(_recordAddress(K.ASSET_REGISTRY));
         d.park = TreasuryPark(_recordAddress(K.TREASURY_PARK));
@@ -163,19 +193,7 @@ contract DeployRwa is BursarScript {
     /// lists the carried USDG adapter; and that adapter is the park's. Each identity read is one a
     /// record naming the wrong kind of contract fails by name.
     function _requireCarriedSet() private view {
-        _requireGoverned(
-            "registry.admin",
-            _identity(address(d.registry), "admin()", "AssetRegistry.admin"),
-            d.registry.pendingAdmin()
-        );
-        _expect("registry.settlementAsset", asset, d.registry.settlementAsset());
-        for (uint256 i; i < terms.length; ++i) {
-            if (!d.registry.isRegistered(tokens[i])) revert AssetNotRegistered(terms[i].symbol, tokens[i]);
-            _expect(string.concat("registry.", terms[i].symbol, ".feed"), feeds[i], d.registry.get(tokens[i]).feed);
-            bytes32 built = keccak256(abi.encode(RwaConfig.pool(tokens[i], asset, terms[i].fee, terms[i].tickSpacing)));
-            bytes32 pinned = d.registry.poolId(tokens[i]);
-            if (pinned != built) revert PoolIdMismatch(terms[i].symbol, pinned, built);
-        }
+        _requireCarriedRegistry();
 
         _requireGoverned(
             "park.admin", _identity(address(d.park), "admin()", "TreasuryPark.admin"), d.park.pendingAdmin()
@@ -189,18 +207,36 @@ contract DeployRwa is BursarScript {
         _expect("usdgAdapter.asset", asset, d.usdgAdapter.asset());
     }
 
+    function _requireCarriedRegistry() private view {
+        _requireGoverned(
+            "registry.admin",
+            _identity(address(d.registry), "admin()", "AssetRegistry.admin"),
+            d.registry.pendingAdmin()
+        );
+        _expect("registry.settlementAsset", asset, d.registry.settlementAsset());
+        for (uint256 i; i < terms.length; ++i) {
+            if (!d.registry.isRegistered(tokens[i])) revert AssetNotRegistered(terms[i].symbol, tokens[i]);
+            _expect(string.concat("registry.", terms[i].symbol, ".feed"), feeds[i], d.registry.get(tokens[i]).feed);
+            bytes32 built = keccak256(abi.encode(RwaConfig.pool(tokens[i], asset, terms[i].fee, terms[i].tickSpacing)));
+            bytes32 pinned = d.registry.poolId(tokens[i]);
+            if (pinned != built) revert PoolIdMismatch(terms[i].symbol, pinned, built);
+        }
+    }
+
     function _identity(address target, string memory signature, string memory what) private view returns (address) {
         return _read(target, abi.encodeWithSignature(signature), what);
     }
 
     function _preflight() private view {
+        if (!joining && !parkOnly) _requireUnrecorded(K.ASSET_REGISTRY);
         if (!joining) {
-            _requireUnrecorded(K.ASSET_REGISTRY);
             _requireUnrecorded(K.TREASURY_PARK);
             _requireUnrecorded(K.USDG_ADAPTER);
         }
-        _requireUnrecorded(K.PRICE_GUARD);
-        _requireUnrecorded(K.STOCK_ROUTER);
+        if (!parkOnly) {
+            _requireUnrecorded(K.PRICE_GUARD);
+            _requireUnrecorded(K.STOCK_ROUTER);
+        }
         _requireUnrecorded(K.SGOV_ADAPTER);
 
         // The park admits accounts by asking this factory who created them, so it has to be the
@@ -243,7 +279,12 @@ contract DeployRwa is BursarScript {
 
         d.registry = new AssetRegistry(timelock, asset, list, configs);
         _deployGuard();
+        _deployPark();
+    }
 
+    /// A park for the record's factory, its treasury adapter against the record's registry and
+    /// guard, and its USDG adapter.
+    function _deployPark() private {
         IMandateAccountFactory[] memory factories = new IMandateAccountFactory[](1);
         factories[0] = IMandateAccountFactory(factory);
         d.park = new TreasuryPark(asset, timelock, factories);
@@ -294,7 +335,8 @@ contract DeployRwa is BursarScript {
         // still answer to the previous timelock while the handover waits.
         if (!joining) _expect("registry.admin", timelock, d.registry.admin());
         _expect("registry.settlementAsset", asset, d.registry.settlementAsset());
-        _expectUint("registry.assets", terms.length, d.registry.assets().length);
+        // Governance lists stocks after launch, so a carried registry holds more than the launch set.
+        if (!parkOnly) _expectUint("registry.assets", terms.length, d.registry.assets().length);
         _expect("guard.registry", address(d.registry), address(d.guard.registry()));
         _expect("guard.accessRegistry", accessRegistry, address(d.guard.accessRegistry()));
         _expect("guard.stateView", stateView, address(d.guard.stateView()));
@@ -338,7 +380,7 @@ contract DeployRwa is BursarScript {
         }
         _write(K.USDG_ADAPTER, address(d.usdgAdapter));
         // A carried registry and park keep the block their own deployment recorded.
-        if (!joining) _write(K.RWA_FROM_BLOCK, _chainBlock());
+        if (!joining && !parkOnly) _write(K.RWA_FROM_BLOCK, _chainBlock());
 
         _write(GUARD_KEEPER, guardKeeper);
         _write(".parameters.PriceGuard.minObservationAge", minObservationAge);
@@ -350,12 +392,14 @@ contract DeployRwa is BursarScript {
         console2.log("chain", block.chainid);
         console2.log("deployer", deployer);
         console2.log("AssetRegistry", address(d.registry));
-        if (joining) console2.log("  live, carried over by this run");
+        if (joining || parkOnly) console2.log("  live, carried over by this run");
         console2.log("PriceGuard", address(d.guard));
         console2.log("  keeper observes every", minObservationAge);
         console2.log("  keeper", guardKeeper);
         console2.log("  guardian, who can remove a keeper at once", guardian);
+        if (parkOnly) console2.log("  live, carried over by this run");
         console2.log("StockSpendRouter", address(d.router));
+        if (parkOnly) console2.log("  live, carried over by this run");
         console2.log("TreasuryPark", address(d.park));
         if (joining) console2.log("  live, carried over by this run");
         console2.log("  mandates from", factory);

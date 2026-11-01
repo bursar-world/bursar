@@ -99,6 +99,8 @@ contract Deploy is BursarScript {
     IOracleRegistry.Config private oracleConfig;
 
     bool private withAgentRegistry;
+    /// The record's agent registry, carried over and wired to this run's escrow instead of a new one.
+    bool private carriedAgentRegistry;
     uint128 private agentMinStake;
     uint16 private agentSlashBps;
 
@@ -209,6 +211,12 @@ contract Deploy is BursarScript {
             agentMinStake = _envUint128("BURSAR_AGENT_MIN_STAKE");
             agentSlashBps = _envUint16("BURSAR_AGENT_SLASH_BPS");
         }
+
+        // A registry the record already holds is kept when this run does not bring its own: the
+        // payees registered and staked on it stay eligible on the new escrow, which only reads it.
+        address recordedRegistry = _recordAddress(K.AGENT_REGISTRY);
+        carriedAgentRegistry = !withAgentRegistry && recordedRegistry.code.length != 0;
+        if (carriedAgentRegistry) agentRegistry = AgentRegistry(recordedRegistry);
     }
 
     /// Three signers, each from the record when it names them and from the environment when it
@@ -289,6 +297,17 @@ contract Deploy is BursarScript {
         if (existingStaking != address(0)) {
             address reward = address(IStaking(existingStaking).rewardToken());
             if (reward != asset) revert WiringFailed("staking.rewardToken", asset, reward);
+        }
+
+        // A carried registry has to settle in the record's asset and answer to the governance this
+        // run joins, or the escrow would read eligibility off someone else's list.
+        if (carriedAgentRegistry) {
+            address registryAsset = address(agentRegistry.settlementAsset());
+            if (registryAsset != asset) revert WiringFailed("agentRegistry.settlementAsset", asset, registryAsset);
+            address governance = existingTimelock;
+            if (governance != address(0) && agentRegistry.admin() != governance) {
+                revert WiringFailed("agentRegistry.admin", governance, agentRegistry.admin());
+            }
         }
 
         // An unscored payee is capped at `baseCap`. A zero floor rejects every first lock a
@@ -387,7 +406,7 @@ contract Deploy is BursarScript {
         // block: the script sets nothing on it, so the deploy key has no reason to hold it.
         if (withAgentRegistry) {
             agentRegistry = new AgentRegistry(IERC20(asset), address(timelock), slashSink, agentMinStake, agentSlashBps);
-        } else {
+        } else if (!carriedAgentRegistry) {
             // Cleared, because one script instance can run more than once in a process, and a
             // readback against the previous run's registry would hold this deployment to a
             // pairing it does not have.
@@ -407,7 +426,7 @@ contract Deploy is BursarScript {
         // reputation curve lowers the cap on the agent's next lock. Naming it here would publish
         // a capability it does not have. Collateral moves on a timelock proposal, with a person
         // naming the amount.
-        if (withAgentRegistry) escrow.setRegistry(IAgentRegistry(address(agentRegistry)));
+        if (withAgentRegistry || carriedAgentRegistry) escrow.setRegistry(IAgentRegistry(address(agentRegistry)));
 
         // Last, because it bakes both addresses into every account it creates and there is
         // nothing to correct afterwards.
@@ -544,6 +563,7 @@ contract Deploy is BursarScript {
         console2.log("Escrow", address(escrow));
         console2.log("OracleRegistry", address(oracleRegistry));
         console2.log("AgentRegistry", address(agentRegistry));
+        if (carriedAgentRegistry) console2.log("  live, carried over and wired to the new escrow");
         console2.log("MandateAccountFactory", address(factory));
 
         if (existingStaking != address(0)) {

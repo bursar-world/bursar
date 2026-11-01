@@ -10,15 +10,18 @@ import {TreasuryPark} from "../src/rwa/TreasuryPark.sol";
 import {Buyback} from "../src/token/Buyback.sol";
 import {Staking} from "../src/token/Staking.sol";
 import {V4LiquiditySeeder} from "../src/token/V4LiquiditySeeder.sol";
+import {Vesting} from "../src/token/Vesting.sol";
 import {IStaking} from "../src/token/interfaces/IStaking.sol";
+import {V4Math} from "./lib/V4Math.sol";
 
 /// Checks that every call in `ProposeWiring.s.sol` took effect: the buyback's keeper is the
-/// recorded keeper, every recorded resolver has its floor and nobody else can bond, the rebate
+/// recorded keeper, or with buybacks off the buyback has none and is paused, every recorded resolver has its floor and nobody else can bond, the rebate
 /// table is in place, the credit pool is both the staking pool's credit manager and its slasher,
 /// a recorded seeder belongs to the timelock, a carried park lists the record's treasury adapter
 /// and not the previous deployment's, and the previous deployment's shielded pool, when
-/// `BURSAR_PREVIOUS_RECORD` names one the record does not carry, takes no more deposits. Nothing
-/// here is owed: unset is a mismatch.
+/// `BURSAR_PREVIOUS_RECORD` names one the record does not carry, takes no more deposits. A previous
+/// token set the record replaces is closed: its buyback paused, its seeder empty, and each grant in
+/// `BURSAR_VESTING_REVOKE` revoked. Nothing here is owed: unset is a mismatch.
 abstract contract WiringChecks is Verifier {
     function _checkWiring() internal {
         address staking = _contract(K.STAKING);
@@ -26,9 +29,14 @@ abstract contract WiringChecks is Verifier {
         address pool = _contract(K.CREDIT_POOL);
         if (staking == address(0) || buyback == address(0) || pool == address(0)) return;
 
-        address keeper = _recordAddress(K.KEEPER);
-        _isTrue("token.keeper is not recorded", keeper != address(0));
-        _is("Buyback.keeper", keeper, Buyback(buyback).keeper());
+        if (_recordBool(K.BUYBACKS_OFF)) {
+            _is("Buyback.keeper", address(0), Buyback(buyback).keeper());
+            _isTrue("Buyback is not paused while buybacks are off", Buyback(buyback).paused());
+        } else {
+            address keeper = _recordAddress(K.KEEPER);
+            _isTrue("token.keeper is not recorded", keeper != address(0));
+            _is("Buyback.keeper", keeper, Buyback(buyback).keeper());
+        }
 
         Staking s = Staking(staking);
         _is("Staking.creditManager", pool, s.creditManager());
@@ -48,7 +56,7 @@ abstract contract WiringChecks is Verifier {
         _isTrue("Staking.minBond lets a resolver without a floor bond", s.minBond() > floor);
 
         IStaking.Tier[] memory live = s.tiers();
-        IStaking.Tier[] memory intended = TokenConfig.rebateTiers();
+        IStaking.Tier[] memory intended = TokenConfig.rebateTiers(_recorded(K.BURSAR));
         _isTrue(
             "Staking.tiers differs from the rebate table",
             keccak256(abi.encode(live)) == keccak256(abi.encode(intended))
@@ -56,6 +64,7 @@ abstract contract WiringChecks is Verifier {
 
         _checkAdapterSwitch();
         _checkPreviousPool();
+        _checkPreviousTokenSet(buyback);
 
         if (_recordAddress(K.SEEDER) == address(0)) return;
         address seeder = _contract(K.SEEDER);
@@ -100,6 +109,30 @@ abstract contract WiringChecks is Verifier {
         bool dead = IShieldedPoolReads(pool).dead();
         _fact("previous ShieldedPool.dead", dead);
         _isTrue("the previous shielded pool still takes deposits", dead);
+    }
+
+    /// The previous token set, when the record replaces it: its buyback can no longer trade, its
+    /// seeder holds no position, and the grants named in `BURSAR_VESTING_REVOKE` stopped vesting.
+    function _checkPreviousTokenSet(address buyback) private {
+        address previous = _previousAddress(K.BUYBACK);
+        if (previous == address(0) || previous == buyback) return;
+        _isTrue("the previous buyback is not paused", Buyback(previous).paused());
+
+        address seeder = _previousAddress(K.SEEDER);
+        if (seeder.code.length != 0) {
+            (int24 lower, int24 upper) = V4Math.fullRangeTicks(V4LiquiditySeeder(seeder).poolTickSpacing());
+            _isUint("previous V4LiquiditySeeder.liquidity", 0, V4LiquiditySeeder(seeder).liquidityOf(lower, upper));
+        }
+
+        address vesting = _previousAddress(K.VESTING);
+        if (vesting.code.length == 0 || bytes(_envRaw(_key("BURSAR_VESTING_REVOKE"))).length == 0) return;
+        address[] memory beneficiaries = _envAddressList("BURSAR_VESTING_REVOKE");
+        for (uint256 i; i < beneficiaries.length; ++i) {
+            _isTrue(
+                string.concat("the previous grant to ", vm.toString(beneficiaries[i]), " is not revoked"),
+                Vesting(vesting).grantOf(beneficiaries[i]).revokedAt != 0
+            );
+        }
     }
 }
 
