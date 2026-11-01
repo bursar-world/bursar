@@ -7,7 +7,7 @@
 // hookless pool its in-range liquidity, its mid against the feed, and quotes for 0.90, 10 and 25
 // USDG through the V4Quoter. Nothing is sent.
 //
-//   RHC_RPC_URL=https://… node contracts/script/stocks-inventory.mjs docs/bullish/stocks-32-inventory.json
+//   RHC_RPC_URL=https://… node contracts/script/stocks-inventory.mjs stocks-inventory.json
 //
 // The endpoint has to answer eth_getLogs over 10,000 blocks (Chainstack does; dRPC's free plan
 // does not). The scan walks the chain from the PoolManager's deployment, about 8,500 windows, and

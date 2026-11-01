@@ -22,3 +22,6 @@ contracts/foundry-pp/
 
 # The resolver service's journal, written to RESOLVER_JOURNAL_PATH when no database is set.
 resolver-journal.json
+
+# Update records and their screenshots, kept off the public tree.
+docs/bullish/

@@ -135,5 +135,4 @@ router the chain holds.
   mandate keeps buying through the previous router and cannot sell.
 - The first mainnet sale: the payer buys $0.50 of SPY under the example mandate, releases it with
   `rwa(mandate).release('SPY', raw)`, and sells it with `rwa(mandate).sell('SPY')`, inside the
-  24/5 session or within 26 hours of the last feed answer. Record the three transactions in
-  `docs/bullish/uniswap-sell.md`.
+  24/5 session or within 26 hours of the last feed answer.

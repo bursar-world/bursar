@@ -10,7 +10,7 @@ import { ROBINHOOD_CHAIN, robinhoodChainMoneyParser } from '@bursar/x402';
  * Two lines make it Robinhood Chain: the facilitator, which is Bursar's keyless surface, and the
  * money parser, which turns "$0.01" into USDG at the EIP-712 domain the token publishes. Both come
  * from @bursar/x402; the upstream default-asset table makes the parser unnecessary once it carries
- * the chain (docs/bullish/x402-rhc.patch).
+ * the chain (x402-foundation/x402#3770).
  *
  *   PAY_TO=0x... pnpm --filter @bursar/example-x402-rhc server
  */

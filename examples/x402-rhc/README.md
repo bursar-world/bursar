@@ -20,5 +20,5 @@ transaction on the explorer.
 (default `http://127.0.0.1:4021/quote`).
 
 The server quotes USDG through `robinhoodChainMoneyParser` from `@bursar/x402`. Once the upstream
-default-asset table carries Robinhood Chain (`docs/bullish/x402-rhc.patch`), `price: "$0.01"`
+default-asset table carries Robinhood Chain ([x402#3770](https://github.com/x402-foundation/x402/pull/3770)), `price: "$0.01"`
 resolves without it.
