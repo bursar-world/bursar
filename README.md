@@ -17,6 +17,12 @@ This repository holds all of it: the contracts, the TypeScript SDK and MCP serve
 uses, the services that verify and settle payments, and the console at
 [app.bursar.world](https://app.bursar.world). More at [bursar.world](https://bursar.world).
 
+## Token
+
+**$BURSAR** is Bursar's token on Robinhood Chain (chain 4663):
+[`0xe4d2422ed4d203a0f1ec2043a4db1eda426fca18`](https://robinhoodchain.blockscout.com/token/0xe4d2422ed4d203a0f1ec2043a4db1eda426fca18). It trades on
+[Pons](https://www.ponsfamily.com/launchpad/0xe4d2422ed4d203a0f1ec2043a4db1eda426fca18).
+
 ## Status
 
 Bursar is live on Robinhood Chain mainnet (chain 4663) and settles in USDG. The first contracts
@@ -91,7 +97,7 @@ flowchart TB
     end
     subgraph gov["Governance and token"]
       TL["AdminTimelock"]
-      TOK["BRSR, Staking<br/>Vesting, Buyback"]
+      TOK["BURSAR, Staking<br/>Vesting, Buyback"]
     end
     subgraph ext["Robinhood Chain assets and markets"]
       USDG[("USDG")]
@@ -316,14 +322,14 @@ and the MCP server still read them. Each has a timelock of its own. Their addres
 
 ### Token contracts
 
-`BRSR` and `Vesting` are shared by every set. `Staking`, `Buyback` and the liquidity seeder were
+`$BURSAR` is the token and `Vesting` is shared by every set. `Staking`, `Buyback` and the liquidity seeder were
 deployed with the third set and carry over to the fourth; resolver bonds on both registries are
 held in this `Staking` pool. The v2 and v1 registries keep reading the earlier pool, listed here
 as previous.
 
 | Contract | Address |
 |---|---|
-| `BRSR` | [`0x00e503925880c4b07E5Fb70232D83aD871F57a7d`](https://robinhoodchain.blockscout.com/address/0x00e503925880c4b07E5Fb70232D83aD871F57a7d) |
+| `$BURSAR` | [`0xe4d2422ed4d203a0f1ec2043a4db1eda426fca18`](https://robinhoodchain.blockscout.com/token/0xe4d2422ed4d203a0f1ec2043a4db1eda426fca18) |
 | `Vesting` | [`0x5aD3d29C80C1617F3B195d74D593Bc9839681b2F`](https://robinhoodchain.blockscout.com/address/0x5aD3d29C80C1617F3B195d74D593Bc9839681b2F) |
 | `Staking` | [`0x31CbD06003089B00897F0d7e3c283C66a1768d9A`](https://robinhoodchain.blockscout.com/address/0x31CbD06003089B00897F0d7e3c283C66a1768d9A) |
 | `Buyback` | [`0x51a88fb749738CB31ddb1F35A426ab2189F45eab`](https://robinhoodchain.blockscout.com/address/0x51a88fb749738CB31ddb1F35A426ab2189F45eab) |
