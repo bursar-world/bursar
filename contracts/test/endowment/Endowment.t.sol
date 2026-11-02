@@ -379,6 +379,24 @@ contract EndowmentTest is RwaFixture {
         assertGt(e.averageNav(), 130e6);
     }
 
+    function test_aging_aGiftBeforeAValuationLeavesTheDrawWhereItWouldBe() public {
+        Endowment quiet = _invested(100e6);
+        Endowment gifted = _invested(100e6);
+        vm.warp(block.timestamp + 90 days);
+        spyFeed.set(int256(SPY_E8), block.timestamp);
+        vm.startPrank(patron);
+        usdg.approve(address(gifted), type(uint256).max);
+        gifted.give(30e6);
+        vm.stopPrank();
+
+        quiet.snapshot();
+        gifted.snapshot();
+
+        // The gift is left out of this valuation, so it is left out of the underwater test too.
+        assertGt(quiet.annualDraw(), 0);
+        assertEq(gifted.annualDraw(), quiet.annualDraw());
+    }
+
     function test_factory_holdsAConcentratedPrincipalTo3_5Percent() public {
         EndowmentDeployer narrowMaker = new EndowmentDeployer();
         EndowmentFactory narrow = new EndowmentFactory(
