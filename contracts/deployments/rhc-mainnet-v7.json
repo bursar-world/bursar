@@ -140,7 +140,11 @@
   },
   "contracts": {
     "AdminTimelock": "0xffe874aA257C99414205ddf684903e30761E1832",
-    "AgentRegistry": "0x6501ABAb6aF58549De0Dd42040240665591c6C2a"
+    "AgentRegistry": "0x6501ABAb6aF58549De0Dd42040240665591c6C2a",
+    "Reputation": "0xAf554a1692d1784E66e260b87e69F40259FCdAc8",
+    "Escrow": "0xD80de62B3f7C16E7821731619eC7F1675Fe75934",
+    "OracleRegistry": "0x6D8ec63fBfdC5791d2833193402D9B77771b5605",
+    "MandateAccountFactory": "0xc0b359609071b2BBD1119d86C03780f85b16f6ab"
   },
   "token": {
     "BURSAR": "0xE4d2422Ed4d203A0F1EC2043a4dB1eDa426fca18"
@@ -171,6 +175,32 @@
       "minObservationAge": 300,
       "maxObservationAge": 3600,
       "maxFeedJumpBps": 1500
+    },
+    "Escrow": {
+      "feeBps": 100,
+      "resolverFeeBps": 50,
+      "disputeBondBps": 500,
+      "minTtl": 300,
+      "maxTtl": 604800,
+      "disputeWindow": 3600,
+      "minLock": "10000"
+    },
+    "Reputation": {
+      "baseCap": "25000000",
+      "capPerScore": "2250000",
+      "maxCap": "250000000",
+      "minScored": "1000000",
+      "edgeCap": "62500000",
+      "fullCredit": "250000000"
+    },
+    "OracleRegistry": {
+      "commitWindow": 3600,
+      "revealWindow": 3600,
+      "unbondingPeriod": 604800,
+      "quorum": 2,
+      "maxVoters": 64,
+      "maxDeviation": 20,
+      "slashBps": 1000
     }
   },
   "rwa": {
