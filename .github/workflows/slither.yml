@@ -41,7 +41,7 @@ jobs:
         id: foundry
         run: echo "version=$(cat .foundry-version)" >> "$GITHUB_OUTPUT"
 
-      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
+      - uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1.9.2
         with:
           version: ${{ steps.foundry.outputs.version }}
 
@@ -52,7 +52,7 @@ jobs:
             OpenZeppelin/openzeppelin-contracts@69c8def5f222ff96f2b5beff05dfba996368aa79 \
             OpenZeppelin/openzeppelin-contracts-upgradeable@723f8cab09cdae1aca9ec9cc1cfa040c2d4b06c1
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
 
@@ -177,7 +177,7 @@ jobs:
 
       # Uploaded whether or not the run passed, so a failing run shows its findings in code
       # scanning as well as in the log. A run that could not build writes no file and skips this.
-      - uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+      - uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         if: ${{ !cancelled() && hashFiles('contracts/results.sarif') != '' }}
         with:
           sarif_file: contracts/results.sarif
