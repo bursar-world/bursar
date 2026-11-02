@@ -147,7 +147,12 @@
     "MandateAccountFactory": "0xc0b359609071b2BBD1119d86C03780f85b16f6ab"
   },
   "token": {
-    "BURSAR": "0xE4d2422Ed4d203A0F1EC2043a4dB1eDa426fca18"
+    "BURSAR": "0xE4d2422Ed4d203A0F1EC2043a4dB1eDa426fca18",
+    "Staking": "0xCEfCcF7045Fa457D1bBDDd357CBB440259720C84",
+    "Buyback": "0x1B0f24ab824772c38FbE5835Eb883E72d679D8cB",
+    "buybacksOff": true,
+    "poolId": "0x6941ce0b30620ff6d28f80d961cb9fc81836299f5c31c91fcb93941dcb365723",
+    "fromBlock": 103788048
   },
   "governance48": {
     "AdminTimelock": "0xffe874aA257C99414205ddf684903e30761E1832",
@@ -201,6 +206,22 @@
       "maxVoters": 64,
       "maxDeviation": 20,
       "slashBps": 1000
+    },
+    "Staking": {
+      "unbondingPeriod": 604800,
+      "minBond": "1000000000000000000000000000",
+      "resolverBondFloor": "150000000000000000000000"
+    },
+    "Buyback": {
+      "spendPerCall": "500000",
+      "maxSpendPerWindow": "5000000",
+      "minSpend": "100000",
+      "maxPriceMicroUsdPerBrsr": "60",
+      "window": 86400,
+      "minInterval": 3600,
+      "poolFee": 3000,
+      "poolTickSpacing": 60,
+      "poolHooks": "0x0000000000000000000000000000000000000000"
     }
   },
   "rwa": {
@@ -296,7 +317,12 @@
     "guardKeeper": "0x4c55AE3Fd264d9932A673B7CfBF80fCB112679BD",
     "PriceGuard": "0x41a719D866ADA35BcE10570314312C186570310A",
     "StockSpendRouter": "0x656962e2D2D9F2BD1fAbB2b239Bf0f59dCaFbBBe",
-    "previousStockRouter": "0xBF6bC24d44f5A432a5682De650981A1885D31660"
+    "previousStockRouter": "0xBF6bC24d44f5A432a5682De650981A1885D31660",
+    "TreasuryPark": "0xDF3dC5043322dA9C44461F929E80EcCb44a7B189",
+    "adapters": {
+      "SGOV": "0x50C123437b4fd9aE535F6b1A02074774e78306E5",
+      "USDG": "0xCc3A014f70A79960950c0D7a65f8Daf8CBb36F06"
+    }
   },
   "privacy": {
     "shielded": {
