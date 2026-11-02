@@ -383,5 +383,19 @@
     "fromBlock": 95410861,
     "feeBps": 100,
     "EndowmentDeployer": "0xeBD96536f3fb8E4c5eF9a06b91abe218C9273741"
+  },
+  "exampleMandate": {
+    "address": "0x4E94861260fD68E7375220D67CA8959e93924bd4",
+    "principal": "0x877c349EFb5926082C413833E8055F0991185c61",
+    "agent": "0x877c349EFb5926082C413833E8055F0991185c61",
+    "factory": "0xc0b359609071b2BBD1119d86C03780f85b16f6ab",
+    "salt": "0x6f2744bb690d81b76eac1a02e19cbca9bfc6dfd794747dd5d96ddc2675e27b89"
+  },
+  "exampleCollateralMandate": {
+    "address": "0xD708a0CfA838662528ff818E38F22f43082BE85a",
+    "principal": "0x877c349EFb5926082C413833E8055F0991185c61",
+    "agent": "0x877c349EFb5926082C413833E8055F0991185c61",
+    "factory": "0xc0b359609071b2BBD1119d86C03780f85b16f6ab",
+    "salt": "0xc4c59d0aeeb5baf329672361ca0c9b4173614b4d6d4d5cf36888c1c98fa2c56f"
   }
 }
