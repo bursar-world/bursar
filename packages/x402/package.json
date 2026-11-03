@@ -33,12 +33,12 @@
   },
   "dependencies": {
     "@bursar/core": "workspace:*",
-    "viem": "2.56.3"
+    "viem": "2.57.13"
   },
   "devDependencies": {
-    "@types/node": "22.20.2",
+    "@types/node": "22.20.5",
     "typescript": "5.9.3",
-    "vitest": "4.1.11"
+    "vitest": "4.1.12"
   },
   "publishConfig": {
     "access": "public"
