@@ -50,7 +50,7 @@
   "dependencies": {
     "@bursar/toolset": "workspace:*",
     "viem": "2.56.3",
-    "zod": "3.25.76"
+    "zod": "4.6.6"
   },
   "peerDependencies": {
     "@coinbase/agentkit": ">=0.10.0"
