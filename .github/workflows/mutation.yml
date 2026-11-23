@@ -33,7 +33,7 @@ jobs:
         id: foundry
         run: echo "version=$(cat .foundry-version)" >> "$GITHUB_OUTPUT"
 
-      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
+      - uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1.9.2
         with:
           version: ${{ steps.foundry.outputs.version }}
 
@@ -58,7 +58,7 @@ jobs:
         env:
           MUTATORS: ${{ inputs.mutators }}
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: escrow-mutation
