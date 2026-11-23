@@ -41,13 +41,13 @@
   },
   "dependencies": {
     "@bursar/core": "workspace:*",
-    "mppx": "0.17.0",
-    "viem": "2.57.13"
+    "mppx": "0.21.1",
+    "viem": "2.58.2"
   },
   "devDependencies": {
-    "@types/node": "22.20.2",
+    "@types/node": "22.20.5",
     "typescript": "5.9.3",
-    "vitest": "4.1.11"
+    "vitest": "4.1.12"
   },
   "publishConfig": {
     "access": "public"
